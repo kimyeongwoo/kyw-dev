@@ -1,0 +1,7 @@
+interface:
+  display_name: "kyw Init"
+  short_description: "Initialize durable project documents safely"
+  default_prompt: "Use $kyw-init to initialize or reconcile this project's durable documents."
+
+policy:
+  allow_implicit_invocation: false

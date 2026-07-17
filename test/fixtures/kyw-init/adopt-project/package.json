@@ -1,0 +1,12 @@
+{
+  "name": "signal-garden",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node ./src/server",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

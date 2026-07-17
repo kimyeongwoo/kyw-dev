@@ -1,0 +1,21 @@
+{
+  "name": "Queue Lens",
+  "purpose": "Summarize JSONL queue telemetry for local operators.",
+  "users": [
+    "on-call operators"
+  ],
+  "runtime": "Node.js 22",
+  "commands": {
+    "run": "node ./src/cli.mjs ./events.jsonl",
+    "test": "node --test"
+  },
+  "storage": "read-only input files; no application persistence",
+  "nonGoals": [
+    "hosted dashboards",
+    "automatic queue remediation"
+  ],
+  "quality": [
+    "offline operation",
+    "Windows, macOS, and Linux path compatibility"
+  ]
+}

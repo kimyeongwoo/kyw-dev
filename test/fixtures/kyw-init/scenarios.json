@@ -1,0 +1,49 @@
+{
+  "new": {
+    "fixture": "empty-project",
+    "expectedMode": "new",
+    "invocation": "$kyw-init initialize Queue Lens from the inspected project brief",
+    "requiredDocuments": [
+      "README.md",
+      "AGENTS.md",
+      "docs/SPEC.md",
+      "docs/ARCHITECTURE.md"
+    ],
+    "allowedMutations": [
+      "README.md",
+      "AGENTS.md",
+      "docs/SPEC.md",
+      "docs/ARCHITECTURE.md"
+    ]
+  },
+  "adopt": {
+    "fixture": "adopt-project",
+    "expectedMode": "adopt",
+    "invocation": "$kyw-init adopt Signal Garden without replacing existing operator guidance",
+    "factsToInspect": [
+      "Node.js >=22",
+      "node ./src/server",
+      "node --test",
+      "port 4318"
+    ],
+    "preserve": [
+      {
+        "path": "README.md",
+        "text": "Production alerts use the `signal-garden` pager route."
+      },
+      {
+        "path": "AGENTS.md",
+        "text": "Keep `ops/runbook.md` synchronized with operator-visible recovery steps."
+      }
+    ]
+  },
+  "rebaseline": {
+    "fixture": "rebaseline-project",
+    "expectedMode": "rebaseline",
+    "invocation": "$kyw-init intentionally rebaseline Ledger Finch around the confirmed JSONL-only storage design",
+    "conflict": "SPEC requires PostgreSQL while ARCHITECTURE describes SQLite",
+    "preserveConcepts": [
+      "ledger-finch import"
+    ]
+  }
+}

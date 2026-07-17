@@ -1,0 +1,7 @@
+interface:
+  display_name: "kyw Task"
+  short_description: "Create, execute, or resume one verified Task"
+  default_prompt: "Use $kyw-task to create, execute, or resume one session-sized Task."
+
+policy:
+  allow_implicit_invocation: false

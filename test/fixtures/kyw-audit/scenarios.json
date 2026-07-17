@@ -1,0 +1,166 @@
+{
+  "unmappedAcceptance": {
+    "taskId": "0042",
+    "acceptanceCriteria": [
+      "AC-01",
+      "AC-02"
+    ],
+    "testRows": [
+      {
+        "id": "T-01",
+        "acceptanceIds": [
+          "AC-01"
+        ],
+        "status": "PASS",
+        "evidence": "node --test test/account-unlock.test.mjs: exit 0; success fixture passed."
+      }
+    ],
+    "expected": {
+      "missingAcceptanceIds": [
+        "AC-02"
+      ],
+      "category": "test-evidence",
+      "severity": "ERROR",
+      "status": "OPEN",
+      "verdict": "BLOCKED"
+    }
+  },
+  "unsupportedPass": {
+    "row": {
+      "id": "T-01",
+      "acceptanceIds": [
+        "AC-01"
+      ],
+      "status": "PASS",
+      "plannedCommand": "npm test",
+      "evidence": "All tests passed."
+    },
+    "executionRecord": {
+      "command": null,
+      "exitCode": null,
+      "observableOutcome": null,
+      "reproducible": false
+    },
+    "expected": {
+      "category": "test-evidence",
+      "severity": "ERROR",
+      "status": "OPEN",
+      "verdict": "BLOCKED"
+    }
+  },
+  "staleDocuments": {
+    "spec": {
+      "taskIntent": "Lock accounts for sixty minutes.",
+      "implementation": "lockDurationMinutes = 60",
+      "documented": "Accounts remain locked for thirty minutes.",
+      "owner": "docs/SPEC.md",
+      "expectedCategory": "docs",
+      "repairScope": "in-scope",
+      "initialVerdict": "BLOCKED"
+    },
+    "architecture": {
+      "taskIntent": "Move authentication policy ownership to src/security.",
+      "implementation": "src/security/policy.mjs",
+      "documented": "src/auth owns authentication policy.",
+      "owner": "docs/ARCHITECTURE.md",
+      "expectedCategory": "architecture",
+      "repairScope": "in-scope",
+      "initialVerdict": "BLOCKED"
+    }
+  },
+  "scopeDrift": {
+    "taskId": "0042",
+    "inScopePaths": [
+      "src/auth/",
+      "test/account-unlock.test.mjs",
+      "docs/tasks/0042-account-unlock/"
+    ],
+    "changedPath": "src/export/report.mjs",
+    "acceptanceMapping": null,
+    "mutationLog": [],
+    "expected": {
+      "category": "scope",
+      "severity": "ERROR",
+      "scope": "out-of-scope",
+      "status": "OPEN",
+      "verdict": "BLOCKED",
+      "proposedFollowOn": {
+        "goal": "Add a standalone account export report.",
+        "dependency": "0042",
+        "acceptanceOutline": "An authorized operator can generate the specified report."
+      }
+    }
+  },
+  "inScopeRepair": {
+    "finding": {
+      "id": "F-01",
+      "category": "test-evidence",
+      "severity": "ERROR",
+      "scope": "in-scope",
+      "actual": "The permission-denied branch has no mapped test.",
+      "expected": "AC-01 covers both administrator success and permission denial.",
+      "statusBeforeRepair": "OPEN",
+      "statusAfterRepair": "FIXED"
+    },
+    "mutationOrder": [
+      "docs/tasks/0042-account-unlock/TASK.md",
+      "docs/tasks/0042-account-unlock/TEST.md",
+      "test/account-unlock.test.mjs"
+    ],
+    "testUpdate": {
+      "id": "T-02",
+      "intent": "AC-01 permission-denied branch",
+      "status": "PASS",
+      "evidence": "node --test --test-name-pattern=permission-denied test/account-unlock.test.mjs: exit 0; 1/1 passed."
+    },
+    "retainedPriorEvidence": "Initial audit found no executable permission-denied coverage.",
+    "reruns": [
+      {
+        "command": "node --test --test-name-pattern=permission-denied test/account-unlock.test.mjs",
+        "exitCode": 0,
+        "result": "1/1 passed"
+      },
+      {
+        "command": "npm test",
+        "exitCode": 0,
+        "result": "full regression passed"
+      }
+    ],
+    "finalVerdict": "PASS"
+  },
+  "clean": {
+    "taskId": "0042",
+    "taskStatus": "DONE",
+    "testStatus": "PASSED",
+    "acceptanceCriteria": [
+      "AC-01",
+      "AC-02"
+    ],
+    "mappedAcceptanceIds": [
+      "AC-01",
+      "AC-02"
+    ],
+    "meaningfulBranches": [
+      "administrator success",
+      "permission denied"
+    ],
+    "coveredBranches": [
+      "administrator success",
+      "permission denied"
+    ],
+    "changedPathsMapped": true,
+    "durableDocumentsSynchronized": true,
+    "taskPairValid": true,
+    "requiredCommands": [
+      {
+        "command": "node --test test/account-unlock.test.mjs",
+        "exitCode": 0,
+        "result": "2/2 passed",
+        "reproduced": true
+      }
+    ],
+    "findings": [],
+    "mutationLog": [],
+    "expectedVerdict": "PASS"
+  }
+}

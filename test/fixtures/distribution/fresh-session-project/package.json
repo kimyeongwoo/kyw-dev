@@ -1,0 +1,13 @@
+{
+  "name": "kyw-dev-greeting-fixture",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test",
+    "lint": "node --check src/greeting.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
