@@ -18,7 +18,7 @@ The authoritative product requirements are in `docs/SPEC.md`; the system structu
 
 ## Development
 
-Prerequisite: Node.js 22 or newer with npm. Node.js 22 and 24 are the fully tested LTS lines on Linux, macOS, and Windows; Node.js 26 Current has a bounded Ubuntu compatibility lane. Tasks 0001 through 0010 have no production or development package dependencies and no lockfile, so no install step is required before running the checks. The release marketplace E2E also uses a current `codex` CLI when it is available, but CI does not require Codex or its authentication.
+Prerequisite: Node.js 22 or newer with npm. Node.js 22 and 24 are the fully tested LTS lines on Linux, macOS, and Windows; Node.js 26 Current has a bounded Ubuntu compatibility lane. Tasks 0001 through 0010 have no production or development package dependencies and no lockfile, so no install step is required before running the checks. Root `.gitattributes` materializes repository text as LF on every host to match the format and package contracts. The release marketplace E2E also uses a current `codex` CLI when it is available, but CI does not require Codex or its authentication.
 
 ```bash
 node ./bin/kyw-dev.mjs --help
@@ -159,6 +159,7 @@ An npm marketplace entry can replace the local source after the package is publi
 
 ```text
 kyw_dev/
+├─ .gitattributes
 ├─ .github/
 │  └─ workflows/ci.yml
 ├─ .codex-plugin/

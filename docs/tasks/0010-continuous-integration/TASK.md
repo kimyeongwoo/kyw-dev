@@ -48,7 +48,7 @@ Add a least-privilege, cross-platform GitHub Actions CI gate that continuously p
 - [x] Confirm the supported Node.js lines against the current project promise and official Node.js release status.
 - [x] Design required matrix lanes and a separate packaging lane with least privilege and bounded timeouts.
 - [x] Implement the workflow without adding publication credentials or model-backed checks.
-- [x] Fix platform-specific test assumptions exposed by Linux, macOS, or Windows. No implementation fix was required before hosted execution; the existing native install/distribution paths have no platform-wide skip.
+- [ ] Fix platform-specific test assumptions exposed by Linux, macOS, or Windows. The first hosted run exposed macOS `/var` versus `/private/var` realpath assumptions; the focused fix is in progress.
 - [x] Run every underlying command locally and inspect the workflow diff.
 - [ ] Push the branch only when authorized and capture the real hosted run evidence.
 - [ ] Synchronize affected durable documents and finish the final coverage review.
@@ -83,12 +83,17 @@ Add a least-privilege, cross-platform GitHub Actions CI gate that continuously p
 - No production or development dependency was added.
 - The first full `npm test` run exposed one stale README regression assertion that still required `Tasks 0001 through 0009`; the product document now correctly includes Task 0010. The assertion is an in-scope documentation-contract update, not a runtime defect.
 - Updating that single assertion restored the focused kyw-task suite (11/11) and the complete test suite (78/78); the independently rerun package allowlist check also passed.
+- The implementation commit `084a6e4cbfe79e18dc2d413304d15aad4b96b87f` triggered pull-request run https://github.com/kimyeongwoo/kyw-dev/actions/runs/29552814664. Ubuntu 22/24/26 and the packed release job passed, while both macOS LTS jobs failed the same five installation tests before later stable steps.
+- macOS resolves temporary paths from `/var/...` to `/private/var/...`. Two repository-root assertions compared the lexical fixture path with the intentionally realpath-resolved implementation; the doctor permission stub then missed that physical project path. The installed Task adapter also compared a lexical `process.argv[1]` URL with a physical `import.meta.url`, treated direct execution as an import, and exited 0 without JSON output.
+- The approved focused fix is to canonicalize the adapter's main-module comparison with `realpathSync` and have repository fixtures return their physical path. It preserves the production realpath boundary instead of weakening it.
+- Both hosted Windows LTS jobs failed because the runner checkout materialized tracked text as CRLF. That violated the repository's existing LF format contract and broke workflow text assertions, the Node shebang check, Skill front matter/UI parsing, and Task/Test parsing before later stable steps. Root `.gitattributes` now enforces `* text=auto eol=lf`, and the CI contract test locks that checkout policy rather than weakening parsers to accept non-canonical repository bytes.
+- After the focused macOS and Windows fixes, 28/28 affected CI/distribution/foundation/installation/template tests pass locally, `git check-attr` reports `text: auto` and `eol: lf` for representative workflow/runtime/Skill/template files, and both `npm run check` and `npm run release:ci` pass again.
 
 ## Documentation Impact
 
 - SPEC: Clarify the durable supported-runtime verification policy: Node.js 22/24 LTS across all three OS families and bounded Node.js 26 Current compatibility on Linux.
 - ARCHITECTURE: Record the CI/release gate boundary, matrix topology, packed-byte inspection, and credential-free required-check design.
-- README: Add the CI runtime/platform policy, dependency-free setup behavior, and the credential-free packed release command.
+- README: Add the CI runtime/platform policy, dependency-free setup behavior, cross-platform LF checkout policy, and the credential-free packed release command.
 - AGENTS: Unchanged unless implementation changes one of the four stable repository-wide commands; the current design does not.
 
 Update these impact decisions before completion. `Reviewed` is not a reason to edit an unaffected document.
@@ -106,6 +111,7 @@ Update these impact decisions before completion. `Reviewed` is not a reason to e
 - Passed the aggregate local stable gate and the credential-free packed release gate on Node.js 24, including a real 29-file tarball with no persistent artifact.
 - Reviewed the complete tracked diff and every new Task 0010 file; implementation, tests, scripts, and the three affected durable documents remain within scope, while AGENTS and future Tasks are untouched.
 - Staged exactly 12 Task-owned paths (607 insertions, 11 deletions) with no unstaged change; the six future Task directories remain untracked and excluded. Cached whitespace review and the terminal focused CI/format checks pass.
+- Inspected the completed first hosted run and retained both macOS realpath and Windows CRLF failure evidence before applying their focused fixes.
 
 ## Remaining
 

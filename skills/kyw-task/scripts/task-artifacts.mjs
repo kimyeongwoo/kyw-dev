@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -96,7 +96,10 @@ async function main() {
   }
 }
 
-const entryPoint = process.argv[1] ? pathToFileURL(resolve(process.argv[1])).href : undefined;
-if (entryPoint === import.meta.url) {
+const entryPoint = process.argv[1]
+  ? pathToFileURL(realpathSync(resolve(process.argv[1]))).href
+  : undefined;
+const moduleUrl = pathToFileURL(realpathSync(fileURLToPath(import.meta.url))).href;
+if (entryPoint === moduleUrl) {
   await main();
 }

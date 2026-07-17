@@ -61,6 +61,7 @@ A Task directory is the resumable execution packet. Completed Task folders are h
 
 ```text
 kyw_dev/
+├─ .gitattributes
 ├─ .github/
 │  └─ workflows/ci.yml
 ├─ .codex-plugin/
@@ -475,7 +476,7 @@ The first-release notes, approval checklist, exact commands, and rollback/deprec
 
 ## 11.5 Credential-free continuous integration
 
-`.github/workflows/ci.yml` is the only required CI workflow. It runs for pull requests, pushes to `main`, and optional manual dispatch with workflow-level `contents: read`, ref-scoped cancellation, explicit job timeouts, disabled checkout credential persistence, and no secret reference. The repository intentionally has no dependencies or lockfile, so jobs do not run `npm ci` or enable a package-manager cache.
+`.github/workflows/ci.yml` is the only required CI workflow. It runs for pull requests, pushes to `main`, and optional manual dispatch with workflow-level `contents: read`, ref-scoped cancellation, explicit job timeouts, disabled checkout credential persistence, and no secret reference. Root `.gitattributes` forces text checkout materialization to LF on every runner because foundation parsing, deterministic packing, and the repository format contract operate on LF bytes. The repository intentionally has no dependencies or lockfile, so jobs do not run `npm ci` or enable a package-manager cache.
 
 ```text
 pull request / main push / manual dispatch

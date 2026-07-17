@@ -3,7 +3,10 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
+const gitAttributes = readFileSync(
+  fileURLToPath(new URL("../.gitattributes", import.meta.url)),
+  "utf8",
+);
 const workflow = readFileSync(
   fileURLToPath(new URL("../.github/workflows/ci.yml", import.meta.url)),
   "utf8",
@@ -22,6 +25,7 @@ function jobBody(name, nextName) {
 }
 
 test("CI triggers, permissions, concurrency, and credentials are safe for public pull requests", () => {
+  assert.equal(gitAttributes, "* text=auto eol=lf\n");
   assert.match(workflow, /^name: CI\n\non:\n  pull_request:\n  push:\n    branches:\n      - main\n  workflow_dispatch:\n/m);
   assert.match(workflow, /\npermissions:\n  contents: read\n/);
   assert.match(

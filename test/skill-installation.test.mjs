@@ -8,6 +8,7 @@ import {
   mkdtempSync,
   readFileSync,
   readdirSync,
+  realpathSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -88,7 +89,7 @@ function fileSnapshot(root) {
 function createRepository(root) {
   mkdirSync(root, { recursive: true });
   mkdirSync(join(root, ".git"), { recursive: true });
-  return root;
+  return realpathSync(root);
 }
 
 function createSourceCopy(t, version, mutate) {
