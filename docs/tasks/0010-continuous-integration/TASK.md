@@ -2,7 +2,7 @@
 
 ## Status
 
-IN_PROGRESS
+DONE
 
 ## Goal
 
@@ -33,14 +33,14 @@ Add a least-privilege, cross-platform GitHub Actions CI gate that continuously p
 
 ## Acceptance Criteria
 
-- [ ] AC-01: A GitHub Actions workflow runs for pull requests and pushes to `main`, supports manual dispatch where useful, uses `contents: read` by default, and cancels superseded runs for the same ref.
-- [ ] AC-02: Required CI runs on `ubuntu-latest`, `macos-latest`, and `windows-latest` for the documented supported LTS Node.js lines.
-- [ ] AC-03: Every required matrix lane executes the repository's stable test, lint, formatting, and packaging checks without relying on secrets.
-- [ ] AC-04: A separate Linux packaging lane creates and inspects the real npm tarball, runs the CI-safe release checks, and cannot publish.
-- [ ] AC-05: Windows and macOS lanes exercise path-sensitive CLI and installation tests rather than silently skipping them.
-- [ ] AC-06: The workflow and package scripts agree on Node support, command names, and exit behavior.
-- [ ] AC-07: At least one real hosted run for the implementation commit finishes successfully, or the Task remains `BLOCKED` with the missing remote evidence recorded.
-- [ ] AC-08: README, Spec, Architecture, and AGENTS are changed only where their durable truth is affected.
+- [x] AC-01: A GitHub Actions workflow runs for pull requests and pushes to `main`, supports manual dispatch where useful, uses `contents: read` by default, and cancels superseded runs for the same ref.
+- [x] AC-02: Required CI runs on `ubuntu-latest`, `macos-latest`, and `windows-latest` for the documented supported LTS Node.js lines.
+- [x] AC-03: Every required matrix lane executes the repository's stable test, lint, formatting, and packaging checks without relying on secrets.
+- [x] AC-04: A separate Linux packaging lane creates and inspects the real npm tarball, runs the CI-safe release checks, and cannot publish.
+- [x] AC-05: Windows and macOS lanes exercise path-sensitive CLI and installation tests rather than silently skipping them.
+- [x] AC-06: The workflow and package scripts agree on Node support, command names, and exit behavior.
+- [x] AC-07: At least one real hosted run for the implementation commit finishes successfully, or the Task remains `BLOCKED` with the missing remote evidence recorded.
+- [x] AC-08: README, Spec, Architecture, and AGENTS are changed only where their durable truth is affected.
 
 ## Plan
 
@@ -48,10 +48,10 @@ Add a least-privilege, cross-platform GitHub Actions CI gate that continuously p
 - [x] Confirm the supported Node.js lines against the current project promise and official Node.js release status.
 - [x] Design required matrix lanes and a separate packaging lane with least privilege and bounded timeouts.
 - [x] Implement the workflow without adding publication credentials or model-backed checks.
-- [ ] Fix platform-specific test assumptions exposed by Linux, macOS, or Windows. The first hosted run exposed macOS `/var` versus `/private/var` realpath assumptions; the focused fix is in progress.
+- [x] Fix platform-specific test assumptions exposed by Linux, macOS, or Windows. The first hosted run exposed macOS realpath and Windows line-ending assumptions; the second run passed every platform lane after the focused fixes.
 - [x] Run every underlying command locally and inspect the workflow diff.
-- [ ] Push the branch only when authorized and capture the real hosted run evidence.
-- [ ] Synchronize affected durable documents and finish the final coverage review.
+- [x] Push the branch only when authorized and capture the real hosted run evidence.
+- [x] Synchronize affected durable documents and finish the final coverage review.
 
 ## Decisions
 
@@ -77,7 +77,7 @@ Add a least-privilege, cross-platform GitHub Actions CI gate that continuously p
 - The actual distribution suite creates and extracts an npm tarball, runs isolated user/project install-update-doctor-uninstall paths before any optional Codex check, and skips only the isolated marketplace portion when the Codex CLI is unavailable. Path-dialect and native filesystem tests already cover POSIX/Windows construction plus real temporary-directory installation behavior.
 - The official Node.js release page reports Node.js 22 and 24 as LTS, Node.js 26 as Current, and Node.js 23/25 as EOL on 2026-07-17: https://nodejs.org/en/about/previous-releases
 - GitHub's current hosted-runner reference supports `ubuntu-latest`, `macos-latest`, and `windows-latest`; the official action repositories identify checkout v6 and setup-node v6 as their current majors. GitHub's workflow syntax documents top-level `contents: read` permissions and same-workflow/ref concurrency cancellation.
-- `gh auth status` confirms the repository owner account is authenticated with `repo` and `workflow` scopes, the public repository has Actions enabled, and no current PR exists. Hosted evidence remains pending implementation, commit, push, and a draft PR run; no merge is authorized.
+- Before implementation, `gh auth status` confirmed the repository owner account was authenticated with `repo` and `workflow` scopes, the public repository had Actions enabled, and no current PR existed. Those permissions supported the authorized branch push and draft PR evidence; no merge was authorized or performed.
 - `.github/workflows/ci.yml` now defines seven stable lanes, a separate packed release lane, and one aggregate credential-free gate. The workflow references no secret, write permission, install command, publish command, Codex credential, tag, release, or merge operation.
 - `release:ci` reuses the stable suite and then creates a real npm tarball in a validated system temporary directory, checks the exact 29-file allowlist and reported size, extracts the packed bytes, rejects lifecycle/development-only content, and smoke-tests the packed CLI before cleanup. The approval-only `release:check` now builds on that command and adds only the existing npm publication dry run.
 - No production or development dependency was added.
@@ -88,6 +88,8 @@ Add a least-privilege, cross-platform GitHub Actions CI gate that continuously p
 - The approved focused fix is to canonicalize the adapter's main-module comparison with `realpathSync` and have repository fixtures return their physical path. It preserves the production realpath boundary instead of weakening it.
 - Both hosted Windows LTS jobs failed because the runner checkout materialized tracked text as CRLF. That violated the repository's existing LF format contract and broke workflow text assertions, the Node shebang check, Skill front matter/UI parsing, and Task/Test parsing before later stable steps. Root `.gitattributes` now enforces `* text=auto eol=lf`, and the CI contract test locks that checkout policy rather than weakening parsers to accept non-canonical repository bytes.
 - After the focused macOS and Windows fixes, 28/28 affected CI/distribution/foundation/installation/template tests pass locally, `git check-attr` reports `text: auto` and `eol: lf` for representative workflow/runtime/Skill/template files, and both `npm run check` and `npm run release:ci` pass again.
+- Fix commit `8b43403bf22c8774fda3752bbcc8361dee8ce8ea` triggered pull-request run https://github.com/kimyeongwoo/kyw-dev/actions/runs/29553139518. All seven stable matrix jobs, the separate packed-release job, and the aggregate `Required / credential-free CI` job completed successfully.
+- Hosted macOS and Windows logs show the full 78-test suite completed on Node.js 22 and 24 before lint, LF formatting, and the exact 29-file package check. Only the isolated Codex marketplace continuation skipped when the unauthenticated runner had no Codex CLI; its required direct packed lifecycle ran first and passed.
 
 ## Documentation Impact
 
@@ -103,25 +105,27 @@ Update these impact decisions before completion. `Reviewed` is not a reason to e
 - Read the four permanent documents, Task 0010 pair, explicit Task 0009 dependency, package metadata/scripts, validation scripts, distribution tests, path-sensitive installation/Task tests, and runtime support checks.
 - Inspected pre-change Git status/diff, branch/remote state, lockfile/dependency policy, test skip conditions, and current GitHub authentication/Actions availability while preserving all future Task directories.
 - Confirmed the current Node.js release lines, GitHub-hosted runner labels, workflow permission/concurrency model, and official checkout/setup-node major versions from first-party sources.
-- Created the isolated local branch `task/0010-continuous-integration`; no commit, push, PR, publication, tag, release, or merge has occurred.
+- Created the isolated branch `task/0010-continuous-integration`; publication, tag, release, and merge operations remain untouched.
 - Implemented the workflow, packed-content release checker, package-script/foundation contract, and three acceptance-specific CI tests.
 - Passed the focused CI/distribution/foundation command (6/6) and the standalone real packed-content check on the local Windows runtime.
 - Synchronized README, Spec, and Architecture for the runtime matrix, dependency-free CI setup, and packed release boundary; kept AGENTS unchanged because the four stable commands and repository-wide rules did not change.
 - Preserved the first full-suite failure, updated the stale README regression assertion, and passed its focused rerun plus the complete 78-test suite.
 - Passed the aggregate local stable gate and the credential-free packed release gate on Node.js 24, including a real 29-file tarball with no persistent artifact.
 - Reviewed the complete tracked diff and every new Task 0010 file; implementation, tests, scripts, and the three affected durable documents remain within scope, while AGENTS and future Tasks are untouched.
-- Staged exactly 12 Task-owned paths (607 insertions, 11 deletions) with no unstaged change; the six future Task directories remain untracked and excluded. Cached whitespace review and the terminal focused CI/format checks pass.
+- The initial implementation commit contained exactly 12 Task-owned paths (610 insertions, 11 deletions); the six future Task directories remained untracked and excluded. Cached whitespace review and the terminal focused CI/format checks passed.
 - Inspected the completed first hosted run and retained both macOS realpath and Windows CRLF failure evidence before applying their focused fixes.
+- Committed and pushed only the focused platform corrections, retained draft PR https://github.com/kimyeongwoo/kyw-dev/pull/2, and inspected the successful replacement hosted run for implementation SHA `8b43403bf22c8774fda3752bbcc8361dee8ce8ea`.
+- Repeated `npm run check` and `npm run release:ci` after recording hosted evidence; both exited 0 with 78/78 tests, all stable checks, and the same inspected 29-file archive digest.
+- Compared the final 15-path diff with AC-01 through AC-08 and T-01 through T-08. Only Task 0010 implementation/evidence and the three affected permanent documents changed; AGENTS and the preserved untracked future Tasks remain untouched.
 
 ## Remaining
 
-- Stage and commit only Task 0010-owned paths, push the implementation branch, open a draft PR, and inspect every required hosted lane.
-- If hosted evidence passes, record the implementation SHA/run URL and conclusions, complete the final acceptance/diff matrix, and move the Task/Test pair to its evidence-backed terminal state.
+- None.
 
 ## Resume Point
 
-Stage only the reviewed Task 0010 path set, verify the cached diff, commit and push the implementation branch, then open a draft PR to trigger the new workflow. Do not stage or inspect Task 0011 through 0016.
+Task 0010 is complete. Draft PR #2 remains unmerged; publication, tag, and release actions remain unperformed.
 
 ## Blockers
 
-- A hosted GitHub Actions run cannot exist until the workflow commit is pushed and a pull request triggers the new workflow. Keep AC-07 and T-07 blocked until the real run is inspected.
+- None.

@@ -2,7 +2,7 @@
 
 ## Status
 
-RUNNING
+PASSED
 
 ## Test Basis
 
@@ -14,20 +14,20 @@ RUNNING
 
 | ID | Intent / acceptance criterion | Method | Level | Status | Evidence |
 |---|---|---|---|---|---|
-| T-01 | AC-01 workflow triggers, permissions, concurrency, and timeouts are safe | Inspect workflow and a hosted run | CI/Audit | TODO | |
-| T-02 | AC-02 supported OS and Node matrix is complete | Inspect expanded jobs and run results | CI | TODO | |
-| T-03 | AC-03 stable checks run in every required lane without secrets | Review logs and required-check conclusions | CI | TODO | |
-| T-04 | AC-04 real packed tarball is produced and inspected without publishing | Run packaging job and inspect artifact/log | Packaging | TODO | |
-| T-05 | AC-05 path-sensitive tests execute on Windows and macOS | Review platform logs for the relevant test files | CI | TODO | |
+| T-01 | AC-01 workflow triggers, permissions, concurrency, and timeouts are safe | Inspect workflow and a hosted run | CI/Audit | PASS | CI contract tests and run `29553139518` prove the PR trigger, read-only permissions, ref-scoped cancellation, explicit timeouts, and successful aggregate job. |
+| T-02 | AC-02 supported OS and Node matrix is complete | Inspect expanded jobs and run results | CI | PASS | Run `29553139518` passed Ubuntu/macOS/Windows on Node.js 22 and 24 plus bounded Ubuntu Node.js 26 compatibility. |
+| T-03 | AC-03 stable checks run in every required lane without secrets | Review logs and required-check conclusions | CI | PASS | Every stable job passed test, lint, format, and pack steps; the workflow has no secret reference or write permission. |
+| T-04 | AC-04 real packed tarball is produced and inspected without publishing | Run packaging job and inspect artifact/log | Packaging | PASS | Hosted packed job `87799746845` verified 29 files, 47,068 bytes, SHA-256 `569986c23fa08c7a56892f5c3df2bd2b671fd6b68becb21a3a89c5e936fb5892`; no publish command exists. |
+| T-05 | AC-05 path-sensitive tests execute on Windows and macOS | Review platform logs for the relevant test files | CI | PASS | Both macOS and Windows LTS jobs passed the complete 78-test suite; direct packed/install/path cases ran before the optional Codex-only skip. |
 | T-06 | AC-06 scripts, runtime support, and exit behavior agree | Compare package metadata, doctor behavior, workflow, and docs | Integration/Audit | PASS | `package.json`, foundation validation, CI contract tests, README, Spec, and Architecture agree on `>=22`, the 22/24 LTS matrix, bounded 26 lane, stable commands, and `release:ci`; local checks exited 0. |
-| T-07 | AC-07 hosted run is green for the implementation commit | Record workflow URL, commit SHA, and conclusions | Hosted E2E | TODO | |
-| T-08 | AC-08 only affected durable docs changed | Review final diff and documentation impact | Audit | TODO | |
+| T-07 | AC-07 hosted run is green for the implementation commit | Record workflow URL, commit SHA, and conclusions | Hosted E2E | PASS | Run https://github.com/kimyeongwoo/kyw-dev/actions/runs/29553139518 passed all 9 jobs for SHA `8b43403bf22c8774fda3752bbcc8361dee8ce8ea`. |
+| T-08 | AC-08 only affected durable docs changed | Review final diff and documentation impact | Audit | PASS | Final 15-path review found README, Spec, and Architecture affected; AGENTS and Task 0011–0016 remained untouched. |
 
 Every acceptance criterion must reference one or more rows before the Task becomes `READY`. Add rows for meaningful behaviors discovered in the final diff.
 
 ## Regression Coverage
 
-- [ ] `npm test` passes locally on the minimum supported Node line available.
+- [x] `npm test` passes locally on the minimum supported Node line available.
 - [x] `npm run lint` passes.
 - [x] `npm run format:check` passes.
 - [x] `npm run pack:check` passes.
@@ -81,19 +81,25 @@ Record exact commands, versions, exit status, hosted run URL, commit SHA, and co
 - `git check-attr text eol -- <representative workflow/runtime/Skill/YAML/template paths>`: exit 0; every inspected text path reported `text: auto` and `eol: lf`.
 - Post-fix `npm run check`: exit 0; 78/78 tests, lint over 25 modules, format over 112 files, and the exact 29-file/47,068-byte pack check passed.
 - Post-fix `npm run release:ci`: exit 0; it repeated the stable suite and verified the real 29-file/47,068-byte archive with SHA-256 `569986c23fa08c7a56892f5c3df2bd2b671fd6b68becb21a3a89c5e936fb5892`.
+- Platform fix commit `8b43403bf22c8774fda3752bbcc8361dee8ce8ea` was pushed to draft PR https://github.com/kimyeongwoo/kyw-dev/pull/2 without publishing, tagging, releasing, merging, or changing branch protection.
+- Hosted pull-request run https://github.com/kimyeongwoo/kyw-dev/actions/runs/29553139518: exit/conclusion success for all nine jobs. The seven stable jobs were Ubuntu/macOS/Windows Node.js 22/24 plus Ubuntu Node.js 26 compatibility; every stable job passed `npm test`, `npm run lint`, `npm run format:check`, and `npm run pack:check`. Packed Ubuntu Node.js 24 and `Required / credential-free CI` also passed.
+- Hosted packed job `87799746845` ran Node.js v24.18.0, completed 78 tests with zero failures (one optional Codex CLI skip), linted 25 modules, formatted 100 tracked LF text files, checked the exact 29-file/47,068-byte allowlist, and inspected the real archive with SHA-256 `569986c23fa08c7a56892f5c3df2bd2b671fd6b68becb21a3a89c5e936fb5892`.
+- Hosted macOS Node.js 22 job `87799746877` and Windows Node.js 22 job `87799746880` both completed 78 tests with zero failures (one optional Codex CLI skip), then passed lint, LF formatting, and the 29-file/47,068-byte package check. Both Node.js 24 platform jobs also completed all four stable steps successfully.
+- Terminal evidence update `npm run check`: exit 0; 78/78 tests, lint over 25 modules, format over 112 local text files, and the exact 29-file/47,068-byte package check passed.
+- Terminal evidence update `npm run release:ci`: exit 0; the repeated stable gate passed and the real 29-file/47,068-byte archive matched SHA-256 `569986c23fa08c7a56892f5c3df2bd2b671fd6b68becb21a3a89c5e936fb5892`. `git diff --check` also exited 0.
+- Final scope review used `git status`, `git diff origin/main --name-status`, `--stat`, and `--check`: exit 0 for 15 Task 0010 paths. README, Spec, and Architecture reflect affected durable truth; AGENTS has no diff; no root tarball exists; Task 0011 through 0016 remain untracked and excluded.
 
 ## Unverified
 
-- Hosted CI is unverified until the workflow commit is pushed and the real run is inspected.
 - `npm run release:check` was not run because it adds the approval-only `npm publish --dry-run`; Task 0010's required hosted/local gate is the credential-free `release:ci` path and the user prohibited publication actions.
 
 ## Final Coverage Review
 
 Before marking this Test `PASSED`:
 
-- [ ] Compare the final diff to the matrix.
-- [ ] Map every acceptance criterion to at least one test row.
-- [ ] Confirm all required OS/Node combinations actually ran.
-- [ ] Confirm skipped or optional jobs are not hiding required support failures.
-- [ ] Confirm no secret-bearing/model-backed job is required for normal pull requests.
-- [ ] Confirm the packed artifact corresponds to the audited commit.
+- [x] Compare the final diff to the matrix.
+- [x] Map every acceptance criterion to at least one test row.
+- [x] Confirm all required OS/Node combinations actually ran.
+- [x] Confirm skipped or optional jobs are not hiding required support failures.
+- [x] Confirm no secret-bearing/model-backed job is required for normal pull requests.
+- [x] Confirm the packed artifact corresponds to the audited commit.
