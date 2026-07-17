@@ -4,9 +4,11 @@ import { createHash } from "node:crypto";
 import {
   cpSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readlinkSync,
   readdirSync,
   realpathSync,
   rmSync,
@@ -33,10 +35,12 @@ import {
   readInstallMetadata,
   recoverInterruptedInstallation,
   repositorySearchPath,
+  resolveManagedPath,
   resolveInstallLocation,
   resolveScopeLayout,
   uninstallManagedSkills,
   updateManagedSkills,
+  normalizeManagedPath,
   validateInstallMetadata,
 } from "../src/core/skill-installation.mjs";
 
@@ -84,6 +88,70 @@ function fileSnapshot(root) {
   }
   visit(root);
   return files.sort((left, right) => left[0].localeCompare(right[0]));
+}
+
+function metadataSnapshot(root) {
+  if (!existsSync(root)) {
+    return [];
+  }
+  const entries = [];
+  function visit(directory) {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const absolute = join(directory, entry.name);
+      const relative = path.relative(root, absolute).replaceAll("\\", "/");
+      const state = lstatSync(absolute);
+      const common = {
+        path: relative,
+        mode: state.mode,
+        size: state.size,
+        mtimeMs: state.mtimeMs,
+        ctimeMs: state.ctimeMs,
+      };
+      if (entry.isSymbolicLink()) {
+        entries.push({ ...common, type: "link", target: readlinkSync(absolute) });
+      } else if (entry.isDirectory()) {
+        entries.push({ ...common, type: "directory" });
+        visit(absolute);
+      } else if (entry.isFile()) {
+        entries.push({ ...common, type: "file", sha256: hashFile(absolute) });
+      } else {
+        entries.push({ ...common, type: "other" });
+      }
+    }
+  }
+  visit(root);
+  return entries.sort((left, right) => left.path.localeCompare(right.path));
+}
+
+function createRequiredDirectoryLink(target, link, label) {
+  const type = process.platform === "win32" ? "junction" : "dir";
+  try {
+    symlinkSync(target, link, type);
+  } catch (error) {
+    assert.fail(
+      `${label} requires a native ${type} fixture on ${process.platform}; creation failed with ${error.code}: ${error.message}`,
+    );
+  }
+  assert.equal(lstatSync(link).isSymbolicLink(), true, `${label} fixture was not a link`);
+  return type;
+}
+
+function replaceWithRequiredUnsupportedEntry(filePath) {
+  rmSync(filePath, { force: true });
+  if (process.platform === "win32") {
+    mkdirSync(filePath);
+    assert.equal(lstatSync(filePath).isDirectory(), true);
+    return "directory-at-file-path";
+  }
+  const created = spawnSync("mkfifo", [filePath], { encoding: "utf8" });
+  assert.equal(
+    created.status,
+    0,
+    `mkfifo capability is required on ${process.platform}: ${created.stderr || created.error?.message}`,
+  );
+  const state = lstatSync(filePath);
+  assert.equal(state.isFile() || state.isDirectory() || state.isSymbolicLink(), false);
+  return "fifo";
 }
 
 function createRepository(root) {
@@ -148,6 +216,64 @@ test("scope paths and repository walks are stable for POSIX and Windows dialects
   assert.deepEqual(repositorySearchPath("/work/app/src", posix), ["/work/app/src", "/work/app", "/work", "/"]);
 });
 
+test("managed paths reject portable absolute, traversal, mixed-separator, and malformed forms", () => {
+  const invalidPaths = [
+    "",
+    " ",
+    "/etc/passwd",
+    "//server/share/file",
+    "C:/Windows/System32/file",
+    "C:relative/file",
+    "../outside",
+    "kyw-init/../outside",
+    "./kyw-init/SKILL.md",
+    "kyw-init\\..\\outside",
+    "kyw-init//SKILL.md",
+    "kyw-init/name:stream",
+    "kyw-init/trailing.",
+    "kyw-init/trailing ",
+    "kyw-init/CON",
+    "kyw-init/null\0byte",
+  ];
+  for (const candidate of invalidPaths) {
+    expectInstallationError(() => normalizeManagedPath(candidate), {
+      code: "INVALID_INSTALL_METADATA",
+      exitCode: EXIT_CODES.INVALID_STATE,
+    });
+  }
+  assert.equal(normalizeManagedPath("kyw-init/agents/openai.yaml"), "kyw-init/agents/openai.yaml");
+  assert.equal(resolveManagedPath("/safe/root", "kyw-init/SKILL.md", posix), "/safe/root/kyw-init/SKILL.md");
+  assert.equal(
+    resolveManagedPath("C:\\safe\\root", "kyw-init/SKILL.md", win32),
+    "C:\\safe\\root\\kyw-init\\SKILL.md",
+  );
+});
+
+test("metadata rejects duplicate, case-normalization, and file-prefix collisions on every host", () => {
+  const inventory = buildManagedSourceInventory();
+  const base = {
+    schemaVersion: 1,
+    packageName: "kyw-dev",
+    version: inventory.version,
+    scope: "user",
+    installedAt: "2026-07-18T00:00:00.000Z",
+    updatedAt: "2026-07-18T00:00:00.000Z",
+    skills: MANAGED_SKILL_NAMES.map((name) => ({ name, path: name })),
+    files: inventory.files.map(({ path: filePath, sha256 }) => ({ path: filePath, sha256 })),
+  };
+  for (const maliciousPath of [
+    base.files[0].path,
+    base.files[0].path.toUpperCase(),
+    `${base.files[0].path}/child`,
+  ]) {
+    const errors = validateInstallMetadata({
+      ...base,
+      files: [...base.files, { path: maliciousPath, sha256: "0".repeat(64) }],
+    });
+    assert.ok(errors.some((error) => /duplicate|collision/i.test(error)), errors.join("\n"));
+  }
+});
+
 test("project root detection resolves a nested repository without changing cwd", (t) => {
   const root = createRepository(join(temporaryDirectory(t), "repository"));
   const nested = join(root, "src", "feature");
@@ -155,6 +281,26 @@ test("project root detection resolves a nested repository without changing cwd",
   const cwd = process.cwd();
   assert.equal(findRepositoryRoot(nested), root);
   assert.equal(process.cwd(), cwd);
+});
+
+test("project install and doctor reject a linked Git marker", (t) => {
+  const home = temporaryDirectory(t);
+  const repository = join(temporaryDirectory(t), "repository");
+  const outside = temporaryDirectory(t, "kyw-dev-git-marker-target-");
+  mkdirSync(repository);
+  writeFileSync(join(outside, "marker.txt"), "outside\n", "utf8");
+  const fixtureType = createRequiredDirectoryLink(outside, join(repository, ".git"), "Git-marker link rejection");
+  t.diagnostic(`created and verified native ${fixtureType} fixture on ${process.platform}`);
+  const outsideBefore = metadataSnapshot(outside);
+
+  expectInstallationError(() => installManagedSkills({ scope: "project", cwd: repository, home }), {
+    code: "SCOPE_RESOLUTION_FAILED",
+    exitCode: EXIT_CODES.SCOPE_RESOLUTION,
+  });
+  const report = diagnoseInstallations({ cwd: repository, home, commandRunner });
+  assert.equal(report.exitCode, EXIT_CODES.SCOPE_RESOLUTION);
+  assert.ok(report.findings.some((finding) => finding.code === "UNSAFE_SCOPE"));
+  assert.deepEqual(metadataSnapshot(outside), outsideBefore);
 });
 
 test("CLI entrypoint installs and uninstalls against an isolated HOME", (t) => {
@@ -279,7 +425,7 @@ test("install refuses an unmanaged Skill directory without changing it", (t) => 
   assert.equal(existsSync(join(home, ".agents", "skills", INSTALL_METADATA_NAME)), false);
 });
 
-test("install refuses a symlinked managed Skill path without following it", (t) => {
+test("install refuses a native symlink or junction managed Skill path without following it", (t) => {
   const home = temporaryDirectory(t);
   const outside = temporaryDirectory(t, "kyw-dev-symlink-target-");
   const marker = join(outside, "marker.txt");
@@ -287,15 +433,8 @@ test("install refuses a symlinked managed Skill path without following it", (t) 
   const skillsRoot = join(home, ".agents", "skills");
   mkdirSync(skillsRoot, { recursive: true });
   const link = join(skillsRoot, "kyw-init");
-  try {
-    symlinkSync(outside, link, process.platform === "win32" ? "junction" : "dir");
-  } catch (error) {
-    if (["EPERM", "EACCES", "ENOTSUP"].includes(error.code)) {
-      t.skip(`symlinks unavailable: ${error.code}`);
-      return;
-    }
-    throw error;
-  }
+  const fixtureType = createRequiredDirectoryLink(outside, link, "managed Skill link rejection");
+  t.diagnostic(`created and verified native ${fixtureType} fixture on ${process.platform}`);
 
   expectInstallationError(() => installManagedSkills({ scope: "user", home }), {
     code: "INSTALL_CONFLICT",
@@ -303,6 +442,29 @@ test("install refuses a symlinked managed Skill path without following it", (t) 
   });
   assert.equal(readFileSync(marker, "utf8"), "outside\n");
   assert.equal(existsSync(join(skillsRoot, INSTALL_METADATA_NAME)), false);
+});
+
+test("install and doctor refuse a linked Skills root without touching the target", (t) => {
+  const home = temporaryDirectory(t);
+  const outside = temporaryDirectory(t, "kyw-dev-skills-root-target-");
+  const marker = join(outside, "marker.txt");
+  writeFileSync(marker, "outside\n", "utf8");
+  const agentsRoot = join(home, ".agents");
+  mkdirSync(agentsRoot);
+  const skillsRoot = join(agentsRoot, "skills");
+  const fixtureType = createRequiredDirectoryLink(outside, skillsRoot, "Skills-root link rejection");
+  t.diagnostic(`created and verified native ${fixtureType} fixture on ${process.platform}`);
+  const outsideBefore = metadataSnapshot(outside);
+
+  expectInstallationError(() => installManagedSkills({ scope: "user", home }), {
+    code: "FILESYSTEM_ERROR",
+    exitCode: EXIT_CODES.FILESYSTEM,
+  });
+  const report = diagnoseInstallations({ home, commandRunner });
+  assert.equal(report.exitCode, EXIT_CODES.RECOVERY_REQUIRED);
+  assert.ok(report.findings.some((finding) => finding.code === "UNSAFE_SCOPE"));
+  assert.deepEqual(metadataSnapshot(outside), outsideBefore);
+  assert.equal(readFileSync(marker, "utf8"), "outside\n");
 });
 
 test("update replaces unchanged managed files and records the new package hashes", (t) => {
@@ -351,6 +513,113 @@ test("update reports a local modification and leaves all installed bytes unchang
   assert.equal(readInstallMetadata(location, { required: true }).version, "0.1.0");
 });
 
+test("update refuses an unknown file and preserves the entire managed tree", (t) => {
+  const home = temporaryDirectory(t);
+  installManagedSkills({ scope: "user", home });
+  const source = createSourceCopy(t, "0.2.0");
+  const location = resolveInstallLocation({ scope: "user", home });
+  const unknown = join(location.skillsRoot, "kyw-init", "user-notes.txt");
+  writeFileSync(unknown, "preserve unknown\n", "utf8");
+  const before = metadataSnapshot(home);
+
+  expectInstallationError(() => updateManagedSkills({ scope: "user", home, sourceRoot: source }), {
+    code: "UPDATE_CONFLICT",
+    exitCode: EXIT_CODES.CONFLICT,
+  });
+  assert.deepEqual(metadataSnapshot(home), before);
+  assert.equal(readFileSync(unknown, "utf8"), "preserve unknown\n");
+});
+
+test("update revalidates owned content immediately before the destructive rename", (t) => {
+  const home = temporaryDirectory(t);
+  installManagedSkills({ scope: "user", home });
+  const location = resolveInstallLocation({ scope: "user", home });
+  const source = createSourceCopy(t, "0.2.0");
+  const target = join(location.skillsRoot, "kyw-init", "SKILL.md");
+
+  expectInstallationError(
+    () =>
+      updateManagedSkills({
+        scope: "user",
+        home,
+        sourceRoot: source,
+        hooks: {
+          afterCommitStarted() {
+            writeFileSync(target, `${readFileSync(target, "utf8")}raced change\n`, "utf8");
+          },
+        },
+      }),
+    { code: "INSTALL_CONFLICT", exitCode: EXIT_CODES.CONFLICT },
+  );
+  assert.match(readFileSync(target, "utf8"), /raced change/);
+  assert.equal(readInstallMetadata(location, { required: true }).version, "0.1.0");
+  assert.deepEqual(
+    readdirSync(location.skillsRoot).filter((name) => name.startsWith(".kyw-dev-stage-") || name.startsWith(".kyw-dev-backup-")),
+    [],
+  );
+});
+
+test("staging revalidates a packaged source parent that becomes a native link", (t) => {
+  const home = temporaryDirectory(t);
+  installManagedSkills({ scope: "user", home });
+  const source = createSourceCopy(t, "0.2.0");
+  const sourceParent = join(source, "skills", "kyw-init", "agents");
+  const outside = temporaryDirectory(t, "kyw-dev-source-link-target-");
+  writeFileSync(join(outside, "openai.yaml"), readFileSync(join(sourceParent, "openai.yaml")));
+  const outsideBefore = metadataSnapshot(outside);
+  let fixtureType;
+
+  expectInstallationError(
+    () =>
+      updateManagedSkills({
+        scope: "user",
+        home,
+        sourceRoot: source,
+        hooks: {
+          afterJournalCreated() {
+            rmSync(sourceParent, { recursive: true, force: true });
+            fixtureType = createRequiredDirectoryLink(
+              outside,
+              sourceParent,
+              "packaged source parent revalidation",
+            );
+          },
+        },
+      }),
+    { code: "INVALID_PACKAGE", exitCode: EXIT_CODES.INVALID_STATE },
+  );
+  t.diagnostic(`created and verified native ${fixtureType} fixture on ${process.platform}`);
+  assert.deepEqual(metadataSnapshot(outside), outsideBefore);
+  assert.equal(readInstallMetadata(resolveInstallLocation({ scope: "user", home }), { required: true }).version, "0.1.0");
+});
+
+test("malicious installation metadata cannot escape update, force uninstall, or doctor", (t) => {
+  const home = temporaryDirectory(t);
+  const outside = temporaryDirectory(t, "kyw-dev-metadata-outside-");
+  const marker = join(outside, "marker.txt");
+  writeFileSync(marker, "outside stays\n", "utf8");
+  installManagedSkills({ scope: "user", home });
+  const location = resolveInstallLocation({ scope: "user", home });
+  const metadata = JSON.parse(readFileSync(location.metadataPath, "utf8"));
+  metadata.files[0].path = "../../outside/marker.txt";
+  writeJson(location.metadataPath, metadata);
+  const before = metadataSnapshot(home);
+
+  expectInstallationError(() => updateManagedSkills({ scope: "user", home }), {
+    code: "INVALID_INSTALL_METADATA",
+    exitCode: EXIT_CODES.INVALID_STATE,
+  });
+  expectInstallationError(() => uninstallManagedSkills({ scope: "user", home, force: true }), {
+    code: "INVALID_INSTALL_METADATA",
+    exitCode: EXIT_CODES.INVALID_STATE,
+  });
+  const report = diagnoseInstallations({ home, commandRunner });
+  assert.equal(report.exitCode, EXIT_CODES.INVALID_STATE);
+  assert.ok(report.findings.some((finding) => finding.code === "INVALID_INSTALL_METADATA"));
+  assert.deepEqual(metadataSnapshot(home), before);
+  assert.equal(readFileSync(marker, "utf8"), "outside stays\n");
+});
+
 test("uninstall refuses changed state by default and force preserves unknown files", (t) => {
   const home = temporaryDirectory(t);
   installManagedSkills({ scope: "user", home });
@@ -371,6 +640,75 @@ test("uninstall refuses changed state by default and force preserves unknown fil
   uninstallManagedSkills({ scope: "user", home, force: true });
   assert.equal(readFileSync(unknown, "utf8"), "preserve unknown\n");
   assert.equal(readFileSync(unrelated, "utf8"), "preserve unrelated\n");
+  assert.equal(existsSync(modified), false);
+  assert.equal(existsSync(location.metadataPath), false);
+});
+
+test("update, force uninstall, and doctor refuse a managed parent link and preserve its target", (t) => {
+  const home = temporaryDirectory(t);
+  const outside = temporaryDirectory(t, "kyw-dev-parent-link-target-");
+  installManagedSkills({ scope: "user", home });
+  const location = resolveInstallLocation({ scope: "user", home });
+  const managedParent = join(location.skillsRoot, "kyw-init", "agents");
+  rmSync(managedParent, { recursive: true, force: true });
+  writeFileSync(join(outside, "openai.yaml"), "outside target\n", "utf8");
+  const fixtureType = createRequiredDirectoryLink(outside, managedParent, "managed parent link rejection");
+  t.diagnostic(`created and verified native ${fixtureType} fixture on ${process.platform}`);
+  const outsideBefore = metadataSnapshot(outside);
+  const scopeBefore = metadataSnapshot(home);
+
+  expectInstallationError(() => updateManagedSkills({ scope: "user", home }), {
+    code: "UPDATE_CONFLICT",
+    exitCode: EXIT_CODES.CONFLICT,
+  });
+  expectInstallationError(() => uninstallManagedSkills({ scope: "user", home, force: true }), {
+    code: "UNINSTALL_CONFLICT",
+    exitCode: EXIT_CODES.CONFLICT,
+  });
+  const report = diagnoseInstallations({ home, commandRunner });
+  assert.equal(report.exitCode, EXIT_CODES.RECOVERY_REQUIRED);
+  assert.ok(report.findings.some((finding) => /unsafe/i.test(finding.message)));
+  assert.deepEqual(metadataSnapshot(outside), outsideBefore);
+  assert.deepEqual(metadataSnapshot(home), scopeBefore);
+});
+
+test("unsupported managed file types fail closed on every platform", (t) => {
+  const home = temporaryDirectory(t);
+  installManagedSkills({ scope: "user", home });
+  const location = resolveInstallLocation({ scope: "user", home });
+  const managedFile = join(location.skillsRoot, "kyw-init", "SKILL.md");
+  const fixtureType = replaceWithRequiredUnsupportedEntry(managedFile);
+  t.diagnostic(`created and verified ${fixtureType} fixture on ${process.platform}`);
+
+  expectInstallationError(() => updateManagedSkills({ scope: "user", home }), {
+    code: "UPDATE_CONFLICT",
+    exitCode: EXIT_CODES.CONFLICT,
+  });
+  expectInstallationError(() => uninstallManagedSkills({ scope: "user", home, force: true }), {
+    code: "UNINSTALL_CONFLICT",
+    exitCode: EXIT_CODES.CONFLICT,
+  });
+  const report = diagnoseInstallations({ home, commandRunner });
+  assert.equal(report.exitCode, EXIT_CODES.RECOVERY_REQUIRED);
+  assert.equal(lstatSync(managedFile).isFile(), false);
+});
+
+test("force uninstall preserves an unknown link and never touches its target", (t) => {
+  const home = temporaryDirectory(t);
+  const outside = temporaryDirectory(t, "kyw-dev-force-link-target-");
+  const marker = join(outside, "marker.txt");
+  writeFileSync(marker, "outside target\n", "utf8");
+  installManagedSkills({ scope: "user", home });
+  const location = resolveInstallLocation({ scope: "user", home });
+  const unknownLink = join(location.skillsRoot, "kyw-init", "user-link");
+  const fixtureType = createRequiredDirectoryLink(outside, unknownLink, "force unknown-link preservation");
+  t.diagnostic(`created and verified native ${fixtureType} fixture on ${process.platform}`);
+  const modified = join(location.skillsRoot, "kyw-init", "SKILL.md");
+  writeFileSync(modified, `${readFileSync(modified, "utf8")}modified\n`, "utf8");
+
+  uninstallManagedSkills({ scope: "user", home, force: true });
+  assert.equal(lstatSync(unknownLink).isSymbolicLink(), true);
+  assert.equal(readFileSync(marker, "utf8"), "outside target\n");
   assert.equal(existsSync(modified), false);
   assert.equal(existsSync(location.metadataPath), false);
 });
@@ -436,6 +774,15 @@ test("doctor reports unsupported runtime and installed-version drift", (t) => {
   assert.deepEqual(fileSnapshot(home), before);
 });
 
+test("doctor is byte-and-metadata read-only for a healthy managed tree", (t) => {
+  const home = temporaryDirectory(t);
+  installManagedSkills({ scope: "user", home });
+  const before = metadataSnapshot(home);
+  const report = diagnoseInstallations({ home, commandRunner });
+  assert.equal(report.exitCode, EXIT_CODES.OK);
+  assert.deepEqual(metadataSnapshot(home), before);
+});
+
 test("interrupted update is diagnosed and rollback restores the complete prior install", (t) => {
   const home = temporaryDirectory(t);
   installManagedSkills({ scope: "user", home });
@@ -489,22 +836,138 @@ test("interrupted update is diagnosed and rollback restores the complete prior i
   assert.equal(readInstallMetadata(location, { required: true }).version, "0.2.0");
 });
 
+test("every transaction phase is diagnosable and recovers to the proven old or committed state", (t) => {
+  const phases = [
+    ["afterJournalCreated", "discarded-stage", "0.1.0"],
+    ["afterStagePrepared", "discarded-stage", "0.1.0"],
+    ["afterCommitStarted", "rolled-back", "0.1.0"],
+    ["afterOldFileMoved", "rolled-back", "0.1.0"],
+    ["afterNewFileMoved", "rolled-back", "0.1.0"],
+    ["afterMetadataCommitted", "rolled-back", "0.1.0"],
+    ["afterCommitComplete", "completed-cleanup", "0.2.0"],
+  ];
+  for (const [index, [hook, expectedAction, expectedVersion]] of phases.entries()) {
+    const home = temporaryDirectory(t, `kyw-dev-phase-${index}-`);
+    installManagedSkills({ scope: "user", home });
+    const source = createSourceCopy(t, "0.2.0", (root) => {
+      const skill = join(root, "skills", "kyw-grilling", "SKILL.md");
+      writeFileSync(skill, `${readFileSync(skill, "utf8")}phase bytes\n`, "utf8");
+    });
+    const childScript = `
+      import { updateManagedSkills } from ${JSON.stringify(installationModuleUrl)};
+      updateManagedSkills({
+        scope: "user",
+        home: process.argv[1],
+        sourceRoot: process.argv[2],
+        hooks: { ${hook}() { process.exit(${100 + index}); } }
+      });
+    `;
+    const interrupted = spawnSync(process.execPath, ["--input-type=module", "-e", childScript, home, source], {
+      encoding: "utf8",
+    });
+    assert.equal(interrupted.status, 100 + index, `${hook}: ${interrupted.stderr}`);
+    const beforeDoctor = metadataSnapshot(home);
+    const report = diagnoseInstallations({ home, commandRunner });
+    assert.equal(report.exitCode, EXIT_CODES.RECOVERY_REQUIRED, hook);
+    assert.deepEqual(metadataSnapshot(home), beforeDoctor, `${hook}: doctor mutated transaction state`);
+
+    const location = resolveInstallLocation({ scope: "user", home });
+    const recovered = recoverInterruptedInstallation(location);
+    assert.equal(recovered.action, expectedAction, hook);
+    const metadata = readInstallMetadata(location, { required: true });
+    assert.equal(metadata.version, expectedVersion, hook);
+    const state = inspectManagedInstallation(location, metadata);
+    assert.deepEqual(state.missing, [], hook);
+    assert.deepEqual(state.modified, [], hook);
+    assert.deepEqual(state.unknown, [], hook);
+    assert.deepEqual(state.unsafe, [], hook);
+  }
+});
+
+test("transaction cleanup preserves an injected unknown backup file and remains diagnosable", (t) => {
+  const home = temporaryDirectory(t);
+  installManagedSkills({ scope: "user", home });
+  const source = createSourceCopy(t, "0.2.0");
+  let injected;
+
+  expectInstallationError(
+    () =>
+      updateManagedSkills({
+        scope: "user",
+        home,
+        sourceRoot: source,
+        hooks: {
+          afterCommitComplete({ location, transaction }) {
+            injected = join(location.skillsRoot, transaction.backupDirectory, "unknown.txt");
+            writeFileSync(injected, "preserve me\n", "utf8");
+          },
+        },
+      }),
+    { code: "RECOVERY_REQUIRED", exitCode: EXIT_CODES.RECOVERY_REQUIRED },
+  );
+  assert.equal(readFileSync(injected, "utf8"), "preserve me\n");
+  const beforeDoctor = metadataSnapshot(home);
+  const report = diagnoseInstallations({ home, commandRunner });
+  assert.equal(report.exitCode, EXIT_CODES.RECOVERY_REQUIRED);
+  assert.deepEqual(metadataSnapshot(home), beforeDoctor);
+  expectInstallationError(
+    () => recoverInterruptedInstallation(resolveInstallLocation({ scope: "user", home })),
+    { code: "RECOVERY_REQUIRED", exitCode: EXIT_CODES.RECOVERY_REQUIRED },
+  );
+  assert.equal(readFileSync(injected, "utf8"), "preserve me\n");
+});
+
+test("recovery preserves an unjournaled reserved sibling instead of broad cleanup", (t) => {
+  const home = temporaryDirectory(t);
+  installManagedSkills({ scope: "user", home });
+  const source = createSourceCopy(t, "0.2.0");
+  let sibling;
+
+  expectInstallationError(
+    () =>
+      updateManagedSkills({
+        scope: "user",
+        home,
+        sourceRoot: source,
+        hooks: {
+          afterJournalCreated({ location }) {
+            sibling = join(
+              location.skillsRoot,
+              ".kyw-dev-stage-00000000-0000-4000-8000-000000000099",
+            );
+            mkdirSync(sibling);
+            throw new Error("injected sibling interruption");
+          },
+        },
+      }),
+    { code: "RECOVERY_REQUIRED", exitCode: EXIT_CODES.RECOVERY_REQUIRED },
+  );
+  assert.equal(lstatSync(sibling).isDirectory(), true);
+  expectInstallationError(
+    () => recoverInterruptedInstallation(resolveInstallLocation({ scope: "user", home })),
+    { code: "RECOVERY_REQUIRED", exitCode: EXIT_CODES.RECOVERY_REQUIRED },
+  );
+  assert.equal(lstatSync(sibling).isDirectory(), true);
+});
+
 test("recovery refuses a transaction owned by another live process", (t) => {
   const home = temporaryDirectory(t);
+  installManagedSkills({ scope: "user", home });
   const location = resolveInstallLocation({ scope: "user", home });
-  mkdirSync(location.skillsRoot, { recursive: true });
+  const metadata = readInstallMetadata(location, { required: true });
   assert.ok(process.ppid > 0);
   writeJson(location.transactionPath, {
     schemaVersion: 1,
-    operation: "update",
+    operation: "uninstall",
     scope: "user",
     processId: process.ppid,
-    stageDirectory: ".kyw-dev-stage-live-owner",
-    backupDirectory: ".kyw-dev-backup-live-owner",
-    oldFiles: [],
+    force: false,
+    stageDirectory: ".kyw-dev-stage-00000000-0000-4000-8000-000000000001",
+    backupDirectory: ".kyw-dev-backup-00000000-0000-4000-8000-000000000002",
+    oldFiles: metadata.files,
     newFiles: [],
-    hadOldMetadata: false,
-    oldMetadataHash: null,
+    hadOldMetadata: true,
+    oldMetadataHash: hashFile(location.metadataPath),
     newMetadataHash: null,
   });
 
@@ -513,6 +976,71 @@ test("recovery refuses a transaction owned by another live process", (t) => {
     exitCode: EXIT_CODES.CONFLICT,
   });
   assert.ok(existsSync(location.transactionPath));
+});
+
+test("recovery rejects traversal and case-colliding journal paths without touching outside files", (t) => {
+  const home = temporaryDirectory(t);
+  const outside = temporaryDirectory(t, "kyw-dev-journal-outside-");
+  const marker = join(outside, "marker.txt");
+  writeFileSync(marker, "outside\n", "utf8");
+  const location = resolveInstallLocation({ scope: "user", home });
+  mkdirSync(location.skillsRoot, { recursive: true });
+  const baseTransaction = {
+    schemaVersion: 1,
+    operation: "install",
+    scope: "user",
+    processId: 99999999,
+    force: false,
+    stageDirectory: ".kyw-dev-stage-00000000-0000-4000-8000-000000000003",
+    backupDirectory: ".kyw-dev-backup-00000000-0000-4000-8000-000000000004",
+    oldFiles: [],
+    newFiles: [{ path: "../outside/marker.txt", sha256: hashFile(marker) }],
+    hadOldMetadata: false,
+    oldMetadataHash: null,
+    newMetadataHash: "0".repeat(64),
+  };
+  writeJson(location.transactionPath, baseTransaction);
+  expectInstallationError(() => recoverInterruptedInstallation(location), {
+    code: "RECOVERY_REQUIRED",
+    exitCode: EXIT_CODES.RECOVERY_REQUIRED,
+  });
+  assert.equal(readFileSync(marker, "utf8"), "outside\n");
+  assert.ok(existsSync(location.transactionPath));
+
+  writeJson(location.transactionPath, {
+    ...baseTransaction,
+    newFiles: [
+      { path: "kyw-init/SKILL.md", sha256: "1".repeat(64) },
+      { path: "KYW-INIT/skill.md", sha256: "2".repeat(64) },
+    ],
+  });
+  expectInstallationError(() => recoverInterruptedInstallation(location), {
+    code: "RECOVERY_REQUIRED",
+    exitCode: EXIT_CODES.RECOVERY_REQUIRED,
+  });
+  assert.equal(readFileSync(marker, "utf8"), "outside\n");
+});
+
+test("recovery never unlinks an unsafe orphaned completion marker", (t) => {
+  const home = temporaryDirectory(t);
+  const outside = temporaryDirectory(t, "kyw-dev-marker-target-");
+  const marker = join(outside, "marker.txt");
+  writeFileSync(marker, "outside\n", "utf8");
+  const location = resolveInstallLocation({ scope: "user", home });
+  mkdirSync(location.skillsRoot, { recursive: true });
+  const fixtureType = createRequiredDirectoryLink(
+    outside,
+    location.transactionCompletePath,
+    "unsafe completion-marker preservation",
+  );
+  t.diagnostic(`created and verified native ${fixtureType} fixture on ${process.platform}`);
+
+  expectInstallationError(() => recoverInterruptedInstallation(location), {
+    code: "RECOVERY_REQUIRED",
+    exitCode: EXIT_CODES.RECOVERY_REQUIRED,
+  });
+  assert.equal(lstatSync(location.transactionCompletePath).isSymbolicLink(), true);
+  assert.equal(readFileSync(marker, "utf8"), "outside\n");
 });
 
 test("CLI grammar and documented exit categories are deterministic", (t) => {
