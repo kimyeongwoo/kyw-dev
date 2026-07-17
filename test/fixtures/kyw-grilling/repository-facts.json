@@ -1,0 +1,8 @@
+{
+  "project": "fixture-jobs-api",
+  "runtime": "Node.js 22",
+  "productionDependencies": [],
+  "endpoint": "POST /jobs",
+  "persistence": "none",
+  "currentConcurrencyLimit": 4
+}

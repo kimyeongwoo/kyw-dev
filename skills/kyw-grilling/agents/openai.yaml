@@ -1,0 +1,7 @@
+interface:
+  display_name: "kyw Grilling"
+  short_description: "Resolve design decisions one at a time"
+  default_prompt: "Use $kyw-grilling to stress-test this plan one decision at a time."
+
+policy:
+  allow_implicit_invocation: false

@@ -1,0 +1,129 @@
+{
+  "happyPath": {
+    "invocation": "$kyw-task 0042",
+    "currentSummaryConfirmed": true,
+    "states": [
+      {
+        "task": "READY",
+        "test": "READY"
+      },
+      {
+        "task": "IN_PROGRESS",
+        "test": "RUNNING"
+      },
+      {
+        "task": "DONE",
+        "test": "PASSED"
+      }
+    ],
+    "acceptance": {
+      "id": "AC-01",
+      "testId": "T-01",
+      "result": "An administrator can unlock one locked account."
+    },
+    "command": "node --test test/account-unlock.test.mjs",
+    "exitCode": 0,
+    "evidence": "T-01 passed the locked-account fixture with exit 0."
+  },
+  "resume": {
+    "invocation": "$kyw-task 0042",
+    "taskStatus": "IN_PROGRESS",
+    "testStatus": "RUNNING",
+    "completed": [
+      "Implemented the unlock service in src/auth/unlock.mjs.",
+      "Passed the administrator success-path test."
+    ],
+    "remaining": [
+      "Add permission-denied coverage.",
+      "Run final regression and diff review."
+    ],
+    "resumePoint": "Add the permission-denied case in test/account-unlock.test.mjs, then run its focused test.",
+    "repositoryVerification": {
+      "completedArtifactsPresent": true,
+      "nextActionStillPending": true
+    },
+    "mustNotRepeat": [
+      "Recreate src/auth/unlock.mjs.",
+      "Rerun a one-time migration solely to prove completion."
+    ]
+  },
+  "documentationRouting": [
+    {
+      "change": "The automatic lock duration changes from thirty to sixty minutes.",
+      "owner": "docs/SPEC.md"
+    },
+    {
+      "change": "Authentication policy ownership moves from src/auth to src/security.",
+      "owner": "docs/ARCHITECTURE.md"
+    },
+    {
+      "change": "The contributor verification command changes from npm test to npm run check.",
+      "owner": "README.md"
+    },
+    {
+      "change": "All repository Tasks now require an additional invariant completion gate.",
+      "owner": "AGENTS.md"
+    },
+    {
+      "change": "A local variable is renamed without changing behavior or structure.",
+      "owner": null
+    }
+  ],
+  "blockedRequiredTest": {
+    "command": "node --test test/account-unlock.test.mjs",
+    "executed": false,
+    "reason": "The required database fixture is unavailable.",
+    "rowStatus": "BLOCKED",
+    "taskStatus": "BLOCKED",
+    "testStatus": "BLOCKED",
+    "forbiddenTaskStatus": "DONE",
+    "forbiddenTestStatus": "PASSED"
+  },
+  "coverageGap": {
+    "originalMatrix": [
+      "T-01 success branch"
+    ],
+    "finalDiffBranches": [
+      "success branch",
+      "permission-denied branch"
+    ],
+    "missingBeforeReview": [
+      "permission-denied branch"
+    ],
+    "requiredAddition": {
+      "id": "T-02",
+      "intent": "AC-01 permission-denied branch",
+      "method": "Run the denied-administrator fixture"
+    },
+    "finalReviewCompleteAfterAddition": true
+  },
+  "scopeDrift": {
+    "currentTaskId": "0042",
+    "unexpectedPath": "docs/tasks/0043-session-storage/TASK.md",
+    "expectedAction": "Preserve unrelated work, remove only safe workflow-owned drift, and block if reconciliation is unsafe."
+  },
+  "compaction": {
+    "taskFields": [
+      "Plan",
+      "Decisions",
+      "Discoveries and Changes",
+      "Documentation Impact",
+      "Completed",
+      "Remaining",
+      "Resume Point",
+      "Blockers"
+    ],
+    "testFields": [
+      "Status",
+      "Intent-to-Test Matrix",
+      "Commands",
+      "Results",
+      "Unverified"
+    ],
+    "repositoryState": [
+      "pre-existing changed paths",
+      "current Task changed paths",
+      "status or diff limitations"
+    ]
+  }
+}

@@ -1,0 +1,46 @@
+{
+  "name": "kyw-dev",
+  "version": "0.1.0",
+  "description": "A spec-driven development workflow plugin for Codex.",
+  "private": false,
+  "keywords": [
+    "codex",
+    "agent-skills",
+    "spec-driven-development",
+    "developer-workflow"
+  ],
+  "type": "module",
+  "bin": {
+    "kyw-dev": "bin/kyw-dev.mjs"
+  },
+  "files": [
+    ".codex-plugin/",
+    "bin/",
+    "src/",
+    "skills/",
+    "templates/",
+    "README.md",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md",
+    "licenses/"
+  ],
+  "scripts": {
+    "test": "node --test",
+    "lint": "node ./scripts/lint.mjs",
+    "format:check": "node ./scripts/format-check.mjs",
+    "pack:check": "node ./scripts/pack-check.mjs",
+    "check": "npm test && npm run lint && npm run format:check && npm run pack:check",
+    "release:check": "npm run check && npm publish --dry-run --json"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "author": {
+    "name": "kyw-dev"
+  },
+  "license": "MIT"
+}

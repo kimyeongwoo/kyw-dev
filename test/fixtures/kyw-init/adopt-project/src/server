@@ -1,0 +1,5 @@
+export const DEFAULT_PORT = 4318;
+
+export function health() {
+  return { status: "ok" };
+}

@@ -1,0 +1,7 @@
+interface:
+  display_name: "kyw Audit"
+  short_description: "Independently audit one Task's evidence"
+  default_prompt: "Use $kyw-audit with a four-digit Task ID to independently verify one kyw-dev Task."
+
+policy:
+  allow_implicit_invocation: false

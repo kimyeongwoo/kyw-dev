@@ -1,0 +1,31 @@
+{
+  "normal": {
+    "fixture": "settled-project",
+    "invocation": "$kyw-task add an administrator unlock action",
+    "expectedOutcome": "An administrator can unlock one currently locked account.",
+    "settledFacts": [
+      "Node.js 22 or newer",
+      "five failures in fifteen minutes",
+      "thirty-minute automatic lock",
+      "src/auth owns authentication policy"
+    ],
+    "allowedAuthoringFiles": [
+      "TASK.md",
+      "TEST.md"
+    ]
+  },
+  "oversized": {
+    "invocation": "$kyw-task add administrator unlock, replace session storage, and build an audit dashboard",
+    "independentOutcomes": [
+      "administrator unlock action",
+      "session storage migration",
+      "audit dashboard"
+    ],
+    "writesBeforeSelection": 0
+  },
+  "confirmation": {
+    "beforeExplicitConfirmation": "DRAFT",
+    "afterExplicitConfirmation": "READY",
+    "implementationStarts": false
+  }
+}

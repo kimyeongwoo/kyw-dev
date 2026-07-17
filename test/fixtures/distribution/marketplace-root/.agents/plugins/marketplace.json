@@ -1,0 +1,20 @@
+{
+  "name": "kyw-dev-local",
+  "interface": {
+    "displayName": "kyw-dev Local"
+  },
+  "plugins": [
+    {
+      "name": "kyw-dev",
+      "source": {
+        "source": "local",
+        "path": "./plugins/kyw-dev"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

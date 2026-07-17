@@ -1,0 +1,26 @@
+{
+  "name": "kyw-dev",
+  "version": "0.1.0",
+  "description": "Spec-driven development workflows for durable docs, verified Tasks, and audits.",
+  "author": {
+    "name": "kyw-dev"
+  },
+  "license": "MIT",
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "kyw-dev",
+    "shortDescription": "Plan, execute, and audit spec-driven work.",
+    "longDescription": "Provides explicit workflows to initialize durable project truth, execute one verified Task at a time, and independently audit the resulting evidence.",
+    "developerName": "kyw-dev",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "Use $kyw-init to initialize this repository's durable documents.",
+      "Use $kyw-task to create and execute one verified Task.",
+      "Use $kyw-audit 0001 to independently audit Task 0001."
+    ]
+  }
+}
