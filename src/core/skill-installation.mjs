@@ -5,7 +5,6 @@ import {
   chmodSync,
   constants as fsConstants,
   copyFileSync,
-  existsSync,
   lstatSync,
   mkdirSync,
   readFileSync,
@@ -47,9 +46,14 @@ export const EXIT_CODES = Object.freeze({
 const stagePrefix = ".kyw-dev-stage-";
 const backupPrefix = ".kyw-dev-backup-";
 const commitStartedName = ".commit-started";
+const commitStartedText = "commit started\n";
+const commitCompleteText = "commit complete\n";
 const packageName = "kyw-dev";
 const semanticVersionPattern = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
 const sha256Pattern = /^[a-f0-9]{64}$/;
+const transactionIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const windowsDeviceNamePattern = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i;
+const windowsInvalidSegmentPattern = /[<>:"|?*\u0000-\u001f]/;
 
 const errorExitCodes = Object.freeze({
   UNSUPPORTED_RUNTIME: EXIT_CODES.UNSUPPORTED_RUNTIME,
@@ -94,10 +98,6 @@ function hashBuffer(buffer) {
   return createHash("sha256").update(buffer).digest("hex");
 }
 
-function hashFile(filePath) {
-  return hashBuffer(readFileSync(filePath));
-}
-
 function normalizedComparable(filePath, pathApi = path) {
   const resolved = pathApi.resolve(filePath);
   return pathApi.sep === "\\" ? resolved.toLowerCase() : resolved;
@@ -108,18 +108,92 @@ function isPathInside(root, candidate, pathApi = path) {
   return relative === "" || (!relative.startsWith(`..${pathApi.sep}`) && relative !== ".." && !pathApi.isAbsolute(relative));
 }
 
+function assertCanonicalRealPath(filePath, label, errorCode, trustedRoot) {
+  let resolved;
+  try {
+    resolved = realpathSync(filePath);
+  } catch (error) {
+    throw installationError(errorCode, `Cannot resolve ${label} at ${filePath}: ${error.message}`, error);
+  }
+  const lexical = path.resolve(filePath);
+  if (normalizedComparable(resolved) !== normalizedComparable(lexical)) {
+    throw installationError(errorCode, `${label} reaches a different real path and may contain a link: ${filePath}`);
+  }
+  if (trustedRoot && !isPathInside(trustedRoot, resolved)) {
+    throw installationError(errorCode, `${label} escapes its trusted root: ${filePath}`);
+  }
+  return resolved;
+}
+
+function sameFileIdentity(left, right) {
+  if (left.dev !== right.dev || left.ino !== right.ino || left.size !== right.size) {
+    return false;
+  }
+  return left.mtimeMs === right.mtimeMs && left.ctimeMs === right.ctimeMs;
+}
+
+function readRegularFile(
+  filePath,
+  { label = "file", errorCode = "FILESYSTEM_ERROR", trustedRoot, relativePath } = {},
+) {
+  if (trustedRoot && relativePath) {
+    const expected = resolveManagedPath(trustedRoot, relativePath);
+    if (normalizedComparable(expected) !== normalizedComparable(filePath)) {
+      throw installationError(errorCode, `${label} path does not match its managed identity: ${filePath}`);
+    }
+    assertSafeManagedParents(trustedRoot, relativePath, { errorCode });
+  }
+  const before = pathState(filePath);
+  if (!before?.isFile() || before.isSymbolicLink()) {
+    throw installationError(errorCode, `${label} must be a real regular file: ${filePath}`);
+  }
+  assertCanonicalRealPath(filePath, label, errorCode, trustedRoot);
+  let buffer;
+  try {
+    buffer = readFileSync(filePath);
+  } catch (error) {
+    throw installationError(errorCode, `Cannot read ${label} at ${filePath}: ${error.message}`, error);
+  }
+  const after = pathState(filePath);
+  if (!after?.isFile() || after.isSymbolicLink() || !sameFileIdentity(before, after) || after.size !== buffer.length) {
+    throw installationError(errorCode, `${label} changed type or identity while it was read: ${filePath}`);
+  }
+  assertCanonicalRealPath(filePath, label, errorCode, trustedRoot);
+  return buffer;
+}
+
+function hashFile(filePath, options) {
+  return hashBuffer(readRegularFile(filePath, options));
+}
+
 export function normalizeManagedPath(relativePath) {
   if (typeof relativePath !== "string" || !relativePath.trim()) {
     throw installationError("INVALID_INSTALL_METADATA", "Managed file paths must be non-empty strings");
   }
-  if (relativePath.includes("\\") || path.posix.isAbsolute(relativePath)) {
+  const windowsForm = relativePath.replaceAll("/", "\\");
+  if (
+    relativePath.includes("\\") ||
+    path.posix.isAbsolute(relativePath) ||
+    path.win32.isAbsolute(windowsForm) ||
+    /^[A-Za-z]:/.test(relativePath)
+  ) {
     throw installationError(
       "INVALID_INSTALL_METADATA",
       `Managed file path must use relative POSIX separators: ${relativePath}`,
     );
   }
   const segments = relativePath.split("/");
-  if (segments.some((segment) => !segment || segment === "." || segment === ".." || segment.includes("\0"))) {
+  if (
+    segments.some(
+      (segment) =>
+        !segment ||
+        segment === "." ||
+        segment === ".." ||
+        windowsInvalidSegmentPattern.test(segment) ||
+        /[. ]$/.test(segment) ||
+        windowsDeviceNamePattern.test(segment),
+    )
+  ) {
     throw installationError("INVALID_INSTALL_METADATA", `Unsafe managed file path: ${relativePath}`);
   }
   const normalized = path.posix.normalize(relativePath);
@@ -127,6 +201,48 @@ export function normalizeManagedPath(relativePath) {
     throw installationError("INVALID_INSTALL_METADATA", `Managed file path is not normalized: ${relativePath}`);
   }
   return normalized;
+}
+
+function portablePathIdentity(relativePath) {
+  return relativePath.normalize("NFC").toLowerCase();
+}
+
+function managedManifestErrors(paths, label) {
+  const errors = [];
+  const byIdentity = new Map();
+  for (const relativePath of paths) {
+    const identity = portablePathIdentity(relativePath);
+    const existing = byIdentity.get(identity);
+    if (existing !== undefined) {
+      errors.push(
+        existing === relativePath
+          ? `${label} contains duplicate path: ${relativePath}`
+          : `${label} contains case or normalization collision: ${existing} and ${relativePath}`,
+      );
+      continue;
+    }
+    byIdentity.set(identity, relativePath);
+  }
+  const identities = [...byIdentity.keys()].sort();
+  for (let index = 0; index < identities.length; index += 1) {
+    for (let nested = index + 1; nested < identities.length; nested += 1) {
+      const parent = identities[index];
+      const candidate = identities[nested];
+      if (candidate.startsWith(`${parent}/`)) {
+        errors.push(
+          `${label} contains file/directory prefix collision: ${byIdentity.get(parent)} and ${byIdentity.get(candidate)}`,
+        );
+      }
+    }
+  }
+  return errors;
+}
+
+function assertManagedManifest(paths, label, errorCode) {
+  const errors = managedManifestErrors(paths, label);
+  if (errors.length > 0) {
+    throw installationError(errorCode, errors.join("; "));
+  }
 }
 
 function isAllowedManagedPath(relativePath) {
@@ -168,6 +284,52 @@ export function resolveScopeLayout({ scope, home, repositoryRoot, pathApi = path
     transactionPath: pathApi.resolve(skillsRoot, TRANSACTION_NAME),
     transactionCompletePath: pathApi.resolve(skillsRoot, TRANSACTION_COMPLETE_NAME),
   });
+}
+
+function assertLocationLayout(location, errorCode = "INVALID_INSTALL_METADATA") {
+  if (!location || typeof location !== "object") {
+    throw installationError(errorCode, "Installation location must be an object");
+  }
+  const expected = resolveScopeLayout({
+    scope: location.scope,
+    home: location.scope === "user" ? location.baseDirectory : undefined,
+    repositoryRoot: location.scope === "project" ? location.baseDirectory : undefined,
+  });
+  for (const key of [
+    "baseDirectory",
+    "agentsRoot",
+    "skillsRoot",
+    "metadataPath",
+    "transactionPath",
+    "transactionCompletePath",
+  ]) {
+    if (
+      typeof location[key] !== "string" ||
+      normalizedComparable(location[key]) !== normalizedComparable(expected[key])
+    ) {
+      throw installationError(errorCode, `Installation location has an unsafe ${key}`);
+    }
+  }
+  return expected;
+}
+
+function resolvePhysicalScopeRoot(directory, label) {
+  const requested = path.resolve(directory);
+  const requestedState = pathState(requested);
+  if (!requestedState || requestedState.isSymbolicLink() || !requestedState.isDirectory()) {
+    throw installationError("SCOPE_RESOLUTION_FAILED", `${label} must be an existing real directory: ${requested}`);
+  }
+  let resolved;
+  try {
+    resolved = realpathSync(requested);
+  } catch (error) {
+    throw installationError("SCOPE_RESOLUTION_FAILED", `Cannot resolve ${label} ${requested}: ${error.message}`, error);
+  }
+  const resolvedState = pathState(resolved);
+  if (!resolvedState?.isDirectory() || resolvedState.isSymbolicLink()) {
+    throw installationError("SCOPE_RESOLUTION_FAILED", `${label} is unsafe: ${resolved}`);
+  }
+  return resolved;
 }
 
 export function resolveUserHome({ env = process.env, platform = process.platform } = {}) {
@@ -218,7 +380,11 @@ export function findRepositoryRoot(startDirectory = process.cwd()) {
     if (state.isSymbolicLink()) {
       throw installationError("SCOPE_RESOLUTION_FAILED", `Refusing symlinked Git marker: ${marker}`);
     }
-    if (state.isDirectory() || state.isFile()) {
+    if (state.isDirectory()) {
+      assertCanonicalRealPath(marker, "Git directory marker", "SCOPE_RESOLUTION_FAILED", directory);
+      return directory;
+    }
+    if (state.isFile()) {
       return directory;
     }
     throw installationError("SCOPE_RESOLUTION_FAILED", `Unsupported Git marker type: ${marker}`);
@@ -236,18 +402,32 @@ export function resolveInstallLocation({
   repositoryRoot,
 } = {}) {
   const resolvedRepositoryRoot = scope === "project" ? repositoryRoot ?? findRepositoryRoot(cwd) : undefined;
-  return resolveScopeLayout({ scope, home, repositoryRoot: resolvedRepositoryRoot });
+  if (!["user", "project"].includes(scope)) {
+    return resolveScopeLayout({ scope, home, repositoryRoot: resolvedRepositoryRoot });
+  }
+  const physicalBase = resolvePhysicalScopeRoot(
+    scope === "user" ? home : resolvedRepositoryRoot,
+    scope === "user" ? "User home" : "Git repository root",
+  );
+  return resolveScopeLayout({
+    scope,
+    home: scope === "user" ? physicalBase : home,
+    repositoryRoot: scope === "project" ? physicalBase : resolvedRepositoryRoot,
+  });
 }
 
-function readJson(filePath, errorCode, label) {
+function readJson(filePath, errorCode, label, options = {}) {
   try {
-    return JSON.parse(readFileSync(filePath, "utf8"));
+    return JSON.parse(readRegularFile(filePath, { label, errorCode, ...options }).toString("utf8"));
   } catch (error) {
+    if (error instanceof SkillInstallationError) {
+      throw error;
+    }
     throw installationError(errorCode, `${label} is not valid JSON at ${filePath}: ${error.message}`, error);
   }
 }
 
-function validateSkillContract(skillDirectory, skillName) {
+function validateSkillContract(skillDirectory, skillName, { errorCode = "INVALID_PACKAGE", trustedRoot } = {}) {
   const errors = [];
   const rootState = pathState(skillDirectory);
   if (!rootState) {
@@ -269,7 +449,25 @@ function validateSkillContract(skillDirectory, skillName) {
   if (errors.length > 0) {
     return errors;
   }
-  const skill = readFileSync(skillPath, "utf8");
+  let skill;
+  let metadata;
+  try {
+    skill = readRegularFile(skillPath, {
+      label: `${skillName}/SKILL.md`,
+      errorCode,
+      trustedRoot,
+      relativePath: trustedRoot ? path.relative(trustedRoot, skillPath).replaceAll("\\", "/") : undefined,
+    }).toString("utf8");
+    metadata = readRegularFile(metadataPath, {
+      label: `${skillName}/agents/openai.yaml`,
+      errorCode,
+      trustedRoot,
+      relativePath: trustedRoot ? path.relative(trustedRoot, metadataPath).replaceAll("\\", "/") : undefined,
+    }).toString("utf8");
+  } catch (error) {
+    errors.push(error.message);
+    return errors;
+  }
   const frontmatter = /^---\r?\n([\s\S]*?)\r?\n---\r?\n/.exec(skill)?.[1];
   if (!frontmatter) {
     errors.push(`${skillName}/SKILL.md has invalid front matter`);
@@ -281,14 +479,13 @@ function validateSkillContract(skillDirectory, skillName) {
       errors.push(`${skillName}/SKILL.md needs a descriptive trigger boundary`);
     }
   }
-  const metadata = readFileSync(metadataPath, "utf8");
   if (!metadata.includes("policy:\n  allow_implicit_invocation: false\n")) {
     errors.push(`${skillName}/agents/openai.yaml must disable implicit invocation`);
   }
   return errors;
 }
 
-function collectSourceTree(sourceDirectory, targetPrefix) {
+function collectSourceTree(sourceDirectory, targetPrefix, sourceRoot) {
   const rootState = pathState(sourceDirectory);
   if (!rootState?.isDirectory() || rootState.isSymbolicLink()) {
     throw installationError("INVALID_PACKAGE", `Packaged source directory is missing or unsafe: ${sourceDirectory}`);
@@ -302,19 +499,27 @@ function collectSourceTree(sourceDirectory, targetPrefix) {
     for (const entry of entries) {
       const sourcePath = path.join(directory, entry.name);
       const relativePath = relativeDirectory ? `${relativeDirectory}/${entry.name}` : entry.name;
-      if (entry.isSymbolicLink()) {
+      const state = pathState(sourcePath);
+      if (!state || entry.isSymbolicLink() || state.isSymbolicLink()) {
         throw installationError("INVALID_PACKAGE", `Packaged source must not contain symlinks: ${sourcePath}`);
       }
-      if (entry.isDirectory()) {
+      if (entry.isDirectory() && state.isDirectory()) {
+        assertCanonicalRealPath(sourcePath, "packaged source directory", "INVALID_PACKAGE", sourceRoot);
         visit(sourcePath, relativePath);
-      } else if (entry.isFile()) {
+      } else if (entry.isFile() && state.isFile()) {
         const targetPath = normalizeManagedPath(`${targetPrefix}/${relativePath}`);
-        const state = lstatSync(sourcePath);
         files.push(
           Object.freeze({
             path: targetPath,
             sourcePath,
-            sha256: hashFile(sourcePath),
+            sourceRoot,
+            sourceRelativePath: path.relative(sourceRoot, sourcePath).replaceAll("\\", "/"),
+            sha256: hashFile(sourcePath, {
+              label: "packaged source file",
+              errorCode: "INVALID_PACKAGE",
+              trustedRoot: sourceRoot,
+              relativePath: path.relative(sourceRoot, sourcePath).replaceAll("\\", "/"),
+            }),
             mode: state.mode & 0o777,
           }),
         );
@@ -330,7 +535,10 @@ function collectSourceTree(sourceDirectory, targetPrefix) {
 
 function validatePluginPackage(sourceRoot, packageJson) {
   const pluginPath = path.join(sourceRoot, ".codex-plugin", "plugin.json");
-  const pluginJson = readJson(pluginPath, "INVALID_PACKAGE", "Plugin manifest");
+  const pluginJson = readJson(pluginPath, "INVALID_PACKAGE", "Plugin manifest", {
+    trustedRoot: sourceRoot,
+    relativePath: ".codex-plugin/plugin.json",
+  });
   const errors = [];
   if (packageJson.name !== packageName) {
     errors.push(`package name must be ${packageName}`);
@@ -368,17 +576,23 @@ export function buildManagedSourceInventory({ sourceRoot = PACKAGE_ROOT } = {}) 
   if (!rootState?.isDirectory() || rootState.isSymbolicLink()) {
     throw installationError("INVALID_PACKAGE", `Packaged source root is missing or unsafe: ${resolvedRoot}`);
   }
-  const packageJson = readJson(path.join(resolvedRoot, "package.json"), "INVALID_PACKAGE", "package.json");
+  const packageJson = readJson(path.join(resolvedRoot, "package.json"), "INVALID_PACKAGE", "package.json", {
+    trustedRoot: resolvedRoot,
+    relativePath: "package.json",
+  });
   validatePluginPackage(resolvedRoot, packageJson);
 
   const files = [];
   for (const skillName of MANAGED_SKILL_NAMES) {
     const skillDirectory = path.join(resolvedRoot, "skills", skillName);
-    const contractErrors = validateSkillContract(skillDirectory, skillName);
+    const contractErrors = validateSkillContract(skillDirectory, skillName, {
+      errorCode: "INVALID_PACKAGE",
+      trustedRoot: resolvedRoot,
+    });
     if (contractErrors.length > 0) {
       throw installationError("INVALID_PACKAGE", `Packaged Skill ${skillName} is malformed:\n- ${contractErrors.join("\n- ")}`);
     }
-    files.push(...collectSourceTree(skillDirectory, skillName));
+    files.push(...collectSourceTree(skillDirectory, skillName, resolvedRoot));
   }
 
   const coreMappings = [
@@ -395,24 +609,31 @@ export function buildManagedSourceInventory({ sourceRoot = PACKAGE_ROOT } = {}) 
       Object.freeze({
         path: targetRelative,
         sourcePath,
-        sha256: hashFile(sourcePath),
+        sourceRoot: resolvedRoot,
+        sourceRelativePath: sourceRelative,
+        sha256: hashFile(sourcePath, {
+          label: "packaged runtime file",
+          errorCode: "INVALID_PACKAGE",
+          trustedRoot: resolvedRoot,
+          relativePath: sourceRelative,
+        }),
         mode: state.mode & 0o777,
       }),
     );
   }
-  files.push(...collectSourceTree(path.join(resolvedRoot, "templates"), ".kyw-dev/runtime/templates"));
+  files.push(
+    ...collectSourceTree(path.join(resolvedRoot, "templates"), ".kyw-dev/runtime/templates", resolvedRoot),
+  );
   files.sort((left, right) => left.path.localeCompare(right.path));
 
-  const paths = new Set();
+  const paths = [];
   for (const file of files) {
     if (!isAllowedManagedPath(file.path)) {
       throw installationError("INVALID_PACKAGE", `Packaged inventory escaped managed containers: ${file.path}`);
     }
-    if (paths.has(file.path)) {
-      throw installationError("INVALID_PACKAGE", `Packaged inventory contains duplicate path: ${file.path}`);
-    }
-    paths.add(file.path);
+    paths.push(file.path);
   }
+  assertManagedManifest(paths, "Packaged inventory", "INVALID_PACKAGE");
   return Object.freeze({
     sourceRoot: resolvedRoot,
     packageName: packageJson.name,
@@ -491,7 +712,7 @@ export function validateInstallMetadata(metadata, { expectedScope } = {}) {
     }
   }
 
-  const filePaths = new Set();
+  const filePaths = [];
   if (!Array.isArray(metadata.files) || metadata.files.length === 0) {
     errors.push("files must be a non-empty array");
   } else {
@@ -509,19 +730,25 @@ export function validateInstallMetadata(metadata, { expectedScope } = {}) {
       if (!isAllowedManagedPath(file.path)) {
         errors.push(`managed file is outside kyw-dev containers: ${file.path}`);
       }
-      if (filePaths.has(file.path)) {
-        errors.push(`duplicate managed file path: ${file.path}`);
-      }
-      filePaths.add(file.path);
+      filePaths.push(file.path);
       if (!sha256Pattern.test(file.sha256 ?? "")) {
         errors.push(`managed file has invalid SHA-256: ${file.path}`);
       }
     }
+    errors.push(...managedManifestErrors(filePaths, "managed file inventory"));
   }
   return errors;
 }
 
 export function readInstallMetadata(location, { required = false } = {}) {
+  assertLocationLayout(location, "INVALID_INSTALL_METADATA");
+  const hasSkillsRoot = assertScopeDirectoryChain(location, {
+    requireSkills: required,
+    errorCode: "INVALID_INSTALL_METADATA",
+  });
+  if (!hasSkillsRoot) {
+    return undefined;
+  }
   const state = pathState(location.metadataPath);
   if (!state) {
     if (required) {
@@ -535,7 +762,10 @@ export function readInstallMetadata(location, { required = false } = {}) {
   if (state.isSymbolicLink() || !state.isFile()) {
     throw installationError("INVALID_INSTALL_METADATA", `Installation metadata is unsafe: ${location.metadataPath}`);
   }
-  const metadata = readJson(location.metadataPath, "INVALID_INSTALL_METADATA", "Installation metadata");
+  const metadata = readJson(location.metadataPath, "INVALID_INSTALL_METADATA", "Installation metadata", {
+    trustedRoot: location.skillsRoot,
+    relativePath: INSTALL_METADATA_NAME,
+  });
   const errors = validateInstallMetadata(metadata, { expectedScope: location.scope });
   if (errors.length > 0) {
     throw installationError(
@@ -546,34 +776,63 @@ export function readInstallMetadata(location, { required = false } = {}) {
   return metadata;
 }
 
-function assertRealDirectory(directory, label) {
+function assertRealDirectory(
+  directory,
+  label,
+  { errorCode = "FILESYSTEM_ERROR", trustedRoot } = {},
+) {
   const state = pathState(directory);
   if (!state) {
     return false;
   }
   if (state.isSymbolicLink() || !state.isDirectory()) {
-    throw installationError("FILESYSTEM_ERROR", `${label} must be a real directory: ${directory}`);
+    throw installationError(errorCode, `${label} must be a real directory: ${directory}`);
   }
+  assertCanonicalRealPath(directory, label, errorCode, trustedRoot);
   return true;
 }
 
-function ensureScopeDirectories(location) {
-  if (!assertRealDirectory(location.baseDirectory, "Scope root")) {
-    throw installationError("SCOPE_RESOLUTION_FAILED", `Scope root does not exist: ${location.baseDirectory}`);
+function assertScopeDirectoryChain(
+  location,
+  { create = false, requireSkills = false, errorCode = "FILESYSTEM_ERROR" } = {},
+) {
+  assertLocationLayout(location, errorCode);
+  if (!assertRealDirectory(location.baseDirectory, "Scope root", { errorCode })) {
+    throw installationError(
+      errorCode === "FILESYSTEM_ERROR" ? "SCOPE_RESOLUTION_FAILED" : errorCode,
+      `Scope root does not exist: ${location.baseDirectory}`,
+    );
   }
   for (const [directory, label] of [
     [location.agentsRoot, "Agents directory"],
     [location.skillsRoot, "Skills directory"],
   ]) {
-    if (!assertRealDirectory(directory, label)) {
+    if (!assertRealDirectory(directory, label, { errorCode, trustedRoot: location.baseDirectory })) {
+      if (!create) {
+        if (requireSkills) {
+          throw installationError(errorCode, `${label} does not exist: ${directory}`);
+        }
+        return false;
+      }
       mkdirSync(directory);
+      if (!assertRealDirectory(directory, label, { errorCode, trustedRoot: location.baseDirectory })) {
+        throw installationError(errorCode, `${label} was not created safely: ${directory}`);
+      }
     }
   }
+  return true;
 }
 
-function assertSafeManagedParents(root, relativePath, { create = false } = {}) {
+function ensureScopeDirectories(location) {
+  assertScopeDirectoryChain(location, { create: true });
+}
+
+function assertSafeManagedParents(root, relativePath, { create = false, errorCode = "FILESYSTEM_ERROR" } = {}) {
   const normalized = normalizeManagedPath(relativePath);
   const segments = normalized.split("/").slice(0, -1);
+  if (!assertRealDirectory(root, "Managed root", { errorCode })) {
+    throw installationError(errorCode, `Managed root does not exist: ${root}`);
+  }
   let current = root;
   for (const segment of segments) {
     current = path.join(current, segment);
@@ -583,11 +842,15 @@ function assertSafeManagedParents(root, relativePath, { create = false } = {}) {
         return;
       }
       mkdirSync(current);
+      if (!assertRealDirectory(current, "Managed path parent", { errorCode, trustedRoot: root })) {
+        throw installationError(errorCode, `Managed path parent was not created safely: ${current}`);
+      }
       continue;
     }
     if (state.isSymbolicLink() || !state.isDirectory()) {
-      throw installationError("FILESYSTEM_ERROR", `Managed path parent is unsafe: ${current}`);
+      throw installationError(errorCode, `Managed path parent is unsafe: ${current}`);
     }
+    assertCanonicalRealPath(current, "Managed path parent", errorCode, root);
   }
 }
 
@@ -604,7 +867,14 @@ function knownManagedDirectories(filePaths) {
   return directories;
 }
 
-function scanManagedContainer(location, containerPath, knownFiles, knownDirectories, result) {
+function scanManagedContainer(
+  location,
+  containerPath,
+  knownFiles,
+  knownDirectories,
+  knownPathsByIdentity,
+  result,
+) {
   const absoluteContainer = resolveManagedPath(location.skillsRoot, containerPath);
   const state = pathState(absoluteContainer);
   if (!state) {
@@ -612,6 +882,17 @@ function scanManagedContainer(location, containerPath, knownFiles, knownDirector
     return;
   }
   if (state.isSymbolicLink() || !state.isDirectory()) {
+    result.unsafe.push(containerPath);
+    return;
+  }
+  try {
+    assertCanonicalRealPath(
+      absoluteContainer,
+      "managed container",
+      "INVALID_INSTALL_METADATA",
+      location.skillsRoot,
+    );
+  } catch {
     result.unsafe.push(containerPath);
     return;
   }
@@ -624,18 +905,38 @@ function scanManagedContainer(location, containerPath, knownFiles, knownDirector
     for (const entry of entries) {
       const absolute = path.join(directory, entry.name);
       const relative = `${relativeDirectory}/${entry.name}`;
-      if (entry.isSymbolicLink()) {
+      const expected = knownPathsByIdentity.get(portablePathIdentity(relative));
+      if (expected !== undefined && expected !== relative) {
+        result.unsafe.push(`${relative} (collides with ${expected})`);
+        continue;
+      }
+      const entryState = pathState(absolute);
+      if (!entryState) {
+        result.unsafe.push(relative);
+      } else if (entry.isSymbolicLink() || entryState.isSymbolicLink()) {
         if (knownFiles.has(relative) || knownDirectories.has(relative)) {
           result.unsafe.push(relative);
         } else {
           result.unknown.push(relative);
         }
-      } else if (entry.isDirectory()) {
+      } else if (entry.isDirectory() && entryState.isDirectory()) {
         if (!knownDirectories.has(relative)) {
           result.unknown.push(`${relative}/`);
+          continue;
+        }
+        try {
+          assertCanonicalRealPath(
+            absolute,
+            "managed directory",
+            "INVALID_INSTALL_METADATA",
+            location.skillsRoot,
+          );
+        } catch {
+          result.unsafe.push(relative);
+          continue;
         }
         visit(absolute, relative);
-      } else if (entry.isFile()) {
+      } else if (entry.isFile() && entryState.isFile()) {
         if (!knownFiles.has(relative)) {
           result.unknown.push(relative);
         }
@@ -648,8 +949,23 @@ function scanManagedContainer(location, containerPath, knownFiles, knownDirector
 }
 
 export function inspectManagedInstallation(location, metadata) {
+  assertLocationLayout(location, "INVALID_INSTALL_METADATA");
+  assertScopeDirectoryChain(location, {
+    requireSkills: true,
+    errorCode: "INVALID_INSTALL_METADATA",
+  });
+  const metadataErrors = validateInstallMetadata(metadata, { expectedScope: location.scope });
+  if (metadataErrors.length > 0) {
+    throw installationError(
+      "INVALID_INSTALL_METADATA",
+      `Cannot inspect malformed installation metadata:\n- ${metadataErrors.join("\n- ")}`,
+    );
+  }
   const knownFiles = new Set(metadata.files.map((file) => file.path));
   const knownDirectories = knownManagedDirectories(knownFiles);
+  const knownPathsByIdentity = new Map(
+    [...knownFiles, ...knownDirectories].map((relativePath) => [portablePathIdentity(relativePath), relativePath]),
+  );
   const result = {
     missing: [],
     modified: [],
@@ -658,9 +974,16 @@ export function inspectManagedInstallation(location, metadata) {
     missingContainers: [],
     existingFiles: new Map(),
   };
+  result.unsafe.push(...listManagedRootIdentityCollisions(location.skillsRoot));
 
   for (const file of metadata.files) {
     const target = resolveManagedPath(location.skillsRoot, file.path);
+    try {
+      assertSafeManagedParents(location.skillsRoot, file.path, { errorCode: "INVALID_INSTALL_METADATA" });
+    } catch {
+      result.unsafe.push(file.path);
+      continue;
+    }
     const state = pathState(target);
     if (!state) {
       result.missing.push(file.path);
@@ -670,7 +993,18 @@ export function inspectManagedInstallation(location, metadata) {
       result.unsafe.push(file.path);
       continue;
     }
-    const actualHash = hashFile(target);
+    let actualHash;
+    try {
+      actualHash = hashFile(target, {
+        label: "managed file",
+        errorCode: "INVALID_INSTALL_METADATA",
+        trustedRoot: location.skillsRoot,
+        relativePath: file.path,
+      });
+    } catch {
+      result.unsafe.push(file.path);
+      continue;
+    }
     result.existingFiles.set(file.path, actualHash);
     if (actualHash !== file.sha256) {
       result.modified.push(file.path);
@@ -678,7 +1012,14 @@ export function inspectManagedInstallation(location, metadata) {
   }
 
   for (const container of [...MANAGED_SKILL_NAMES, ".kyw-dev/runtime"]) {
-    scanManagedContainer(location, container, knownFiles, knownDirectories, result);
+    scanManagedContainer(
+      location,
+      container,
+      knownFiles,
+      knownDirectories,
+      knownPathsByIdentity,
+      result,
+    );
   }
   for (const key of ["missing", "modified", "unknown", "unsafe", "missingContainers"]) {
     result[key] = [...new Set(result[key])].sort();
@@ -701,6 +1042,36 @@ function stateConflictSummary(state) {
   return details;
 }
 
+function listManagedRootIdentityCollisions(skillsRoot) {
+  const state = pathState(skillsRoot);
+  if (!state?.isDirectory() || state.isSymbolicLink()) {
+    return [];
+  }
+  const exactNames = [
+    ...MANAGED_SKILL_NAMES,
+    ".kyw-dev",
+    INSTALL_METADATA_NAME,
+    TRANSACTION_NAME,
+    TRANSACTION_COMPLETE_NAME,
+  ];
+  const expectedByIdentity = new Map(exactNames.map((name) => [portablePathIdentity(name), name]));
+  const collisions = [];
+  for (const name of readdirSync(skillsRoot)) {
+    const identity = portablePathIdentity(name);
+    const expected = expectedByIdentity.get(identity);
+    if (expected !== undefined && name !== expected) {
+      collisions.push(`${name} (collides with ${expected})`);
+      continue;
+    }
+    for (const prefix of [stagePrefix, backupPrefix]) {
+      if (identity.startsWith(portablePathIdentity(prefix)) && !name.startsWith(prefix)) {
+        collisions.push(`${name} (collides with ${prefix}*)`);
+      }
+    }
+  }
+  return collisions.sort();
+}
+
 function directManagedContainers(location) {
   return [...MANAGED_SKILL_NAMES, ".kyw-dev/runtime"].filter((relativePath) =>
     Boolean(pathState(resolveManagedPath(location.skillsRoot, relativePath))),
@@ -714,17 +1085,22 @@ function listReservedArtifacts(skillsRoot) {
   }
   return readdirSync(skillsRoot)
     .filter(
-      (name) =>
-        name === TRANSACTION_NAME ||
-        name === TRANSACTION_COMPLETE_NAME ||
-        name.startsWith(stagePrefix) ||
-        name.startsWith(backupPrefix),
+      (name) => {
+        const identity = portablePathIdentity(name);
+        return (
+          identity === portablePathIdentity(TRANSACTION_NAME) ||
+          identity === portablePathIdentity(TRANSACTION_COMPLETE_NAME) ||
+          identity.startsWith(portablePathIdentity(stagePrefix)) ||
+          identity.startsWith(portablePathIdentity(backupPrefix))
+        );
+      },
     )
     .sort();
 }
 
 function validateTransactionName(name, prefix) {
-  if (typeof name !== "string" || !name.startsWith(prefix) || !/^[-.a-z0-9]+$/i.test(name)) {
+  const identifier = typeof name === "string" && name.startsWith(prefix) ? name.slice(prefix.length) : "";
+  if (typeof name !== "string" || name !== `${prefix}${identifier}` || !transactionIdPattern.test(identifier)) {
     throw installationError("RECOVERY_REQUIRED", `Transaction contains an unsafe reserved path: ${name}`);
   }
   return name;
@@ -747,18 +1123,24 @@ function validateTransaction(transaction, location) {
     if (!Number.isInteger(transaction.processId) || transaction.processId < 1) {
       errors.push("processId must be a positive integer");
     }
+    if (transaction.force === undefined) {
+      transaction.force = false;
+    } else if (typeof transaction.force !== "boolean") {
+      errors.push("force must be boolean");
+    }
     try {
       validateTransactionName(transaction.stageDirectory, stagePrefix);
       validateTransactionName(transaction.backupDirectory, backupPrefix);
     } catch (error) {
       errors.push(error.message);
     }
+    const allPaths = [];
     for (const key of ["oldFiles", "newFiles"]) {
       if (!Array.isArray(transaction[key])) {
         errors.push(`${key} must be an array`);
         continue;
       }
-      const seen = new Set();
+      const paths = [];
       for (const entry of transaction[key]) {
         try {
           normalizeManagedPath(entry?.path);
@@ -769,18 +1151,60 @@ function validateTransaction(transaction, location) {
         if (!isAllowedManagedPath(entry.path) || !sha256Pattern.test(entry.sha256 ?? "")) {
           errors.push(`${key} contains an invalid managed entry: ${entry.path}`);
         }
-        if (seen.has(entry.path)) {
-          errors.push(`${key} contains duplicate path: ${entry.path}`);
+        if (
+          key === "oldFiles" &&
+          entry.ownedSha256 !== undefined &&
+          !sha256Pattern.test(entry.ownedSha256)
+        ) {
+          errors.push(`${key} contains an invalid ownership hash: ${entry.path}`);
         }
-        seen.add(entry.path);
+        paths.push(entry.path);
+        allPaths.push(entry.path);
       }
+      errors.push(...managedManifestErrors(paths, key));
     }
+    const uniqueAllPaths = [...new Set(allPaths)];
+    errors.push(...managedManifestErrors(uniqueAllPaths, "transaction inventory"));
     if (typeof transaction.hadOldMetadata !== "boolean") {
       errors.push("hadOldMetadata must be boolean");
     }
     for (const key of ["oldMetadataHash", "newMetadataHash"]) {
       if (transaction[key] !== null && !sha256Pattern.test(transaction[key] ?? "")) {
         errors.push(`${key} must be null or a SHA-256 hash`);
+      }
+    }
+    if (transaction.operation === "install") {
+      if (
+        transaction.hadOldMetadata ||
+        transaction.oldMetadataHash !== null ||
+        transaction.force ||
+        transaction.oldFiles?.length !== 0 ||
+        transaction.newFiles?.length === 0 ||
+        transaction.newMetadataHash === null
+      ) {
+        errors.push("install transaction ownership fields are inconsistent");
+      }
+    } else if (transaction.operation === "update") {
+      if (
+        !transaction.hadOldMetadata ||
+        transaction.oldMetadataHash === null ||
+        transaction.force ||
+        transaction.newMetadataHash === null ||
+        transaction.oldFiles?.length === 0 ||
+        transaction.newFiles?.length === 0
+      ) {
+        errors.push("update transaction ownership fields are inconsistent");
+      }
+    } else if (transaction.operation === "uninstall") {
+      if (
+        !transaction.hadOldMetadata ||
+        transaction.oldMetadataHash === null ||
+        transaction.newMetadataHash !== null ||
+        typeof transaction.force !== "boolean" ||
+        transaction.oldFiles?.length === 0 ||
+        transaction.newFiles?.length !== 0
+      ) {
+        errors.push("uninstall transaction ownership fields are inconsistent");
       }
     }
   }
@@ -793,23 +1217,123 @@ function validateTransaction(transaction, location) {
   return transaction;
 }
 
-function removeReservedDirectory(location, name, prefix) {
+function reservedDirectoryPath(location, name, prefix) {
   validateTransactionName(name, prefix);
   const directory = path.resolve(location.skillsRoot, name);
   if (!isPathInside(location.skillsRoot, directory) || directory === path.resolve(location.skillsRoot)) {
     throw installationError("RECOVERY_REQUIRED", `Refusing to remove unsafe transaction directory: ${directory}`);
   }
+  return directory;
+}
+
+function expectedReservedFiles(transaction, kind) {
+  const expected = new Map();
+  if (kind === "stage") {
+    for (const entry of transaction.newFiles) {
+      expected.set(entry.path, entry.sha256);
+    }
+    if (transaction.newMetadataHash) {
+      expected.set(INSTALL_METADATA_NAME, transaction.newMetadataHash);
+    }
+  } else {
+    for (const entry of transaction.oldFiles) {
+      expected.set(entry.path, entry.sha256);
+    }
+    if (transaction.oldMetadataHash) {
+      expected.set(INSTALL_METADATA_NAME, transaction.oldMetadataHash);
+    }
+    expected.set(commitStartedName, hashBuffer(Buffer.from(commitStartedText, "utf8")));
+  }
+  return expected;
+}
+
+function validateReservedDirectory(location, transaction, kind) {
+  const isStage = kind === "stage";
+  const name = isStage ? transaction.stageDirectory : transaction.backupDirectory;
+  const prefix = isStage ? stagePrefix : backupPrefix;
+  const directory = reservedDirectoryPath(location, name, prefix);
+  const state = pathState(directory);
+  if (!state) {
+    return directory;
+  }
+  if (state.isSymbolicLink() || !state.isDirectory()) {
+    throw installationError("RECOVERY_REQUIRED", `Transaction path is not a real directory: ${directory}`);
+  }
+  assertCanonicalRealPath(directory, "transaction directory", "RECOVERY_REQUIRED", location.skillsRoot);
+  const expected = expectedReservedFiles(transaction, kind);
+  const expectedByIdentity = new Map(
+    [...expected.keys()].map((relativePath) => [portablePathIdentity(relativePath), relativePath]),
+  );
+  const knownDirectories = new Set();
+  for (const relativePath of expected.keys()) {
+    const segments = relativePath.split("/");
+    for (let index = 1; index < segments.length; index += 1) {
+      knownDirectories.add(segments.slice(0, index).join("/"));
+    }
+  }
+
+  function visit(current, relativeDirectory = "") {
+    for (const entry of readdirSync(current, { withFileTypes: true })) {
+      const relativePath = relativeDirectory ? `${relativeDirectory}/${entry.name}` : entry.name;
+      const absolute = path.join(current, entry.name);
+      const expectedPath = expectedByIdentity.get(portablePathIdentity(relativePath));
+      if (expectedPath !== undefined && expectedPath !== relativePath) {
+        throw installationError(
+          "RECOVERY_REQUIRED",
+          `Transaction path case-collides with ${expectedPath}: ${absolute}`,
+        );
+      }
+      const entryState = pathState(absolute);
+      if (!entryState || entry.isSymbolicLink() || entryState.isSymbolicLink()) {
+        throw installationError("RECOVERY_REQUIRED", `Transaction contains an unsafe entry: ${absolute}`);
+      }
+      if (entry.isDirectory() && entryState.isDirectory()) {
+        if (!knownDirectories.has(relativePath)) {
+          throw installationError("RECOVERY_REQUIRED", `Transaction contains an unknown directory: ${absolute}`);
+        }
+        assertCanonicalRealPath(absolute, "transaction directory", "RECOVERY_REQUIRED", directory);
+        visit(absolute, relativePath);
+      } else if (entry.isFile() && entryState.isFile()) {
+        const expectedHash = expected.get(relativePath);
+        if (!expectedHash) {
+          throw installationError("RECOVERY_REQUIRED", `Transaction contains an unknown file: ${absolute}`);
+        }
+        if (
+          hashFile(absolute, {
+            label: "transaction file",
+            errorCode: "RECOVERY_REQUIRED",
+            trustedRoot: directory,
+            relativePath,
+          }) !== expectedHash
+        ) {
+          throw installationError("RECOVERY_REQUIRED", `Transaction file changed unexpectedly: ${absolute}`);
+        }
+      } else {
+        throw installationError("RECOVERY_REQUIRED", `Transaction contains an unsupported entry: ${absolute}`);
+      }
+    }
+  }
+  visit(directory);
+  return directory;
+}
+
+function removeReservedDirectory(location, transaction, kind) {
+  const directory = validateReservedDirectory(location, transaction, kind);
   const state = pathState(directory);
   if (!state) {
     return;
   }
   if (state.isSymbolicLink() || !state.isDirectory()) {
-    throw installationError("RECOVERY_REQUIRED", `Transaction path is not a real directory: ${directory}`);
+    throw installationError("RECOVERY_REQUIRED", `Transaction directory became unsafe: ${directory}`);
   }
+  assertCanonicalRealPath(directory, "transaction directory", "RECOVERY_REQUIRED", location.skillsRoot);
   rmSync(directory, { recursive: true, force: true });
+  if (pathState(directory)) {
+    throw installationError("RECOVERY_REQUIRED", `Transaction directory remained after cleanup: ${directory}`);
+  }
 }
 
-function removeKnownFile(filePath, expectedHash, label) {
+function removeKnownFile(filePath, expectedHash, label, { trustedRoot, relativePath } = {}) {
   const state = pathState(filePath);
   if (!state) {
     return;
@@ -817,24 +1341,38 @@ function removeKnownFile(filePath, expectedHash, label) {
   if (state.isSymbolicLink() || !state.isFile()) {
     throw installationError("RECOVERY_REQUIRED", `Cannot recover through unsafe ${label}: ${filePath}`);
   }
-  if (hashFile(filePath) !== expectedHash) {
+  if (
+    hashFile(filePath, {
+      label,
+      errorCode: "RECOVERY_REQUIRED",
+      trustedRoot,
+      relativePath,
+    }) !== expectedHash
+  ) {
     throw installationError(
       "RECOVERY_REQUIRED",
       `Cannot remove concurrently modified ${label} during recovery: ${filePath}`,
     );
   }
   unlinkSync(filePath);
+  if (pathState(filePath)) {
+    throw installationError("RECOVERY_REQUIRED", `${label} remained after cleanup: ${filePath}`);
+  }
 }
 
-function pruneManagedDirectories(location, filePaths) {
+function pruneManagedDirectories(location, filePaths, { errorCode = "FILESYSTEM_ERROR" } = {}) {
   const directories = [...knownManagedDirectories(filePaths)]
     .sort((left, right) => right.split("/").length - left.split("/").length || right.localeCompare(left));
   for (const relativeDirectory of directories) {
     const directory = resolveManagedPath(location.skillsRoot, relativeDirectory);
     const state = pathState(directory);
-    if (!state || state.isSymbolicLink() || !state.isDirectory()) {
+    if (!state) {
       continue;
     }
+    if (state.isSymbolicLink() || !state.isDirectory()) {
+      throw installationError(errorCode, `Managed directory became unsafe before pruning: ${directory}`);
+    }
+    assertCanonicalRealPath(directory, "managed directory", errorCode, location.skillsRoot);
     try {
       rmdirSync(directory);
     } catch (error) {
@@ -845,15 +1383,175 @@ function pruneManagedDirectories(location, filePaths) {
   }
 }
 
-function cleanupPublishedTransaction(location, transaction) {
-  removeReservedDirectory(location, transaction.stageDirectory, stagePrefix);
-  removeReservedDirectory(location, transaction.backupDirectory, backupPrefix);
-  if (existsSync(location.transactionPath)) {
-    unlinkSync(location.transactionPath);
+function parseMetadataBuffer(buffer, filePath, expectedScope) {
+  let metadata;
+  try {
+    metadata = JSON.parse(buffer.toString("utf8"));
+  } catch (error) {
+    throw installationError(
+      "RECOVERY_REQUIRED",
+      `Transaction ownership metadata is malformed at ${filePath}: ${error.message}`,
+      error,
+    );
   }
-  if (existsSync(location.transactionCompletePath)) {
-    unlinkSync(location.transactionCompletePath);
+  const errors = validateInstallMetadata(metadata, { expectedScope });
+  if (errors.length > 0) {
+    throw installationError(
+      "RECOVERY_REQUIRED",
+      `Transaction ownership metadata is invalid at ${filePath}: ${errors.join("; ")}`,
+    );
   }
+  return metadata;
+}
+
+function findMetadataProof(candidates, expectedHash, scope, label) {
+  const matches = [];
+  for (const candidate of candidates) {
+    if (!pathState(candidate.filePath)) {
+      continue;
+    }
+    const buffer = readRegularFile(candidate.filePath, {
+      label,
+      errorCode: "RECOVERY_REQUIRED",
+      trustedRoot: candidate.trustedRoot,
+      relativePath: candidate.relativePath,
+    });
+    if (hashBuffer(buffer) === expectedHash) {
+      matches.push({
+        ...candidate,
+        metadata: parseMetadataBuffer(buffer, candidate.filePath, scope),
+      });
+    }
+  }
+  if (matches.length !== 1) {
+    throw installationError(
+      "RECOVERY_REQUIRED",
+      `Cannot prove exactly one ${label} snapshot for the interrupted transaction`,
+    );
+  }
+  return matches[0];
+}
+
+function assertMetadataInventory(metadata, entries, label, { exact }) {
+  const metadataByPath = new Map(metadata.files.map((entry) => [entry.path, entry.sha256]));
+  for (const entry of entries) {
+    const ownedHash = entry.ownedSha256 ?? entry.sha256;
+    if (metadataByPath.get(entry.path) !== ownedHash) {
+      throw installationError(
+        "RECOVERY_REQUIRED",
+        `${label} does not prove ownership of ${entry.path}`,
+      );
+    }
+  }
+  if (exact && metadata.files.length !== entries.length) {
+    throw installationError("RECOVERY_REQUIRED", `${label} inventory does not match the transaction`);
+  }
+}
+
+function assertTransactionOwnershipProof(location, transaction) {
+  const stageRoot = reservedDirectoryPath(location, transaction.stageDirectory, stagePrefix);
+  const backupRoot = reservedDirectoryPath(location, transaction.backupDirectory, backupPrefix);
+  let oldProof;
+  let newProof;
+  if (transaction.hadOldMetadata) {
+    oldProof = findMetadataProof(
+      [
+        {
+          filePath: location.metadataPath,
+          trustedRoot: location.skillsRoot,
+          relativePath: INSTALL_METADATA_NAME,
+        },
+        {
+          filePath: path.join(backupRoot, INSTALL_METADATA_NAME),
+          trustedRoot: backupRoot,
+          relativePath: INSTALL_METADATA_NAME,
+        },
+      ],
+      transaction.oldMetadataHash,
+      location.scope,
+      "old installation metadata",
+    );
+    assertMetadataInventory(oldProof.metadata, transaction.oldFiles, "old installation metadata", {
+      exact: transaction.operation === "update",
+    });
+  }
+  if (transaction.newMetadataHash) {
+    newProof = findMetadataProof(
+      [
+        {
+          filePath: path.join(stageRoot, INSTALL_METADATA_NAME),
+          trustedRoot: stageRoot,
+          relativePath: INSTALL_METADATA_NAME,
+        },
+        {
+          filePath: location.metadataPath,
+          trustedRoot: location.skillsRoot,
+          relativePath: INSTALL_METADATA_NAME,
+        },
+      ],
+      transaction.newMetadataHash,
+      location.scope,
+      "new installation metadata",
+    );
+    assertMetadataInventory(newProof.metadata, transaction.newFiles, "new installation metadata", {
+      exact: true,
+    });
+  }
+  return { oldProof, newProof };
+}
+
+function assertCommittedTransactionState(location, transaction) {
+  const proofs = assertTransactionOwnershipProof(location, transaction);
+  if (transaction.newMetadataHash) {
+    if (normalizedComparable(proofs.newProof.filePath) !== normalizedComparable(location.metadataPath)) {
+      throw installationError("RECOVERY_REQUIRED", "Commit-complete state did not publish installation metadata");
+    }
+    for (const entry of transaction.newFiles) {
+      const target = resolveManagedPath(location.skillsRoot, entry.path);
+      if (
+        hashFile(target, {
+          label: "published managed file",
+          errorCode: "RECOVERY_REQUIRED",
+          trustedRoot: location.skillsRoot,
+          relativePath: entry.path,
+        }) !== entry.sha256
+      ) {
+        throw installationError("RECOVERY_REQUIRED", `Published managed file changed: ${target}`);
+      }
+    }
+  } else {
+    if (pathState(location.metadataPath)) {
+      throw installationError("RECOVERY_REQUIRED", `Uninstall metadata unexpectedly remains: ${location.metadataPath}`);
+    }
+    for (const entry of proofs.oldProof.metadata.files) {
+      const target = resolveManagedPath(location.skillsRoot, entry.path);
+      assertSafeManagedParents(location.skillsRoot, entry.path, { errorCode: "RECOVERY_REQUIRED" });
+      if (pathState(target)) {
+        throw installationError(
+          "RECOVERY_REQUIRED",
+          `A path appeared after committed uninstall and was preserved: ${target}`,
+        );
+      }
+    }
+  }
+}
+
+function cleanupPublishedTransaction(location, transaction, journalHash) {
+  validateReservedDirectory(location, transaction, "stage");
+  validateReservedDirectory(location, transaction, "backup");
+  assertCommittedTransactionState(location, transaction);
+  removeReservedDirectory(location, transaction, "stage");
+  removeReservedDirectory(location, transaction, "backup");
+  removeKnownFile(location.transactionPath, journalHash, "transaction journal", {
+    trustedRoot: location.skillsRoot,
+    relativePath: TRANSACTION_NAME,
+  });
+  removeKnownFile(
+    location.transactionCompletePath,
+    hashBuffer(Buffer.from(commitCompleteText, "utf8")),
+    "transaction completion marker",
+    { trustedRoot: location.skillsRoot, relativePath: TRANSACTION_COMPLETE_NAME },
+  );
 }
 
 function isProcessAlive(processId) {
@@ -868,21 +1566,38 @@ function isProcessAlive(processId) {
   }
 }
 
-function rollbackPublishedTransaction(location, transaction) {
-  const stageRoot = path.join(location.skillsRoot, transaction.stageDirectory);
-  const backupRoot = path.join(location.skillsRoot, transaction.backupDirectory);
+function rollbackPublishedTransaction(location, transaction, journalHash) {
+  const stageRoot = validateReservedDirectory(location, transaction, "stage");
+  const backupRoot = validateReservedDirectory(location, transaction, "backup");
   const commitStartedPath = path.join(backupRoot, commitStartedName);
-  const commitStarted = pathState(commitStartedPath)?.isFile() ?? false;
+  const commitStarted = Boolean(pathState(commitStartedPath));
   const oldByPath = new Map(transaction.oldFiles.map((entry) => [entry.path, entry]));
 
   if (commitStarted) {
+    if (
+      hashFile(commitStartedPath, {
+        label: "commit-started marker",
+        errorCode: "RECOVERY_REQUIRED",
+        trustedRoot: backupRoot,
+        relativePath: commitStartedName,
+      }) !== hashBuffer(Buffer.from(commitStartedText, "utf8"))
+    ) {
+      throw installationError("RECOVERY_REQUIRED", `Commit-started marker changed: ${commitStartedPath}`);
+    }
+    assertTransactionOwnershipProof(location, transaction);
     for (const entry of transaction.newFiles) {
       const target = resolveManagedPath(location.skillsRoot, entry.path);
       const backup = resolveManagedPath(backupRoot, entry.path);
       if (pathState(backup)) {
-        removeKnownFile(target, entry.sha256, "new managed file");
+        removeKnownFile(target, entry.sha256, "new managed file", {
+          trustedRoot: location.skillsRoot,
+          relativePath: entry.path,
+        });
       } else if (!oldByPath.has(entry.path)) {
-        removeKnownFile(target, entry.sha256, "new managed file");
+        removeKnownFile(target, entry.sha256, "new managed file", {
+          trustedRoot: location.skillsRoot,
+          relativePath: entry.path,
+        });
       }
     }
 
@@ -895,66 +1610,117 @@ function rollbackPublishedTransaction(location, transaction) {
       if (backupState.isSymbolicLink() || !backupState.isFile()) {
         throw installationError("RECOVERY_REQUIRED", `Backup file is unsafe: ${backup}`);
       }
+      if (
+        hashFile(backup, {
+          label: "backup managed file",
+          errorCode: "RECOVERY_REQUIRED",
+          trustedRoot: backupRoot,
+          relativePath: entry.path,
+        }) !== entry.sha256
+      ) {
+        throw installationError("RECOVERY_REQUIRED", `Backup managed file changed: ${backup}`);
+      }
       const target = resolveManagedPath(location.skillsRoot, entry.path);
       if (pathState(target)) {
         throw installationError("RECOVERY_REQUIRED", `Cannot restore managed file over unexpected path: ${target}`);
       }
-      assertSafeManagedParents(location.skillsRoot, entry.path, { create: true });
+      assertSafeManagedParents(location.skillsRoot, entry.path, {
+        create: true,
+        errorCode: "RECOVERY_REQUIRED",
+      });
       renameSync(backup, target);
+      if (
+        hashFile(target, {
+          label: "restored managed file",
+          errorCode: "RECOVERY_REQUIRED",
+          trustedRoot: location.skillsRoot,
+          relativePath: entry.path,
+        }) !== entry.sha256
+      ) {
+        throw installationError("RECOVERY_REQUIRED", `Restored managed file changed: ${target}`);
+      }
     }
 
     const backupMetadata = path.join(backupRoot, INSTALL_METADATA_NAME);
     if (transaction.hadOldMetadata && pathState(backupMetadata)?.isFile()) {
       if (pathState(location.metadataPath)) {
-        removeKnownFile(location.metadataPath, transaction.newMetadataHash, "new installation metadata");
+        removeKnownFile(location.metadataPath, transaction.newMetadataHash, "new installation metadata", {
+          trustedRoot: location.skillsRoot,
+          relativePath: INSTALL_METADATA_NAME,
+        });
+      }
+      if (
+        hashFile(backupMetadata, {
+          label: "backup installation metadata",
+          errorCode: "RECOVERY_REQUIRED",
+          trustedRoot: backupRoot,
+          relativePath: INSTALL_METADATA_NAME,
+        }) !== transaction.oldMetadataHash
+      ) {
+        throw installationError("RECOVERY_REQUIRED", `Backup metadata changed: ${backupMetadata}`);
       }
       renameSync(backupMetadata, location.metadataPath);
     } else if (!transaction.hadOldMetadata && transaction.newMetadataHash && pathState(location.metadataPath)) {
-      removeKnownFile(location.metadataPath, transaction.newMetadataHash, "new installation metadata");
+      removeKnownFile(location.metadataPath, transaction.newMetadataHash, "new installation metadata", {
+        trustedRoot: location.skillsRoot,
+        relativePath: INSTALL_METADATA_NAME,
+      });
     }
     pruneManagedDirectories(
       location,
       [...transaction.oldFiles, ...transaction.newFiles].map((entry) => entry.path),
+      { errorCode: "RECOVERY_REQUIRED" },
     );
   }
 
-  removeReservedDirectory(location, transaction.stageDirectory, stagePrefix);
-  removeReservedDirectory(location, transaction.backupDirectory, backupPrefix);
+  removeReservedDirectory(location, transaction, "stage");
+  removeReservedDirectory(location, transaction, "backup");
   if (pathState(location.transactionCompletePath)) {
-    unlinkSync(location.transactionCompletePath);
+    throw installationError(
+      "RECOVERY_REQUIRED",
+      `Unexpected completion marker prevented rollback: ${location.transactionCompletePath}`,
+    );
   }
-  unlinkSync(location.transactionPath);
+  removeKnownFile(location.transactionPath, journalHash, "transaction journal", {
+    trustedRoot: location.skillsRoot,
+    relativePath: TRANSACTION_NAME,
+  });
   return Object.freeze({ recovered: true, action: commitStarted ? "rolled-back" : "discarded-stage" });
 }
 
 export function recoverInterruptedInstallation(location) {
-  const skillsState = pathState(location.skillsRoot);
-  if (!skillsState) {
+  assertLocationLayout(location, "RECOVERY_REQUIRED");
+  if (!assertScopeDirectoryChain(location, { errorCode: "RECOVERY_REQUIRED" })) {
     return Object.freeze({ recovered: false, action: "none" });
   }
-  if (skillsState.isSymbolicLink() || !skillsState.isDirectory()) {
-    throw installationError("RECOVERY_REQUIRED", `Skills root is unsafe: ${location.skillsRoot}`);
+  const identityCollisions = listManagedRootIdentityCollisions(location.skillsRoot);
+  if (identityCollisions.length > 0) {
+    throw installationError(
+      "RECOVERY_REQUIRED",
+      `Skills root contains case-colliding managed paths: ${identityCollisions.join(", ")}`,
+    );
   }
 
   const transactionState = pathState(location.transactionPath);
   if (!transactionState) {
     const completeState = pathState(location.transactionCompletePath);
-    if (completeState) {
-      if (completeState.isSymbolicLink() || !completeState.isFile()) {
-        throw installationError(
-          "RECOVERY_REQUIRED",
-          `Transaction completion marker is unsafe: ${location.transactionCompletePath}`,
-        );
-      }
-      unlinkSync(location.transactionCompletePath);
-    }
     const leftovers = listReservedArtifacts(location.skillsRoot).filter(
-      (name) => name.startsWith(stagePrefix) || name.startsWith(backupPrefix),
+      (name) =>
+        portablePathIdentity(name).startsWith(portablePathIdentity(stagePrefix)) ||
+        portablePathIdentity(name).startsWith(portablePathIdentity(backupPrefix)),
     );
     if (leftovers.length > 0) {
       throw installationError(
         "RECOVERY_REQUIRED",
         `Orphaned kyw-dev transaction paths require manual inspection: ${leftovers.join(", ")}`,
+      );
+    }
+    if (completeState) {
+      removeKnownFile(
+        location.transactionCompletePath,
+        hashBuffer(Buffer.from(commitCompleteText, "utf8")),
+        "orphaned transaction completion marker",
+        { trustedRoot: location.skillsRoot, relativePath: TRANSACTION_COMPLETE_NAME },
       );
     }
     return Object.freeze({ recovered: false, action: "none" });
@@ -963,8 +1729,16 @@ export function recoverInterruptedInstallation(location) {
     throw installationError("RECOVERY_REQUIRED", `Transaction journal is unsafe: ${location.transactionPath}`);
   }
   let transaction;
+  let journalHash;
   try {
-    transaction = validateTransaction(JSON.parse(readFileSync(location.transactionPath, "utf8")), location);
+    const journalBuffer = readRegularFile(location.transactionPath, {
+      label: "transaction journal",
+      errorCode: "RECOVERY_REQUIRED",
+      trustedRoot: location.skillsRoot,
+      relativePath: TRANSACTION_NAME,
+    });
+    journalHash = hashBuffer(journalBuffer);
+    transaction = validateTransaction(JSON.parse(journalBuffer.toString("utf8")), location);
   } catch (error) {
     if (error instanceof SkillInstallationError) {
       throw error;
@@ -976,6 +1750,22 @@ export function recoverInterruptedInstallation(location) {
     );
   }
 
+  const allowedReservedArtifacts = new Set([
+    TRANSACTION_NAME,
+    TRANSACTION_COMPLETE_NAME,
+    transaction.stageDirectory,
+    transaction.backupDirectory,
+  ]);
+  const unexpectedReservedArtifacts = listReservedArtifacts(location.skillsRoot).filter(
+    (name) => !allowedReservedArtifacts.has(name),
+  );
+  if (unexpectedReservedArtifacts.length > 0) {
+    throw installationError(
+      "RECOVERY_REQUIRED",
+      `Transaction has unrelated reserved paths requiring inspection: ${unexpectedReservedArtifacts.join(", ")}`,
+    );
+  }
+
   if (transaction.processId !== process.pid && isProcessAlive(transaction.processId)) {
     throw installationError(
       "INSTALL_CONFLICT",
@@ -983,16 +1773,39 @@ export function recoverInterruptedInstallation(location) {
     );
   }
 
-  if (pathState(location.transactionCompletePath)?.isFile()) {
-    cleanupPublishedTransaction(location, transaction);
+  const completeState = pathState(location.transactionCompletePath);
+  if (completeState) {
+    if (completeState.isSymbolicLink() || !completeState.isFile()) {
+      throw installationError(
+        "RECOVERY_REQUIRED",
+        `Transaction completion marker is unsafe: ${location.transactionCompletePath}`,
+      );
+    }
+    if (
+      hashFile(location.transactionCompletePath, {
+        label: "transaction completion marker",
+        errorCode: "RECOVERY_REQUIRED",
+        trustedRoot: location.skillsRoot,
+        relativePath: TRANSACTION_COMPLETE_NAME,
+      }) !== hashBuffer(Buffer.from(commitCompleteText, "utf8"))
+    ) {
+      throw installationError(
+        "RECOVERY_REQUIRED",
+        `Transaction completion marker changed: ${location.transactionCompletePath}`,
+      );
+    }
+    cleanupPublishedTransaction(location, transaction, journalHash);
     return Object.freeze({ recovered: true, action: "completed-cleanup" });
   }
-  return rollbackPublishedTransaction(location, transaction);
+  return rollbackPublishedTransaction(location, transaction, journalHash);
 }
 
 function writeTransactionJournal(location, transaction) {
+  const journalText = serializeJson(transaction);
+  const journalHash = hashBuffer(Buffer.from(journalText, "utf8"));
+  assertScopeDirectoryChain(location, { requireSkills: true });
   try {
-    writeFileSync(location.transactionPath, serializeJson(transaction), { encoding: "utf8", flag: "wx" });
+    writeFileSync(location.transactionPath, journalText, { encoding: "utf8", flag: "wx" });
   } catch (error) {
     if (error.code === "EEXIST") {
       throw installationError(
@@ -1003,13 +1816,40 @@ function writeTransactionJournal(location, transaction) {
     }
     throw error;
   }
+  if (
+    hashFile(location.transactionPath, {
+      label: "transaction journal",
+      trustedRoot: location.skillsRoot,
+      relativePath: TRANSACTION_NAME,
+    }) !== journalHash
+  ) {
+    throw installationError("FILESYSTEM_ERROR", `Transaction journal write was not stable: ${location.transactionPath}`);
+  }
+  return journalHash;
 }
 
-function stageTransactionFiles(stageRoot, newFiles, metadataText) {
+function stageTransactionFiles(stageRoot, newFiles, metadataText, newMetadataHash) {
   for (const entry of newFiles) {
     const staged = resolveManagedPath(stageRoot, entry.path);
     assertSafeManagedParents(stageRoot, entry.path, { create: true });
+    if (
+      hashFile(entry.sourcePath, {
+        label: "packaged source file",
+        errorCode: "INVALID_PACKAGE",
+        trustedRoot: entry.sourceRoot,
+        relativePath: entry.sourceRelativePath,
+      }) !== entry.sha256
+    ) {
+      throw installationError("INVALID_PACKAGE", `Packaged source changed before staging: ${entry.sourcePath}`);
+    }
+    if (pathState(staged)) {
+      throw installationError("FILESYSTEM_ERROR", `Staged path already exists: ${staged}`);
+    }
     copyFileSync(entry.sourcePath, staged);
+    const stagedState = pathState(staged);
+    if (!stagedState?.isFile() || stagedState.isSymbolicLink()) {
+      throw installationError("FILESYSTEM_ERROR", `Staged path is not a regular file: ${staged}`);
+    }
     try {
       chmodSync(staged, entry.mode);
     } catch (error) {
@@ -1017,20 +1857,105 @@ function stageTransactionFiles(stageRoot, newFiles, metadataText) {
         throw error;
       }
     }
-    if (hashFile(staged) !== entry.sha256) {
+    if (
+      hashFile(entry.sourcePath, {
+        label: "packaged source file",
+        errorCode: "INVALID_PACKAGE",
+        trustedRoot: entry.sourceRoot,
+        relativePath: entry.sourceRelativePath,
+      }) !== entry.sha256
+    ) {
+      throw installationError("INVALID_PACKAGE", `Packaged source changed during staging: ${entry.sourcePath}`);
+    }
+    if (
+      hashFile(staged, {
+        label: "staged managed file",
+        trustedRoot: stageRoot,
+        relativePath: entry.path,
+      }) !== entry.sha256
+    ) {
       throw installationError("FILESYSTEM_ERROR", `Staged file hash mismatch: ${entry.path}`);
     }
   }
   if (metadataText !== undefined) {
-    writeFileSync(path.join(stageRoot, INSTALL_METADATA_NAME), metadataText, { encoding: "utf8", flag: "wx" });
+    const stagedMetadata = path.join(stageRoot, INSTALL_METADATA_NAME);
+    writeFileSync(stagedMetadata, metadataText, { encoding: "utf8", flag: "wx" });
+    if (
+      hashFile(stagedMetadata, {
+        label: "staged installation metadata",
+        trustedRoot: stageRoot,
+        relativePath: INSTALL_METADATA_NAME,
+      }) !== newMetadataHash
+    ) {
+      throw installationError("FILESYSTEM_ERROR", `Staged metadata hash mismatch: ${stagedMetadata}`);
+    }
   }
 }
 
 function assertCurrentTransactionInputs(location, transaction) {
+  assertScopeDirectoryChain(location, { requireSkills: true });
+  const rootCollisions = listManagedRootIdentityCollisions(location.skillsRoot);
+  if (rootCollisions.length > 0) {
+    throw installationError(
+      "INSTALL_CONFLICT",
+      `Managed root gained case-colliding paths: ${rootCollisions.join(", ")}`,
+    );
+  }
+  if (transaction.operation === "install") {
+    if (pathState(location.metadataPath) || directManagedContainers(location).length > 0) {
+      throw installationError("INSTALL_CONFLICT", "Managed installation paths appeared before commit");
+    }
+  } else {
+    const metadata = readInstallMetadata(location, { required: true });
+    const state = inspectManagedInstallation(location, metadata);
+    const conflicts = [];
+    if (!transaction.force && state.missing.length > 0) {
+      conflicts.push(`missing managed files: ${state.missing.join(", ")}`);
+    }
+    if (!transaction.force && state.modified.length > 0) {
+      conflicts.push(`modified managed files: ${state.modified.join(", ")}`);
+    }
+    if (!transaction.force && state.unknown.length > 0) {
+      conflicts.push(`unknown files or directories: ${state.unknown.join(", ")}`);
+    }
+    if (state.unsafe.length > 0) {
+      conflicts.push(`unsafe filesystem entries: ${state.unsafe.join(", ")}`);
+    }
+    if (conflicts.length > 0) {
+      throw installationError(
+        "INSTALL_CONFLICT",
+        `Managed state changed before commit: ${conflicts.join("; ")}`,
+      );
+    }
+    const transactionByPath = new Map(transaction.oldFiles.map((entry) => [entry.path, entry]));
+    for (const metadataEntry of metadata.files) {
+      const actualHash = state.existingFiles.get(metadataEntry.path);
+      if (actualHash === undefined) {
+        continue;
+      }
+      const transactionEntry = transactionByPath.get(metadataEntry.path);
+      if (
+        !transactionEntry ||
+        transactionEntry.sha256 !== actualHash ||
+        (transactionEntry.ownedSha256 ?? transactionEntry.sha256) !== metadataEntry.sha256
+      ) {
+        throw installationError(
+          "INSTALL_CONFLICT",
+          `Managed ownership changed before commit: ${metadataEntry.path}`,
+        );
+      }
+    }
+  }
   for (const entry of transaction.oldFiles) {
     const target = resolveManagedPath(location.skillsRoot, entry.path);
-    const state = pathState(target);
-    if (!state?.isFile() || state.isSymbolicLink() || hashFile(target) !== entry.sha256) {
+    if (
+      hashFile(target, {
+        label: "managed file",
+        errorCode: "INSTALL_CONFLICT",
+        trustedRoot: location.skillsRoot,
+        relativePath: entry.path,
+      }) !== entry.sha256
+    ) {
       throw installationError("INSTALL_CONFLICT", `Managed file changed before commit: ${target}`);
     }
   }
@@ -1040,13 +1965,23 @@ function assertCurrentTransactionInputs(location, transaction) {
       continue;
     }
     const target = resolveManagedPath(location.skillsRoot, entry.path);
+    assertSafeManagedParents(location.skillsRoot, entry.path, { errorCode: "INSTALL_CONFLICT" });
     if (pathState(target)) {
       throw installationError("INSTALL_CONFLICT", `Unmanaged path appeared before commit: ${target}`);
     }
   }
   const metadataState = pathState(location.metadataPath);
   if (transaction.hadOldMetadata) {
-    if (!metadataState?.isFile() || metadataState.isSymbolicLink() || hashFile(location.metadataPath) !== transaction.oldMetadataHash) {
+    if (
+      !metadataState?.isFile() ||
+      metadataState.isSymbolicLink() ||
+      hashFile(location.metadataPath, {
+        label: "installation metadata",
+        errorCode: "INSTALL_CONFLICT",
+        trustedRoot: location.skillsRoot,
+        relativePath: INSTALL_METADATA_NAME,
+      }) !== transaction.oldMetadataHash
+    ) {
       throw installationError("INSTALL_CONFLICT", `Installation metadata changed before commit: ${location.metadataPath}`);
     }
   } else if (metadataState) {
@@ -1061,6 +1996,7 @@ function commitManagedTransaction({
   newFiles,
   oldMetadataHash,
   metadataText,
+  force = false,
   hooks = {},
 }) {
   const id = randomUUID();
@@ -1074,42 +2010,119 @@ function commitManagedTransaction({
     operation,
     scope: location.scope,
     processId: process.pid,
+    force,
     stageDirectory,
     backupDirectory,
-    oldFiles: Object.freeze(oldFiles.map(({ path: filePath, sha256 }) => Object.freeze({ path: filePath, sha256 }))),
+    oldFiles: Object.freeze(
+      oldFiles.map(({ path: filePath, sha256, ownedSha256 }) =>
+        Object.freeze({
+          path: filePath,
+          sha256,
+          ...(ownedSha256 && ownedSha256 !== sha256 ? { ownedSha256 } : {}),
+        }),
+      ),
+    ),
     newFiles: Object.freeze(newFiles.map(({ path: filePath, sha256 }) => Object.freeze({ path: filePath, sha256 }))),
     hadOldMetadata: oldMetadataHash !== null,
     oldMetadataHash,
     newMetadataHash,
   });
 
-  writeTransactionJournal(location, transaction);
+  const journalHash = writeTransactionJournal(location, transaction);
   try {
+    if (pathState(stageRoot) || pathState(backupRoot)) {
+      throw installationError("INSTALL_CONFLICT", "Reserved transaction directory appeared before staging");
+    }
     mkdirSync(stageRoot);
     mkdirSync(backupRoot);
+    assertRealDirectory(stageRoot, "Transaction stage directory", {
+      trustedRoot: location.skillsRoot,
+    });
+    assertRealDirectory(backupRoot, "Transaction backup directory", {
+      trustedRoot: location.skillsRoot,
+    });
     hooks.afterJournalCreated?.({ operation, location, transaction });
-    stageTransactionFiles(stageRoot, newFiles, metadataText);
+    stageTransactionFiles(stageRoot, newFiles, metadataText, newMetadataHash);
     hooks.afterStagePrepared?.({ operation, location, transaction });
 
     assertCurrentTransactionInputs(location, transaction);
-    writeFileSync(path.join(backupRoot, commitStartedName), "commit started\n", { encoding: "utf8", flag: "wx" });
+    assertRealDirectory(stageRoot, "Transaction stage directory", {
+      trustedRoot: location.skillsRoot,
+    });
+    assertRealDirectory(backupRoot, "Transaction backup directory", {
+      trustedRoot: location.skillsRoot,
+    });
+    const commitStartedPath = path.join(backupRoot, commitStartedName);
+    writeFileSync(commitStartedPath, commitStartedText, { encoding: "utf8", flag: "wx" });
+    if (
+      hashFile(commitStartedPath, {
+        label: "commit-started marker",
+        trustedRoot: backupRoot,
+        relativePath: commitStartedName,
+      }) !== hashBuffer(Buffer.from(commitStartedText, "utf8"))
+    ) {
+      throw installationError("FILESYSTEM_ERROR", `Commit-started marker write was not stable: ${commitStartedPath}`);
+    }
     hooks.afterCommitStarted?.({ operation, location, transaction });
 
     for (const [index, entry] of oldFiles.entries()) {
       const target = resolveManagedPath(location.skillsRoot, entry.path);
       const backup = resolveManagedPath(backupRoot, entry.path);
+      if (
+        hashFile(target, {
+          label: "managed file before backup",
+          errorCode: "INSTALL_CONFLICT",
+          trustedRoot: location.skillsRoot,
+          relativePath: entry.path,
+        }) !== entry.sha256
+      ) {
+        throw installationError("INSTALL_CONFLICT", `Managed file changed before rename: ${target}`);
+      }
       assertSafeManagedParents(backupRoot, entry.path, { create: true });
+      if (pathState(backup)) {
+        throw installationError("INSTALL_CONFLICT", `Backup path appeared before rename: ${backup}`);
+      }
       renameSync(target, backup);
+      if (
+        hashFile(backup, {
+          label: "backed-up managed file",
+          trustedRoot: backupRoot,
+          relativePath: entry.path,
+        }) !== entry.sha256
+      ) {
+        throw installationError("FILESYSTEM_ERROR", `Managed backup hash mismatch: ${backup}`);
+      }
       hooks.afterOldFileMoved?.({ operation, location, transaction, entry, index });
     }
     for (const [index, entry] of newFiles.entries()) {
       const staged = resolveManagedPath(stageRoot, entry.path);
       const target = resolveManagedPath(location.skillsRoot, entry.path);
-      assertSafeManagedParents(location.skillsRoot, entry.path, { create: true });
+      if (
+        hashFile(staged, {
+          label: "staged managed file",
+          trustedRoot: stageRoot,
+          relativePath: entry.path,
+        }) !== entry.sha256
+      ) {
+        throw installationError("FILESYSTEM_ERROR", `Staged file changed before commit: ${staged}`);
+      }
+      assertSafeManagedParents(location.skillsRoot, entry.path, {
+        create: true,
+        errorCode: "INSTALL_CONFLICT",
+      });
       if (pathState(target)) {
         throw installationError("INSTALL_CONFLICT", `Refusing to replace unexpected path: ${target}`);
       }
       renameSync(staged, target);
+      if (
+        hashFile(target, {
+          label: "published managed file",
+          trustedRoot: location.skillsRoot,
+          relativePath: entry.path,
+        }) !== entry.sha256
+      ) {
+        throw installationError("FILESYSTEM_ERROR", `Published file hash mismatch: ${target}`);
+      }
       hooks.afterNewFileMoved?.({ operation, location, transaction, entry, index });
     }
     pruneManagedDirectories(
@@ -1118,16 +2131,61 @@ function commitManagedTransaction({
     );
 
     if (oldMetadataHash !== null) {
-      renameSync(location.metadataPath, path.join(backupRoot, INSTALL_METADATA_NAME));
+      assertRealDirectory(backupRoot, "Transaction backup directory", {
+        trustedRoot: location.skillsRoot,
+      });
+      if (
+        hashFile(location.metadataPath, {
+          label: "installation metadata before backup",
+          errorCode: "INSTALL_CONFLICT",
+          trustedRoot: location.skillsRoot,
+          relativePath: INSTALL_METADATA_NAME,
+        }) !== oldMetadataHash
+      ) {
+        throw installationError("INSTALL_CONFLICT", `Installation metadata changed before rename: ${location.metadataPath}`);
+      }
+      const backupMetadata = path.join(backupRoot, INSTALL_METADATA_NAME);
+      if (pathState(backupMetadata)) {
+        throw installationError("INSTALL_CONFLICT", `Backup metadata path appeared before rename: ${backupMetadata}`);
+      }
+      renameSync(location.metadataPath, backupMetadata);
     }
     if (metadataText !== undefined) {
-      renameSync(path.join(stageRoot, INSTALL_METADATA_NAME), location.metadataPath);
+      const stagedMetadata = path.join(stageRoot, INSTALL_METADATA_NAME);
+      if (
+        hashFile(stagedMetadata, {
+          label: "staged installation metadata",
+          trustedRoot: stageRoot,
+          relativePath: INSTALL_METADATA_NAME,
+        }) !== newMetadataHash
+      ) {
+        throw installationError("FILESYSTEM_ERROR", `Staged metadata changed before commit: ${stagedMetadata}`);
+      }
+      if (pathState(location.metadataPath)) {
+        throw installationError("INSTALL_CONFLICT", `Metadata path appeared before commit: ${location.metadataPath}`);
+      }
+      renameSync(stagedMetadata, location.metadataPath);
     }
     hooks.afterMetadataCommitted?.({ operation, location, transaction });
 
-    writeFileSync(location.transactionCompletePath, "commit complete\n", { encoding: "utf8", flag: "wx" });
+    validateReservedDirectory(location, transaction, "stage");
+    validateReservedDirectory(location, transaction, "backup");
+    assertCommittedTransactionState(location, transaction);
+    writeFileSync(location.transactionCompletePath, commitCompleteText, { encoding: "utf8", flag: "wx" });
+    if (
+      hashFile(location.transactionCompletePath, {
+        label: "transaction completion marker",
+        trustedRoot: location.skillsRoot,
+        relativePath: TRANSACTION_COMPLETE_NAME,
+      }) !== hashBuffer(Buffer.from(commitCompleteText, "utf8"))
+    ) {
+      throw installationError(
+        "FILESYSTEM_ERROR",
+        `Transaction completion marker write was not stable: ${location.transactionCompletePath}`,
+      );
+    }
     hooks.afterCommitComplete?.({ operation, location, transaction });
-    cleanupPublishedTransaction(location, transaction);
+    cleanupPublishedTransaction(location, transaction, journalHash);
   } catch (error) {
     try {
       recoverInterruptedInstallation(location);
@@ -1166,7 +2224,11 @@ function captureExistingManagedFiles(location, metadata, { allowModified = false
     conflicts,
     oldFiles: metadata.files
       .filter((entry) => state.existingFiles.has(entry.path))
-      .map((entry) => ({ path: entry.path, sha256: state.existingFiles.get(entry.path) })),
+      .map((entry) => ({
+        path: entry.path,
+        sha256: state.existingFiles.get(entry.path),
+        ownedSha256: entry.sha256,
+      })),
   };
 }
 
@@ -1273,7 +2335,12 @@ export function updateManagedSkills({
       location,
       oldFiles: captured.oldFiles,
       newFiles: inventory.files,
-      oldMetadataHash: hashFile(location.metadataPath),
+      oldMetadataHash: hashFile(location.metadataPath, {
+        label: "installation metadata",
+        errorCode: "INSTALL_CONFLICT",
+        trustedRoot: location.skillsRoot,
+        relativePath: INSTALL_METADATA_NAME,
+      }),
       metadataText: serializeJson(metadata),
       hooks,
     });
@@ -1323,8 +2390,14 @@ export function uninstallManagedSkills({
       location,
       oldFiles: captured.oldFiles,
       newFiles: [],
-      oldMetadataHash: hashFile(location.metadataPath),
+      oldMetadataHash: hashFile(location.metadataPath, {
+        label: "installation metadata",
+        errorCode: "INSTALL_CONFLICT",
+        trustedRoot: location.skillsRoot,
+        relativePath: INSTALL_METADATA_NAME,
+      }),
       metadataText: undefined,
+      force,
       hooks,
     });
     return Object.freeze({
@@ -1368,8 +2441,41 @@ function nearestExistingDirectory(directory) {
 
 function inspectDoctorScope(location, { currentVersion, accessChecker = accessSync } = {}) {
   const findings = [];
+  try {
+    assertLocationLayout(location, "RECOVERY_REQUIRED");
+    assertScopeDirectoryChain(location, { errorCode: "RECOVERY_REQUIRED" });
+  } catch (error) {
+    findings.push(
+      doctorFinding(
+        "error",
+        "UNSAFE_SCOPE",
+        `${location.scope} scope path is unsafe: ${error.message}`,
+        EXIT_CODES.RECOVERY_REQUIRED,
+      ),
+    );
+    return Object.freeze({
+      scope: location.scope,
+      available: true,
+      skillsRoot: location.skillsRoot,
+      installed: false,
+      version: undefined,
+      skillNames: Object.freeze([]),
+      findings: Object.freeze(findings),
+    });
+  }
   const skills = discoverKywSkills(location.skillsRoot);
   const reserved = listReservedArtifacts(location.skillsRoot);
+  const identityCollisions = listManagedRootIdentityCollisions(location.skillsRoot);
+  if (identityCollisions.length > 0) {
+    findings.push(
+      doctorFinding(
+        "error",
+        "UNSAFE_MANAGED_PATH",
+        `${location.scope} scope has case-colliding managed paths: ${identityCollisions.join(", ")}`,
+        EXIT_CODES.RECOVERY_REQUIRED,
+      ),
+    );
+  }
   if (reserved.length > 0) {
     findings.push(
       doctorFinding(
@@ -1403,17 +2509,28 @@ function inspectDoctorScope(location, { currentVersion, accessChecker = accessSy
   }
 
   if (metadata) {
-    const state = inspectManagedInstallation(location, metadata);
-    const details = stateConflictSummary(state);
-    if (details.length > 0) {
+    try {
+      const state = inspectManagedInstallation(location, metadata);
+      const details = stateConflictSummary(state);
+      if (details.length > 0) {
+        findings.push(
+          doctorFinding(
+            "error",
+            "PARTIAL_INSTALL",
+            `${location.scope} scope managed state is incomplete or modified: ${details.join("; ")}`,
+            state.missing.length > 0 || state.unsafe.length > 0
+              ? EXIT_CODES.RECOVERY_REQUIRED
+              : EXIT_CODES.INVALID_STATE,
+          ),
+        );
+      }
+    } catch (error) {
       findings.push(
         doctorFinding(
           "error",
-          "PARTIAL_INSTALL",
-          `${location.scope} scope managed state is incomplete or modified: ${details.join("; ")}`,
-          state.missing.length > 0 || state.unsafe.length > 0
-            ? EXIT_CODES.RECOVERY_REQUIRED
-            : EXIT_CODES.INVALID_STATE,
+          error.code ?? "PARTIAL_INSTALL",
+          error.message,
+          error.exitCode ?? EXIT_CODES.RECOVERY_REQUIRED,
         ),
       );
     }
@@ -1429,7 +2546,10 @@ function inspectDoctorScope(location, { currentVersion, accessChecker = accessSy
   }
 
   for (const skillName of skills) {
-    const contractErrors = validateSkillContract(path.join(location.skillsRoot, skillName), skillName);
+    const contractErrors = validateSkillContract(path.join(location.skillsRoot, skillName), skillName, {
+      errorCode: "INVALID_INSTALL_METADATA",
+      trustedRoot: location.skillsRoot,
+    });
     if (contractErrors.length > 0) {
       findings.push(
         doctorFinding(
@@ -1532,15 +2652,53 @@ export function diagnoseInstallations({
     findings.push(doctorFinding("warning", "CODEX_NOT_DETECTED", "Codex was not detected on PATH"));
   }
 
-  const userLocation = resolveScopeLayout({ scope: "user", home, repositoryRoot: undefined });
-  const scopes = [inspectDoctorScope(userLocation, { currentVersion, accessChecker })];
+  const scopes = [];
+  let userLocation;
+  try {
+    userLocation = resolveInstallLocation({ scope: "user", home });
+    scopes.push(inspectDoctorScope(userLocation, { currentVersion, accessChecker }));
+  } catch (error) {
+    const fallbackLocation = resolveScopeLayout({ scope: "user", home, repositoryRoot: undefined });
+    const finding = doctorFinding(
+      "error",
+      "UNSAFE_SCOPE",
+      `user scope could not be resolved safely: ${error.message}`,
+      error.exitCode ?? EXIT_CODES.SCOPE_RESOLUTION,
+    );
+    scopes.push(
+      Object.freeze({
+        scope: "user",
+        available: true,
+        skillsRoot: fallbackLocation.skillsRoot,
+        installed: false,
+        version: undefined,
+        skillNames: Object.freeze([]),
+        findings: Object.freeze([finding]),
+      }),
+    );
+  }
   let projectRoot;
   try {
     projectRoot = findRepositoryRoot(cwd);
-    const projectLocation = resolveScopeLayout({ scope: "project", home, repositoryRoot: projectRoot });
+    const projectLocation = resolveInstallLocation({
+      scope: "project",
+      home,
+      repositoryRoot: projectRoot,
+    });
     scopes.push(inspectDoctorScope(projectLocation, { currentVersion, accessChecker }));
   } catch (error) {
     if (error.code === "SCOPE_RESOLUTION_FAILED") {
+      const noRepository = /^No Git repository root was found/.test(error.message);
+      const scopeFindings = noRepository
+        ? []
+        : [
+            doctorFinding(
+              "error",
+              "UNSAFE_SCOPE",
+              `project scope could not be resolved safely: ${error.message}`,
+              error.exitCode ?? EXIT_CODES.SCOPE_RESOLUTION,
+            ),
+          ];
       scopes.push(
         Object.freeze({
           scope: "project",
@@ -1549,7 +2707,7 @@ export function diagnoseInstallations({
           installed: false,
           version: undefined,
           skillNames: Object.freeze([]),
-          findings: Object.freeze([]),
+          findings: Object.freeze(scopeFindings),
         }),
       );
     } else {
@@ -1597,7 +2755,9 @@ export function formatDoctorReport(report) {
   ];
   for (const scope of report.scopes) {
     if (!scope.available) {
-      lines.push(`  ${scope.scope}: unavailable (not inside a Git repository)`);
+      lines.push(
+        `  ${scope.scope}: unavailable (${scope.findings.length > 0 ? "unsafe scope" : "not inside a Git repository"})`,
+      );
     } else if (scope.installed) {
       lines.push(`  ${scope.scope}: ${scope.skillsRoot} (installed ${scope.version})`);
     } else {
