@@ -436,8 +436,9 @@ When the user asks a question or small, bounded change without invoking a Skill:
 - Skill directories must contain `SKILL.md` with `name` and `description`.
 - User-visible Skills must provide `agents/openai.yaml` with UI metadata and explicit-invocation policy.
 - Plugin root must contain `.codex-plugin/plugin.json` and keep Skill paths relative to the plugin root.
-- MVP Node runtime target: Node.js 22 or newer. Node.js 20 is end-of-life and is not supported.
-- Windows, macOS, and Linux path behavior must be tested for path construction; full desktop integration may be manually tested only where the environment exists.
+- MVP Node runtime target: Node.js 22 or newer. Node.js 20 and unsupported odd-numbered releases are not supported CI targets.
+- Required runtime evidence covers Node.js 22 and 24 LTS on Linux, macOS, and Windows. While the public engine floor remains `>=22`, Node.js 26 Current has one bounded Linux compatibility lane until it becomes an LTS baseline or the policy is revised.
+- Windows, macOS, and Linux path behavior must be tested through native CLI/install execution as well as path construction; full desktop integration may be manually tested only where the environment exists.
 
 ## 13. Distribution requirements
 
@@ -456,6 +457,8 @@ A marketplace entry may use npm or GitHub as the plugin source. npm-based plugin
 The v0.1 release candidate uses a canonical local marketplace fixture for reproducible pre-publication verification. The fixture must point at `./plugins/kyw-dev`, declare explicit installation/authentication policies and a category, and be exercised with packed plugin bytes under an isolated Codex home. The fixture and release tests are development-only and must not enter the npm tarball.
 
 Preparing publishable metadata or running `npm publish --dry-run` does not authorize publication. The mutating `npm publish` command and any public plugin-directory submission require separate explicit user approval after the final release checks and package-name revalidation.
+
+Public pull requests, pushes to `main`, and manual CI dispatch must run credential-free stable checks with read-only repository access. Every supported LTS OS/runtime lane runs the stable test, lint, format, and package commands. A separate supported Linux LTS lane must create and inspect real packed bytes without invoking npm publication, Codex authentication, tagging, release creation, or merge automation; unavailable model-backed or desktop-only checks cannot become required public-PR checks.
 
 ## 14. Versioning and upgrade behavior
 

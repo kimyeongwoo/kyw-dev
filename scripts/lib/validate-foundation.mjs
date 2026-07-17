@@ -64,7 +64,8 @@ const requiredScripts = {
   "format:check": "node ./scripts/format-check.mjs",
   "pack:check": "node ./scripts/pack-check.mjs",
   check: "npm test && npm run lint && npm run format:check && npm run pack:check",
-  "release:check": "npm run check && npm publish --dry-run --json",
+  "release:ci": "npm run check && node ./scripts/packed-release-check.mjs",
+  "release:check": "npm run release:ci && npm publish --dry-run --json",
 };
 
 const releaseKeywords = [

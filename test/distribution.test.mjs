@@ -145,7 +145,14 @@ test("release metadata is public-ready while publication remains an explicit com
     access: "public",
     registry: "https://registry.npmjs.org/",
   });
-  assert.equal(packageJson.scripts["release:check"], "npm run check && npm publish --dry-run --json");
+  assert.equal(
+    packageJson.scripts["release:ci"],
+    "npm run check && node ./scripts/packed-release-check.mjs",
+  );
+  assert.equal(
+    packageJson.scripts["release:check"],
+    "npm run release:ci && npm publish --dry-run --json",
+  );
   for (const scriptName of forbiddenLifecycleScripts) {
     assert.equal(scriptName in packageJson.scripts, false);
   }

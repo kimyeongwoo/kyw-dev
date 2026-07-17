@@ -1,0 +1,116 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CI: "true"
+  FORCE_COLOR: "0"
+  NO_COLOR: "1"
+  NPM_CONFIG_AUDIT: "false"
+  NPM_CONFIG_COLOR: "false"
+  NPM_CONFIG_FUND: "false"
+  NPM_CONFIG_UPDATE_NOTIFIER: "false"
+
+jobs:
+  stable:
+    name: Stable / ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Ubuntu / Node 22.x
+            os: ubuntu-latest
+            node: 22.x
+          - label: macOS / Node 22.x
+            os: macos-latest
+            node: 22.x
+          - label: Windows / Node 22.x
+            os: windows-latest
+            node: 22.x
+          - label: Ubuntu / Node 24.x
+            os: ubuntu-latest
+            node: 24.x
+          - label: macOS / Node 24.x
+            os: macos-latest
+            node: 24.x
+          - label: Windows / Node 24.x
+            os: windows-latest
+            node: 24.x
+          - label: Ubuntu / Node 26.x compatibility
+            os: ubuntu-latest
+            node: 26.x
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Set up Node.js ${{ matrix.node }}
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node }}
+          package-manager-cache: false
+      - name: Report runtime versions
+        run: |
+          node --version
+          npm --version
+      - name: Test
+        run: npm test
+      - name: Lint
+        run: npm run lint
+      - name: Check formatting
+        run: npm run format:check
+      - name: Check package contents
+        run: npm run pack:check
+
+  packed-release:
+    name: Packed release / Ubuntu / Node 24.x
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Set up Node.js 24.x
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.x
+          package-manager-cache: false
+      - name: Report runtime versions
+        run: |
+          node --version
+          npm --version
+      - name: Run credential-free packed release gate
+        run: npm run release:ci
+
+  required:
+    name: Required / credential-free CI
+    if: ${{ always() }}
+    needs:
+      - stable
+      - packed-release
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require stable and packed gates
+        env:
+          PACKED_RESULT: ${{ needs.packed-release.result }}
+          STABLE_RESULT: ${{ needs.stable.result }}
+        run: |
+          printf 'stable=%s\npacked=%s\n' "$STABLE_RESULT" "$PACKED_RESULT"
+          test "$STABLE_RESULT" = "success"
+          test "$PACKED_RESULT" = "success"

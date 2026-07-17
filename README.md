@@ -10,7 +10,7 @@ It turns an idea into a shared understanding, records the durable product and ar
 
 ## Status
 
-Tasks 0001 through 0009 establish the `0.1.0` npm/Codex plugin release candidate, six canonical project/Task/Test templates, dependency-free deterministic Task helpers, the four complete workflow Skills, safe direct-Skills installation, and isolated marketplace verification. The CLI supports user/project install, conflict-aware update, ownership-safe uninstall, read-only diagnostics, help, and version output. The package is configured for public npm distribution, but no npm publication or public plugin-directory submission has occurred; both remain behind explicit approval.
+Tasks 0001 through 0010 establish the `0.1.0` npm/Codex plugin release candidate, six canonical project/Task/Test templates, dependency-free deterministic Task helpers, the four complete workflow Skills, safe direct-Skills installation, isolated marketplace verification, and credential-free cross-platform CI with a packed release gate. The CLI supports user/project install, conflict-aware update, ownership-safe uninstall, read-only diagnostics, help, and version output. The package is configured for public npm distribution, but no npm publication or public plugin-directory submission has occurred; both remain behind explicit approval.
 
 `$kyw-grilling` is implemented as an explicit-invocation-only, read-only interview Skill. `$kyw-init` is implemented as its explicit-only initialization wrapper: it inspects first, waits for confirmation, and then creates or minimally updates only the four permanent documents. `$kyw-task` sizes and clarifies one outcome, authors one atomic DRAFT Task/Test pair, enters execution after confirmation, or resumes an existing Task by four-digit ID. It keeps scope, documents, handoff state, tests, and final diff coverage synchronized until evidence supports `DONE`/`PASSED` or a recorded blocker. `$kyw-audit` independently treats those completion records as claims, reproduces available evidence, detects scope and documentation drift, repairs only clear in-scope findings, and returns `PASS` or `BLOCKED`.
 
@@ -18,7 +18,7 @@ The authoritative product requirements are in `docs/SPEC.md`; the system structu
 
 ## Development
 
-Prerequisite: Node.js 22 or newer with npm. Tasks 0001 through 0009 have no production or development package dependencies, so no install step is required before running the checks. The release marketplace E2E also uses a current `codex` CLI when it is available.
+Prerequisite: Node.js 22 or newer with npm. Node.js 22 and 24 are the fully tested LTS lines on Linux, macOS, and Windows; Node.js 26 Current has a bounded Ubuntu compatibility lane. Tasks 0001 through 0010 have no production or development package dependencies and no lockfile, so no install step is required before running the checks. The release marketplace E2E also uses a current `codex` CLI when it is available, but CI does not require Codex or its authentication.
 
 ```bash
 node ./bin/kyw-dev.mjs --help
@@ -28,10 +28,13 @@ npm run lint
 npm run format:check
 npm run pack:check
 npm run check
+npm run release:ci
 npm run release:check
 ```
 
-`npm run check` runs the four stable verification commands. `npm run release:check` repeats them and then runs `npm publish --dry-run --json`; the dry run reports what npm would publish but does not publish it. `npm pack --dry-run --json` can be used to inspect the package contents directly. The focused `node --test test/distribution.test.mjs` check creates a real tarball, runs both direct-install lifecycles, and installs the packed plugin through an isolated local marketplace and `CODEX_HOME` without changing the normal user plugin configuration.
+`npm run check` runs the four stable verification commands. `npm run release:ci` repeats that suite, creates and extracts a real npm tarball in an isolated temporary directory, checks its exact allowlist and packed-only boundaries, smoke-tests the packed CLI, and cleans up without publishing. `npm run release:check` builds on the same packed gate and then runs `npm publish --dry-run --json`; the dry run reports what npm would publish but does not publish it. `npm pack --dry-run --json` can be used to inspect the package contents directly. The focused `node --test test/distribution.test.mjs` check creates a real tarball, runs both direct-install lifecycles, and installs the packed plugin through an isolated local marketplace and `CODEX_HOME` without changing the normal user plugin configuration.
+
+`.github/workflows/ci.yml` runs on public pull requests, pushes to `main`, and manual dispatch. Every Node.js 22/24 Linux, macOS, and Windows lane executes `npm test`, `npm run lint`, `npm run format:check`, and `npm run pack:check`; one Ubuntu Node.js 26 lane checks forward compatibility. A separate Ubuntu Node.js 24 job runs `npm run release:ci`, and one aggregate credential-free result can be selected as the required branch check. The workflow uses read-only repository permission, persists no checkout credential, references no secret, and performs no install, publish, tag, release, or merge action.
 
 The canonical section contracts live under `templates/project/` and `templates/task/`. Runtime consumers can use `src/core/template-contracts.mjs` to render and validate them and `src/core/task-artifacts.mjs` to inspect or create Task directories. `src/core/skill-installation.mjs` owns direct-install scope resolution, file ownership, transactions, recovery, and diagnostics. `kyw-grilling` provides the standalone conversational interview primitive, `kyw-init` wraps it with confirmed, non-destructive permanent-document materialization, `kyw-task` combines a thin packaged creation/validation adapter with a packaged execution/resume reference, and `kyw-audit` packages an independent inspection, finding, repair, and verdict reference without adding a runtime dependency.
 
@@ -156,6 +159,8 @@ An npm marketplace entry can replace the local source after the package is publi
 
 ```text
 kyw_dev/
+├─ .github/
+│  └─ workflows/ci.yml
 ├─ .codex-plugin/
 │  └─ plugin.json
 ├─ skills/
@@ -200,6 +205,7 @@ Implement one folder at a time:
 7. `0007-kyw-audit-skill`
 8. `0008-cli-installation`
 9. `0009-distribution-and-release`
+10. `0010-continuous-integration`
 
 The recommended Codex prompts are in `CODEX_PROMPTS.md`.
 

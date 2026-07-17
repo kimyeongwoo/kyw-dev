@@ -61,6 +61,8 @@ A Task directory is the resumable execution packet. Completed Task folders are h
 
 ```text
 kyw_dev/
+├─ .github/
+│  └─ workflows/ci.yml
 ├─ .codex-plugin/
 │  └─ plugin.json
 ├─ skills/
@@ -467,9 +469,27 @@ An installed plugin surface remains reportable when future tooling exposes a tru
 
 ## 11.4 Release gate
 
-`package.json` is release-ready rather than publication-blocked: `private` is false and `publishConfig` fixes public access to the npm public registry. The repository provides no npm lifecycle script that can install the plugin or publish the package. `npm run release:check` runs the stable verification suite and then `npm publish --dry-run --json`; this command is non-publishing evidence only. The actual `npm publish --access public` command remains outside automation and requires explicit approval after a fresh name, identity, tarball, and version check.
+`package.json` is release-ready rather than publication-blocked: `private` is false and `publishConfig` fixes public access to the npm public registry. The repository provides no npm lifecycle script that can install the plugin or publish the package. `npm run release:ci` runs the stable verification suite and then creates, allowlist-checks, extracts, and smoke-tests the real npm tarball in a validated temporary directory. `npm run release:check` reuses that packed gate and then runs `npm publish --dry-run --json`; the dry run is non-publishing local evidence and is not part of required CI. The actual `npm publish --access public` command remains outside automation and requires explicit approval after a fresh name, identity, tarball, and version check.
 
 The first-release notes, approval checklist, exact commands, and rollback/deprecation procedure live in Task 0009 rather than a new permanent release document. A bad published version is corrected with a new semantic version and normally deprecated rather than removed; npm unpublish is an exceptional, policy-bound, irreversible response.
+
+## 11.5 Credential-free continuous integration
+
+`.github/workflows/ci.yml` is the only required CI workflow. It runs for pull requests, pushes to `main`, and optional manual dispatch with workflow-level `contents: read`, ref-scoped cancellation, explicit job timeouts, disabled checkout credential persistence, and no secret reference. The repository intentionally has no dependencies or lockfile, so jobs do not run `npm ci` or enable a package-manager cache.
+
+```text
+pull request / main push / manual dispatch
+        ├─ stable matrix
+        │    ├─ Node 22 LTS × ubuntu/macos/windows
+        │    ├─ Node 24 LTS × ubuntu/macos/windows
+        │    └─ Node 26 Current × ubuntu compatibility
+        │         └─ test + lint + format:check + pack:check
+        ├─ packed release: Node 24 LTS × ubuntu
+        │         └─ release:ci → stable suite + real packed-byte inspection
+        └─ aggregate required result
+```
+
+The stable matrix runs native temporary-directory CLI and direct-install tests on each host. Codex marketplace coverage remains isolated and executes only where the CLI exists; its absence cannot skip the preceding packed user/project lifecycles or fail a public contributor for missing authentication. The packed job logs the real archive's file count, size, and SHA-256, rejects development/lifecycle content, and runs the extracted CLI. It cannot publish, create a tag or release, merge, or mutate branch-protection settings. Repository administrators may require only the aggregate credential-free result without making a model-backed job part of public PR admission.
 
 ## 12. Template architecture
 
@@ -505,6 +525,7 @@ The six canonical files are `templates/project/{README,AGENTS,SPEC,ARCHITECTURE}
 - package file inclusion.
 - direct-install source/metadata path containment, Skill contract shape, and SHA-256 syntax.
 - public release metadata, absence of lifecycle publish/install scripts, implemented plugin copy, and canonical local marketplace policy/source shape.
+- CI triggers, least-privilege permissions, cancellation/timeouts, exact OS/runtime lanes, stable command coverage, credential absence, and package-script agreement.
 
 Development-only validation scripts use Node built-ins to check JavaScript syntax, canonical JSON formatting, text-file encoding and whitespace, and the npm tarball allowlist. These scripts stay outside the packed runtime boundary.
 
@@ -559,6 +580,7 @@ Use deterministic fixtures plus scripted/manual scenario checks to verify:
 - `npm test`;
 - lint/format checks selected in Task 0001;
 - `npm pack --dry-run` and tarball inspection;
+- credential-free `npm run release:ci` with real archive extraction and packed CLI smoke tests;
 - direct user/project install in isolated temporary homes/repos;
 - update/uninstall safety;
 - isolated local marketplace add/list/install/remove and cached Skill discovery where the environment supports it;
@@ -603,7 +625,7 @@ Skill-level blocked states must be written into Task/Test when applicable rather
 
 The following require future Spec and Architecture changes:
 
-- lifecycle hooks that enforce checks automatically;
+- npm/plugin lifecycle hooks that enforce checks during installation;
 - MCP integrations with issue trackers or repositories;
 - GitHub/Jira/Linear Task synchronization;
 - automatic PR generation;
