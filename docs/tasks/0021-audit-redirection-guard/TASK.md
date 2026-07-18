@@ -2,7 +2,7 @@
 
 ## Status
 
-IN_PROGRESS
+DONE
 
 ## Goal
 
@@ -49,9 +49,9 @@ Make the development-only audit smoke distinguish executable output redirection 
 - [x] AC-04: The `2>&1` policy is grounded in the current executor/shell path and an actual shell regression, explicitly preserved or blocked, and does not create an exemption for `2>file`, `2>>file`, or unproven descriptor syntax.
 - [x] AC-05: Each output-redirection reason records the exact operator and zero-based offset plus quote/escape state and bounded redacted local context, including a redirect beyond offset 600; diagnostics do not unnecessarily expose a whole command, credential, or normal user/temporary path.
 - [x] AC-06: Read-only mode still fails on every executable file redirect or other mutation attempt, harmless literals no longer cause `READONLY_MUTATION_ATTEMPT`, fix-mode plan/scope checks remain unchanged, and tree/status/auth/no-artifact/cleanup invariants remain enforced.
-- [ ] AC-07: Targeted regressions, the combined audit suite, every requested repository command, and supported-platform coverage pass with actual exit-code evidence.
-- [ ] AC-08: One isolated read-only and one isolated fix smoke use `gpt-5.6-sol`/high and isolated auth/config; each has before/after fixture tree, Git status, and protected auth/config evidence. A newly discovered defect makes this Task `BLOCKED` without an in-Task chained fix.
-- [ ] AC-09: The final diff maps completely to this scope and intent-to-test matrix, affected permanent documents are synchronized, exact commits are recorded and intentionally committed, and the dedicated branch is pushed normally without any release-readiness verdict or forbidden action.
+- [x] AC-07: Targeted regressions, the combined audit suite, every requested repository command, and supported-platform coverage pass with actual exit-code evidence.
+- [x] AC-08: One isolated read-only and one isolated fix smoke use `gpt-5.6-sol`/high and isolated auth/config; each has before/after fixture tree, Git status, and protected auth/config evidence. A newly discovered defect makes this Task `BLOCKED` without an in-Task chained fix.
+- [x] AC-09: The final diff maps completely to this scope and intent-to-test matrix, affected permanent documents are synchronized, exact commits are recorded and intentionally committed, and the dedicated branch is pushed normally without any release-readiness verdict or forbidden action.
 
 ## Plan
 
@@ -61,9 +61,9 @@ Make the development-only audit smoke distinguish executable output redirection 
 - [x] Create this Task/Test pair together and map every acceptance criterion before implementation changes.
 - [x] Implement the smallest dependency-free shell-aware detector and match-local diagnostic changes.
 - [x] Add and run the requested deterministic regression matrix and supported-shell execution check.
-- [ ] Run the combined audit suite and all repository verification commands under isolated npm/config state.
-- [ ] Snapshot protected state, run one read-only and one fix model smoke, and compare every required invariant.
-- [ ] Review the final diff against scope/matrix, synchronize affected permanent documents, record exact evidence and commits, commit intentionally, and push the dedicated branch normally.
+- [x] Run the combined audit suite and all repository verification commands under isolated npm/config state.
+- [x] Snapshot protected state, run one read-only and one fix model smoke, and compare every required invariant.
+- [x] Review the final diff against scope/matrix, synchronize affected permanent documents, record exact evidence and commits, commit intentionally, and push the dedicated branch normally.
 
 ## Decisions
 
@@ -95,6 +95,14 @@ Make the development-only audit smoke distinguish executable output redirection 
 - The scanner exempts only boundary-valid exact `2>&1`. `2>file`, `2>>file`, `2>&2`, and `1>&2` remain fail-closed. A native Windows PowerShell 5 probe proved that `2>&1` creates no file and exposes the stderr payload; PowerShell 5 reports wrapper exit 1 as `NativeCommandError` while newer/native POSIX paths may report 0, so the regression accepts only that documented 0/1 host distinction while still requiring no process-launch error, observable output, and an empty fixture directory.
 - Output-redirection diagnostics no longer include the general 600-character command preview when match-local evidence is sufficient. Each match carries operator, original zero-based offset, effective shell, descriptor, quote/escape state, nested evaluation state when applicable, and at most 160 original characters around the match; existing credential/path redaction runs after formatting.
 - The first focused run passed 9/10 and exposed only the PowerShell 5 fd-duplication exit-code difference above. After aligning the regression with the no-file-write policy, focused tests passed 10/10; the combined audit suite passed 19/19, lint passed 35 JavaScript modules plus foundation metadata, and format passed 165 UTF-8/LF files.
+- Immutable implementation candidate `f77c9612531a926f06a62fe7080ce592b2773817` has tree `89b68d1ef1f3296a650e777d60d7a74c22e3965f`. It was committed intentionally from exactly six reviewed implementation/test/Task/permanent-document paths, pushed normally to `task/0021-audit-redirection-guard`, and materialized as a clean detached worktree.
+- Exact-candidate targeted tests passed 10/10 and the combined audit suite passed 19/19. The requested source/package sequence passed with full 133/133, lint 35 modules plus metadata, format 165 files, pack 29 files/60,362 bytes, aggregate check, and `release:ci` packed SHA-256 `fe604863d6e137b610ad075045b9ebd50710a7dd1e1ddc88b1bf7ca6c69b56c9`.
+- The first exact-candidate `npm test` attempt retained a 132/133 failure: setting the parent `CODEX_HOME` to an empty isolated directory made the release-isolation sentinel observe Codex's temporary argument-wrapper creation as `configured-codex` drift. No candidate byte changed. Removing only that parent override restored the runner's designed normal-control sentinel while its children remained isolated; the single rerun passed 133/133. Normal protected control bytes were unchanged.
+- Hosted workflow-dispatch run `29642294609` targeted exact candidate `f77c961...` and concluded `success` in all nine jobs. Direct Ubuntu, macOS, and Windows Node 24 logs each show the new shell scanner test, native fd-duplication test, and 133/133 full suite passing; Node 22 lanes, Ubuntu Node 26, packed release, and aggregate also succeeded.
+- The one read-only model smoke used Codex CLI `0.144.5`, `gpt-5.6-sol`, and high effort and exited 0 after 242 seconds: source read true, attempt count 0, changed paths empty, identical fixture tree `a0776c4e...c4151`, identical fixture Git status, auth source unchanged, final `BLOCKED`, and no residue.
+- The one fix smoke under the same CLI/model/effort exited 0 after 262.6 seconds: source read true, plan before mutation true, six mutation events, exactly the four configured Task/Test/source/test repair paths, passing fixture test, final `PASS`, auth source unchanged, and no residue.
+- Before/after protected snapshots contain the same 2,330 normal `.agents`, Codex auth/config/plugin/Skill, and npm-userconfig records with root SHA-256 `010e55f3d5fc9ed1cf9f9c203f8176640dcde756cb120551bd2da9d3800c2a55`. The explicit auth copy remained byte-identical, and source/detached candidate statuses remained clean.
+- At the candidate-verification checkpoint, final safety reads found Task 0020 local/remote refs still exact at `54b9f820...`, the dedicated branch's local/remote refs exact at candidate `f77c961...`, zero local/remote tags, zero branch PRs, zero GitHub releases, and zero audit-smoke residue. The later terminal-evidence commit advances only the dedicated branch and does not alter the candidate. No main push, force-push, tag, publication, release, or submission occurred.
 
 ## Documentation Impact
 
@@ -109,16 +117,22 @@ Make the development-only audit smoke distinguish executable output redirection 
 - Created this Task/Test contract before changing implementation or tests.
 - Implemented the dependency-free shell-aware detector, narrow fd-duplication policy, bounded match-local diagnostics, requested regression matrix, and affected README/Architecture synchronization.
 - Passed syntax checks, focused 10/10, combined audit 19/19, preliminary full 133/133, lint, format, pack, Task validation, and diff-whitespace checks.
+- Formed and normally pushed immutable candidate `f77c9612531a926f06a62fe7080ce592b2773817`, then passed the complete exact-SHA local/package and nine-job hosted platform verification.
+- Passed one isolated read-only and one isolated fix model smoke with complete fixture/Git/auth/config/protected-state evidence and no new model defect.
+- Reviewed the final Task-scope diff, permanent-document routing, candidate provenance, protected state, and forbidden external state.
 
 ## Remaining
 
-- Run deterministic, repository-wide, packaging, platform, and isolated model verification.
-- Complete final scope/document/evidence review, intentional commits, and normal branch push.
+- None.
 
 ## Resume Point
 
-Review the four-path implementation/permanent-document diff, refresh this pair, form and record the immutable implementation candidate, then verify that exact SHA from an isolated clean worktree. Preserve Task 0020 refs and do not perform any release-readiness action.
+Task 0021 is complete. Candidate `f77c9612531a926f06a62fe7080ce592b2773817` is not release approval. A separate follow-up release-readiness Task must verify that immutable candidate through its full contract before any release decision.
 
 ## Blockers
 
 - None currently.
+
+## Final Result
+
+COMPLETED
