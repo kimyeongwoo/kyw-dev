@@ -28,9 +28,11 @@ const SKILL_ROOT = join(REPOSITORY_ROOT, "skills", "kyw-audit");
 const REASONING_EFFORTS = new Set(["minimal", "low", "medium", "high", "xhigh"]);
 const MUTATING_COMMAND_PATTERN =
   /(?:^|[\s;&|])(set-content|add-content|out-file|remove-item|move-item|copy-item|new-item|mkdir|md|rm|rmdir|del|erase|mv|cp|touch|tee|apply_patch|sed\s+-i|npm\s+(?:install|ci|update|publish)|git\s+(?:add|am|apply|checkout|cherry-pick|clean|commit|merge|mv|rebase|reset|restore|rm|switch|tag|push))(?:\s|$)/i;
-const OUTPUT_REDIRECTION_PATTERN = /(?:^|[^2])(>{1,2})(?!&1)/;
+const COMMAND_SHELLS = new Set(["posix", "powershell"]);
 const MAX_DIAGNOSTIC_ATTEMPTS = 8;
 const MAX_DIAGNOSTIC_COMMAND_LENGTH = 600;
+const MAX_DIAGNOSTIC_CONTEXT_LENGTH = 160;
+const MAX_NESTED_SHELL_DEPTH = 4;
 
 const HELP = `kyw-audit fresh-session behavior smoke
 
@@ -417,12 +419,341 @@ export function parseJsonl(text) {
   return events;
 }
 
+export function commandShellForPlatform(platform = process.platform) {
+  return platform === "win32" ? "powershell" : "posix";
+}
+
+function assertCommandShell(shell) {
+  if (!COMMAND_SHELLS.has(shell)) {
+    fail("INVALID_ARGUMENT", `Unsupported command shell: ${shell}`);
+  }
+}
+
+function descriptorBefore(command, offset) {
+  let start = offset;
+  while (start > 0 && /[0-9]/.test(command[start - 1])) start -= 1;
+  if (start === offset) return { start: offset, value: null };
+  const preceding = start > 0 ? command[start - 1] : null;
+  if (preceding !== null && !/[\s;&|(){}]/.test(preceding)) {
+    return { start: offset, value: null };
+  }
+  return { start, value: command.slice(start, offset) };
+}
+
+function isTokenBoundary(character) {
+  return character === undefined || /[\s;&|(){}]/.test(character);
+}
+
+function isAllowedStderrDuplication(command, offset, descriptor) {
+  return (
+    descriptor.value === "2" &&
+    command.slice(offset, offset + 3) === ">&1" &&
+    isTokenBoundary(command[offset + 3])
+  );
+}
+
+function boundedMatchContext(command, offset) {
+  const preferredPrefixLength = Math.floor(MAX_DIAGNOSTIC_CONTEXT_LENGTH / 2);
+  let start = Math.max(0, offset - preferredPrefixLength);
+  let end = Math.min(command.length, start + MAX_DIAGNOSTIC_CONTEXT_LENGTH);
+  if (end === command.length) start = Math.max(0, end - MAX_DIAGNOSTIC_CONTEXT_LENGTH);
+  return { context: command.slice(start, end), contextStart: start };
+}
+
+function outputRedirectionAt(command, offset, shell) {
+  const descriptor = descriptorBefore(command, offset);
+  if (isAllowedStderrDuplication(command, offset, descriptor)) return null;
+  const operator = command[offset + 1] === ">" ? ">>" : ">";
+  return {
+    ...boundedMatchContext(command, offset),
+    escaped: false,
+    fileDescriptor: descriptor.value,
+    offset,
+    operator,
+    quoteState: "unquoted",
+    shell,
+  };
+}
+
+function scanPosixArithmetic(command, start, matches) {
+  let parenthesisDepth = 0;
+  let quoteState = "unquoted";
+  for (let index = start; index < command.length; index += 1) {
+    const character = command[index];
+    if (quoteState === "single") {
+      if (character === "'") quoteState = "unquoted";
+      continue;
+    }
+    if (quoteState === "double") {
+      if (character === "\\" && index + 1 < command.length) {
+        index += 1;
+        continue;
+      }
+      if (character === '"') quoteState = "unquoted";
+      continue;
+    }
+    if (character === "\\" && index + 1 < command.length) {
+      index += 1;
+      continue;
+    }
+    if (character === "'") {
+      quoteState = "single";
+      continue;
+    }
+    if (character === '"') {
+      quoteState = "double";
+      continue;
+    }
+    if (character === "$" && command[index + 1] === "(") {
+      if (command[index + 2] === "(") {
+        index = scanPosixArithmetic(command, index + 3, matches);
+      } else {
+        index = scanExecutableShell(command, index + 2, "posix", matches, ")");
+      }
+      continue;
+    }
+    if (character === "(") {
+      parenthesisDepth += 1;
+      continue;
+    }
+    if (character !== ")") continue;
+    if (parenthesisDepth > 0) {
+      parenthesisDepth -= 1;
+      continue;
+    }
+    if (command[index + 1] === ")") return index + 1;
+  }
+  return command.length;
+}
+
+function scanExecutableShell(command, start, shell, matches, terminator = null) {
+  let parenthesisDepth = 0;
+  let quoteState = "unquoted";
+  const escapeCharacter = shell === "powershell" ? "`" : "\\";
+
+  for (let index = start; index < command.length; index += 1) {
+    const character = command[index];
+    if (quoteState === "single") {
+      if (character !== "'") continue;
+      if (shell === "powershell" && command[index + 1] === "'") {
+        index += 1;
+      } else {
+        quoteState = "unquoted";
+      }
+      continue;
+    }
+    if (quoteState === "double") {
+      if (character === escapeCharacter && index + 1 < command.length) {
+        index += 1;
+        continue;
+      }
+      if (character === '"') {
+        quoteState = "unquoted";
+        continue;
+      }
+      if (character === "$" && command[index + 1] === "(") {
+        if (shell === "posix" && command[index + 2] === "(") {
+          index = scanPosixArithmetic(command, index + 3, matches);
+        } else {
+          index = scanExecutableShell(command, index + 2, shell, matches, ")");
+        }
+        continue;
+      }
+      if (shell === "posix" && character === "`") {
+        index = scanExecutableShell(command, index + 1, shell, matches, "`");
+      }
+      continue;
+    }
+
+    if (terminator === "`" && character === "`") return index;
+    if (character === escapeCharacter && index + 1 < command.length) {
+      index += 1;
+      continue;
+    }
+    if (character === "'") {
+      quoteState = "single";
+      continue;
+    }
+    if (character === '"') {
+      quoteState = "double";
+      continue;
+    }
+    if (character === "$" && command[index + 1] === "(") {
+      if (shell === "posix" && command[index + 2] === "(") {
+        index = scanPosixArithmetic(command, index + 3, matches);
+      } else {
+        index = scanExecutableShell(command, index + 2, shell, matches, ")");
+      }
+      continue;
+    }
+    if (shell === "posix" && character === "`") {
+      index = scanExecutableShell(command, index + 1, shell, matches, "`");
+      continue;
+    }
+    if (character === "(") {
+      parenthesisDepth += 1;
+      continue;
+    }
+    if (character === ")") {
+      if (terminator === ")" && parenthesisDepth === 0) return index;
+      if (parenthesisDepth > 0) parenthesisDepth -= 1;
+      continue;
+    }
+    if (character !== ">") continue;
+
+    const redirection = outputRedirectionAt(command, index, shell);
+    if (redirection === null) {
+      index += 2;
+      continue;
+    }
+    matches.push(redirection);
+    if (redirection.operator === ">>") index += 1;
+  }
+  return command.length;
+}
+
+function tokenizeShellWords(command, shell) {
+  const tokens = [];
+  let quoteState = "unquoted";
+  let token = null;
+  const escapeCharacter = shell === "powershell" ? "`" : "\\";
+  const ensureToken = (start) => {
+    token ??= { quoteStates: [], sourceOffsets: [], start, value: "" };
+  };
+  const append = (character, sourceOffset, state) => {
+    ensureToken(sourceOffset);
+    token.value += character;
+    token.sourceOffsets.push(sourceOffset);
+    token.quoteStates.push(state);
+  };
+  const finishToken = () => {
+    if (token !== null) tokens.push(token);
+    token = null;
+  };
+
+  for (let index = 0; index < command.length; index += 1) {
+    const character = command[index];
+    if (quoteState === "single") {
+      if (character !== "'") {
+        append(character, index, "single");
+      } else if (shell === "powershell" && command[index + 1] === "'") {
+        append("'", index, "single-escaped");
+        index += 1;
+      } else {
+        quoteState = "unquoted";
+      }
+      continue;
+    }
+    if (quoteState === "double") {
+      if (character === escapeCharacter && index + 1 < command.length) {
+        index += 1;
+        append(command[index], index, "double-escaped");
+      } else if (character === '"') {
+        quoteState = "unquoted";
+      } else {
+        append(character, index, "double");
+      }
+      continue;
+    }
+    if (character === escapeCharacter && index + 1 < command.length) {
+      index += 1;
+      append(command[index], index, "unquoted-escaped");
+      continue;
+    }
+    if (character === "'") {
+      ensureToken(index);
+      quoteState = "single";
+      continue;
+    }
+    if (character === '"') {
+      ensureToken(index);
+      quoteState = "double";
+      continue;
+    }
+    if (/\s/.test(character)) {
+      finishToken();
+      if (character === "\r" || character === "\n") tokens.push({ separator: true });
+      continue;
+    }
+    if (/[;&|<>]/.test(character)) {
+      finishToken();
+      tokens.push({ separator: true });
+      continue;
+    }
+    append(character, index, "unquoted");
+  }
+  finishToken();
+  return tokens;
+}
+
+function nestedShellDialect(commandName) {
+  const basename = commandName.replaceAll("\\", "/").split("/").at(-1).toLowerCase().replace(/\.exe$/, "");
+  if (new Set(["bash", "dash", "ksh", "sh", "zsh"]).has(basename)) return "posix";
+  if (new Set(["powershell", "pwsh"]).has(basename)) return "powershell";
+  return null;
+}
+
+function nestedShellScriptTokens(command, shell) {
+  const tokens = tokenizeShellWords(command, shell);
+  const scripts = [];
+  for (let index = 0; index < tokens.length; index += 1) {
+    const launcher = tokens[index];
+    if (launcher.separator) continue;
+    const dialect = nestedShellDialect(launcher.value);
+    if (dialect === null) continue;
+    for (let optionIndex = index + 1; optionIndex < tokens.length; optionIndex += 1) {
+      const option = tokens[optionIndex];
+      if (option.separator) break;
+      const normalized = option.value.toLowerCase();
+      const isCommandOption =
+        dialect === "powershell"
+          ? new Set(["-c", "-command", "-commandwithargs"]).has(normalized)
+          : /^-[a-z]*c[a-z]*$/i.test(option.value) && !option.value.startsWith("--");
+      if (!isCommandOption) continue;
+      const script = tokens[optionIndex + 1];
+      if (script && !script.separator) scripts.push({ dialect, token: script });
+      break;
+    }
+  }
+  return scripts;
+}
+
+function findOutputRedirectionsInternal(command, shell, depth) {
+  const matches = [];
+  scanExecutableShell(command, 0, shell, matches);
+  if (depth < MAX_NESTED_SHELL_DEPTH) {
+    for (const { dialect, token } of nestedShellScriptTokens(command, shell)) {
+      for (const nested of findOutputRedirectionsInternal(token.value, dialect, depth + 1)) {
+        const offset = token.sourceOffsets[nested.offset];
+        if (!Number.isInteger(offset)) continue;
+        matches.push({
+          ...nested,
+          ...boundedMatchContext(command, offset),
+          evaluationDepth: depth + 1,
+          offset,
+          outerQuoteState: token.quoteStates[nested.offset] ?? "unknown",
+        });
+      }
+    }
+  }
+  const unique = new Map();
+  for (const match of matches) {
+    unique.set(`${match.offset}\0${match.operator}\0${match.shell}`, match);
+  }
+  return [...unique.values()].sort((left, right) => left.offset - right.offset);
+}
+
+export function findOutputRedirections(command, { shell = commandShellForPlatform() } = {}) {
+  assertCommandShell(shell);
+  return findOutputRedirectionsInternal(String(command ?? ""), shell, 0);
+}
+
 function commandText(event) {
   const command = event?.item?.command;
   return typeof command === "string" ? command : JSON.stringify(command ?? "");
 }
 
-function commandMutationReasons(command) {
+function commandMutationReasons(command, shell) {
   const reasons = [];
   const mutatingMatches = [
     ...command.matchAll(new RegExp(MUTATING_COMMAND_PATTERN.source, `${MUTATING_COMMAND_PATTERN.flags}g`)),
@@ -434,14 +765,12 @@ function commandMutationReasons(command) {
       matches: [...new Set(mutatingMatches)],
     });
   }
-  const redirectionMatches = [
-    ...command.matchAll(new RegExp(OUTPUT_REDIRECTION_PATTERN.source, `${OUTPUT_REDIRECTION_PATTERN.flags}g`)),
-  ].map((match) => match[1]);
+  const redirectionMatches = findOutputRedirections(command, { shell });
   if (redirectionMatches.length > 0) {
     reasons.push({
       code: "OUTPUT_REDIRECTION_GRAMMAR",
       description: "command text matched shell output redirection that can write a file",
-      matches: [...new Set(redirectionMatches)],
+      redirections: redirectionMatches,
     });
   }
   return reasons;
@@ -457,7 +786,8 @@ function fileChangeKinds(event) {
   return kinds.length > 0 ? kinds : ["file_change"];
 }
 
-export function analyzeEvents(events) {
+export function analyzeEvents(events, { shell = commandShellForPlatform() } = {}) {
+  assertCommandShell(shell);
   const messages = [];
   const fileChanges = [];
   const mutatingCommands = [];
@@ -482,7 +812,7 @@ export function analyzeEvents(events) {
     if (event?.item?.type === "command_execution") {
       const command = commandText(event);
       commands.push({ index, command });
-      const reasons = commandMutationReasons(command);
+      const reasons = commandMutationReasons(command, shell);
       if (reasons.length > 0) {
         mutatingCommands.push({ command, eventType: "command_execution", index, reasons });
       }
@@ -520,18 +850,47 @@ export function mutationAttemptDiagnostic({ analysis, before, after, statusBefor
   for (const attempt of attempts.slice(0, MAX_DIAGNOSTIC_ATTEMPTS)) {
     const reasons = attempt.reasons
       .map(
-        ({ code, description, matches }) =>
-          `${code}: ${description}${matches?.length ? ` [matched=${matches.join(",")}]` : ""}`,
+        ({ code, description, matches, redirections }) =>
+          `${code}: ${description}${matches?.length ? ` [matched=${matches.join(",")}]` : ""}${
+            redirections?.length
+              ? ` ${redirections
+                  .map(
+                    ({
+                      context,
+                      contextStart,
+                      escaped,
+                      evaluationDepth,
+                      fileDescriptor,
+                      offset,
+                      operator,
+                      outerQuoteState,
+                      quoteState,
+                      shell,
+                    }) =>
+                      `[operator=${JSON.stringify(operator)} offset=${offset} shell=${shell} fileDescriptor=${
+                        fileDescriptor ?? "default"
+                      } quoteState=${quoteState} escaped=${escaped}${
+                        evaluationDepth ? ` evaluationDepth=${evaluationDepth} outerQuoteState=${outerQuoteState}` : ""
+                      } contextStart=${contextStart} contextLength=${context.length} context=${JSON.stringify(context)}]`,
+                  )
+                  .join(" ")}`
+              : ""
+          }`,
       )
       .join("; ");
     if (attempt.eventType === "command_execution") {
-      const redactedCommand = redactedDiagnostic(attempt.command, paths).replace(/\s+/g, " ").trim();
-      const compactCommand =
-        redactedCommand.length > MAX_DIAGNOSTIC_COMMAND_LENGTH
-          ? `${redactedCommand.slice(0, MAX_DIAGNOSTIC_COMMAND_LENGTH)}…<truncated length=${redactedCommand.length}>`
-          : redactedCommand;
+      const needsCommandPreview = attempt.reasons.some(({ code }) => code !== "OUTPUT_REDIRECTION_GRAMMAR");
+      let commandEvidence = `commandLength=${attempt.command.length}`;
+      if (needsCommandPreview) {
+        const redactedCommand = redactedDiagnostic(attempt.command, paths).replace(/\s+/g, " ").trim();
+        const compactCommand =
+          redactedCommand.length > MAX_DIAGNOSTIC_COMMAND_LENGTH
+            ? `${redactedCommand.slice(0, MAX_DIAGNOSTIC_COMMAND_LENGTH)}…<truncated length=${redactedCommand.length}>`
+            : redactedCommand;
+        commandEvidence += ` command=${JSON.stringify(compactCommand)}`;
+      }
       lines.push(
-        `eventIndex=${attempt.index} eventType=command_execution reason=${reasons} command=${JSON.stringify(compactCommand)}`,
+        `eventIndex=${attempt.index} eventType=command_execution reason=${reasons} ${commandEvidence}`,
       );
     } else {
       lines.push(

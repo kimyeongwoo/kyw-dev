@@ -19,13 +19,13 @@ RUNNING
 
 | ID | Intent / acceptance criterion | Method | Level | Status | Evidence |
 |---|---|---|---|---|---|
-| T-01 | AC-01 number, provenance, branch base, checkpoint, and old-ref immutability | Inspect Task directories, live/refreshed refs/history/default branch, porcelain v2/index/untracked state, branch ancestry, checkpoint diff, and local/remote 0020 refs | Audit/Provenance | TODO | Pending terminal evidence consolidation. |
-| T-02 | AC-02 every required file redirect is detected | Feed `> file`, `>> file`, `1>file`, `2>file`, and `2>>file` through the exported detector and event analysis for supported shell modes | Unit/Security | TODO | Pending. |
-| T-03 | AC-03 quoted/escaped literals are safe and mixed commands still block | Cover single/double quotes, native shell escapes, escaped quotes/backslashes, quoted `>`, `node -e "const f = x => x"`, and quoted-literal-plus-real-redirect cases under PowerShell/POSIX modes | Unit/Security | TODO | Pending. |
-| T-04 | AC-04 fd duplication policy matches the executor | Run `2>&1` through detector integration and a host-shell subprocess in an isolated temporary directory; prove combined output/no created file and prove `2>file`/`2>>file` remain blocked | Unit/Integration/Security | TODO | Pending. |
-| T-05 | AC-05 match-local diagnostics are exact, bounded, and redacted | Assert operator, original zero-based offset, quote/escape state, context start/length, a match after offset 600, and absence of credentials/full command/user/temp paths | Unit/Security | TODO | Pending. |
-| T-06 | AC-06 mutation and invariant gates remain fail-closed | Analyze safe/mutating/file-change event mixtures; statically retain read-only tree/status, fix plan/scope, auth-source, no-artifact, and cleanup checks | Unit/Static | TODO | Pending. |
-| T-07 | AC-07 targeted and combined audit suites pass | Run focused audit-smoke tests, then `node --test test/kyw-audit.test.mjs test/audit-smoke.test.mjs` | Unit/Regression | TODO | Pending. |
+| T-01 | AC-01 number, provenance, branch base, checkpoint, and old-ref immutability | Inspect Task directories, live/refreshed refs/history/default branch, porcelain v2/index/untracked state, branch ancestry, checkpoint diff, and local/remote 0020 refs | Audit/Provenance | PASS | No 0021 collision; exact candidate base; only attributable 0020 evidence; checkpoint `4eaccce3...` contains two documentation paths; old local/remote ref remains `54b9f820...`. |
+| T-02 | AC-02 every required file redirect is detected | Feed `> file`, `>> file`, `1>file`, `2>file`, and `2>>file` through the exported detector and event analysis for supported shell modes | Unit/Security | PASS | Focused matrix passes all five forms in both PowerShell/POSIX modes, including exact operator/descriptor/offset assertions. |
+| T-03 | AC-03 quoted/escaped literals are safe and mixed commands still block | Cover single/double quotes, native shell escapes, escaped quotes/backslashes, quoted `>`, `node -e "const f = x => x"`, and quoted-literal-plus-real-redirect cases under PowerShell/POSIX modes | Unit/Security | PASS | Focused matrix covers common literals, native escapes, PowerShell backslash difference, escaped quotes, POSIX arithmetic, executable substitutions, nested shell launchers, JS arrow, and mixed redirect. |
+| T-04 | AC-04 fd duplication policy matches the executor | Run `2>&1` through detector integration and a host-shell subprocess in an isolated temporary directory; prove combined output/no created file and prove `2>file`/`2>>file` remain blocked | Unit/Integration/Security | PASS | Exact `2>&1` yields no detector reason, native stderr payload is observable, fixture remains empty, and other descriptor/file forms block; Windows PowerShell 5's documented wrapper exit 1 is retained. |
+| T-05 | AC-05 match-local diagnostics are exact, bounded, and redacted | Assert operator, original zero-based offset, quote/escape state, context start/length, a match after offset 600, and absence of credentials/full command/user/temp paths | Unit/Security | PASS | Offset >600 case records `>>`, fd 2, exact offset/state, 160-char context, redacted path/credential, and no full/legacy command preview. |
+| T-06 | AC-06 mutation and invariant gates remain fail-closed | Analyze safe/mutating/file-change event mixtures; statically retain read-only tree/status, fix plan/scope, auth-source, no-artifact, and cleanup checks | Unit/Static | PASS | Ordered command/file-change reasons and plan checks pass; runner source retains tree/status/auth/no-artifact/cleanup enforcement; model proof pending T-10/T-11. |
+| T-07 | AC-07 targeted and combined audit suites pass | Run focused audit-smoke tests, then `node --test test/kyw-audit.test.mjs test/audit-smoke.test.mjs` | Unit/Regression | PASS | Final preliminary focused 10/10 and combined audit 19/19; both exit 0. |
 | T-08 | AC-07 requested repository and packaging commands pass | Run `npm test`, lint, format, pack, check, and release:ci with isolated npm cache/userconfig | Regression/Packaging | TODO | Pending. |
 | T-09 | AC-07 supported platform differences are covered | Confirm dialect tests execute in the existing Node 22/24 Linux, macOS, and Windows CI contract, or record equivalent executed native evidence | CI/Compatibility | TODO | Pending. |
 | T-10 | AC-08 isolated read-only model smoke preserves every protected invariant | Snapshot fixture tree/Git/auth/config, run `gpt-5.6-sol`/high read-only once with explicit isolated auth, and compare before/after plus source-read/attempt/verdict evidence | Model E2E/Security | TODO | Pending. |
@@ -36,15 +36,15 @@ Every acceptance criterion maps to at least one row. A model smoke that exposes 
 
 ## Regression Coverage
 
-- [ ] Real `> file`, `>> file`, `1>file`, `2>file`, and `2>>file` are classified as output-to-file attempts.
-- [ ] Quoted `>` and `node -e "const f = x => x"` remain non-mutating.
-- [ ] A quoted literal `>` followed by an executable redirect is still classified.
-- [ ] Supported single quote, double quote, escaped quote, native escape, and backslash cases behave per PowerShell/POSIX rules.
-- [ ] A real match after character 600 retains exact operator, offset, state, and bounded local context.
-- [ ] The evidence-backed `2>&1` policy is explicit and does not hide stderr file redirection.
-- [ ] Diagnostic offsets/context are accurate and credentials plus known absolute paths are absent.
-- [ ] Actual redirects remain blocked while harmless literals do not create `READONLY_MUTATION_ATTEMPT`.
-- [ ] Existing mutating-command, `file_change`, plan-order, repair-scope, tree/status, auth, no-artifact, and cleanup behavior remains covered.
+- [x] Real `> file`, `>> file`, `1>file`, `2>file`, and `2>>file` are classified as output-to-file attempts.
+- [x] Quoted `>` and `node -e "const f = x => x"` remain non-mutating.
+- [x] A quoted literal `>` followed by an executable redirect is still classified.
+- [x] Supported single quote, double quote, escaped quote, native escape, and backslash cases behave per PowerShell/POSIX rules.
+- [x] A real match after character 600 retains exact operator, offset, state, and bounded local context.
+- [x] The evidence-backed `2>&1` policy is explicit and does not hide stderr file redirection.
+- [x] Diagnostic offsets/context are accurate and credentials plus known absolute paths are absent.
+- [x] Actual redirects remain blocked while harmless literals do not create `READONLY_MUTATION_ATTEMPT`.
+- [x] Existing mutating-command, `file_change`, plan-order, repair-scope, tree/status, auth, no-artifact, and cleanup behavior remains covered.
 - [ ] Supported platform coverage is exercised by native tests or the existing CI matrix.
 
 ## Commands
@@ -73,11 +73,16 @@ Planned commands; Results will retain exact commands actually run, exit codes, a
 - Branch `task/0021-audit-redirection-guard` was created at that exact SHA. Documentation-only checkpoint `4eaccce3c466f206bbc398958fe7744d5018fe61` contains only the two reviewed Task 0020 evidence paths; local and remote `task/0020-release-readiness-gate` remain at the candidate.
 - Task 0020's four literal-arrow claims were corrected to explain `[matched=>]` as label plus captured operator, while retaining its failed AC/T row, attempt count, invariant tree/status evidence, no retry, and `BLOCKED` result.
 - Implementation and execution-path inspection found that Codex runs inside the existing outer OS sandbox, emits command events, and the runner subsequently applies a whole-string output-redirection regex. The current local path is Windows/PowerShell under Codex CLI `0.144.5`; CI supplies native Windows, macOS, and Linux Node lanes. No deterministic fd-duplication test existed at Task creation.
+- `node --check scripts/audit-smoke.mjs` and `node --check test/audit-smoke.test.mjs`: exit 0.
+- First focused run: exit 1, 9/10. Only the native fd probe failed because Windows PowerShell 5 converts redirected native stderr to `NativeCommandError` and returns wrapper exit 1 despite no created file. The policy assertion was narrowed to no launch error, payload evidence, and empty fixture while accepting only the observed PowerShell 0/1 distinction.
+- Final preliminary `node --test test/audit-smoke.test.mjs`: exit 0, 10/10. Required redirects, quote/escape cases, nested executable forms, exact `2>&1`, long-offset diagnostic, redaction, and legacy invariants pass.
+- Preliminary `node --test test/kyw-audit.test.mjs test/audit-smoke.test.mjs`: exit 0, 19/19. `npm run lint`: exit 0, 35 JavaScript modules plus foundation metadata. `npm run format:check`: exit 0, 165 UTF-8/LF files.
+- Preliminary `npm test`: exit 0, 133/133 with zero fail/skip. Preliminary `npm run pack:check`: exit 0, 29 files/60,362 bytes. Task validation returned `valid: true`; `git diff --check` exited 0.
 
 ## Unverified
 
-- Detector implementation, deterministic regressions, full repository checks, model smokes, final protected-state comparison, and dedicated-branch push remain unverified at Task creation.
-- Exact nested or malformed shell constructs outside the supported grammar remain to be classified during implementation; ambiguity must fail closed rather than be silently allowed.
+- Full exact-candidate repository/package checks, hosted/native cross-platform execution, model smokes, final protected-state comparison, and dedicated-branch push remain unverified.
+- Encoded or unsupported nested shell launch syntaxes are not decoded. Supported direct PowerShell/POSIX syntax, executable substitutions, and explicit `sh`-family `-c` plus PowerShell `-Command` arguments are covered; other descriptor forms fail closed.
 
 ## Final Coverage Review
 
@@ -90,4 +95,3 @@ Before terminal status:
 - [ ] Confirm before/after fixture, Git, auth/config, no-artifact, cleanup, and normal-state evidence for both model modes.
 - [ ] Confirm permanent-document impact, Task/Test handoff fields, exact commits, remote ref, and forbidden actions.
 - [ ] Record exactly one final result: `COMPLETED` or `BLOCKED`.
-
