@@ -1,0 +1,126 @@
+{
+  "schemaVersion": 1,
+  "id": "greenfield-discovery",
+  "category": "greenfield-discovery",
+  "title": "Discover a greenfield incident notebook",
+  "subject": "Stress-test my idea for a new incident notebook used by small on-call teams.",
+  "repository": {
+    "files": [
+      {
+        "path": "README.md",
+        "content": "# Incident Notebook\n\nA greenfield concept. No implementation or technology choice exists yet.\n"
+      },
+      {
+        "path": "brief.md",
+        "content": "The initial audience is a small software team handling production incidents. The desired outcome is faster, more consistent handoffs.\n"
+      }
+    ]
+  },
+  "repositoryFacts": [
+    {
+      "id": "fact-no-implementation",
+      "statement": "The repository contains no implementation or selected runtime.",
+      "evidencePath": "README.md",
+      "forbiddenQuestionSignals": [
+        "what framework are you using",
+        "what runtime is already used"
+      ]
+    },
+    {
+      "id": "fact-audience",
+      "statement": "The brief already identifies small on-call software teams as the audience.",
+      "evidencePath": "brief.md",
+      "forbiddenQuestionSignals": [
+        "who is the initial audience",
+        "who will use it"
+      ]
+    }
+  ],
+  "unresolvedDecisions": [
+    {
+      "id": "primary-workflow",
+      "prompt": "Which incident handoff workflow is primary?",
+      "dependsOn": [],
+      "signals": [
+        "handoff workflow",
+        "incident handoff",
+        "primary workflow"
+      ]
+    },
+    {
+      "id": "success-measure",
+      "prompt": "How will the team judge whether the workflow improved handoffs?",
+      "dependsOn": [
+        "primary-workflow"
+      ],
+      "signals": [
+        "success measure",
+        "measure success",
+        "handoff time"
+      ]
+    },
+    {
+      "id": "sharing-boundary",
+      "prompt": "Who may view or edit an incident notebook?",
+      "dependsOn": [
+        "primary-workflow"
+      ],
+      "signals": [
+        "view or edit",
+        "sharing boundary",
+        "access"
+      ]
+    },
+    {
+      "id": "retention",
+      "prompt": "How long should completed incident records remain available?",
+      "dependsOn": [
+        "sharing-boundary"
+      ],
+      "signals": [
+        "retention",
+        "how long",
+        "completed incident records"
+      ]
+    }
+  ],
+  "scriptedUserReplies": [
+    {
+      "afterAssistantTurn": 1,
+      "text": "The primary workflow is the shift-change handoff from the incident commander to the next on-call engineer.",
+      "settles": [
+        "primary-workflow"
+      ]
+    },
+    {
+      "afterAssistantTurn": 2,
+      "text": "Success means the receiving engineer can take over within five minutes without a separate call.",
+      "settles": [
+        "success-measure"
+      ]
+    },
+    {
+      "afterAssistantTurn": 3,
+      "text": "Only current on-call team members may view it, and the incident commander may edit it.",
+      "settles": [
+        "sharing-boundary"
+      ]
+    }
+  ],
+  "expectedCriticalBehaviors": {
+    "required": [
+      "one_question_per_turn",
+      "recommendation_per_question",
+      "fact_inspection",
+      "decision_ownership",
+      "dependency_order",
+      "no_premature_action",
+      "no_premature_convergence"
+    ],
+    "requiredSignals": []
+  },
+  "budgets": {
+    "maxAssistantTurns": 4,
+    "maxOutputTokens": 1800
+  }
+}

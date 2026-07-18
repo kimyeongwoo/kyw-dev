@@ -7,6 +7,7 @@ import { REPOSITORY_ROOT } from "./lib/validate-foundation.mjs";
 const textExtensions = new Set([".json", ".md", ".mjs", ".txt", ".yaml", ".yml"]);
 const textNames = new Set(["LICENSE"]);
 const decoder = new TextDecoder("utf-8", { fatal: true });
+const generatedEvalResults = join(REPOSITORY_ROOT, "eval", "grilling", "results");
 
 function collectTextFiles(directory) {
   const files = [];
@@ -16,6 +17,9 @@ function collectTextFiles(directory) {
     }
     const path = join(directory, entry.name);
     if (entry.isDirectory()) {
+      if (path === generatedEvalResults) {
+        continue;
+      }
       files.push(...collectTextFiles(path));
     } else if (entry.isFile() && (textExtensions.has(extname(entry.name)) || textNames.has(entry.name))) {
       files.push(path);

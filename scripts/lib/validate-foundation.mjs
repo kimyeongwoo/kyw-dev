@@ -14,6 +14,18 @@ export const SKILL_NAMES = ["kyw-grilling", "kyw-init", "kyw-task", "kyw-audit"]
 
 const IMPLEMENTED_SKILL_NAMES = new Set(SKILL_NAMES);
 
+export const RELEASE_METADATA = Object.freeze({
+  name: "kyw-dev",
+  version: "0.1.0",
+  authorName: "Kim Yeongwoo",
+  homepage: "https://github.com/kimyeongwoo/kyw-dev#readme",
+  repositoryWebUrl: "https://github.com/kimyeongwoo/kyw-dev",
+  repositoryGitUrl: "git+https://github.com/kimyeongwoo/kyw-dev.git",
+  issuesUrl: "https://github.com/kimyeongwoo/kyw-dev/issues",
+  nodeRange: ">=22",
+  copyright: "Copyright (c) 2026 Kim Yeongwoo",
+});
+
 export const PACKAGE_FILES_ALLOWLIST = [
   ".codex-plugin/",
   "bin/",
@@ -93,11 +105,11 @@ const forbiddenLifecycleScripts = [
   "postpublish",
 ];
 
-const preservedLegalHashes = {
-  "THIRD_PARTY_NOTICES.md": "ff43a078ac25b63b18dcdc02865baa56b5bc695fc819dd88e4d693ae25ebb873",
+export const PRESERVED_LEGAL_HASHES = Object.freeze({
+  "THIRD_PARTY_NOTICES.md": "82731243ded9e599fe515e38aece6be97fff05c3e7cb4b13d319fbb3d631ca25",
   "licenses/mattpocock-skills-MIT.txt":
     "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5",
-};
+});
 
 function readJson(root, relativePath, errors) {
   try {
@@ -116,6 +128,15 @@ function expect(condition, message, errors) {
 
 function sameJson(left, right) {
   return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function sameKeys(value, expected) {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    sameJson(Object.keys(value).sort(), [...expected].sort())
+  );
 }
 
 function validateSkill(root, skillName, errors) {
@@ -185,7 +206,13 @@ function validateSkill(root, skillName, errors) {
     if (skillName === "kyw-audit") {
       const auditReferencePath = join(root, "skills", skillName, "references", "audit.md");
       expect(skill.includes("[Independent Task Audit](references/audit.md)"), `${skillName} must link its audit reference`, errors);
-      expect(skill.includes("Start read-only"), `${skillName} must start with a read-only inspection boundary`, errors);
+      expect(skill.includes("no token means `read-only`; exactly `--fix` means `repair`"), `${skillName} must lock the exact invocation modes`, errors);
+      expect(skill.includes("keep the repository byte-for-byte unchanged for the entire invocation"), `${skillName} must enforce the default zero-write boundary`, errors);
+      expect(
+        skill.includes("Before the first mutation, send a standalone conversation message beginning `Bounded repair plan:`"),
+        `${skillName} must plan before an authorized repair`,
+        errors,
+      );
       expect(skill.includes("implement an out-of-scope finding"), `${skillName} must prohibit out-of-scope repairs`, errors);
       expect(skill.includes("exactly one final verdict: `PASS` or `BLOCKED`"), `${skillName} must define its terminal verdicts`, errors);
       expect(existsSync(auditReferencePath), `${skillName} is missing its audit reference`, errors);
@@ -196,6 +223,9 @@ function validateSkill(root, skillName, errors) {
         expect(auditReference.includes("Confirm that each criterion maps to at least one matrix row"), `${skillName} must audit acceptance traceability`, errors);
         expect(auditReference.includes("Treat a `PASS` row as a claim"), `${skillName} must distinguish claimed and reproducible evidence`, errors);
         expect(auditReference.includes("An out-of-scope implementation is an open `scope` error"), `${skillName} must block scope drift`, errors);
+        expect(auditReference.includes("## Preserve the read-only contract"), `${skillName} must keep bare audit findings report-only`, errors);
+        expect(auditReference.includes("## Repair only in explicit fix mode"), `${skillName} must require explicit repair mode`, errors);
+        expect(auditReference.includes("Any repository write or attempted mutating command"), `${skillName} must treat a read-only mutation attempt as failure`, errors);
         expect(auditReference.includes("Rerun the affected acceptance-specific check"), `${skillName} must rerun checks after repairs`, errors);
         expect(auditReference.includes("Return `PASS` only when all of these gates hold"), `${skillName} must define an evidence-based PASS gate`, errors);
       }
@@ -208,6 +238,28 @@ function validateSkill(root, skillName, errors) {
   }
 
   const metadata = readFileSync(metadataPath, "utf8");
+  const metadataKeys = { interface: [], policy: [] };
+  const metadataSections = [];
+  let metadataSection;
+  for (const line of metadata.split("\n")) {
+    const section = line.match(/^([a-z_]+):\s*$/)?.[1];
+    if (section) {
+      metadataSection = section;
+      metadataSections.push(section);
+      continue;
+    }
+    const key = line.match(/^  ([a-z_]+):/)?.[1];
+    if (key && metadataSection in metadataKeys) {
+      metadataKeys[metadataSection].push(key);
+    }
+  }
+  expect(
+    sameJson(metadataSections, ["interface", "policy"]) &&
+      sameJson(metadataKeys.interface, ["display_name", "short_description", "default_prompt"]) &&
+      sameJson(metadataKeys.policy, ["allow_implicit_invocation"]),
+    `${skillName} metadata must use only the supported interface and invocation-policy fields`,
+    errors,
+  );
   expect(metadata.includes("interface:\n"), `${skillName} metadata is missing interface`, errors);
   expect(/  display_name: "[^"]+"/.test(metadata), `${skillName} metadata is missing a quoted display_name`, errors);
   expect(/  short_description: "[^"]{25,64}"/.test(metadata), `${skillName} short_description must be 25-64 characters`, errors);
@@ -222,19 +274,38 @@ export function validateFoundation(root = REPOSITORY_ROOT) {
   const pluginJson = readJson(root, ".codex-plugin/plugin.json", errors);
 
   if (packageJson && pluginJson) {
-    expect(packageJson.name === "kyw-dev", "package name must be kyw-dev", errors);
-    expect(packageJson.version === "0.1.0", "package version must be 0.1.0", errors);
+    expect(packageJson.name === RELEASE_METADATA.name, "package name must be kyw-dev", errors);
+    expect(packageJson.version === RELEASE_METADATA.version, "package version must be 0.1.0", errors);
     expect(packageJson.private === false, "release package must be publishable only through the explicit approval gate", errors);
     expect(sameJson(packageJson.keywords, releaseKeywords), "package release keywords changed", errors);
+    expect(packageJson.homepage === RELEASE_METADATA.homepage, "package homepage must be the public repository README", errors);
+    expect(
+      sameJson(packageJson.repository, {
+        type: "git",
+        url: RELEASE_METADATA.repositoryGitUrl,
+      }),
+      "package repository must use the normalized public Git URL",
+      errors,
+    );
+    expect(
+      sameJson(packageJson.bugs, { url: RELEASE_METADATA.issuesUrl }),
+      "package bugs URL must use the public GitHub issue tracker",
+      errors,
+    );
     expect(packageJson.type === "module", "package type must be module", errors);
-    expect(packageJson.engines?.node === ">=22", "package must require Node.js >=22", errors);
+    expect(packageJson.engines?.node === RELEASE_METADATA.nodeRange, "package must require Node.js >=22", errors);
     expect(packageJson.bin?.["kyw-dev"] === "bin/kyw-dev.mjs", "package bin path is invalid", errors);
     expect(packageJson.license === "MIT", "package license must be MIT", errors);
-    expect(packageJson.author?.name === "kyw-dev", "package author must be kyw-dev", errors);
+    expect(
+      sameKeys(packageJson.author, ["name"]) && packageJson.author.name === RELEASE_METADATA.authorName,
+      "package author must use the user-confirmed legal name without invented contact data",
+      errors,
+    );
+    expect(!("maintainers" in packageJson), "registry-derived maintainers must not be guessed before publication", errors);
     expect(sameJson(packageJson.publishConfig, releasePublishConfig), "package publishConfig must target the public npm registry", errors);
     expect(sameJson(packageJson.files, PACKAGE_FILES_ALLOWLIST), "package files allowlist changed", errors);
-    expect(!("dependencies" in packageJson), "production dependencies are not allowed in Task 0001", errors);
-    expect(!("devDependencies" in packageJson), "development dependencies are not allowed in Task 0001", errors);
+    expect(!("dependencies" in packageJson), "release package must remain production-dependency free", errors);
+    expect(!("devDependencies" in packageJson), "release package must remain development-dependency free", errors);
 
     for (const [name, command] of Object.entries(requiredScripts)) {
       expect(packageJson.scripts?.[name] === command, `package script ${name} is missing or changed`, errors);
@@ -253,9 +324,48 @@ export function validateFoundation(root = REPOSITORY_ROOT) {
     expect(pluginJson.name === packageJson.name, "plugin and package names must match", errors);
     expect(pluginJson.version === packageJson.version, "plugin and package versions must match", errors);
     expect(pluginJson.license === packageJson.license, "plugin and package licenses must match", errors);
-    expect(pluginJson.author?.name === "kyw-dev", "plugin author must be kyw-dev", errors);
+    expect(
+      sameKeys(pluginJson, [
+        "name",
+        "version",
+        "description",
+        "author",
+        "homepage",
+        "repository",
+        "license",
+        "keywords",
+        "skills",
+        "interface",
+      ]),
+      "plugin manifest contains a missing or unsupported top-level field",
+      errors,
+    );
+    expect(
+      sameKeys(pluginJson.author, ["name"]) && pluginJson.author.name === packageJson.author?.name,
+      "plugin author must match the user-confirmed package author without invented contact data",
+      errors,
+    );
+    expect(pluginJson.homepage === packageJson.homepage, "plugin and package homepages must match", errors);
+    expect(pluginJson.repository === RELEASE_METADATA.repositoryWebUrl, "plugin repository must use the public web URL", errors);
+    expect(sameJson(pluginJson.keywords, packageJson.keywords), "plugin and package keywords must match", errors);
     expect(pluginJson.skills === "./skills/", "plugin skills path must be ./skills/", errors);
-    expect(pluginJson.interface?.developerName === "kyw-dev", "plugin developerName must be kyw-dev", errors);
+    expect(
+      sameKeys(pluginJson.interface, [
+        "displayName",
+        "shortDescription",
+        "longDescription",
+        "developerName",
+        "category",
+        "capabilities",
+        "websiteURL",
+        "defaultPrompt",
+      ]),
+      "plugin interface contains a missing or unsupported field",
+      errors,
+    );
+    expect(pluginJson.interface?.displayName === packageJson.name, "plugin displayName must match the product name", errors);
+    expect(pluginJson.interface?.developerName === packageJson.author?.name, "plugin developerName must match the legal author", errors);
+    expect(pluginJson.interface?.websiteURL === RELEASE_METADATA.repositoryWebUrl, "plugin websiteURL must use the public repository", errors);
     expect(pluginJson.interface?.category === "Productivity", "plugin category must be Productivity", errors);
     expect(
       sameJson(pluginJson.interface?.capabilities, ["Interactive", "Write"]),
@@ -323,9 +433,9 @@ export function validateFoundation(root = REPOSITORY_ROOT) {
 
   const license = existsSync(join(root, "LICENSE")) ? readFileSync(join(root, "LICENSE"), "utf8") : "";
   expect(license.startsWith("MIT License\n"), "project LICENSE must contain the MIT text", errors);
-  expect(license.includes("Copyright (c) 2026 kyw-dev"), "project copyright is missing", errors);
+  expect(license.includes(RELEASE_METADATA.copyright), "project copyright is missing", errors);
 
-  for (const [relativePath, expectedHash] of Object.entries(preservedLegalHashes)) {
+  for (const [relativePath, expectedHash] of Object.entries(PRESERVED_LEGAL_HASHES)) {
     if (!existsSync(join(root, relativePath))) {
       errors.push(`${relativePath} is missing`);
       continue;

@@ -5,12 +5,19 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve, sep } from "node:path";
 
-import { EXPECTED_TARBALL_FILES, REPOSITORY_ROOT } from "./lib/validate-foundation.mjs";
+import {
+  EXPECTED_TARBALL_FILES,
+  PRESERVED_LEGAL_HASHES,
+  RELEASE_METADATA,
+  REPOSITORY_ROOT,
+  assertFoundation,
+} from "./lib/validate-foundation.mjs";
 
 const forbiddenLifecycleScripts = [
   "preinstall",
@@ -24,6 +31,119 @@ const forbiddenLifecycleScripts = [
   "publish",
   "postpublish",
 ];
+
+const forbiddenPackageRoots = [
+  ".agents",
+  ".github",
+  ".npmrc",
+  "DOCUMENT_BUNDLE.txt",
+  "auth.json",
+  "docs",
+  "eval",
+  "scripts",
+  "test",
+];
+
+const packedTextPatterns = [
+  {
+    label: "credential-shaped token",
+    pattern:
+      /\b(?:sk-(?:proj-)?[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|npm_[A-Za-z0-9]{20,})\b/,
+  },
+  {
+    label: "private key",
+    pattern: /-----BEGIN (?:EC |OPENSSH |RSA )?PRIVATE KEY-----/,
+  },
+  {
+    label: "credential assignment",
+    pattern: /(?:^|\s)(?:_authToken|npmAuthToken|password|passwd)\s*[:=]\s*["']?[^<\s"']{8,}/im,
+  },
+  {
+    label: "Windows absolute path",
+    pattern: /(?:^|[\s"'(=])[A-Za-z]:[\\/][^\s"'`)]+/m,
+  },
+  {
+    label: "UNC absolute path",
+    pattern: /(?:^|[\s"'(=])\\\\[^\\\s]+\\[^\s"'`)]+/m,
+  },
+  {
+    label: "local POSIX absolute path",
+    pattern: /(?:^|[\s"'(=])\/(?:Users|home|root|tmp|private\/tmp)\/[^\s"'`)]+/m,
+  },
+  {
+    label: "local file dependency",
+    pattern: /\bfile:(?:\.\.?[\\/]|\/|[A-Za-z]:[\\/])/i,
+  },
+];
+
+function sha256(contents) {
+  return createHash("sha256").update(contents).digest("hex");
+}
+
+function collectFiles(root) {
+  const files = [];
+  function visit(directory) {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const entryPath = join(directory, entry.name);
+      if (entry.isDirectory()) {
+        visit(entryPath);
+      } else if (entry.isFile()) {
+        files.push(entryPath);
+      }
+    }
+  }
+  visit(root);
+  return files;
+}
+
+function assertPackedHygiene(packageRoot) {
+  for (const excludedPath of forbiddenPackageRoots) {
+    if (existsSync(join(packageRoot, excludedPath))) {
+      throw new Error(`Packed package contains forbidden path: ${excludedPath}`);
+    }
+  }
+
+  for (const filePath of collectFiles(packageRoot)) {
+    if (
+      !/\.(?:json|md|mjs|txt|yaml|yml)$/.test(filePath) &&
+      basename(filePath).toUpperCase() !== "LICENSE"
+    ) {
+      continue;
+    }
+    const contents = readFileSync(filePath, "utf8");
+    if (contents.includes(REPOSITORY_ROOT)) {
+      throw new Error(`Packed file exposes the source checkout path: ${filePath}`);
+    }
+    for (const { label, pattern } of packedTextPatterns) {
+      if (pattern.test(contents)) {
+        throw new Error(`Packed file contains ${label}: ${filePath}`);
+      }
+    }
+  }
+
+  const projectLicense = readFileSync(join(packageRoot, "LICENSE"), "utf8");
+  if (!projectLicense.includes(RELEASE_METADATA.copyright)) {
+    throw new Error("Packed project LICENSE does not contain the confirmed copyright holder");
+  }
+
+  for (const [relativePath, expectedHash] of Object.entries(PRESERVED_LEGAL_HASHES)) {
+    const actualHash = sha256(readFileSync(join(packageRoot, ...relativePath.split("/"))));
+    if (actualHash !== expectedHash) {
+      throw new Error(`Packed legal file hash mismatch: ${relativePath}`);
+    }
+  }
+  const thirdPartyNotice = readFileSync(join(packageRoot, "THIRD_PARTY_NOTICES.md"), "utf8");
+  const upstreamLicense = readFileSync(
+    join(packageRoot, "licenses", "mattpocock-skills-MIT.txt"),
+    "utf8",
+  );
+  if (!thirdPartyNotice.includes("Copyright (c) 2026 Matt Pocock")) {
+    throw new Error("Packed third-party notice is missing Matt Pocock attribution");
+  }
+  if (!upstreamLicense.startsWith("MIT License\n\nCopyright (c) 2026 Matt Pocock\n")) {
+    throw new Error("Packed upstream MIT license is incomplete");
+  }
+}
 
 function runNpmPack(destination) {
   const npmExecutable = process.env.npm_execpath;
@@ -67,6 +187,8 @@ function parsePackReport(stdout) {
   return value[0];
 }
 
+assertFoundation();
+
 const temporaryRoot = mkdtempSync(join(tmpdir(), "kyw-dev-packed-release-"));
 
 try {
@@ -100,7 +222,7 @@ try {
   if (archive.length !== report.size) {
     throw new Error(`Packed size mismatch: report=${report.size}, actual=${archive.length}`);
   }
-  const sha256 = createHash("sha256").update(archive).digest("hex");
+  const archiveSha256 = sha256(archive);
 
   const extracted = spawnSync("tar", ["-xf", archivePath, "-C", extractDirectory], {
     encoding: "utf8",
@@ -114,11 +236,7 @@ try {
       throw new Error(`Packed package contains forbidden lifecycle script: ${scriptName}`);
     }
   }
-  for (const excludedPath of [".github", "docs", "scripts", "test"]) {
-    if (existsSync(join(packageRoot, excludedPath))) {
-      throw new Error(`Packed package contains development-only path: ${excludedPath}`);
-    }
-  }
+  assertPackedHygiene(packageRoot);
 
   const executable = join(packageRoot, packageJson.bin?.["kyw-dev"] ?? "");
   const version = spawnSync(process.execPath, [executable, "--version"], { encoding: "utf8" });
@@ -134,7 +252,7 @@ try {
   }
 
   console.log(
-    `packed release check passed (${actualFiles.length} files, ${archive.length} bytes, sha256 ${sha256})`,
+    `packed release check passed (${actualFiles.length} files, ${archive.length} bytes, sha256 ${archiveSha256})`,
   );
 } finally {
   const resolvedTemporaryRoot = resolve(temporaryRoot);

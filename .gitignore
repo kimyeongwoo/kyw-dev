@@ -1,0 +1,10 @@
+# Model-backed grilling evaluation artifacts
+eval/grilling/results/
+
+# Local release artifacts and credential-bearing configuration
+*.tgz
+.npmrc
+.env
+.env.*
+auth.json
+npm-debug.log*

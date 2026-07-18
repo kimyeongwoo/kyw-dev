@@ -39,6 +39,7 @@ test("CI triggers, permissions, concurrency, and credentials are safe for public
 });
 
 test("CI runs every stable command on the complete LTS matrix and one bounded Node 26 lane", () => {
+  assert.equal(packageJson.engines.node, ">=22");
   const stable = jobBody("stable", "packed-release");
   const lanes = [...stable.matchAll(/- label: (.+)\n\s+os: (.+)\n\s+node: (.+)/g)].map(
     ([, label, os, node]) => ({ label, os, node }),

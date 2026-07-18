@@ -2,7 +2,7 @@
 
 ## Status
 
-IN_PROGRESS
+DONE
 
 ## Goal
 
@@ -34,15 +34,15 @@ Harden direct Skill installation, update, doctor, transaction recovery, and unin
 
 ## Acceptance Criteria
 
-- [ ] AC-01: Every metadata-derived or argument-derived managed path is normalized, relative, non-empty where required, and proven confined beneath the intended root before use.
-- [ ] AC-02: Absolute, traversal, mixed-separator escape, duplicate/case-colliding, and malformed managed paths fail closed with stable non-zero errors.
-- [ ] AC-03: Install, update, recovery, and uninstall refuse symlink/junction or unsupported-file-type components that could redirect reads or writes outside the managed root.
-- [ ] AC-04: Destructive operations revalidate the target and ownership/hash state immediately before mutation and never recursively remove the broad `.agents/skills` root.
-- [ ] AC-05: `--force` may remove modified owned files only; it still preserves unknown files, unrelated Skills, and unsafe link targets.
-- [ ] AC-06: Transaction staging, commit, rollback, and recovery cannot escape the trusted root and leave a diagnosable state after injected interruption.
-- [ ] AC-07: Linux, macOS, and Windows CI execute the applicable path/link/security tests; capability-based skips are explicit and do not hide portable logic.
-- [ ] AC-08: `doctor` detects unsafe path/link/transaction state without changing any file.
-- [ ] AC-09: Existing successful install/update/uninstall behavior and documented exit-code categories remain compatible, or all affected durable documents are intentionally updated.
+- [x] AC-01: Every metadata-derived or argument-derived managed path is normalized, relative, non-empty where required, and proven confined beneath the intended root before use.
+- [x] AC-02: Absolute, traversal, mixed-separator escape, duplicate/case-colliding, and malformed managed paths fail closed with stable non-zero errors.
+- [x] AC-03: Install, update, recovery, and uninstall refuse symlink/junction or unsupported-file-type components that could redirect reads or writes outside the managed root.
+- [x] AC-04: Destructive operations revalidate the target and ownership/hash state immediately before mutation and never recursively remove the broad `.agents/skills` root.
+- [x] AC-05: `--force` may remove modified owned files only; it still preserves unknown files, unrelated Skills, and unsafe link targets.
+- [x] AC-06: Transaction staging, commit, rollback, and recovery cannot escape the trusted root and leave a diagnosable state after injected interruption.
+- [x] AC-07: Linux, macOS, and Windows CI execute the applicable path/link/security tests; capability-based skips are explicit and do not hide portable logic.
+- [x] AC-08: `doctor` detects unsafe path/link/transaction state without changing any file.
+- [x] AC-09: Existing successful install/update/uninstall behavior and documented exit-code categories remain compatible, or all affected durable documents are intentionally updated.
 
 ## Plan
 
@@ -50,7 +50,7 @@ Harden direct Skill installation, update, doctor, transaction recovery, and unin
 - [x] Add or refine centralized path-confinement, file-type, link, and ownership revalidation helpers.
 - [x] Make staging/recovery paths bounded and inject failures at each transaction phase in tests.
 - [x] Add malicious metadata, traversal, symlink, junction, collision, race-window, and unknown-file fixtures.
-- [ ] Run focused security tests on every available local platform and rely on Task 0010 CI for the full matrix.
+- [x] Run focused security tests on every available local platform and rely on Task 0010 CI for the full matrix.
 - [x] Re-run normal lifecycle and package E2E tests to prevent safety changes from breaking valid installations.
 - [x] Review error messages for actionable paths without leaking unrelated user data.
 - [x] Synchronize affected Spec, Architecture, README, and Task/Test evidence.
@@ -104,17 +104,20 @@ Update these impact decisions before completion. `Reviewed` is not a reason to e
 - Added cross-platform path/metadata/journal tables, native link/junction fixtures that fail rather than skip when unavailable, Windows unsupported-role and POSIX FIFO fixtures, source/target race injection, force/unknown/link preservation, doctor metadata snapshots, all seven transaction phase interruptions, and unknown-backup preservation.
 - Passed the focused 35-case security/lifecycle file and the full 111-test Windows suite with zero skips; seven native Windows junction creations were proven by test diagnostics.
 - Passed `npm run check`: 111/111 tests, lint over 29 modules, format over 140 files, and the exact 29-file package check.
+- Passed the credential-free `npm run release:ci` gate, including the same stable suite and real packed-archive extraction/smoke check; no publish command ran.
 - Synchronized Spec, Architecture, and README; kept AGENTS unchanged after impact review.
+- Pushed implementation commit `2a90b1759357d8c42e5e0cc50c212fcca8350a7c` to draft PR https://github.com/kimyeongwoo/kyw-dev/pull/3 solely to obtain hosted evidence. Task 0010 run https://github.com/kimyeongwoo/kyw-dev/actions/runs/29595270211 passed all seven stable jobs, the packed job, and the aggregate required job.
+- Inspected native hosted logs rather than inferring from job conclusions: both Linux LTS lanes and the Linux compatibility/packed lanes created seven directory symlinks plus a FIFO; both macOS LTS lanes created seven directory symlinks plus a FIFO; both Windows LTS lanes created seven junctions plus the unsupported file-role fixture. No security/link fixture skipped.
+- Reviewed the final implementation commit and working-tree Task 0013 documentation hunks against AC-01 through AC-09 and T-01 through T-09. The sole production recursive delete remains confined to a validated journal-owned stage/backup directory; no production dependency was added; pre-existing Task 0011/0012 and future Task work remains preserved.
 
 ## Remaining
 
-- Obtain and inspect actual Linux/macOS/Windows Task 0010 hosted CI logs, including native link/junction/FIFO fixture diagnostics and zero hidden security-test skips.
-- Run the remaining packed release gate, complete final call-site/diff coverage review, record terminal evidence, and set Task/Test terminal status only if every hosted lane passes.
+- None.
 
 ## Resume Point
 
-Commit only Task 0013 implementation/test evidence, trigger the Task 0010 matrix from a draft Task 0013 PR, and inspect each platform log before claiming AC-07.
+Task 0013 is complete. Draft PR #3 remains unmerged; no publish, tag, release, or next-Task work was performed.
 
 ## Blockers
 
-- Hosted Linux/macOS native link and FIFO evidence is pending. Any fixture-creation failure is a blocker, not a passing skip.
+- None. The residual continuously privileged same-user TOCTOU limitation is documented and remains explicitly out of scope.

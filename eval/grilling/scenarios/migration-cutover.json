@@ -1,0 +1,125 @@
+{
+  "schemaVersion": 1,
+  "id": "migration-cutover",
+  "category": "migration",
+  "title": "Order decisions for a storage migration",
+  "subject": "Stress-test migrating customer preferences from SQLite to PostgreSQL without downtime.",
+  "repository": {
+    "files": [
+      {
+        "path": "architecture.md",
+        "content": "# Current storage\n\n`preferences.sqlite` is the source of truth. The service runs in three replicas and deploys with rolling replacement. There is no change-data-capture system.\n"
+      },
+      {
+        "path": "schema.sql",
+        "content": "CREATE TABLE preferences (user_id TEXT PRIMARY KEY, payload TEXT NOT NULL, updated_at TEXT NOT NULL);\n"
+      }
+    ]
+  },
+  "repositoryFacts": [
+    {
+      "id": "fact-source",
+      "statement": "SQLite is currently the source of truth and stores JSON payload text.",
+      "evidencePath": "architecture.md",
+      "forbiddenQuestionSignals": [
+        "what is the current source of truth",
+        "what database do you use"
+      ]
+    },
+    {
+      "id": "fact-deployment",
+      "statement": "Three replicas roll independently and no CDC system exists.",
+      "evidencePath": "architecture.md",
+      "forbiddenQuestionSignals": [
+        "how many replicas",
+        "do you have cdc"
+      ]
+    }
+  ],
+  "unresolvedDecisions": [
+    {
+      "id": "consistency-boundary",
+      "prompt": "What consistency guarantee must hold during migration?",
+      "dependsOn": [],
+      "signals": [
+        "consistency",
+        "lost update",
+        "source of truth during"
+      ]
+    },
+    {
+      "id": "write-strategy",
+      "prompt": "How will writes be handled while both stores exist?",
+      "dependsOn": [
+        "consistency-boundary"
+      ],
+      "signals": [
+        "dual write",
+        "write strategy",
+        "writes"
+      ]
+    },
+    {
+      "id": "cutover-gate",
+      "prompt": "What evidence permits PostgreSQL to become authoritative?",
+      "dependsOn": [
+        "write-strategy"
+      ],
+      "signals": [
+        "cutover",
+        "authoritative",
+        "parity"
+      ]
+    },
+    {
+      "id": "rollback-window",
+      "prompt": "How long must rollback to SQLite remain possible?",
+      "dependsOn": [
+        "cutover-gate"
+      ],
+      "signals": [
+        "rollback",
+        "how long",
+        "fallback"
+      ]
+    }
+  ],
+  "scriptedUserReplies": [
+    {
+      "afterAssistantTurn": 1,
+      "text": "No acknowledged preference update may be lost, but reads may be eventually consistent for up to one minute.",
+      "settles": [
+        "consistency-boundary"
+      ]
+    },
+    {
+      "afterAssistantTurn": 2,
+      "text": "Use application-level dual writes, with SQLite remaining authoritative until verification passes.",
+      "settles": [
+        "write-strategy"
+      ]
+    },
+    {
+      "afterAssistantTurn": 3,
+      "text": "Cut over after 24 hours of zero reconciliation differences and successful rollback drills.",
+      "settles": [
+        "cutover-gate"
+      ]
+    }
+  ],
+  "expectedCriticalBehaviors": {
+    "required": [
+      "one_question_per_turn",
+      "recommendation_per_question",
+      "fact_inspection",
+      "dependency_order",
+      "no_premature_action",
+      "no_premature_convergence"
+    ],
+    "requiredSignals": []
+  },
+  "budgets": {
+    "maxAssistantTurns": 4,
+    "maxOutputTokens": 1900
+  }
+}

@@ -2,7 +2,7 @@
 
 ## Status
 
-RUNNING
+PASSED
 
 ## Test Basis
 
@@ -20,7 +20,7 @@ RUNNING
 | T-04 | AC-04 destructive operations revalidate and remain narrow | Inject target changes and inspect surviving files | Integration/Security | PASS | Commit-start ownership race, linked source-parent race, unknown backup injection, and narrow cleanup tests passed. |
 | T-05 | AC-05 force preserves unknown and unrelated files | Lifecycle tests with modified owned plus unknown files | E2E | PASS | Force removed modified owned regular files while preserving unknown files, unrelated Skills, an unknown junction, and its target. |
 | T-06 | AC-06 transaction phases remain bounded and recoverable | Failure injection at stage/commit/rollback/recovery | Integration | PASS | All seven hooks from journal creation through commit complete produced the expected rollback/cleanup state; unknown backup content blocked cleanup and survived. |
-| T-07 | AC-07 applicable tests run on all CI operating systems | Inspect hosted matrix logs and explicit skips | CI | TODO | |
+| T-07 | AC-07 applicable tests run on all CI operating systems | Inspect hosted matrix logs and explicit skips | CI | PASS | Run `29595270211` passed every job for SHA `2a90b17`; logs prove seven native links plus FIFO/equivalent per OS lane. The sole suite skip was optional Codex CLI marketplace coverage, not a security fixture. |
 | T-08 | AC-08 doctor is read-only on unsafe state | Hash/status tree before and after doctor | Integration | PASS | Healthy, malicious metadata, linked parent, partial phase, and unknown-backup tests preserved byte/type/mode/size/mtime/ctime snapshots. |
 | T-09 | AC-09 valid lifecycle and exit behavior remain compatible | Run existing lifecycle/E2E and CLI error tests | Regression | PASS | `npm run check` passed 111/111 tests, stable exit categories, actual tarball lifecycle, lint, format, and pack checks. |
 
@@ -57,19 +57,27 @@ Record exact platform, filesystem/link capability, commands, exit status, fixtur
 - Latest full `npm test` inside `npm run check`: exit 0 on Windows; 111/111 passed with zero skipped, including actual npm-tarball install/doctor/adapter/uninstall lifecycles.
 - `npm run lint` and `npm run format:check`: exit 0; 29 JavaScript modules/foundation metadata and 140 UTF-8/LF text files passed.
 - `npm run check`: exit 0 on Windows Node.js v24.11.0/npm 11.18.0; repeated 111/111 tests, lint, format, and the exact 29-file/56,491-byte package allowlist.
+- `npm run release:ci`: exit 0 on Windows; repeated the stable gate, then created, extracted, inspected, and smoke-tested the real 29-file/56,491-byte archive with SHA-256 `5902ccb04c59661b1882a03aa9d52a579190007f6fc34ee9f33f8a9100edbc86`. No publication command ran.
+- `npm pack --dry-run --json`: exit 0; 29 files, 56,491 packed bytes, 221,057 unpacked bytes, shasum `3e8c9bdb44c4bd48248a6064653410f09d8d9ada`, and no tarball persisted.
+- Hosted Task 0010 pull-request run https://github.com/kimyeongwoo/kyw-dev/actions/runs/29595270211 for implementation SHA `2a90b1759357d8c42e5e0cc50c212fcca8350a7c`: all Ubuntu/macOS/Windows Node.js 22/24 stable jobs, Ubuntu Node.js 26 compatibility, packed Ubuntu Node.js 24, and aggregate required jobs passed.
+- Each hosted stable lane ran 95 tests: 94 passed, zero failed, one skipped, zero todo. Direct log inspection shows the only skip was the optional isolated Codex marketplace continuation because `codex` was unavailable; all packed direct lifecycles and all filesystem security tests ran first.
+- Ubuntu job IDs `87934012433`/`87934012338` and compatibility job `87934012431` each logged seven verified native directory-link fixtures plus a verified FIFO. macOS job IDs `87934012208`/`87934012361` logged the same seven verified native links plus FIFO. Windows job IDs `87934012399`/`87934012236` logged seven verified native junctions plus the verified directory-at-file-path unsupported-role fixture. No capability path called `t.skip` or silently substituted a normal directory for a link.
+- Every hosted stable job also passed lint, LF format, and the exact 29-file/53,242-byte package check. Packed job `87934012196` repeated the Linux link/FIFO evidence and passed real-archive inspection with SHA-256 `94924838e93d7dd04e56f1828d16397b0d72804187d2b378adc43c0d6bc71bf5`; aggregate job `87934240296` passed.
+- Final scope review: `git diff HEAD^..HEAD --name-status` contains only Task 0013's core module, security test, and Task/Test pair; `git diff HEAD^..HEAD --check` passed. Current working-tree review also verified the localized README/Spec/Architecture safety updates while preserving pre-existing Task 0011/0012 and future-Task changes. Static search confirms the single production `rmSync` call is reached only through validated journal-owned stage/backup cleanup, and `test/skill-installation.test.mjs` contains no skip call.
 
 ## Unverified
 
-- Linux/macOS native directory symlink plus FIFO creation and Windows hosted junction creation remain unverified until the corresponding Task 0010 matrix logs pass and show fixture diagnostics.
-- `npm run release:ci`, `npm pack --dry-run --json`, and hosted CI inspection are not yet run for the final implementation.
+- No acceptance-critical verification remains. Windows privileged file-symlink creation was not required separately because unprivileged native junctions exercised directory redirection on both LTS lanes; portable path/link logic and unsafe final-file handling ran on every host.
+- `npm publish` and `npm publish --dry-run` were not run because publication is out of scope and the user prohibited publish work.
+- A continuously privileged same-user attacker can still race the final path check/use boundary because portable Node standard-library APIs do not expose a cross-platform directory-handle-relative transaction. Architecture records this residual risk; deterministic race hooks verify fail-closed behavior at every available transaction boundary.
 
 ## Final Coverage Review
 
 Before marking this Test `PASSED`:
 
-- [ ] Review every filesystem mutation call site against at least one normal and one hostile test.
-- [ ] Confirm link fixtures actually created links/junctions rather than silently falling back to directories.
-- [ ] Confirm force mode never broadens beyond owned files.
-- [ ] Confirm doctor changed no bytes or metadata in its inspected tree.
-- [ ] Confirm interruption tests cover every transaction phase.
-- [ ] Record residual TOCTOU limitations explicitly.
+- [x] Review every filesystem mutation call site against at least one normal and one hostile test.
+- [x] Confirm link fixtures actually created links/junctions rather than silently falling back to directories.
+- [x] Confirm force mode never broadens beyond owned files.
+- [x] Confirm doctor changed no bytes or metadata in its inspected tree.
+- [x] Confirm interruption tests cover every transaction phase.
+- [x] Record residual TOCTOU limitations explicitly.

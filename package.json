@@ -9,6 +9,14 @@
     "spec-driven-development",
     "developer-workflow"
   ],
+  "homepage": "https://github.com/kimyeongwoo/kyw-dev#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kimyeongwoo/kyw-dev.git"
+  },
+  "bugs": {
+    "url": "https://github.com/kimyeongwoo/kyw-dev/issues"
+  },
   "type": "module",
   "bin": {
     "kyw-dev": "bin/kyw-dev.mjs"
@@ -30,6 +38,11 @@
     "format:check": "node ./scripts/format-check.mjs",
     "pack:check": "node ./scripts/pack-check.mjs",
     "check": "npm test && npm run lint && npm run format:check && npm run pack:check",
+    "eval:audit:smoke": "node ./scripts/audit-smoke.mjs",
+    "eval:grilling:unit": "node --test test/grilling-eval.test.mjs",
+    "eval:grilling:smoke": "node ./scripts/grilling-eval.mjs smoke",
+    "eval:grilling:compare": "node ./scripts/grilling-eval.mjs compare",
+    "eval:grilling:report": "node ./scripts/grilling-eval.mjs report",
     "release:ci": "npm run check && node ./scripts/packed-release-check.mjs",
     "release:check": "npm run release:ci && npm publish --dry-run --json"
   },
@@ -41,7 +54,7 @@
     "registry": "https://registry.npmjs.org/"
   },
   "author": {
-    "name": "kyw-dev"
+    "name": "Kim Yeongwoo"
   },
   "license": "MIT"
 }

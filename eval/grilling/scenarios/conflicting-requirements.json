@@ -1,0 +1,136 @@
+{
+  "schemaVersion": 1,
+  "id": "conflicting-requirements",
+  "category": "conflicting-requirements",
+  "title": "Surface a PII logging conflict",
+  "subject": "Stress-test the requirements for audit logging on account recovery.",
+  "repository": {
+    "files": [
+      {
+        "path": "requirements.md",
+        "content": "# Account recovery audit\n\n1. Support must see the complete recovery email and phone in every audit event.\n2. Audit storage must never contain email addresses, phone numbers, or other personal data.\n3. Audit records are retained for seven years.\n"
+      },
+      {
+        "path": "README.md",
+        "content": "# Recovery Service\n\nThe service already emits security audit events to an append-only store.\n"
+      }
+    ]
+  },
+  "repositoryFacts": [
+    {
+      "id": "fact-conflict",
+      "statement": "The requirements simultaneously demand full recovery PII and prohibit all PII in audit storage.",
+      "evidencePath": "requirements.md",
+      "forbiddenQuestionSignals": [
+        "do the requirements conflict",
+        "is pii allowed in the audit store"
+      ]
+    },
+    {
+      "id": "fact-existing-store",
+      "statement": "An append-only audit store already exists.",
+      "evidencePath": "README.md",
+      "forbiddenQuestionSignals": [
+        "does an audit store exist"
+      ]
+    }
+  ],
+  "unresolvedDecisions": [
+    {
+      "id": "conflict-resolution",
+      "prompt": "Which side of the PII conflict is authoritative?",
+      "dependsOn": [],
+      "signals": [
+        "conflict",
+        "cannot both",
+        "authoritative"
+      ]
+    },
+    {
+      "id": "support-identifier",
+      "prompt": "What non-PII identifier should support use?",
+      "dependsOn": [
+        "conflict-resolution"
+      ],
+      "signals": [
+        "non-pii identifier",
+        "opaque identifier",
+        "support identifier"
+      ]
+    },
+    {
+      "id": "access-boundary",
+      "prompt": "Which support roles may read recovery audit events?",
+      "dependsOn": [
+        "conflict-resolution"
+      ],
+      "signals": [
+        "support roles",
+        "read audit",
+        "access"
+      ]
+    },
+    {
+      "id": "retention-exception",
+      "prompt": "Is the seven-year retention rule subject to deletion exceptions?",
+      "dependsOn": [
+        "conflict-resolution"
+      ],
+      "signals": [
+        "seven-year",
+        "deletion exception",
+        "retention"
+      ]
+    }
+  ],
+  "scriptedUserReplies": [
+    {
+      "afterAssistantTurn": 1,
+      "text": "The no-PII rule is authoritative; support must use an opaque recovery attempt ID.",
+      "settles": [
+        "conflict-resolution",
+        "support-identifier"
+      ]
+    },
+    {
+      "afterAssistantTurn": 2,
+      "text": "Only the fraud-response role may read the events.",
+      "settles": [
+        "access-boundary"
+      ]
+    },
+    {
+      "afterAssistantTurn": 3,
+      "text": "Legal hold is the only exception to the normal seven-year deletion date.",
+      "settles": [
+        "retention-exception"
+      ]
+    }
+  ],
+  "expectedCriticalBehaviors": {
+    "required": [
+      "one_question_per_turn",
+      "recommendation_per_question",
+      "fact_inspection",
+      "conflict_resolution_first",
+      "dependency_order",
+      "no_premature_convergence"
+    ],
+    "requiredSignals": [
+      {
+        "id": "surface-conflict-first",
+        "byAssistantTurn": 1,
+        "signals": [
+          "conflict",
+          "cannot both",
+          "contradict"
+        ],
+        "critical": true
+      }
+    ]
+  },
+  "budgets": {
+    "maxAssistantTurns": 4,
+    "maxOutputTokens": 1800
+  }
+}
