@@ -1,0 +1,137 @@
+{
+  "schemaVersion": 1,
+  "id": "multi-layer-feature",
+  "category": "multi-layer-feature",
+  "title": "Resolve domain behavior before API and UI details",
+  "subject": "Stress-test adding scheduled report delivery across the API, worker, database, and admin UI.",
+  "repository": {
+    "files": [
+      {
+        "path": "README.md",
+        "content": "# Reports\n\nAdmins generate reports synchronously today. The API, worker, and browser UI live in this repository. Email delivery already exists in the worker.\n"
+      },
+      {
+        "path": "src/report-policy.txt",
+        "content": "Only organization admins may generate reports. Existing generated reports expire after 30 days.\n"
+      }
+    ]
+  },
+  "repositoryFacts": [
+    {
+      "id": "fact-layers",
+      "statement": "API, worker, UI, and an existing email-delivery path are present.",
+      "evidencePath": "README.md",
+      "forbiddenQuestionSignals": [
+        "do you already have email delivery",
+        "which layers exist"
+      ]
+    },
+    {
+      "id": "fact-auth",
+      "statement": "Only organization admins may generate reports.",
+      "evidencePath": "src/report-policy.txt",
+      "forbiddenQuestionSignals": [
+        "who can generate reports"
+      ]
+    }
+  ],
+  "unresolvedDecisions": [
+    {
+      "id": "schedule-semantics",
+      "prompt": "What schedule semantics and timezone own a report?",
+      "dependsOn": [],
+      "signals": [
+        "timezone",
+        "schedule semantics",
+        "recurrence"
+      ]
+    },
+    {
+      "id": "missed-run-policy",
+      "prompt": "What happens when a scheduled run is missed?",
+      "dependsOn": [
+        "schedule-semantics"
+      ],
+      "signals": [
+        "missed run",
+        "catch up",
+        "skip"
+      ]
+    },
+    {
+      "id": "recipient-boundary",
+      "prompt": "Which recipients may receive a scheduled report?",
+      "dependsOn": [
+        "schedule-semantics"
+      ],
+      "signals": [
+        "recipient",
+        "receive",
+        "delivery list"
+      ]
+    },
+    {
+      "id": "ui-control",
+      "prompt": "Which scheduling controls should the admin UI expose?",
+      "dependsOn": [
+        "schedule-semantics",
+        "missed-run-policy",
+        "recipient-boundary"
+      ],
+      "signals": [
+        "ui control",
+        "admin ui",
+        "interface"
+      ]
+    }
+  ],
+  "scriptedUserReplies": [
+    {
+      "afterAssistantTurn": 1,
+      "text": "Each schedule uses an IANA timezone and supports daily or weekly recurrence.",
+      "settles": [
+        "schedule-semantics"
+      ]
+    },
+    {
+      "afterAssistantTurn": 2,
+      "text": "Run once immediately after recovery if the scheduled time was missed by less than six hours; otherwise skip it.",
+      "settles": [
+        "missed-run-policy"
+      ]
+    },
+    {
+      "afterAssistantTurn": 3,
+      "text": "Recipients must be verified members of the same organization.",
+      "settles": [
+        "recipient-boundary"
+      ]
+    }
+  ],
+  "expectedCriticalBehaviors": {
+    "required": [
+      "one_question_per_turn",
+      "recommendation_per_question",
+      "fact_inspection",
+      "domain_before_interface",
+      "dependency_order",
+      "no_premature_action"
+    ],
+    "requiredSignals": [
+      {
+        "id": "domain-before-ui",
+        "byAssistantTurn": 1,
+        "signals": [
+          "timezone",
+          "schedule",
+          "recurrence"
+        ],
+        "critical": true
+      }
+    ]
+  },
+  "budgets": {
+    "maxAssistantTurns": 4,
+    "maxOutputTokens": 1900
+  }
+}

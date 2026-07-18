@@ -1,0 +1,139 @@
+{
+  "schemaVersion": 1,
+  "id": "existing-code-facts",
+  "category": "existing-code-facts",
+  "title": "Inspect an existing jobs API before asking decisions",
+  "subject": "Stress-test adding idempotent job submission to the existing API.",
+  "repository": {
+    "files": [
+      {
+        "path": "package.json",
+        "content": "{\n  \"name\": \"jobs-api\",\n  \"type\": \"module\",\n  \"engines\": {\n    \"node\": \">=22\"\n  },\n  \"dependencies\": {}\n}\n"
+      },
+      {
+        "path": "src/jobs.mjs",
+        "content": "export const concurrencyLimit = 4;\nexport function submitJob(input) {\n  return { status: 202, id: input.id };\n}\n"
+      },
+      {
+        "path": "README.md",
+        "content": "# Jobs API\n\n`POST /jobs` accepts JSON and currently has no persistence or idempotency store.\n"
+      }
+    ]
+  },
+  "repositoryFacts": [
+    {
+      "id": "fact-runtime",
+      "statement": "The service uses dependency-free Node.js 22 ESM.",
+      "evidencePath": "package.json",
+      "forbiddenQuestionSignals": [
+        "what runtime",
+        "which node version",
+        "what dependencies"
+      ]
+    },
+    {
+      "id": "fact-endpoint",
+      "statement": "POST /jobs exists, returns 202, and has no persistence.",
+      "evidencePath": "README.md",
+      "forbiddenQuestionSignals": [
+        "does the endpoint already exist",
+        "what status does it return",
+        "is there persistence"
+      ]
+    },
+    {
+      "id": "fact-concurrency",
+      "statement": "The current concurrency limit is four.",
+      "evidencePath": "src/jobs.mjs",
+      "forbiddenQuestionSignals": [
+        "what is the concurrency limit"
+      ]
+    }
+  ],
+  "unresolvedDecisions": [
+    {
+      "id": "idempotency-scope",
+      "prompt": "What identity and scope define duplicate submissions?",
+      "dependsOn": [],
+      "signals": [
+        "idempotency scope",
+        "duplicate",
+        "idempotency key"
+      ]
+    },
+    {
+      "id": "duplicate-response",
+      "prompt": "What response should a duplicate request receive?",
+      "dependsOn": [
+        "idempotency-scope"
+      ],
+      "signals": [
+        "duplicate response",
+        "same job",
+        "response"
+      ]
+    },
+    {
+      "id": "retention-window",
+      "prompt": "How long should an idempotency record remain authoritative?",
+      "dependsOn": [
+        "idempotency-scope"
+      ],
+      "signals": [
+        "retention window",
+        "how long",
+        "idempotency record"
+      ]
+    },
+    {
+      "id": "failure-retry",
+      "prompt": "Can a failed job be resubmitted with the same key?",
+      "dependsOn": [
+        "duplicate-response"
+      ],
+      "signals": [
+        "failed job",
+        "resubmit",
+        "retry"
+      ]
+    }
+  ],
+  "scriptedUserReplies": [
+    {
+      "afterAssistantTurn": 1,
+      "text": "The client supplies an idempotency key scoped to its tenant and POST /jobs.",
+      "settles": [
+        "idempotency-scope"
+      ]
+    },
+    {
+      "afterAssistantTurn": 2,
+      "text": "A duplicate returns the original job identifier and the same 202 status.",
+      "settles": [
+        "duplicate-response"
+      ]
+    },
+    {
+      "afterAssistantTurn": 3,
+      "text": "Keep the key authoritative for 24 hours.",
+      "settles": [
+        "retention-window"
+      ]
+    }
+  ],
+  "expectedCriticalBehaviors": {
+    "required": [
+      "one_question_per_turn",
+      "recommendation_per_question",
+      "fact_inspection",
+      "decision_ownership",
+      "dependency_order",
+      "no_premature_action"
+    ],
+    "requiredSignals": []
+  },
+  "budgets": {
+    "maxAssistantTurns": 4,
+    "maxOutputTokens": 1800
+  }
+}

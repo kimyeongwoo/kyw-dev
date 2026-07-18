@@ -70,7 +70,7 @@ test("kyw-task execution and resume documentation matches the packaged workflow"
   const readme = await readFile(README_PATH, "utf8");
   const architecture = await readFile(ARCHITECTURE_PATH, "utf8");
 
-  assert.match(readme, /Tasks 0001 through 0009/);
+  assert.match(readme, /Tasks 0001 through 0015/);
   assert.match(readme, /\$kyw-task 0006/);
   assert.match(readme, /continues at the verified `Resume Point` without repeating Completed work/);
   assert.match(readme, /never substitutes an unsupported `DONE`\/`PASSED` claim/);

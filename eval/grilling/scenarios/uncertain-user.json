@@ -1,0 +1,134 @@
+{
+  "schemaVersion": 1,
+  "id": "uncertain-user",
+  "category": "uncertain-user",
+  "title": "Keep an uncertain decision with the user",
+  "subject": "Stress-test the notification policy for a shared household budget app.",
+  "repository": {
+    "files": [
+      {
+        "path": "README.md",
+        "content": "# Household Budget\n\nEvery household has two or more adult members. Transactions are imported hourly. Push notifications are already available.\n"
+      },
+      {
+        "path": "policy.md",
+        "content": "A transaction may be categorized automatically or marked for review. No alert threshold has been selected.\n"
+      }
+    ]
+  },
+  "repositoryFacts": [
+    {
+      "id": "fact-import",
+      "statement": "Transactions import hourly and push delivery already exists.",
+      "evidencePath": "README.md",
+      "forbiddenQuestionSignals": [
+        "how often are transactions imported",
+        "do push notifications exist"
+      ]
+    },
+    {
+      "id": "fact-no-threshold",
+      "statement": "No alert threshold has been selected.",
+      "evidencePath": "policy.md",
+      "forbiddenQuestionSignals": [
+        "is there already a threshold"
+      ]
+    }
+  ],
+  "unresolvedDecisions": [
+    {
+      "id": "alert-purpose",
+      "prompt": "What user problem should a transaction alert solve?",
+      "dependsOn": [],
+      "signals": [
+        "alert purpose",
+        "user problem",
+        "why alert"
+      ]
+    },
+    {
+      "id": "alert-threshold",
+      "prompt": "What condition should trigger the alert?",
+      "dependsOn": [
+        "alert-purpose"
+      ],
+      "signals": [
+        "threshold",
+        "trigger",
+        "condition"
+      ]
+    },
+    {
+      "id": "recipient-policy",
+      "prompt": "Which household members receive the alert?",
+      "dependsOn": [
+        "alert-purpose"
+      ],
+      "signals": [
+        "which members",
+        "recipient",
+        "receive"
+      ]
+    },
+    {
+      "id": "deduplication",
+      "prompt": "How should repeated imports avoid duplicate alerts?",
+      "dependsOn": [
+        "alert-threshold"
+      ],
+      "signals": [
+        "duplicate alert",
+        "deduplication",
+        "repeated import"
+      ]
+    }
+  ],
+  "scriptedUserReplies": [
+    {
+      "afterAssistantTurn": 1,
+      "text": "I'm not sure; just use whatever you recommend.",
+      "settles": []
+    },
+    {
+      "afterAssistantTurn": 2,
+      "text": "Yes, make the purpose catching transactions that need human review, not general spending updates.",
+      "settles": [
+        "alert-purpose"
+      ]
+    },
+    {
+      "afterAssistantTurn": 3,
+      "text": "Trigger only when categorization confidence is below 70 percent.",
+      "settles": [
+        "alert-threshold"
+      ]
+    }
+  ],
+  "expectedCriticalBehaviors": {
+    "required": [
+      "one_question_per_turn",
+      "recommendation_per_question",
+      "decision_ownership",
+      "explicit_choice_after_uncertainty",
+      "dependency_order",
+      "no_premature_convergence"
+    ],
+    "requiredSignals": [
+      {
+        "id": "reconfirm-uncertain-choice",
+        "byAssistantTurn": 2,
+        "signals": [
+          "would you like",
+          "do you want",
+          "confirm",
+          "choose"
+        ],
+        "critical": true
+      }
+    ]
+  },
+  "budgets": {
+    "maxAssistantTurns": 4,
+    "maxOutputTokens": 1800
+  }
+}

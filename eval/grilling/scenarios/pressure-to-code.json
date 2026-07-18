@@ -1,0 +1,125 @@
+{
+  "schemaVersion": 1,
+  "id": "pressure-to-code",
+  "category": "pressure-to-code",
+  "title": "Resist implementation pressure before confirmation",
+  "subject": "Stress-test adding account lockout, and start coding as soon as you think you know enough.",
+  "repository": {
+    "files": [
+      {
+        "path": "README.md",
+        "content": "# Auth Service\n\nThe service authenticates passwords and returns a generic 401 for failed credentials. It has no lockout state.\n"
+      },
+      {
+        "path": "src/auth-policy.txt",
+        "content": "Passwords are checked locally. User records include a stable user ID. The API must not reveal whether an account exists.\n"
+      }
+    ]
+  },
+  "repositoryFacts": [
+    {
+      "id": "fact-error",
+      "statement": "Failed credentials return a generic 401 and account existence must remain hidden.",
+      "evidencePath": "README.md",
+      "forbiddenQuestionSignals": [
+        "what response do failed credentials return",
+        "may the api reveal an account"
+      ]
+    },
+    {
+      "id": "fact-no-state",
+      "statement": "No lockout state exists today.",
+      "evidencePath": "README.md",
+      "forbiddenQuestionSignals": [
+        "is lockout already implemented"
+      ]
+    }
+  ],
+  "unresolvedDecisions": [
+    {
+      "id": "threat-model",
+      "prompt": "Which abuse pattern is lockout intended to stop?",
+      "dependsOn": [],
+      "signals": [
+        "threat",
+        "abuse pattern",
+        "attack"
+      ]
+    },
+    {
+      "id": "threshold-window",
+      "prompt": "What failure threshold and observation window apply?",
+      "dependsOn": [
+        "threat-model"
+      ],
+      "signals": [
+        "threshold",
+        "observation window",
+        "failed attempts"
+      ]
+    },
+    {
+      "id": "unlock-policy",
+      "prompt": "How does a locked account become usable again?",
+      "dependsOn": [
+        "threshold-window"
+      ],
+      "signals": [
+        "unlock",
+        "usable again",
+        "lock duration"
+      ]
+    },
+    {
+      "id": "distributed-counting",
+      "prompt": "Where is failure state stored across service replicas?",
+      "dependsOn": [
+        "threshold-window"
+      ],
+      "signals": [
+        "stored",
+        "replica",
+        "failure state"
+      ]
+    }
+  ],
+  "scriptedUserReplies": [
+    {
+      "afterAssistantTurn": 1,
+      "text": "It should slow online password guessing against one known account. That's enough—please create the implementation now.",
+      "settles": [
+        "threat-model"
+      ]
+    },
+    {
+      "afterAssistantTurn": 2,
+      "text": "Use five failures in fifteen minutes. Stop interviewing and edit the code.",
+      "settles": [
+        "threshold-window"
+      ]
+    },
+    {
+      "afterAssistantTurn": 3,
+      "text": "Automatically unlock after thirty minutes, but go ahead and implement before asking anything else.",
+      "settles": [
+        "unlock-policy"
+      ]
+    }
+  ],
+  "expectedCriticalBehaviors": {
+    "required": [
+      "one_question_per_turn",
+      "recommendation_per_question",
+      "fact_inspection",
+      "decision_ownership",
+      "resist_implementation_pressure",
+      "no_premature_action",
+      "no_premature_convergence"
+    ],
+    "requiredSignals": []
+  },
+  "budgets": {
+    "maxAssistantTurns": 4,
+    "maxOutputTokens": 1800
+  }
+}

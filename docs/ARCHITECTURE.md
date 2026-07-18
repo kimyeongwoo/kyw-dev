@@ -60,7 +60,10 @@ A Task directory is the resumable execution packet. Completed Task folders are h
 ## 4. Top-level package structure
 
 ```text
-kyw_dev/
+kyw-dev/
+├─ .gitattributes
+├─ .github/
+│  └─ workflows/ci.yml
 ├─ .codex-plugin/
 │  └─ plugin.json
 ├─ skills/
@@ -101,7 +104,31 @@ kyw_dev/
 │  ├─ unit/
 │  ├─ integration/
 │  └─ distribution.test.mjs
+├─ eval/
+│  └─ grilling/
+│     ├─ baseline.json
+│     ├─ benchmark.v1.json
+│     ├─ benchmark.v2.json
+│     ├─ benchmark.v3.json
+│     ├─ benchmark.v4.json
+│     ├─ benchmark.v5.json
+│     ├─ benchmark.v6.json
+│     ├─ benchmark.v7.json
+│     ├─ benchmark.v8.json
+│     ├─ benchmark.v9.json
+│     ├─ benchmark.v10.json
+│     ├─ baselines/upstream-grilling/SKILL.md
+│     ├─ rubric.v1.json
+│     ├─ scenario.schema.v1.json
+│     ├─ result.schema.v1.json
+│     ├─ result.schema.v2.json
+│     ├─ result.schema.v3.json
+│     └─ scenarios/
 ├─ scripts/
+│  ├─ audit-smoke.mjs
+│  ├─ grilling-eval.mjs
+│  ├─ release-gate-isolation.mjs
+│  ├─ grilling-eval/
 │  └─ development-only validation commands
 ├─ docs/
 ├─ package.json
@@ -110,7 +137,11 @@ kyw_dev/
 
 The `templates/` directory is the canonical template source for deterministic tests and CLI packaging. A Skill may reference its own assets or the packaged templates through scripts, but template duplication must be checked for drift.
 
-Root `scripts/` and `test/` are development-only verification surfaces. They validate the package but are excluded from the npm tarball. Runtime and packaged Skill code must not import them.
+Root `eval/`, `scripts/`, and `test/` are development-only verification surfaces. They validate the package but are excluded from the npm tarball. Runtime and packaged Skill code must not import them.
+
+`scripts/release-gate-isolation.mjs` owns the development-only direct/marketplace release lifecycle. It creates one approved native temporary root, rejects every lifecycle target that is not an absolute, real, link-free strict descendant, and compares targets against normal profile `.agents`, default/configured Codex roots, and default/configured npm userconfig identities using native case rules. Windows comparison is case-insensitive and separator-normalized. The runner constructs isolated user, Codex, npm, process-temp, and XDG state without mutating its own environment; every child receives that state explicitly. Readable normal agents/npm files and Codex control paths are content/tree hashed, locked files retain type/size/time/identity sentinels, and active Codex session/log/cache payloads retain structural sentinels so host logging cannot mask or impersonate plugin-control changes. Any protected-state delta overrides product success. Cleanup accepts only the original root identity directly below its approved parent after a complete link/type check.
+
+The positive npm `files` allowlist also excludes repository Tasks/docs, the removed `DOCUMENT_BUNDLE.txt` bootstrap inventory, local marketplace fixtures, generated archives, credential/config files, and machine-local paths. Release validation compares an exact dry-run inventory, extracts a real tarball created in an isolated temporary directory, scans packed text for credential-shaped values and absolute local paths, and verifies the project and Matt Pocock legal notices by content and SHA-256.
 
 The packaged deterministic mechanics are split into three core modules:
 
@@ -124,7 +155,7 @@ The artifact module depends on the template-contract module. The installation mo
 
 `skills/kyw-task/references/execution.md` is the packaged semantic state-machine reference for Task execution and resume. `SKILL.md` loads it only after create-mode confirmation or a numeric Task invocation. It owns reasoning gates for repository verification, current-Task scope, documentation impact, live Task/Test evidence, compaction handoff, final diff coverage, and terminal status; it does not duplicate deterministic artifact mechanics.
 
-`skills/kyw-audit/references/audit.md` is the packaged semantic reference for an independent Task review. `SKILL.md` resolves one explicitly supplied Task ID and loads the reference before inspection. The reference owns baseline fallback, stable finding classification, acceptance/evidence reproduction, scope and durable-document comparison, safe in-scope repair, affected-check reruns, and the final audit verdict. It consumes existing Task validators as evidence but adds no deterministic runtime module or production dependency.
+`skills/kyw-audit/references/audit.md` is the packaged semantic reference for an independent Task review. `SKILL.md` resolves one explicitly supplied Task ID, locks bare read-only or exact-`--fix` repair mode, and loads the reference before inspection. The reference owns baseline fallback, stable finding classification, acceptance/evidence reproduction, scope and durable-document comparison, the default zero-write boundary, explicit bounded repair, affected-check reruns, and the final audit verdict. It consumes existing Task validators as evidence but adds no deterministic runtime module or production dependency.
 
 ## 5. Plugin manifest
 
@@ -138,15 +169,17 @@ MVP manifest responsibilities:
 
 - stable plugin identifier `kyw-dev`;
 - semantic version matching `package.json`;
-- description and publisher metadata;
+- description, `Kim Yeongwoo` publisher metadata, and the verified public repository/homepage;
 - `skills: "./skills/"`;
 - install-surface metadata suitable for a productivity/developer workflow plugin.
 
-The release manifest describes the implemented workflows rather than foundation stubs, exposes only the actual `Interactive` and `Write` capabilities, and provides three bounded starter prompts for init, Task, and audit. Optional URLs, contact fields, and branding assets remain absent until real values and files exist.
+The release manifest describes the implemented workflows rather than foundation stubs, exposes only the actual `Interactive` and `Write` capabilities, and provides three bounded starter prompts for init, Task, and audit. It uses only fields accepted by the current official plugin format. Unconfirmed email, privacy/terms, and branding metadata remain absent until real values and files exist.
 
 MVP does not include `mcpServers`, `apps`, or `hooks`. Those fields may be added only through an explicit future architecture decision.
 
 A build/test check must fail when plugin and npm versions differ.
+
+`package.json` is the runtime source for product version and the npm source for package name, Node engine range, public repository URLs, author, executable, and packed file boundary. The plugin manifest mirrors name/version/license/author/repository identity, the CLI reads its displayed version from the packed package metadata, and direct-install ownership records that same package name/version. Validation fails on drift across those surfaces.
 
 ## 6. Skill architecture
 
@@ -252,23 +285,27 @@ Responsibility: independent consistency and evidence review.
 
 Inputs:
 
-- Task ID;
+- exact `$kyw-audit NNNN` or `$kyw-audit NNNN --fix` invocation;
 - permanent docs;
 - current code/diff/history and test artifacts.
 
 Outputs:
 
+- locked `read-only` or `repair` mode;
 - findings grouped by scope, behavior, architecture, docs, and test evidence;
-- in-scope fixes where safe;
+- conversation-only findings and limitations in read-only mode;
+- bounded in-scope fixes only in exact-`--fix` repair mode;
 - final `PASS` or `BLOCKED`.
 
 It does not invent new product requirements. Out-of-scope findings become recommendations for a new Task.
 
-The audit begins read-only and treats Task status, checked acceptance criteria, Test rows, command logs, and handoff summaries as claims. It establishes a comparison baseline from Git status/diff/history when available, or records a reproducible snapshot, patch, artifact, inventory, or hash fallback. If the available baseline cannot establish required scope or behavior, the audit blocks instead of implying recovered Git evidence.
+The mode is locked before inspection. A bare invocation remains read-only through the final response and cannot be upgraded by natural-language repair wording or by an easy finding. It treats Task status, checked acceptance criteria, Test rows, command logs, and handoff summaries as claims and establishes a comparison baseline from non-mutating Git status/diff/history when available, or records a reproducible snapshot, patch, artifact, inventory, or hash fallback. If the available baseline cannot establish required scope or behavior, the audit blocks instead of implying recovered Git evidence.
 
 Findings receive stable `F-NN` IDs and exactly one category (`scope`, `behavior`, `architecture`, `docs`, or `test-evidence`), severity (`BLOCKER`, `ERROR`, or `WARNING`), evidence, expected/actual state, scope classification, action, and status. An unmapped acceptance criterion, unsupported PASS row, stale durable document, uncovered meaningful branch, or out-of-scope implementation is an error even when a generic suite passes.
 
-Mutation begins only for an unambiguous repair already required by current Task and permanent truth. Eligible changes remain within the audited Task/Test pair, its required implementation/tests/configuration, and permanent documents whose durable meaning is restored or changed. The audit records the finding first, preserves failed evidence, applies the smallest fix, reruns the affected acceptance-specific check plus required regressions, and re-audits the final diff. It never edits or absorbs out-of-scope work, allocates a follow-on ID, or writes a separate audit report artifact.
+In read-only mode, the complete mutation boundary is empty: no tracked, untracked, generated, Task/Test, or durable-document byte changes; no repository report; and no attempted mutating command. The command boundary also covers temporary, control, cache, snapshot, and isolated-copy state. A rerun executes only when established byte-preserving; potentially writing checks use retained evidence or are skipped with limitations reported honestly. Preparing or cleaning a disposable copy belongs outside a bare audit and is never an in-invocation workaround.
+
+In repair mode, mutation begins only after the audit records an unambiguous finding already required by current Task and permanent truth and presents a bounded plan naming finding IDs, intended paths, and verification. Eligible changes remain within the audited Task/Test pair, its required implementation/tests/configuration, and permanent documents whose durable meaning is restored or changed. The audit preserves failed evidence, applies the smallest fix, reruns the affected acceptance-specific check plus required regressions, and re-audits the final diff. It never edits or absorbs out-of-scope work, allocates a follow-on ID, or writes a separate audit report artifact.
 
 ```text
 explicit $kyw-audit NNNN
@@ -276,8 +313,16 @@ explicit $kyw-audit NNNN
 read-only baseline + Task/Test validation
         ↓
 acceptance/evidence + implementation/scope/docs review
-        ├─ clear in-scope error → record → repair → affected checks → re-audit
-        └─ out-of-scope/unsafe/unproven → record + follow-on recommendation
+        ↓
+conversation-only findings + safe reruns + residual risk
+        ↓
+PASS or BLOCKED; repository bytes unchanged
+
+explicit $kyw-audit NNNN --fix
+        ↓
+read-only baseline + findings
+        ├─ clear in-scope error → bounded plan → repair → affected checks → re-audit
+        └─ out-of-scope/unsafe/unproven → record + follow-on recommendation only
         ↓
 no open blocker/error and every evidence gate proven?
         ├─ yes → PASS
@@ -390,7 +435,7 @@ Project scope:
 <git-root>/.agents/skills/
 ```
 
-Project scope realpath-resolves the current directory and walks parents until it finds a real `.git` directory or file. It does not spawn Git or follow a symlinked marker. Project installation fails with a helpful message if no repository root is found; an explicit target path remains a future interface.
+Project scope realpath-resolves the current directory and walks parents until it finds a real `.git` directory or file. User and project scope then resolve the existing scope root to its physical path; a scope-root leaf that is itself a symlink/junction is rejected. The derived `.agents` and `skills` components must be real directories whose real paths equal their expected physical paths. The CLI does not spawn Git or follow a symlinked marker. Project installation fails with a helpful message if no repository root is found; an explicit target path remains a future interface.
 
 ## 10.4 Ownership metadata
 
@@ -408,23 +453,25 @@ It records:
 - the four installed Skill names and paths;
 - a sorted path/SHA-256 record for every managed file.
 
-Metadata paths use normalized relative POSIX separators and may name only the four managed Skill containers or `.kyw-dev/runtime/`. This containment rule prevents malformed metadata from authorizing deletion of unrelated Skills.
+Metadata paths use non-empty normalized relative POSIX separators and may name only the four managed Skill containers or `.kyw-dev/runtime/`. Validation is host-independent: POSIX, drive, drive-relative, UNC, traversal, backslash/mixed-separator, Windows-reserved/malformed, exact duplicate, Unicode-normalization/case-colliding, and file-as-directory-prefix forms are rejected even on a case-sensitive host. Resolution reconfirms that each path is a strict descendant of the selected Skills root. The same manifest-identity rules apply to package inventory and transaction old/new lists, preventing malformed metadata or journals from authorizing access to unrelated Skills.
 
 ## 10.5 Atomic update strategy
 
-1. Validate the package/plugin/Skill source and build a sorted hash inventory without touching the target.
-2. Resolve a real scope root, recover any trustworthy prior transaction, and compare installed bytes and unknown paths with ownership metadata.
-3. Exclusively publish a journal naming the owning process, reserved sibling stage/backup directories, and old/new hashes, then stage and rehash all new bytes. Another live owner is a conflict, not a recovery target.
-4. Create a commit-started marker, recheck the target against the captured hashes, move old managed files to backup, and move staged files into place.
-5. Move old metadata to backup and publish new metadata last. Uninstall omits new metadata and moves only files named by valid ownership metadata.
-6. Publish a commit-complete marker, then remove the reserved backup, stage, journal, and marker.
-7. On interruption before commit, discard only the stage. During an incomplete commit, remove bytes that still match the journal and restore backups. After commit-complete, retain the new state and finish cleanup.
+1. Resolve the package root physically, reject linked or unsupported source entries, validate portable path identities, and build a sorted hash inventory without touching the target.
+2. Resolve and validate the physical scope/Skills chain, recover any trustworthy prior transaction, and compare installed bytes, types, links, case identities, and unknown paths with ownership metadata.
+3. Exclusively publish a journal naming the owning process, force policy, UUID-named sibling stage/backup directories, current and ownership hashes, then stage each source only after revalidating its link-free ancestry/type/hash. Revalidate source and staged bytes after copy. Another live owner is a conflict, not a recovery target.
+4. Create and hash-check the commit-started marker. Immediately before every destructive rename, revalidate the relevant root and parent chain, regular-file type, absence/presence expectation, ownership hash, and current content; validate the renamed copy again afterward.
+5. Move old metadata to backup and publish hash-checked new metadata last. Uninstall omits new metadata and moves only existing regular files named by valid ownership metadata; force records both the installed ownership hash and actual modified hash when they differ.
+6. Re-prove metadata ownership and the complete published state, publish an exact hash-checked commit-complete marker, then clean up. Recursive cleanup accepts only the UUID paths named by the journal and only when every present entry is an expected real directory or hash-matching regular file; an unknown/link/special entry leaves a diagnosable recovery state.
+7. Before commit, discard only validated staged content. During an incomplete commit, remove only journal-hash-matching new bytes and restore type/hash-proven backups. After commit-complete, retain the revalidated new state and finish cleanup. Journal and marker unlinks also revalidate exact type/content immediately before mutation.
 
-Install/update refuse unmanaged, missing, modified, unknown, or unsafe state. Uninstall does the same unless `--force` explicitly permits missing/modified/unknown state; force still preserves unknown bytes and refuses unsafe owned entries. Transaction cleanup may recursively remove only validated, reserved stage/backup directories below the selected Skills root. It never recursively deletes a broad `.agents/skills` directory or follows a symlink.
+Install/update refuse unmanaged, missing, modified, unknown, colliding, or unsafe state. Normal uninstall does the same. Force may continue past missing/modified owned entries and preserved unknown entries, but its removal set remains existing regular files proven by ownership metadata; it never removes an unknown entry, unrelated Skill, known-path link/junction, or unsupported type. Empty known directories are pruned one at a time. Transaction cleanup never recursively deletes the broad `.agents/skills` directory or follows a link.
+
+Node's path-based standard-library API cannot provide a portable directory-handle-relative `openat` transaction, so a fully privileged same-user attacker continuously replacing components can still win a final check/use race. The implementation narrows this residual risk with physical trusted roots, link-free component checks, before/after identity reads, exclusive markers, atomic same-root renames, and immediate mutation-time revalidation; inability to prove the expected state fails closed and preserves the transaction for inspection.
 
 ## 10.6 Doctor and error flow
 
-`doctor` builds and validates the packaged source inventory, checks Node and detectable npm/Codex versions, inspects user scope and the enclosing project scope when available, validates ownership metadata and Skill front matter/UI policy, compares installed hashes and unknown paths, detects reserved transaction artifacts and duplicate Skill names, and probes the nearest existing scope directory for read/write access. It performs no recovery or other mutation.
+`doctor` builds and validates the packaged source inventory, checks Node and detectable npm/Codex versions, inspects user scope and the enclosing project scope when available, validates the physical scope chain, ownership metadata, portable path identities, filesystem types/links, and Skill front matter/UI policy, compares installed hashes and unknown paths, detects reserved transaction artifacts and duplicate Skill names, and probes the nearest existing scope directory for read/write access. It performs no directory creation, recovery, cleanup, chmod, write, rename, or deletion; tests compare content plus type/mode/size/mtime/ctime snapshots before and after healthy and hostile diagnostics.
 
 The CLI uses stable numeric categories: 0 success, 1 usage, 2 unsupported runtime, 3 scope resolution, 4 conflict, 5 malformed package/install state, 6 filesystem/permission, and 7 recovery required. Doctor returns the highest applicable error category; warnings such as an undetected optional command or version drift do not alone make diagnostics fail.
 
@@ -454,7 +501,7 @@ bundled skills/
 
 The npm tarball itself must already contain all plugin files because marketplace npm downloads do not rely on lifecycle scripts.
 
-Before publication, `test/fixtures/distribution/marketplace-root/.agents/plugins/marketplace.json` is the canonical local catalog. It points at `./plugins/kyw-dev` and declares explicit availability, authentication timing, and category metadata. The distribution E2E creates a temporary marketplace root, copies the extracted npm tarball to that path, sets a fresh `CODEX_HOME`, adds the marketplace through the Codex CLI, installs the plugin, and confirms that all four cached `SKILL.md` files are discoverable. The temporary cache and marketplace are deleted after the check, and neither the fixture nor tests enter the npm tarball.
+Before publication, `test/fixtures/distribution/marketplace-root/.agents/plugins/marketplace.json` is the canonical local catalog. It points at `./plugins/kyw-dev` and declares explicit availability, authentication timing, and category metadata. The distribution E2E delegates to the fail-closed release-isolation runner, copies the extracted npm tarball beneath its approved marketplace root, passes a fresh child-only `CODEX_HOME`, adds the marketplace through the Codex CLI, installs the plugin, and confirms that all four cached `SKILL.md` files match packed bytes. Plugin and marketplace removal complete before the exact temporary root is removed. Neither the fixture, runner, nor tests enter the npm tarball.
 
 ## 11.3 Duplicate-install policy
 
@@ -467,9 +514,29 @@ An installed plugin surface remains reportable when future tooling exposes a tru
 
 ## 11.4 Release gate
 
-`package.json` is release-ready rather than publication-blocked: `private` is false and `publishConfig` fixes public access to the npm public registry. The repository provides no npm lifecycle script that can install the plugin or publish the package. `npm run release:check` runs the stable verification suite and then `npm publish --dry-run --json`; this command is non-publishing evidence only. The actual `npm publish --access public` command remains outside automation and requires explicit approval after a fresh name, identity, tarball, and version check.
+`package.json` is release-ready rather than publication-blocked: `private` is false and `publishConfig` fixes public access to the npm public registry. The repository provides no npm lifecycle script that can install the plugin or publish the package. `npm run release:ci` runs the stable verification suite and then creates, allowlist-checks, extracts, and smoke-tests the real npm tarball in a validated temporary directory. `npm run release:check` reuses that packed gate and then runs `npm publish --dry-run --json`; the dry run is non-publishing local evidence and is not part of required CI. The actual `npm publish --access public` command remains outside automation and requires explicit approval after a fresh name, identity, tarball, and version check.
+
+The stricter local `node ./scripts/release-gate-isolation.mjs` gate requires Codex and runs the complete extracted-tarball user/project/force-preservation and marketplace lifecycle. Its lexical guard runs before target creation or child execution, its materialized guard rechecks realpaths and filesystem types before every spawn, and normal profile control sentinels are compared before cleanup. A successful product lifecycle cannot override an unsafe path, changed normal sentinel, unavailable required Codex CLI, or unverified cleanup identity. Public CI keeps Codex optional, but the same runner still requires the complete direct lifecycle and all isolation/sentinel gates.
 
 The first-release notes, approval checklist, exact commands, and rollback/deprecation procedure live in Task 0009 rather than a new permanent release document. A bad published version is corrected with a new semantic version and normally deprecated rather than removed; npm unpublish is an exceptional, policy-bound, irreversible response.
+
+## 11.5 Credential-free continuous integration
+
+`.github/workflows/ci.yml` is the only required CI workflow. It runs for pull requests, pushes to `main`, and optional manual dispatch with workflow-level `contents: read`, ref-scoped cancellation, explicit job timeouts, disabled checkout credential persistence, and no secret reference. Root `.gitattributes` forces text checkout materialization to LF on every runner because foundation parsing, deterministic packing, and the repository format contract operate on LF bytes. The repository intentionally has no dependencies or lockfile, so jobs do not run `npm ci` or enable a package-manager cache.
+
+```text
+pull request / main push / manual dispatch
+        ├─ stable matrix
+        │    ├─ Node 22 LTS × ubuntu/macos/windows
+        │    ├─ Node 24 LTS × ubuntu/macos/windows
+        │    └─ Node 26 Current × ubuntu compatibility
+        │         └─ test + lint + format:check + pack:check
+        ├─ packed release: Node 24 LTS × ubuntu
+        │         └─ release:ci → stable suite + real packed-byte inspection
+        └─ aggregate required result
+```
+
+The stable matrix runs native temporary-directory CLI and direct-install tests on each host. Codex marketplace coverage remains isolated and executes only where the CLI exists; its absence cannot skip the preceding packed user/project lifecycles or fail a public contributor for missing authentication. The packed job logs the real archive's file count, size, and SHA-256, rejects development/lifecycle content, and runs the extracted CLI. It cannot publish, create a tag or release, merge, or mutate branch-protection settings. Repository administrators may require only the aggregate credential-free result without making a model-backed job part of public PR admission.
 
 ## 12. Template architecture
 
@@ -493,6 +560,46 @@ The six canonical files are `templates/project/{README,AGENTS,SPEC,ARCHITECTURE}
 
 ## 13. Validation architecture
 
+### Grilling evaluation harness
+
+The `eval/grilling/` boundary owns an immutable upstream source pin, the exact vendored baseline bytes, frozen rubric v1, result schemas v1/v2/v3, predeclared bounded benchmark configurations, and synthetic scripted scenarios. Result schema v1 preserves Task 0011 evidence; v2 adds explicit reasoning-effort evidence; v3 additionally requires repository-local Skill-install scope and observable exact-source reading before scoring. The pinned `mattpocock/skills` commit, upstream source path, source SHA-256, MIT copyright, and byte-identical license checksum are validated offline. `skills/kyw-grilling/` remains production input to the harness; evaluation code does not rewrite or tune it.
+
+`scripts/grilling-eval.mjs` is an explicit model-cost gate over the dependency-free runner in `scripts/grilling-eval/`. Normal test execution imports only deterministic parsing, grading, schema, redaction, hashing, and fake-Codex integration paths. Public CI never invokes a model-backed command.
+
+```text
+pinned scenario + exactly one Skill variant
+        ↓ materialize + commit
+temporary Git repository/.agents/skills + temporary HOME
+        ↓
+temporary CODEX_HOME + explicit auth copy or single-run CODEX_API_KEY
+        ↓
+codex exec --json --sandbox read-only --ignore-user-config --ignore-rules
+  + strict explicit model reasoning effort
+        ↓ exact installed SKILL.md must be read on turn 1
+        ↓ thread.started.thread_id
+codex exec resume <thread_id> for each scripted reply
+        ↓
+redact events/final messages → verify fixture hash + Git status → grade rubric v1
+        ↓
+atomic publication under ignored eval/grilling/results/<run-id>/
+```
+
+The runner capability-checks the installed CLI rather than inferring behavior from its version. It installs one evaluated Skill below the temporary Git root's official repository-local `.agents/skills` discovery path, commits that evaluator input, excludes `.agents` from the scenario-content hash, and requires turn-one command output to contain the exact installed Skill source. Missing proof aborts publication instead of grading a fallback interview. The initial turn explicitly requests the read-only sandbox; resume inherits that session boundary and must emit the same thread ID. Every scored run passes the same explicit reasoning effort through strict configuration on the initial and resumed turns. Result schema v3 records timestamps, Codex version, exact requested model and reasoning effort, fixed config, repository Skill scope/read proof, per-turn JSONL/final messages and usage, aggregate usage, fixture hashes, Git cleanliness, Skill-install count, auth-source immutability, and rubric observations.
+
+Task 0012's frozen benchmark configuration fixes the exact CLI/model/effort, baseline and scenario revisions, rubric checksum, repetition count, execution controls, token definition, and thresholds before model execution. Its deterministic report reopens every completed run, reparses JSONL usage, regrades the retained final-message transcripts, verifies scenario/config/isolation parity, calculates aggregate and per-scenario medians, and records a SHA-256 for every `run.json` and complete run artifact tree. Reporting does not weaken the rubric or substitute for manual review of critical flags and material deltas.
+
+Normal `HOME`, user Skills, user config, and normal `CODEX_HOME` are never writable evaluation state. File-based auth is used only when the caller explicitly names a source; it is copied into the temporary Codex home, never logged, checked for source immutability, and deleted on cleanup. Tool subprocesses inherit no environment variables. Generated artifacts contain redacted synthetic transcripts, are Git-ignored, and are rejected before publication if credential-shaped values or raw local home paths remain. Capability/auth failures and incomplete comparisons clean staging and publish no failed-run result.
+
+The package `files` allowlist and exact tarball allowlist exclude all `eval/`, root `scripts/`, `test/`, ignored results, and temporary state. The packed third-party notice and upstream MIT copy remain included because the production Skill is adapted from that source even though the comparison baseline itself is development-only.
+
+### Audit behavior smoke
+
+`scripts/audit-smoke.mjs` is a development-only, one-turn fresh-session contract check over `test/fixtures/kyw-audit/fresh-session-project`. It copies the fixture and current canonical audit Skill into a temporary Git repository, commits the evaluator input, then adds known unrelated tracked, untracked, and generated worktree state. The runner isolates and ignores normal user configuration behind a temporary home and `CODEX_HOME` containing only an explicitly copied authentication source and evaluator-owned outer-sandbox config, ignores execution rules, passes only an allowlisted process environment to the child, and fixes an exact model and reasoning effort with observable installed-Skill source reading. Its post-execution command analyzer uses PowerShell lexical rules on Windows and POSIX shell lexical rules elsewhere, recursively examines executable command substitutions and explicit supported shell `-c`/`-Command` arguments, treats only exact `2>&1` as proven non-file descriptor duplication, and classifies unquoted, unescaped output-to-file operators independently of their file-descriptor prefix.
+
+The model-facing `codex exec` automation bypasses its inner approval/sandbox layer only while the entire process is already enclosed by a separate native `codex sandbox` permission profile, matching the CLI's documented external-sandbox use case. That outer profile grants filesystem reads generally, keeps `.git` and the installed `.agents` Skill read-only, grants the isolated control directory write access, and grants the fixture root read-only or write access according to the smoke mode. Public egress is enabled for the nested model control plane during this controlled synthetic run; the fixture contains no network-requiring code. A temporary deduplicated PEM bundle made from Node's default and host-system public CA stores supplies TLS trust to the nested CLI and is deleted with control state. This arrangement avoids dependence on machine-local exec rules while preserving an OS-enforced repository boundary.
+
+Read-only mode runs `codex exec` with the OS-enforced read-only sandbox and fails on a worktree hash change, Git-status change, file-change event, or mutating-command attempt. A mutation failure prints only bounded redacted evidence: file-change kind or structural command reason, zero-based event index, and before/after tree and Git-status invariance. Output-redirection reasons additionally retain the operator, its original zero-based command offset, effective shell/quote/escape state, and at most 160 characters of match-local context, so a match after any general command preview remains attributable without retaining the whole command. Fix mode uses a separate workspace-write fixture and fails unless a bounded plan message precedes the first mutation, every changed path belongs to the audited Task's declared repair set, unrelated baseline bytes remain identical, the focused fixture test passes, and the final report has one supported verdict. The smoke prints a redacted summary and always deletes temporary repositories, homes, copied authentication, JSONL, and last-message files; unsuccessful runs publish no result artifact, and the harness never enters the npm package.
+
 ### Static validation
 
 - JSON parsing and manifest required fields;
@@ -505,6 +612,7 @@ The six canonical files are `templates/project/{README,AGENTS,SPEC,ARCHITECTURE}
 - package file inclusion.
 - direct-install source/metadata path containment, Skill contract shape, and SHA-256 syntax.
 - public release metadata, absence of lifecycle publish/install scripts, implemented plugin copy, and canonical local marketplace policy/source shape.
+- CI triggers, least-privilege permissions, cancellation/timeouts, exact OS/runtime lanes, stable command coverage, credential absence, and package-script agreement.
 
 Development-only validation scripts use Node built-ins to check JavaScript syntax, canonical JSON formatting, text-file encoding and whitespace, and the npm tarball allowlist. These scripts stay outside the packed runtime boundary.
 
@@ -538,7 +646,7 @@ distribution/fresh-session-project
 
 Direct-install integration runs the actual CLI against isolated homes and nested Git repositories, executes the installed `kyw-task` adapter through its namespaced runtime fallback, injects staging/swap interruption in a child process, verifies recovery against prior hashes, and confirms doctor leaves both scopes byte-identical.
 
-Distribution integration packs and extracts the actual archive, scans packaged text for source paths or secret-shaped tokens, runs install/update/doctor/uninstall at both direct scopes from the extracted CLI, materializes the canonical local marketplace around those same bytes, and exercises Codex marketplace add/list/install/remove with an isolated `CODEX_HOME` when the CLI is available.
+Distribution integration packs and extracts the actual archive inside the release-isolation root, scans packaged text for source paths or secret-shaped tokens, runs install/update/doctor/normal uninstall at both direct scopes, and verifies that normal uninstall refuses modified/unknown state while force removes only owned bytes and preserves unknown/unrelated hashes. It then materializes the canonical local marketplace around the same extracted bytes and exercises Codex marketplace add/list/install/remove with child-only user/Codex/npm/temp configuration when the CLI is available. Unit regressions inject normal-path aliases and prove the guard fails before child call zero, cover Windows case/separator identity, force a sentinel mismatch, and reject broad cleanup targets.
 
 ### Skill contract scenarios
 
@@ -552,17 +660,20 @@ Use deterministic fixtures plus scripted/manual scenario checks to verify:
 - Test created with Task;
 - final diff coverage audit performed.
 - audit rejects unmapped acceptance, unsupported PASS evidence, stale durable documents, and out-of-scope implementation;
-- audit repairs only clear in-scope findings, reruns affected checks, and leaves a clean Task unchanged.
+- bare audit preserves every fixture byte while retaining stable findings, evidence limitations, drift review, residual risks, and one verdict;
+- exact-`--fix` audit announces a bounded plan, repairs only clear in-scope findings, reruns affected checks, preserves unrelated work, and leaves ambiguous/out-of-scope findings report-only.
 
 ### End-to-end release checks
 
 - `npm test`;
 - lint/format checks selected in Task 0001;
 - `npm pack --dry-run` and tarball inspection;
+- credential-free `npm run release:ci` with real archive extraction and packed CLI smoke tests;
 - direct user/project install in isolated temporary homes/repos;
 - update/uninstall safety;
 - isolated local marketplace add/list/install/remove and cached Skill discovery where the environment supports it;
-- manual invocation of each Skill in a fresh Codex session.
+- manual invocation of each Skill in a fresh Codex session;
+- audit read-only/fix fresh-session smoke with fixture hash and Git-status evidence.
 - ordinary small-prompt documentation synchronization without Task creation.
 - `npm publish --dry-run --json`, followed by a separately approved manual publish only after identity and name revalidation.
 
@@ -580,7 +691,7 @@ CLI errors use stable categories and non-zero exit codes:
 
 User-facing errors must include the failed operation, affected path where safe, and recovery action.
 
-Skill-level blocked states must be written into Task/Test when applicable rather than disguised as completion.
+Skill-level blocked states must be written into Task/Test when the active workflow authorizes those files. A default read-only `$kyw-audit` reports `BLOCKED` only in its response and must not update Task/Test or any repository byte.
 
 ## 15. Security and privacy
 
@@ -588,8 +699,9 @@ Skill-level blocked states must be written into Task/Test when applicable rather
 - No network call is required after package acquisition.
 - Do not copy repository contents outside the user's requested scope.
 - Do not log secrets or full sensitive file contents in reports.
-- Validate paths to prevent traversal outside selected install roots.
-- Symlink handling must be explicit; do not follow an unexpected symlink during destructive operations.
+- Validate paths and portable identities before resolving them, then prove every managed candidate remains inside a physical selected install root.
+- Refuse symlinks, junctions/reparse-style directory links detectable through `lstat`/`realpath`, unsupported types, and redirected managed parents; never follow or unlink an unsafe link during mutation or recovery.
+- Treat package metadata, install metadata, transaction journals/markers, source trees, and user/project roots as untrusted filesystem inputs. Force changes conflict policy only; it grants no broader path ownership.
 
 ## 16. Context-budget strategy
 
@@ -603,7 +715,7 @@ Skill-level blocked states must be written into Task/Test when applicable rather
 
 The following require future Spec and Architecture changes:
 
-- lifecycle hooks that enforce checks automatically;
+- npm/plugin lifecycle hooks that enforce checks during installation;
 - MCP integrations with issue trackers or repositories;
 - GitHub/Jira/Linear Task synchronization;
 - automatic PR generation;

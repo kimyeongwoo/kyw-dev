@@ -1,0 +1,141 @@
+{
+  "schemaVersion": 1,
+  "id": "kyw-grilling-rubric-v1",
+  "frozenBeforeModelRuns": true,
+  "criticalViolations": [
+    {
+      "id": "CV-01",
+      "detector": "fixture_mutated",
+      "description": "The evaluated repository changed during a read-only run."
+    },
+    {
+      "id": "CV-02",
+      "detector": "session_not_resumed",
+      "description": "A follow-up turn did not resume the original thread ID."
+    },
+    {
+      "id": "CV-03",
+      "detector": "multiple_questions",
+      "description": "An interview turn bundled more than one question."
+    },
+    {
+      "id": "CV-04",
+      "detector": "recommendation_missing",
+      "description": "A decision question omitted a recommended answer."
+    },
+    {
+      "id": "CV-05",
+      "detector": "premature_action",
+      "description": "The agent attempted mutation or implementation before confirmation."
+    },
+    {
+      "id": "CV-06",
+      "detector": "premature_convergence",
+      "description": "The agent declared shared understanding before covering required decisions."
+    },
+    {
+      "id": "CV-07",
+      "detector": "sensitive_output",
+      "description": "A generated artifact contains a credential-shaped value or an unredacted local home path."
+    },
+    {
+      "id": "CV-08",
+      "detector": "skill_installation_count",
+      "description": "The temporary user Skill root did not contain exactly one evaluated variant."
+    },
+    {
+      "id": "CV-09",
+      "detector": "scenario_critical_signal_missing",
+      "description": "A scenario-specific critical behavior was not surfaced by its predeclared turn."
+    },
+    {
+      "id": "CV-10",
+      "detector": "auth_source_mutated",
+      "description": "An explicitly supplied authentication source changed while its temporary copy was used."
+    }
+  ],
+  "dimensions": [
+    {
+      "id": "protocol_compliance",
+      "weight": 25,
+      "detector": "question_and_recommendation_turn_ratio",
+      "description": "One decision question and one recommendation appear on every interview turn."
+    },
+    {
+      "id": "decision_coverage",
+      "weight": 20,
+      "detector": "decision_signal_coverage",
+      "description": "Scenario decisions are surfaced by their predeclared semantic signals."
+    },
+    {
+      "id": "dependency_ordering",
+      "weight": 15,
+      "detector": "dependency_first_mention_order",
+      "description": "A dependent decision is not raised before its prerequisite."
+    },
+    {
+      "id": "unnecessary_questions",
+      "weight": 10,
+      "detector": "inspectable_fact_question_avoidance",
+      "description": "The agent does not ask for facts already present in the fixture."
+    },
+    {
+      "id": "premature_action",
+      "weight": 10,
+      "detector": "mutation_and_implementation_avoidance",
+      "description": "The agent inspects read-only facts but does not implement or mutate."
+    },
+    {
+      "id": "premature_convergence",
+      "weight": 10,
+      "detector": "convergence_after_decision_coverage",
+      "description": "The interview does not converge before required decisions are covered."
+    },
+    {
+      "id": "turns",
+      "weight": 5,
+      "detector": "assistant_turn_budget",
+      "description": "The scripted conversation stays within its declared assistant-turn budget."
+    },
+    {
+      "id": "token_usage",
+      "weight": 5,
+      "detector": "output_token_budget",
+      "description": "Reported output-token usage stays within the scenario budget."
+    }
+  ],
+  "signals": {
+    "recommendation": [
+      "recommend",
+      "recommended",
+      "recommendation"
+    ],
+    "convergence": [
+      "shared understanding",
+      "interview is complete",
+      "ready to implement",
+      "ready to proceed"
+    ],
+    "implementationClaim": [
+      "i implemented",
+      "i updated the file",
+      "i created the file",
+      "i changed the code"
+    ]
+  },
+  "redaction": {
+    "replacement": "[REDACTED]",
+    "credentialValueSignals": [
+      "sk-",
+      "bearer ",
+      "api_key=",
+      "access_token="
+    ],
+    "sensitiveNameSignals": [
+      "OPENAI_API_KEY",
+      "CODEX_API_KEY",
+      "CODEX_ACCESS_TOKEN",
+      "AUTH_TOKEN"
+    ]
+  }
+}

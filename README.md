@@ -4,21 +4,21 @@
 
 It turns an idea into a shared understanding, records the durable product and architecture decisions, splits implementation into session-sized numbered Tasks, and makes test intent traceable so completed-looking work is not accepted without verification.
 
-> Working directory: `kyw_dev`
->
 > Product, plugin, CLI, and preferred npm package name: `kyw-dev`
 
 ## Status
 
-Tasks 0001 through 0009 establish the `0.1.0` npm/Codex plugin release candidate, six canonical project/Task/Test templates, dependency-free deterministic Task helpers, the four complete workflow Skills, safe direct-Skills installation, and isolated marketplace verification. The CLI supports user/project install, conflict-aware update, ownership-safe uninstall, read-only diagnostics, help, and version output. The package is configured for public npm distribution, but no npm publication or public plugin-directory submission has occurred; both remain behind explicit approval.
+Tasks 0001 through 0015 establish the `0.1.0` npm/Codex plugin release candidate, six canonical project/Task/Test templates, dependency-free deterministic Task helpers, four complete workflow Skills, safe direct-Skills installation, isolated marketplace verification, credential-free cross-platform CI, development-only evaluation/audit harnesses, filesystem hardening, and verified release metadata/package hygiene. The CLI supports user/project install, conflict-aware update, ownership-safe uninstall, read-only diagnostics, help, and version output. The package is configured for public npm distribution, but no npm publication or public plugin-directory submission has occurred; both remain behind explicit approval.
 
-`$kyw-grilling` is implemented as an explicit-invocation-only, read-only interview Skill. `$kyw-init` is implemented as its explicit-only initialization wrapper: it inspects first, waits for confirmation, and then creates or minimally updates only the four permanent documents. `$kyw-task` sizes and clarifies one outcome, authors one atomic DRAFT Task/Test pair, enters execution after confirmation, or resumes an existing Task by four-digit ID. It keeps scope, documents, handoff state, tests, and final diff coverage synchronized until evidence supports `DONE`/`PASSED` or a recorded blocker. `$kyw-audit` independently treats those completion records as claims, reproduces available evidence, detects scope and documentation drift, repairs only clear in-scope findings, and returns `PASS` or `BLOCKED`.
+Source: [kimyeongwoo/kyw-dev](https://github.com/kimyeongwoo/kyw-dev) · Issues: [GitHub issue tracker](https://github.com/kimyeongwoo/kyw-dev/issues)
+
+`$kyw-grilling` is implemented as an explicit-invocation-only, read-only interview Skill. `$kyw-init` is implemented as its explicit-only initialization wrapper: it inspects first, waits for confirmation, and then creates or minimally updates only the four permanent documents. `$kyw-task` sizes and clarifies one outcome, authors one atomic DRAFT Task/Test pair, enters execution after confirmation, or resumes an existing Task by four-digit ID. It keeps scope, documents, handoff state, tests, and final diff coverage synchronized until evidence supports `DONE`/`PASSED` or a recorded blocker. `$kyw-audit` independently treats those completion records as claims, reproduces available evidence, detects scope and documentation drift, and returns `PASS` or `BLOCKED` without modifying the repository by default. Only the exact `--fix` form authorizes bounded in-scope repair.
 
 The authoritative product requirements are in `docs/SPEC.md`; the system structure is in `docs/ARCHITECTURE.md`; implementation is divided under `docs/tasks/`.
 
 ## Development
 
-Prerequisite: Node.js 22 or newer with npm. Tasks 0001 through 0009 have no production or development package dependencies, so no install step is required before running the checks. The release marketplace E2E also uses a current `codex` CLI when it is available.
+Prerequisite: Node.js 22 or newer with npm. Node.js 22 and 24 are the fully tested LTS lines on Linux, macOS, and Windows; Node.js 26 Current has a bounded Ubuntu compatibility lane. The repository has no production or development package dependencies and no lockfile, so no install step is required before running the checks. Root `.gitattributes` materializes repository text as LF on every host to match the format and package contracts. The release marketplace E2E also uses a current `codex` CLI when it is available, but CI does not require Codex or its authentication.
 
 ```bash
 node ./bin/kyw-dev.mjs --help
@@ -28,12 +28,50 @@ npm run lint
 npm run format:check
 npm run pack:check
 npm run check
+npm run release:ci
 npm run release:check
+node ./scripts/release-gate-isolation.mjs
 ```
 
-`npm run check` runs the four stable verification commands. `npm run release:check` repeats them and then runs `npm publish --dry-run --json`; the dry run reports what npm would publish but does not publish it. `npm pack --dry-run --json` can be used to inspect the package contents directly. The focused `node --test test/distribution.test.mjs` check creates a real tarball, runs both direct-install lifecycles, and installs the packed plugin through an isolated local marketplace and `CODEX_HOME` without changing the normal user plugin configuration.
+`npm run check` runs the four stable verification commands. `npm run release:ci` repeats that suite, creates and extracts a real npm tarball in an isolated temporary directory, checks its exact allowlist and packed-only boundaries, smoke-tests the packed CLI, and cleans up without publishing. `npm run release:check` builds on the same packed gate and then runs `npm publish --dry-run --json`; the dry run reports what npm would publish but does not publish it. `npm pack --dry-run --json` can be used to inspect the package contents directly.
 
-The canonical section contracts live under `templates/project/` and `templates/task/`. Runtime consumers can use `src/core/template-contracts.mjs` to render and validate them and `src/core/task-artifacts.mjs` to inspect or create Task directories. `src/core/skill-installation.mjs` owns direct-install scope resolution, file ownership, transactions, recovery, and diagnostics. `kyw-grilling` provides the standalone conversational interview primitive, `kyw-init` wraps it with confirmed, non-destructive permanent-document materialization, `kyw-task` combines a thin packaged creation/validation adapter with a packaged execution/resume reference, and `kyw-audit` packages an independent inspection, finding, repair, and verdict reference without adding a runtime dependency.
+`node ./scripts/release-gate-isolation.mjs` is the development-only, fail-closed real-tarball lifecycle gate. Before starting a child process it resolves every writable target, proves each is a real strict descendant of one approved temporary root, and rejects normal user `.agents`, `.codex`, configured Codex, or npm userconfig aliases including Windows case/separator variants. It passes isolated user/Codex/npm/temp state only to children, compares read-only normal-state control sentinels and hashes before/after, runs user/project install-update-doctor-uninstall plus force-preservation and local marketplace add-install-remove, and cleans only its exact identity-checked root. The standalone command requires a working Codex CLI so marketplace evidence cannot be skipped. `node --test test/distribution.test.mjs` uses the same runner but permits only the marketplace portion to be unavailable in credential-free public environments; the real-tarball direct lifecycle and every isolation guard remain required.
+
+`.github/workflows/ci.yml` runs on public pull requests, pushes to `main`, and manual dispatch. Every Node.js 22/24 Linux, macOS, and Windows lane executes `npm test`, `npm run lint`, `npm run format:check`, and `npm run pack:check`; one Ubuntu Node.js 26 lane checks forward compatibility. A separate Ubuntu Node.js 24 job runs `npm run release:ci`, and one aggregate credential-free result can be selected as the required branch check. The workflow uses read-only repository permission, persists no checkout credential, references no secret, and performs no install, publish, tag, release, or merge action.
+
+### Grilling evaluation harness
+
+The evaluation sources under `eval/grilling/`, their runner under `scripts/`, and their tests are development-only. Deterministic validation is part of `npm test` and can also be run directly without Codex authentication or network access:
+
+```bash
+npm run eval:grilling:unit
+```
+
+Model-backed commands are separate and require the explicit `--allow-model` cost gate, an exact model, an explicit reasoning effort, and one explicit authentication source. The runner passes that effort through strict Codex config on the initial and every resumed turn and records it in result schema v2. `--auth-file` copies the named file into a temporary `CODEX_HOME`, checks that the source did not change, and deletes the copy with the temporary workspace. `--use-env-api-key` instead passes an already-set `CODEX_API_KEY` only to each `codex exec` process. The harness never discovers or copies normal authentication implicitly.
+
+```bash
+npm run eval:grilling:smoke -- --allow-model --variant kyw --scenario existing-code-facts --model MODEL_ID --reasoning-effort EFFORT --auth-file PATH_TO_AUTH_JSON
+npm run eval:grilling:smoke -- --allow-model --variant upstream --scenario existing-code-facts --model MODEL_ID --reasoning-effort EFFORT --auth-file PATH_TO_AUTH_JSON
+npm run eval:grilling:compare -- --allow-model --scenario existing-code-facts --model MODEL_ID --reasoning-effort EFFORT --runs 3 --auth-file PATH_TO_AUTH_JSON
+npm run eval:grilling:report -- --comparison PATH_TO_COMPARISON_DIRECTORY
+```
+
+Replace the uppercase placeholders before running a command; quote values as required by the active shell. Start with one smoke per variant. A smoke currently uses four model turns. A comparison uses `2 × scenarios × runs × 4` turns, so `--scenario all --runs 3` consumes 192 model turns and should be deliberate. `--runs` is required for comparison and is capped at 10.
+
+Each successful run writes redacted JSONL events, one final-message file per turn, and `run.json` under `eval/grilling/results/<run-id>/`. The evaluated variant is installed alone under the temporary repository's `.agents/skills/`; the first turn must read that exact `SKILL.md`, or the run fails before publication. A completed comparison adds a descriptive `comparison.json`; it does not make a parity claim. For the frozen Task 0012 all-scenario comparison, the report command independently reparses JSONL, regrades the retained transcripts, verifies identical execution conditions and artifact trees, and writes deterministic medians, thresholds, and checksums to `report.json`. Historical Task 0011 results remain valid under result schema v1; effort-controlled results use v2, and source-read-proven results use v3. Generated results are Git-ignored and excluded from the npm package, but should still be reviewed before sharing. Capability, authentication, missing Skill-read proof, or incomplete-comparison failure publishes no failed-run result. Temporary Git repositories, temporary user homes, temporary `CODEX_HOME` directories, copied auth, and unredacted last-message scratch files are always removed; deliberately retained result directories are disposable and may be deleted individually after review.
+
+### Audit behavior smoke
+
+Task 0014 adds a development-only fresh-session smoke for the audit mutation contract. It copies a synthetic completed Task into a temporary Git repository, installs only the repository's current `kyw-audit` Skill, and requires an explicit model, reasoning effort, authentication source, and cost gate. The complete model process runs inside an evaluator-owned native Codex sandbox so it does not depend on machine-local command rules. Read-only mode gives that outer sandbox read-only repository access and requires identical before/after fixture SHA-256 plus identical Git status with no mutating command attempt. Fix mode gives the outer sandbox write access only to the fixture and isolated control state, requires a visible bounded plan before the first mutation, restricts changed paths to the audited Task's known repair set, preserves unrelated tracked and untracked bytes, and reruns the fixture test.
+
+```bash
+npm run eval:audit:smoke -- --allow-model --mode readonly --model MODEL_ID --reasoning-effort EFFORT --auth-file PATH_TO_AUTH_JSON
+npm run eval:audit:smoke -- --allow-model --mode fix --model MODEL_ID --reasoning-effort EFFORT --auth-file PATH_TO_AUTH_JSON
+```
+
+The smoke publishes no repository result artifact. A successful run prints a compact summary containing the Codex version, requested model/effort, source-read proof, before/after fixture hashes and Git status, mutation/plan ordering, changed paths, test result, and final verdict. Output-redirection analysis follows PowerShell quote/backtick rules on Windows and POSIX quote/backslash rules elsewhere, including nested command substitutions and explicit shell `-c`/`-Command` scripts. It blocks file redirects including `2>`/`2>>`, preserves exact `2>&1` as non-file descriptor duplication, and does not treat quoted JavaScript arrows or escaped literal `>` text as writes. A mutation failure prints only bounded redacted evidence: the event index and structural reason, or for file redirection the operator, original zero-based command offset, shell/quote/escape state, and at most 160 characters of local context. Credentials and absolute user/temporary paths are removed, full commands are omitted when match-local evidence is sufficient, and temporary repositories plus copied authentication are deleted after every run.
+
+The canonical section contracts live under `templates/project/` and `templates/task/`. Runtime consumers can use `src/core/template-contracts.mjs` to render and validate them and `src/core/task-artifacts.mjs` to inspect or create Task directories. `src/core/skill-installation.mjs` owns direct-install scope resolution, file ownership, transactions, recovery, and diagnostics. `kyw-grilling` provides the standalone conversational interview primitive, `kyw-init` wraps it with confirmed, non-destructive permanent-document materialization, `kyw-task` combines a thin packaged creation/validation adapter with a packaged execution/resume reference, and `kyw-audit` packages independent read-only inspection plus an exact-flag repair workflow without adding a runtime dependency.
 
 ## Target workflow
 
@@ -62,7 +100,7 @@ Small questions and narrowly scoped changes do not require a Task folder. They s
 | `$kyw-grilling` | Implemented | Internal/advanced interview primitive: resolve dependent decisions one at a time, with a recommended answer. |
 | `$kyw-init` | Implemented | Discover, adopt, or intentionally re-baseline a project, grill unresolved durable decisions, then create or minimally update the four permanent documents after confirmation. |
 | `$kyw-task` | Implemented | Create one confirmed Task/Test pair, execute it within scope, or resume it by ID through evidence-backed completion or a recorded blocker. |
-| `$kyw-audit` | Implemented | Independently compare one Task's intent, current code and diff, reproducible test evidence, scope, and permanent-document consistency; repair only clear in-scope findings. |
+| `$kyw-audit` | Implemented | Independently compare one Task's intent, code/diff, test evidence, scope, and permanent documents without writes; repair only through the exact `--fix` form. |
 
 All four Skills require explicit invocation. To use the implemented primitive directly:
 
@@ -70,7 +108,7 @@ All four Skills require explicit invocation. To use the implemented primitive di
 $kyw-grilling "stress-test this account lockout design"
 ```
 
-The Skill inspects available facts with read-only operations, asks exactly one dependent decision question per turn with a recommendation, summarizes settled decisions and remaining unknowns, and waits for shared-understanding confirmation. A standalone invocation never writes files or implements the result.
+The Skill inspects targeted user-authored facts once with read-only operations rather than broad repository or version-control reads, revisiting only a specific path made newly relevant by an answer. It surfaces incompatible product requirements and asks which is authoritative first, but routes scope-only conflicts directly to one primary first-release outcome and does not misclassify implementation pressure as a product conflict. It asks exactly one dependent decision question with exactly one recommendation on every interview-progress turn, prioritizes the highest-impact unresolved product or domain dependency over lower-impact supporting-material checks, treats implementation layers as dependencies, and requires an explicit ownership verb when the user delegates a decision back to the recommendation. Across turns it tracks decisions by semantic meaning and does not repeat an equivalent question without new or conflicting evidence; an omitted answer becomes an explicit safe, reversible provisional assumption when possible so the interview can advance, while unsafe assumptions remain unknown or blocking. It summarizes settled decisions and remaining unknowns, then waits for shared-understanding confirmation. A clear unbundled cancellation or stop is terminal until a new invocation. Before confirmation, stop wording bundled with a prohibited implementation, edit, file-output, or mutation request is instead implementation pressure: the action is refused and the next single unresolved decision continues. Once terminal cancellation is established, later implementation pressure cannot reopen the interview. A standalone invocation never writes files or implements the result.
 
 To initialize or adopt the current repository:
 
@@ -102,13 +140,26 @@ To independently audit one Task:
 $kyw-audit 0007
 ```
 
-The Skill starts read-only and resolves exactly one Task by four-digit ID. It compares acceptance mappings, meaningful branches and error paths, implementation scope, permanent documents, package effects, Task/Test handoff state, and claimed results with reproducible repository evidence. Findings use stable IDs and scope, behavior, architecture, docs, or test-evidence categories. A clear repair already required by the audited Task may update that Task/Test pair, its implementation or tests, and affected permanent documents, followed by the narrow affected check and required regressions. Out-of-scope work is preserved and proposed as a follow-on Task without allocating an ID or creating files. The report records limitations, exact reruns, residual risks, and one final `PASS` or `BLOCKED` verdict; unavailable required evidence cannot be reported as a pass.
+The bare invocation is strictly read-only for its entire run. It resolves exactly one Task by four-digit ID and compares acceptance mappings, meaningful branches and error paths, implementation scope, permanent documents, package effects, Task/Test handoff state, and claimed results with reproducible repository evidence. Findings use stable IDs and scope, behavior, architecture, docs, or test-evidence categories. The Skill does not update Task/Test status, permanent documents, generated files, or an audit report in the repository. The no-attempt boundary includes temporary and isolated-copy state: a potentially writing rerun uses retained evidence or is skipped with an explicit limitation, and the audit does not prepare or clean a disposable copy itself. The response records findings, exact evidence inspected or safely rerun, scope and document drift, residual risks, and one final `PASS` or `BLOCKED` verdict.
+
+To authorize bounded repair, use the exact form:
+
+```text
+$kyw-audit 0007 --fix
+```
+
+Only the literal `--fix` token immediately after the Task ID selects repair mode; natural-language requests to fix findings do not. Repair mode establishes the baseline and records findings read-only, then presents a bounded plan naming finding IDs, intended paths, and verification before its first mutation. A clear repair already required by the audited Task may update only that Task/Test pair, its required implementation/tests/configuration, and affected permanent documents, followed by the narrow affected check and required regressions. Pre-existing user changes are preserved. Ambiguous or out-of-scope work remains a report-only proposal without allocating an ID or creating a follow-on Task. Unavailable required evidence cannot be reported as a pass.
 
 ## Installation surfaces
 
 ### Direct Skills installation with npm CLI
 
 Until the first explicitly approved npm publication, use the checkout entrypoint. After `kyw-dev@0.1.0` is actually present on npm, the same arguments apply to `npx --yes kyw-dev@0.1.0 ...`; do not treat the prepared package as already published.
+
+```bash
+git clone https://github.com/kimyeongwoo/kyw-dev.git
+cd kyw-dev
+```
 
 ```bash
 node ./bin/kyw-dev.mjs install --scope user
@@ -122,10 +173,10 @@ node ./bin/kyw-dev.mjs doctor
 - `project`: find the enclosing Git root from the current directory and install under `<repo>/.agents/skills/`.
 - The CLI installs workflow Skills only. It does not create a project's Spec, Architecture, README, AGENTS, or Task files; `$kyw-init` does that after interviewing the user and inspecting the repository.
 - The CLI records ownership in `.agents/skills/.kyw-dev-install.json`. It also installs Task-helper runtime support under `.agents/skills/.kyw-dev/runtime/`; both are private implementation paths, not additional discoverable Skills.
-- Install refuses an existing unmanaged or managed copy. Use `update` for an owned installation.
-- Update proceeds only when every recorded file still matches its installed SHA-256 and no unknown file is present inside a managed directory.
-- Uninstall removes only metadata-owned files. It refuses missing, modified, unknown, or unsafe state by default. `uninstall --scope <scope> --force` explicitly permits removal of modified owned files while still preserving unknown files and unrelated Skills.
-- Mutating commands automatically recover a valid interrupted transaction before continuing. `doctor` is read-only and reports a transaction or unsafe partial state instead of changing it.
+- The selected home/Git root is resolved physically. Install refuses an existing unmanaged or managed copy, a linked `.agents`/`skills` component, or any absolute, traversal, mixed-separator, case-colliding, linked, or unsupported managed path. Use `update` for an owned installation.
+- Update proceeds only when every recorded regular file still matches its installed SHA-256, every managed parent and package source remains link-free and confined, and no unknown file is present inside a managed directory. It rechecks ownership/type/hash immediately before each rename.
+- Uninstall removes only metadata-owned regular files. It refuses missing, modified, unknown, or unsafe state by default. `uninstall --scope <scope> --force` permits removal of modified owned regular files and can tolerate missing owned or preserved unknown entries; it still never deletes an unknown file, unrelated Skill, symlink/junction, or unsupported type.
+- Mutating commands automatically recover a valid interrupted transaction before continuing. Recovery recursively cleans only UUID-named journal-owned stage/backup directories whose present contents all match the journal; unknown or unsafe transaction content remains for inspection. `doctor` is byte-and-metadata read-only and reports unsafe roots, links/types, collisions, or partial transactions without changing them.
 
 `doctor` checks Node support, detectable npm/Codex commands, packaged plugin and Skill metadata, user/project locations, version drift, duplicate Skill names, ownership hashes, partial transactions, and permissions. A project location is informationally unavailable when the command is not run inside a Git repository.
 
@@ -142,7 +193,7 @@ CLI exit codes are stable:
 | `6` | Filesystem or permission failure. |
 | `7` | A partial transaction needs recovery or manual inspection. |
 
-If a command returns 4 through 7, run `doctor`, inspect the named paths, and preserve unknown files. Do not delete the broad `.agents/skills` directory. A valid journal is recovered by retrying the intended mutating command; orphaned paths without a trustworthy journal require manual reconciliation.
+If a command returns 4 through 7, run `doctor`, inspect the named paths, and preserve unknown files and links. Do not delete the broad `.agents/skills` directory and do not point `--force` at an unsafe link. A valid, ownership-proven journal is recovered by retrying the intended mutating command; an unsafe/colliding path, unknown transaction entry, or orphaned path without a trustworthy journal requires manual reconciliation.
 
 The release candidate targets the unscoped npm name `kyw-dev`. The registry returned no package record during Task 0009, but that does not reserve the name; recheck it immediately before an approved publish. If it becomes unavailable, stop and select a real owner scope rather than inventing one, while keeping the CLI command and plugin name `kyw-dev`.
 
@@ -155,7 +206,11 @@ An npm marketplace entry can replace the local source after the package is publi
 ## Target repository layout
 
 ```text
-kyw_dev/
+kyw-dev/
+├─ .gitattributes
+├─ .gitignore
+├─ .github/
+│  └─ workflows/ci.yml
 ├─ .codex-plugin/
 │  └─ plugin.json
 ├─ skills/
@@ -171,6 +226,8 @@ kyw_dev/
 │  └─ core/
 ├─ test/
 │  └─ fixtures/
+├─ eval/
+│  └─ grilling/
 ├─ scripts/
 │  └─ development-only validation commands
 ├─ docs/
@@ -200,6 +257,8 @@ Implement one folder at a time:
 7. `0007-kyw-audit-skill`
 8. `0008-cli-installation`
 9. `0009-distribution-and-release`
+10. `0010-continuous-integration`
+11. `0011-grilling-eval-harness`
 
 The recommended Codex prompts are in `CODEX_PROMPTS.md`.
 
@@ -216,13 +275,13 @@ The recommended Codex prompts are in `CODEX_PROMPTS.md`.
 
 The implementation should follow the current Codex plugin and Skill formats:
 
-- Codex plugin authoring: https://developers.openai.com/codex/build-plugins
-- Codex Skill authoring: https://developers.openai.com/codex/build-skills
-- Project instructions with `AGENTS.md`: https://developers.openai.com/codex/agent-configuration/agents-md
+- Codex plugin authoring: https://learn.chatgpt.com/docs/build-plugins
+- Codex Skill authoring: https://learn.chatgpt.com/docs/build-skills
+- Project instructions with `AGENTS.md`: https://learn.chatgpt.com/docs/agent-configuration/agents-md
 - npm `package.json`: https://docs.npmjs.com/cli/v11/configuring-npm/package-json
 
 ## Licensing
 
-The `kyw-dev` project is licensed under MIT with `Copyright (c) 2026 kyw-dev`.
+The `kyw-dev` project is licensed under MIT with `Copyright (c) 2026 Kim Yeongwoo`.
 
 The `kyw-grilling` interview method is adapted from Matt Pocock's `mattpocock/skills` project, which is also MIT-licensed. Preserve the upstream copyright and license notice in the distributed package. See `THIRD_PARTY_NOTICES.md` and `licenses/mattpocock-skills-MIT.txt`.

@@ -1,4 +1,23 @@
 {
+  "invocations": {
+    "readOnly": {
+      "prompt": "$kyw-audit 0042",
+      "mode": "read-only",
+      "repositoryWritesAllowed": false
+    },
+    "fix": {
+      "prompt": "$kyw-audit 0042 --fix",
+      "mode": "repair",
+      "repositoryWritesAllowed": true,
+      "requiresPlanBeforeMutation": true
+    },
+    "naturalLanguageRepair": {
+      "prompt": "$kyw-audit 0042 and fix every clear finding",
+      "mode": "read-only",
+      "repositoryWritesAllowed": false,
+      "requiredRedirect": "$kyw-audit 0042 --fix"
+    }
+  },
   "unmappedAcceptance": {
     "taskId": "0042",
     "acceptanceCriteria": [
@@ -92,6 +111,7 @@
     }
   },
   "inScopeRepair": {
+    "invocation": "$kyw-audit 0042 --fix",
     "finding": {
       "id": "F-01",
       "category": "test-evidence",
@@ -101,6 +121,21 @@
       "expected": "AC-01 covers both administrator success and permission denial.",
       "statusBeforeRepair": "OPEN",
       "statusAfterRepair": "FIXED"
+    },
+    "repairPlan": {
+      "announcedBeforeMutation": true,
+      "findingIds": [
+        "F-01"
+      ],
+      "paths": [
+        "docs/tasks/0042-account-unlock/TASK.md",
+        "docs/tasks/0042-account-unlock/TEST.md",
+        "test/account-unlock.test.mjs"
+      ],
+      "verification": [
+        "node --test --test-name-pattern=permission-denied test/account-unlock.test.mjs",
+        "npm test"
+      ]
     },
     "mutationOrder": [
       "docs/tasks/0042-account-unlock/TASK.md",
@@ -129,6 +164,8 @@
     "finalVerdict": "PASS"
   },
   "clean": {
+    "invocation": "$kyw-audit 0042",
+    "mode": "read-only",
     "taskId": "0042",
     "taskStatus": "DONE",
     "testStatus": "PASSED",

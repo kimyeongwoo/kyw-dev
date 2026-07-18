@@ -7,6 +7,9 @@ import { fileURLToPath } from "node:url";
 const REPOSITORY_ROOT = fileURLToPath(new URL("../", import.meta.url));
 const README_PATH = join(REPOSITORY_ROOT, "README.md");
 const ARCHITECTURE_PATH = join(REPOSITORY_ROOT, "docs", "ARCHITECTURE.md");
+const SPEC_PATH = join(REPOSITORY_ROOT, "docs", "SPEC.md");
+const PROMPTS_PATH = join(REPOSITORY_ROOT, "CODEX_PROMPTS.md");
+const PLUGIN_PATH = join(REPOSITORY_ROOT, ".codex-plugin", "plugin.json");
 const SKILL_PATH = join(REPOSITORY_ROOT, "skills", "kyw-audit", "SKILL.md");
 const METADATA_PATH = join(REPOSITORY_ROOT, "skills", "kyw-audit", "agents", "openai.yaml");
 const AUDIT_REFERENCE_PATH = join(
@@ -45,24 +48,56 @@ test("kyw-audit Skill is implemented, explicit-only, and routes one Task to its 
   assert.deepEqual(Object.keys(frontmatter), ["name", "description"]);
   assert.equal(frontmatter.name, "kyw-audit");
   assert.match(frontmatter.description, /explicitly invokes \$kyw-audit with a four-digit Task ID/);
-  assert.match(frontmatter.description, /do not use for general code review/);
+  assert.match(frontmatter.description, /followed by --fix/);
+  assert.match(frontmatter.description, /do not use for general code review/i);
   assert.doesNotMatch(skill, /is not implemented yet/);
   assert.match(skill, /Accept exactly one four-digit Task ID/);
   assert.match(skill, /\[Independent Task Audit\]\(references\/audit\.md\)/);
-  assert.match(skill, /Start read-only/);
+  assert.match(skill, /no token means `read-only`; exactly `--fix` means `repair`/);
+  assert.match(skill, /keep the repository byte-for-byte unchanged for the entire invocation/);
   assert.match(skill, /Do not edit another numbered Task/);
   assert.match(skill, /exactly one final verdict: `PASS` or `BLOCKED`/);
-  assert.match(metadata, /short_description: "Independently audit one Task's evidence"/);
-  assert.match(metadata, /default_prompt: "Use \$kyw-audit with a four-digit Task ID /);
+  assert.match(metadata, /short_description: "Audit one Task read-only unless --fix is explicit"/);
+  assert.match(metadata, /default_prompt: "Use \$kyw-audit with a four-digit Task ID .*without modifying the repository\."/);
   assert.match(metadata, /policy:\n  allow_implicit_invocation: false\n/);
   assert.doesNotMatch(metadata, /^dependencies:/m);
+});
+
+test("kyw-audit locks bare read-only and exact-flag repair modes", async () => {
+  const skill = await readFile(SKILL_PATH, "utf8");
+  const audit = await readFile(AUDIT_REFERENCE_PATH, "utf8");
+  const { readOnly, fix, naturalLanguageRepair } = scenarios.invocations;
+
+  assert.equal(readOnly.prompt, "$kyw-audit 0042");
+  assert.equal(readOnly.mode, "read-only");
+  assert.equal(readOnly.repositoryWritesAllowed, false);
+  assert.equal(fix.prompt, "$kyw-audit 0042 --fix");
+  assert.equal(fix.mode, "repair");
+  assert.equal(fix.repositoryWritesAllowed, true);
+  assert.equal(fix.requiresPlanBeforeMutation, true);
+  assert.equal(naturalLanguageRepair.mode, "read-only");
+  assert.equal(naturalLanguageRepair.repositoryWritesAllowed, false);
+  assert.equal(naturalLanguageRepair.requiredRedirect, "$kyw-audit 0042 --fix");
+
+  assert.match(skill, /literal token immediately following the Task ID/);
+  assert.match(skill, /natural-language requests.*literal `--fix` token is absent/i);
+  assert.match(skill, /Do not create, edit, rename, move, or delete any repository file/);
+  assert.match(skill, /do not update the audited Task\/Test pair or permanent documents/);
+  assert.match(skill, /no-mutation-attempt boundary also covers temporary, control, and isolated-copy state/);
+  assert.match(skill, /do not create, populate, use, or clean an isolated copy during the invocation/);
+  assert.match(skill, /Before the first mutation, send a standalone conversation message beginning `Bounded repair plan:`/);
+  assert.match(audit, /The literal `--fix` token immediately after the one Task ID is the only repair authorization/);
+  assert.match(audit, /Any repository write or attempted mutating command during `read-only` mode is a contract failure/);
+  assert.match(audit, /temporary-copy preparation or cleanup is not an exception/);
+  assert.doesNotMatch(audit, /isolated rerun actually occurred/);
+  assert.match(audit, /Name the finding IDs, the exact intended path set, the smallest expected change/);
 });
 
 test("kyw-audit establishes an independent baseline and a stable finding contract", async () => {
   const audit = await readFile(AUDIT_REFERENCE_PATH, "utf8");
 
   assert.match(audit, /## Contents/);
-  assert.match(audit, /Inspect version-control status before any mutation/);
+  assert.match(audit, /Inspect version-control status with non-mutating options before any possible repair/);
   assert.match(audit, /pre-change snapshot, supplied patch, release artifact, file inventory, or hashes/);
   assert.match(audit, /Return `BLOCKED` when the substitute cannot establish the scope and behavior/);
   assert.match(audit, /A validator pass is useful evidence, not a substitute for this audit/);
@@ -154,9 +189,17 @@ test("kyw-audit repairs only a clear in-scope finding and reruns affected checks
   const audit = await readFile(AUDIT_REFERENCE_PATH, "utf8");
   const scenario = scenarios.inScopeRepair;
 
+  assert.equal(scenario.invocation, "$kyw-audit 0042 --fix");
   assert.equal(scenario.finding.scope, "in-scope");
   assert.equal(scenario.finding.statusBeforeRepair, "OPEN");
   assert.equal(scenario.finding.statusAfterRepair, "FIXED");
+  assert.equal(scenario.repairPlan.announcedBeforeMutation, true);
+  assert.deepEqual(scenario.repairPlan.findingIds, ["F-01"]);
+  assert.deepEqual(scenario.repairPlan.paths, scenario.mutationOrder);
+  assert.deepEqual(
+    scenario.repairPlan.verification,
+    scenario.reruns.map(({ command }) => command),
+  );
   assert.deepEqual(scenario.mutationOrder.slice(0, 2), [
     "docs/tasks/0042-account-unlock/TASK.md",
     "docs/tasks/0042-account-unlock/TEST.md",
@@ -170,6 +213,8 @@ test("kyw-audit repairs only a clear in-scope finding and reruns affected checks
   );
   assert.match(scenario.reruns[0].command, /permission-denied/);
   assert.equal(scenario.finalVerdict, "PASS");
+  assert.match(audit, /This section applies only when the locked mode is `repair`/);
+  assert.match(audit, /Before any eligible repair, send a standalone conversation message beginning `Bounded repair plan:`/);
   assert.match(audit, /Record the finding before changing files/);
   assert.match(audit, /append new test IDs when coverage grows/);
   assert.match(audit, /retained failed or unsupported prior evidence/);
@@ -182,8 +227,13 @@ test("kyw-audit gives a clean Task PASS without churn and documents the verdict 
   const audit = await readFile(AUDIT_REFERENCE_PATH, "utf8");
   const readme = await readFile(README_PATH, "utf8");
   const architecture = await readFile(ARCHITECTURE_PATH, "utf8");
+  const spec = await readFile(SPEC_PATH, "utf8");
+  const prompts = await readFile(PROMPTS_PATH, "utf8");
+  const plugin = JSON.parse(await readFile(PLUGIN_PATH, "utf8"));
   const scenario = scenarios.clean;
 
+  assert.equal(scenario.invocation, "$kyw-audit 0042");
+  assert.equal(scenario.mode, "read-only");
   assert.deepEqual(scenario.acceptanceCriteria, scenario.mappedAcceptanceIds);
   assert.deepEqual(scenario.meaningfulBranches, scenario.coveredBranches);
   assert.equal(scenario.changedPathsMapped, true);
@@ -195,10 +245,21 @@ test("kyw-audit gives a clean Task PASS without churn and documents the verdict 
   assert.equal(scenario.expectedVerdict, "PASS");
   assert.match(audit, /Return `PASS` only when all of these gates hold/);
   assert.match(audit, /There is no third verdict, and partial success is not `PASS`/);
-  assert.match(audit, /`Fixes and reruns`.*write `None` when the audit was read-only/);
+  assert.match(audit, /`Fixes and reruns`.*write `None` for repository fixes when the audit was read-only/);
   assert.match(skill, /Do not.*write a separate audit report file/);
   assert.match(readme, /\$kyw-audit 0007/);
+  assert.match(readme, /\$kyw-audit 0007 --fix/);
+  assert.match(readme, /bare invocation is strictly read-only/);
+  assert.match(spec, /Treat bare `\$kyw-audit <ID>` as strictly read-only/);
+  assert.match(spec, /literal `--fix` token immediately follows the Task ID/);
+  assert.match(prompts, /\$kyw-audit 000N --fix/);
+  assert.match(prompts, /자연어로 “고쳐줘”라고 덧붙이는 것은 수리 승인이 아니며/);
+  assert.match(
+    plugin.interface.defaultPrompt[2],
+    /\$kyw-audit 0001.*without modifying the repository/,
+  );
   assert.match(readme, /final `PASS` or `BLOCKED`/);
   assert.match(architecture, /references\/audit\.md/);
   assert.match(architecture, /Findings receive stable `F-NN` IDs/);
+  assert.match(architecture, /bare invocation remains read-only through the final response/);
 });

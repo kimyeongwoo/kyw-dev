@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "mattpocock-grilling-9603c1cc",
+  "repository": "https://github.com/mattpocock/skills",
+  "commit": "9603c1cc8118d08bc1b3bf34cf714f62178dea3b",
+  "sourcePath": "skills/productivity/grilling/SKILL.md",
+  "sourceUrl": "https://raw.githubusercontent.com/mattpocock/skills/9603c1cc8118d08bc1b3bf34cf714f62178dea3b/skills/productivity/grilling/SKILL.md",
+  "vendoredPath": "eval/grilling/baselines/upstream-grilling/SKILL.md",
+  "bytes": 843,
+  "sha256": "44331dda57f461db4fec3f2efb6ddabe7aaaa0a57ae0f88a883bc61aed8a0587",
+  "license": {
+    "spdx": "MIT",
+    "copyright": "Copyright (c) 2026 Matt Pocock",
+    "noticePath": "THIRD_PARTY_NOTICES.md",
+    "licensePath": "licenses/mattpocock-skills-MIT.txt",
+    "bytes": 1068,
+    "sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5"
+  }
+}

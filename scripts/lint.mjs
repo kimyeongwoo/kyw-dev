@@ -4,6 +4,8 @@ import { spawnSync } from "node:child_process";
 
 import { assertFoundation, REPOSITORY_ROOT } from "./lib/validate-foundation.mjs";
 
+const generatedEvalResults = join(REPOSITORY_ROOT, "eval", "grilling", "results");
+
 function collectModules(directory) {
   const modules = [];
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
@@ -12,6 +14,9 @@ function collectModules(directory) {
     }
     const path = join(directory, entry.name);
     if (entry.isDirectory()) {
+      if (path === generatedEvalResults) {
+        continue;
+      }
       modules.push(...collectModules(path));
     } else if (entry.isFile() && entry.name.endsWith(".mjs")) {
       modules.push(path);

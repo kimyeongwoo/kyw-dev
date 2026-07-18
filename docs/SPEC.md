@@ -150,12 +150,24 @@ Resume behavior:
 
 Purpose: independently verify a Task after implementation, compaction, external modification, or before release.
 
+Invocation examples:
+
+```text
+$kyw-audit 0007
+$kyw-audit 0007 --fix
+```
+
 Required behavior:
 
-- Compare acceptance criteria, implementation, test matrix, actual results, and permanent documents.
-- Detect out-of-scope changes, untested branches, stale docs, unverifiable claims, and incomplete handoff state.
-- Fix findings only when clearly within Task scope; otherwise mark them and propose a new Task.
-- End with evidence-based `PASS` or `BLOCKED`.
+1. Resolve exactly one four-digit Task ID and lock the mode from the invocation.
+2. Treat bare `$kyw-audit <ID>` as strictly read-only for the complete invocation. It must not change any tracked, untracked, generated, Task/Test, or durable-document byte, write a repository report, or attempt a mutating command. That attempt boundary includes temporary, control, snapshot, cache, and isolated-copy state; the audit must not prepare or clean a disposable rerun copy itself.
+3. In read-only mode, compare acceptance criteria, implementation, code and diff/history or a reproducible fallback baseline, test matrix and actual results, scope, handoff state, package effects, and permanent documents. Preserve stable finding IDs, evidence-specific limitations, byte-preserving evidence reruns, residual risks, and report quality even though findings remain unmodified. A potentially writing rerun uses retained evidence or is skipped with an explicit limitation.
+4. Permit repair only when the literal `--fix` token immediately follows the Task ID. Natural-language repair intent without that token never authorizes a write and must direct the user to a new exact invocation.
+5. In repair mode, establish the baseline and record findings read-only, then state a bounded plan with finding IDs, intended paths, and verification commands before the first mutation.
+6. Repair only an unambiguous finding already required by the audited Task and permanent truth. Limit changes to its Task/Test pair, required implementation/tests/configuration, and permanent documents whose durable meaning is affected; preserve unrelated user work.
+7. Keep ambiguous and out-of-scope findings report-only and propose, but do not allocate or create, a follow-on Task.
+8. After a repair, rerun the affected acceptance-specific check and required regressions, retain failed evidence and limitations, and re-audit the final diff.
+9. End with evidence-based `PASS` or `BLOCKED`; unavailable required evidence or an open blocker/error cannot be reported as a pass.
 
 ### `$kyw-grilling`
 
@@ -164,10 +176,21 @@ Purpose: reusable interview primitive used by initialization and Task authoring,
 Required behavior:
 
 - Walk a decision tree in dependency order.
-- Ask exactly one decision question per turn.
-- Include a recommended answer with each question.
-- Inspect repository/tool facts instead of asking the user.
+- On every interview-progress turn, ask exactly one decision question.
+- Include exactly one recommended answer with each interview-progress question; a terminal response is not a progress turn and asks no decision question.
+- Inspect targeted relevant user-authored repository/tool facts instead of asking the user; do not bulk-read broad globs, version-control internals, or unrelated files, and do not repeat discovery unless an answer identifies a specific previously unread path.
 - Keep decisions with the user.
+- When inspected product/domain requirements conflict or cannot both be satisfied, explicitly state the conflict on the first turn and ask which side is authoritative before any other decision.
+- If that conflict is only bundled scope exceeding a single-outcome boundary, use the primary-outcome narrowing rule directly; do not classify mutation-boundary pressure as a product conflict.
+- Except when genuine multi-outcome narrowing is required, ask the highest unresolved domain dependency first and do not mention downstream interface scope until its prerequisites are settled.
+- On every remaining turn, choose the highest-impact unresolved product or domain dependency; lower-impact questions about supporting material provenance, recency, or completeness must not keep higher-impact decisions blocked.
+- Treat implementation layers of one cross-layer feature as dependent parts of one outcome rather than separate outcomes.
+- When a subject bundles independently shippable outcomes, first ask the user to choose the single primary outcome for the first release and recommend deferring the rest.
+- Do not treat uncertainty or “use your recommendation” as a settled choice; ask for one explicit confirmation or choice with an unmistakable ownership verb before advancing.
+- Track decisions by semantic meaning as asked, resolved, provisionally assumed, or unresolved. Absent new or conflicting evidence, do not repeat an equivalent question. If a reply omits the pending answer, state a safe and reversible working assumption as provisional and advance to the highest-impact unresolved decision; if no safe assumption exists, retain an explicit unknown or stop instead of silently settling or repeating it.
+- Treat a clear request to stop or cancel the interview as terminal only when it is not combined, before confirmation, with a prohibited request to implement, edit, produce file output, or otherwise mutate.
+- Treat pre-confirmation stop/cancel wording bundled with such a prohibited action as implementation pressure rather than cancellation: refuse the action and, when an answerable decision remains, continue with exactly one next unresolved decision question and one recommended answer.
+- Once terminal cancellation is established, stop immediately and do not resume, summarize, seek confirmation, or ask another decision under later implementation pressure without a new explicit invocation.
 - Do not act on the plan until the user confirms shared understanding.
 - Produce no file by itself unless a wrapper Skill explicitly materializes the result.
 
@@ -195,13 +218,15 @@ The mutating command grammar is limited to `install|update|uninstall --scope <us
 
 - Replace only files proven to be managed by the installed kyw-dev version.
 - Preserve user project documents and unrelated Skills.
-- Refuse when a recorded file is missing or locally modified, an unknown path exists inside a managed container, metadata is malformed, or a managed path is unsafe.
+- Treat every package-, metadata-, journal-, home-, Git-root-, and argument-derived managed path as untrusted until it is normalized and confined. Reject empty, absolute, drive-relative, traversal, mixed-separator, malformed, duplicate, case/normalization-colliding, and file/directory-prefix-colliding paths on every host.
+- Refuse when a recorded file is missing or locally modified, an unknown path exists inside a managed container, metadata is malformed, or the Skills root, a managed parent, source, target, stage, backup, marker, or file has a symlink/junction, unsupported type, or unprovable identity.
+- Revalidate parent containment, regular-file type, ownership hash, and current content immediately before each destructive rename or removal.
 
 ### `kyw-dev uninstall --scope <user|project>`
 
 - Remove only managed kyw-dev Skill files and installation metadata.
-- Refuse to delete modified or unknown files without explicit force confirmation.
-- Treat `--force` as explicit confirmation to remove modified files named in valid ownership metadata. Preserve unknown files, unrelated Skill directories, and unsafe symlink targets even with force.
+- Refuse normal uninstall when owned files are modified/missing or unknown entries are present.
+- Treat `--force` as explicit confirmation to remove existing modified regular files named in valid ownership metadata. It may proceed around already-missing owned files and preserved unknown entries, but never authorizes deleting an unknown file, unrelated Skill, unsafe link, or unsupported file type.
 
 ### `kyw-dev doctor`
 
@@ -213,9 +238,9 @@ Report:
 - duplicate `kyw-*` Skills across scopes;
 - installation version drift;
 - malformed plugin or Skill metadata;
-- missing permissions or unsafe partial installs.
+- missing permissions, unsafe path/link/type state, or partial transactions.
 
-`doctor` is read-only. It returns the most severe applicable CLI exit category when it finds an error; an unavailable project scope outside a Git repository and undetected optional tools are informational/warning results rather than automatic failures.
+`doctor` is byte-and-metadata read-only: it performs no directory creation, recovery, cleanup, rename, chmod, write, or deletion. It returns the most severe applicable CLI exit category when it finds an error; an unavailable project scope outside a Git repository and undetected optional tools are informational/warning results rather than automatic failures.
 
 ### `kyw-dev --help` and `kyw-dev --version`
 
@@ -239,7 +264,7 @@ Stable exit codes:
 | 6 | filesystem or permission failure |
 | 7 | recovery required |
 
-Direct-install metadata uses schema version 1 and records package name/version, scope, install/update timestamps, the four managed Skill paths, and a sorted SHA-256 inventory. Mutating commands stage bytes before touching targets, publish a recovery journal before commit, commit metadata last, roll back an incomplete commit, and finish cleanup when a commit-complete marker proves the new state was published. Broad recursive deletion of `.agents/skills/` is never allowed.
+Direct-install metadata uses schema version 1 and records package name/version, scope, install/update timestamps, the four managed Skill paths, and a sorted SHA-256 inventory. Mutating commands stage bytes beneath the validated Skills root before touching targets, publish a bounded recovery journal before commit, commit metadata last, roll back an incomplete commit only from type/hash/ownership-proven entries, and finish cleanup only when exact markers and the published state prove the new state. Unknown content inside a reserved transaction directory blocks recursive cleanup for inspection. Broad recursive deletion of `.agents/skills/` is never allowed.
 
 ## 7. Managed project artifact contract
 
@@ -426,7 +451,9 @@ When the user asks a question or small, bounded change without invoking a Skill:
 - Never overwrite unknown user files silently.
 - Use atomic writes for CLI-managed installation files.
 - Installation and update operations must be recoverable after interruption.
-- The CLI must identify files it manages; uninstall must not use broad directory deletion without ownership verification.
+- The CLI must identify files it manages; uninstall must not use broad directory deletion without ownership verification, and force must never broaden the removal set to unknown or unsafe entries.
+- Fail closed whenever managed-path containment, portable identity, filesystem type, link-free ancestry, transaction ownership, or expected content hash cannot be proved.
+- Recursive removal is limited to an exact journal-owned stage or backup directory whose complete present tree contains only expected regular files and directories; `.agents/skills` itself is never a recursive-removal target.
 - Skills must not claim tests ran when they did not.
 - Plugin installation must not depend on `postinstall` or other npm lifecycle scripts.
 
@@ -436,8 +463,9 @@ When the user asks a question or small, bounded change without invoking a Skill:
 - Skill directories must contain `SKILL.md` with `name` and `description`.
 - User-visible Skills must provide `agents/openai.yaml` with UI metadata and explicit-invocation policy.
 - Plugin root must contain `.codex-plugin/plugin.json` and keep Skill paths relative to the plugin root.
-- MVP Node runtime target: Node.js 22 or newer. Node.js 20 is end-of-life and is not supported.
-- Windows, macOS, and Linux path behavior must be tested for path construction; full desktop integration may be manually tested only where the environment exists.
+- MVP Node runtime target: Node.js 22 or newer. Node.js 20 and unsupported odd-numbered releases are not supported CI targets.
+- Required runtime evidence covers Node.js 22 and 24 LTS on Linux, macOS, and Windows. While the public engine floor remains `>=22`, Node.js 26 Current has one bounded Linux compatibility lane until it becomes an LTS baseline or the policy is revised.
+- Windows, macOS, and Linux path behavior must be tested through native CLI/install execution as well as path construction. Required link/junction fixtures must prove that the native link was created; a capability failure is blocked evidence rather than a passing skip. Full desktop integration may be manually tested only where the environment exists.
 
 ## 13. Distribution requirements
 
@@ -451,11 +479,15 @@ The npm tarball must include at least:
 - project license;
 - `THIRD_PARTY_NOTICES.md` and upstream MIT text.
 
+The tarball must exclude development-only eval sources/results and raw model output, tests and local marketplace fixtures, repository Task/docs/bootstrap bundles, generated archives, credential/config files, and machine-local absolute paths. A positive `files` allowlist plus dry-run and extracted-real-tarball inspection enforces this boundary.
+
 A marketplace entry may use npm or GitHub as the plugin source. npm-based plugin installation must work without lifecycle scripts.
 
 The v0.1 release candidate uses a canonical local marketplace fixture for reproducible pre-publication verification. The fixture must point at `./plugins/kyw-dev`, declare explicit installation/authentication policies and a category, and be exercised with packed plugin bytes under an isolated Codex home. The fixture and release tests are development-only and must not enter the npm tarball.
 
 Preparing publishable metadata or running `npm publish --dry-run` does not authorize publication. The mutating `npm publish` command and any public plugin-directory submission require separate explicit user approval after the final release checks and package-name revalidation.
+
+Public pull requests, pushes to `main`, and manual CI dispatch must run credential-free stable checks with read-only repository access. Every supported LTS OS/runtime lane runs the stable test, lint, format, and package commands. A separate supported Linux LTS lane must create and inspect real packed bytes without invoking npm publication, Codex authentication, tagging, release creation, or merge automation; unavailable model-backed or desktop-only checks cannot become required public-PR checks.
 
 ## 14. Versioning and upgrade behavior
 
@@ -487,17 +519,18 @@ The MVP is accepted when all of the following are demonstrated:
 The following decisions are confirmed for the `0.1.0` release candidate:
 
 - `kyw-dev` is licensed under MIT;
-- the publisher and author display name is `kyw-dev`;
-- the project copyright notice is `Copyright (c) 2026 kyw-dev`;
+- the legal author/publisher display name is `Kim Yeongwoo`, while the product, plugin, package, and CLI identity remains `kyw-dev`;
+- the project copyright notice is `Copyright (c) 2026 Kim Yeongwoo`;
+- the public source repository is `https://github.com/kimyeongwoo/kyw-dev`, and its GitHub issue tracker is the public bug-report URL;
 - the preferred public npm name is the unscoped `kyw-dev`, with a real owner scope required as fallback if a final registry check shows that name is unavailable;
 - package metadata targets public access at `https://registry.npmjs.org/` and is publishable, while the actual publish remains an explicit approval-only operation;
 - pre-publication plugin verification uses a local marketplace built from the real tarball; an npm marketplace source may be advertised only after publication;
 - v0.1 is not submitted to a public plugin directory;
-- absent GitHub repository/contact values and branding assets are omitted instead of invented.
+- unconfirmed email/contact values, privacy/terms URLs, and branding assets are omitted instead of invented.
 
 The following actions remain open after Task 0009 verification:
 
 - explicit approval and credentials for the first npm publication;
 - a scoped fallback decision if the preferred name becomes unavailable before publication;
-- real GitHub repository/contact metadata and optional branding when those values exist;
+- optional public contact metadata and branding when those values exist;
 - any later public plugin-directory submission.

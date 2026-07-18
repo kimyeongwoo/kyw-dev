@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 3,
+  "codexVersion": "codex-cli 0.144.5",
+  "model": "gpt-5.6-luna",
+  "reasoningEffort": "high",
+  "resultSchemaVersion": 3,
+  "upstream": {
+    "commit": "9603c1cc8118d08bc1b3bf34cf714f62178dea3b",
+    "skillSha256": "44331dda57f461db4fec3f2efb6ddabe7aaaa0a57ae0f88a883bc61aed8a0587"
+  },
+  "kywSkillSha256BeforeBenchmark": "8bc7fbc767f57a27f5346abb5e69a76103ddaf5b6209d4bde1ba82a395b8972d",
+  "kywSkillSha256ForScoredRun": "ef579827626bcaf6c3074b976f476d89880ce87feba868311ec4e70181618d62",
+  "scenarioSchemaVersion": 1,
+  "scenarioSuiteRevision": "379d96eae1f4031e4d6da0b12d4ce583af667832a7ed5fa797435b7a6c19137b",
+  "scenarioOrder": [
+    "conflicting-requirements",
+    "existing-code-facts",
+    "greenfield-discovery",
+    "migration-cutover",
+    "multi-layer-feature",
+    "oversized-request",
+    "pressure-to-code",
+    "uncertain-user"
+  ],
+  "rubric": {
+    "id": "kyw-grilling-rubric-v1",
+    "sha256": "4904bc5c30a09ac62a3d7d17fc3f6d9c9782280ff9048be524e68454ece32323"
+  },
+  "repetitionsPerVariantScenario": 2,
+  "expectedRuns": 32,
+  "expectedAssistantTurns": 128,
+  "execution": {
+    "variantOrderWithinScenario": [
+      "kyw",
+      "upstream"
+    ],
+    "runsWithinVariant": "1 then 2",
+    "authMode": "temporary-file-copy",
+    "skillInstallScope": "repository",
+    "skillSourceReadRequired": true,
+    "sandbox": "read-only",
+    "ignoreUserConfig": true,
+    "ignoreRules": true,
+    "strictConfig": true,
+    "shellEnvironmentInherit": "none",
+    "modelTurnTimeoutMs": 300000
+  },
+  "primaryTokenMetric": "inputTokens + outputTokens (cached input and reasoning output recorded separately, not double-counted)",
+  "thresholds": {
+    "kywCriticalViolations": 0,
+    "aggregateMedianQualityDeltaFloor": -5,
+    "scenarioMedianQualityDeltaFloor": -10,
+    "kywToUpstreamMedianPrimaryTokenRatioCeiling": 1.5,
+    "assistantTurnsPerCompletedRun": 4
+  }
+}

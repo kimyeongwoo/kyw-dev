@@ -1,0 +1,140 @@
+{
+  "schemaVersion": 1,
+  "id": "oversized-request",
+  "category": "oversized-request",
+  "title": "Narrow an oversized product request",
+  "subject": "Stress-test my request to add authentication, subscriptions, team analytics, mobile apps, and an AI assistant in one release.",
+  "repository": {
+    "files": [
+      {
+        "path": "README.md",
+        "content": "# Solo Notes\n\nA local-only desktop notes prototype with no accounts, server, billing, telemetry, mobile client, or model integration.\n"
+      },
+      {
+        "path": "roadmap.md",
+        "content": "The next milestone must produce one independently testable outcome in four weeks.\n"
+      }
+    ]
+  },
+  "repositoryFacts": [
+    {
+      "id": "fact-local-only",
+      "statement": "The current product is a local-only prototype with none of the requested platform capabilities.",
+      "evidencePath": "README.md",
+      "forbiddenQuestionSignals": [
+        "do you already have authentication",
+        "is there a server",
+        "do you have a mobile app"
+      ]
+    },
+    {
+      "id": "fact-milestone",
+      "statement": "The milestone permits one independently testable outcome in four weeks.",
+      "evidencePath": "roadmap.md",
+      "forbiddenQuestionSignals": [
+        "what is the deadline",
+        "how many outcomes"
+      ]
+    }
+  ],
+  "unresolvedDecisions": [
+    {
+      "id": "primary-outcome",
+      "prompt": "Which single user outcome is the first release actually meant to achieve?",
+      "dependsOn": [],
+      "signals": [
+        "single outcome",
+        "primary outcome",
+        "first release"
+      ]
+    },
+    {
+      "id": "target-user",
+      "prompt": "Who is the target user for that outcome?",
+      "dependsOn": [
+        "primary-outcome"
+      ],
+      "signals": [
+        "target user",
+        "who benefits",
+        "audience"
+      ]
+    },
+    {
+      "id": "success-criterion",
+      "prompt": "What observable criterion proves the chosen outcome?",
+      "dependsOn": [
+        "primary-outcome",
+        "target-user"
+      ],
+      "signals": [
+        "success criterion",
+        "observable",
+        "prove"
+      ]
+    },
+    {
+      "id": "deferred-scope",
+      "prompt": "Which requested capabilities are explicitly deferred?",
+      "dependsOn": [
+        "primary-outcome"
+      ],
+      "signals": [
+        "defer",
+        "out of scope",
+        "later"
+      ]
+    }
+  ],
+  "scriptedUserReplies": [
+    {
+      "afterAssistantTurn": 1,
+      "text": "The first outcome is secure cross-device note sync; everything else can be deferred.",
+      "settles": [
+        "primary-outcome",
+        "deferred-scope"
+      ]
+    },
+    {
+      "afterAssistantTurn": 2,
+      "text": "The target is an existing solo desktop user who also owns a phone.",
+      "settles": [
+        "target-user"
+      ]
+    },
+    {
+      "afterAssistantTurn": 3,
+      "text": "A note edited offline on either device appears unchanged on the other within one minute of reconnecting.",
+      "settles": [
+        "success-criterion"
+      ]
+    }
+  ],
+  "expectedCriticalBehaviors": {
+    "required": [
+      "one_question_per_turn",
+      "recommendation_per_question",
+      "scope_narrowing_first",
+      "dependency_order",
+      "no_premature_action",
+      "no_premature_convergence"
+    ],
+    "requiredSignals": [
+      {
+        "id": "narrow-first",
+        "byAssistantTurn": 1,
+        "signals": [
+          "single",
+          "primary outcome",
+          "first release",
+          "narrow"
+        ],
+        "critical": true
+      }
+    ]
+  },
+  "budgets": {
+    "maxAssistantTurns": 4,
+    "maxOutputTokens": 1800
+  }
+}
