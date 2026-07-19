@@ -8,7 +8,9 @@ It turns an idea into a shared understanding, records the durable product and ar
 
 ## Status
 
-Tasks 0001 through 0015 establish the `0.1.0` npm/Codex plugin release candidate, six canonical project/Task/Test templates, dependency-free deterministic Task helpers, four complete workflow Skills, safe direct-Skills installation, isolated marketplace verification, credential-free cross-platform CI, development-only evaluation/audit harnesses, filesystem hardening, and verified release metadata/package hygiene. The CLI supports user/project install, conflict-aware update, ownership-safe uninstall, read-only diagnostics, help, and version output. The package is configured for public npm distribution, but no npm publication or public plugin-directory submission has occurred; both remain behind explicit approval.
+Tasks 0001 through 0015 implemented the initial `0.1.0` pre-publication package/plugin surfaces. Work through Task 0021 now provides six canonical project/Task/Test templates, dependency-free deterministic Task helpers, four workflow Skills, safe direct-Skills installation, isolated marketplace verification, credential-free cross-platform CI, development-only evaluation/audit harnesses, filesystem hardening, and package metadata/hygiene checks. The CLI supports user/project install, conflict-aware update, ownership-safe uninstall, read-only diagnostics, help, and version output. These are implemented capabilities, not an acceptance or release verdict.
+
+Task 0020's full release-readiness gate ended `BLOCKED`. Task 0021 corrected the audit output-redirection defect within its narrower scope and passed that scope, but explicitly did not rerun or replace the full gate. The repository therefore has not yet demonstrated every [SPEC §15](docs/SPEC.md#15-mvp-acceptance-criteria) MVP acceptance criterion and is neither SPEC MVP accepted nor release-approved/`READY_FOR_APPROVAL`. No version tag, GitHub Release, npm publication, or public plugin-directory submission has occurred.
 
 Source: [kimyeongwoo/kyw-dev](https://github.com/kimyeongwoo/kyw-dev) · Issues: [GitHub issue tracker](https://github.com/kimyeongwoo/kyw-dev/issues)
 
@@ -58,18 +60,22 @@ npm run eval:grilling:report -- --comparison PATH_TO_COMPARISON_DIRECTORY
 
 Replace the uppercase placeholders before running a command; quote values as required by the active shell. Start with one smoke per variant. A smoke currently uses four model turns. A comparison uses `2 × scenarios × runs × 4` turns, so `--scenario all --runs 3` consumes 192 model turns and should be deliberate. `--runs` is required for comparison and is capped at 10.
 
-Each successful run writes redacted JSONL events, one final-message file per turn, and `run.json` under `eval/grilling/results/<run-id>/`. The evaluated variant is installed alone under the temporary repository's `.agents/skills/`; the first turn must read that exact `SKILL.md`, or the run fails before publication. A completed comparison adds a descriptive `comparison.json`; it does not make a parity claim. For the frozen Task 0012 all-scenario comparison, the report command independently reparses JSONL, regrades the retained transcripts, verifies identical execution conditions and artifact trees, and writes deterministic medians, thresholds, and checksums to `report.json`. Historical Task 0011 results remain valid under result schema v1; effort-controlled results use v2, and source-read-proven results use v3. Generated results are Git-ignored and excluded from the npm package, but should still be reviewed before sharing. Capability, authentication, missing Skill-read proof, or incomplete-comparison failure publishes no failed-run result. Temporary Git repositories, temporary user homes, temporary `CODEX_HOME` directories, copied auth, and unredacted last-message scratch files are always removed; deliberately retained result directories are disposable and may be deleted individually after review.
+Each successful run writes redacted JSONL events, one final-message file per turn, and `run.json` under `eval/grilling/results/<run-id>/`. The evaluated variant is installed alone under the temporary repository's `.agents/skills/`; the first turn must read that exact `SKILL.md`, or the run fails before publication. A completed comparison adds a descriptive `comparison.json`; it does not make a parity claim. For a frozen all-scenario comparison, the report command independently reparses JSONL, regrades the retained transcripts, verifies identical execution conditions and artifact trees, and writes deterministic medians, thresholds, and checksums to `report.json`. Result schema v1 remains supported for historical results; effort-controlled results use v2, and source-read-proven results use v3. Generated results are Git-ignored and excluded from the npm package, but should still be reviewed before sharing. Capability, authentication, missing Skill-read proof, or incomplete-comparison failure publishes no failed-run result.
+
+On normal completion and handled failure, bounded cleanup attempts to remove the evaluator-owned temporary repository, user home, `CODEX_HOME`, copied authentication, last-message scratch files, and unpublished JSONL/result staging; successfully published result directories remain for review. The runner currently has no `SIGINT`, `SIGTERM`, or Windows console-interruption cleanup handler, so abrupt interruption can leave the evaluator-owned temporary root—including a copied `auth.json` when `--auth-file` is used—and staging. `SIGKILL` and power loss are also outside the cleanup guarantee. Treat any leftover evaluator root as sensitive and remove it only after identifying the exact evaluator-owned path.
 
 ### Audit behavior smoke
 
-Task 0014 adds a development-only fresh-session smoke for the audit mutation contract. It copies a synthetic completed Task into a temporary Git repository, installs only the repository's current `kyw-audit` Skill, and requires an explicit model, reasoning effort, authentication source, and cost gate. The complete model process runs inside an evaluator-owned native Codex sandbox so it does not depend on machine-local command rules. Read-only mode gives that outer sandbox read-only repository access and requires identical before/after fixture SHA-256 plus identical Git status with no mutating command attempt. Fix mode gives the outer sandbox write access only to the fixture and isolated control state, requires a visible bounded plan before the first mutation, restricts changed paths to the audited Task's known repair set, preserves unrelated tracked and untracked bytes, and reruns the fixture test.
+The development-only fresh-session audit smoke copies a synthetic completed Task into a temporary Git repository, installs only the repository's current `kyw-audit` Skill, and requires an explicit model, reasoning effort, authentication source, and cost gate. The complete model process runs inside an evaluator-owned native Codex sandbox so it does not depend on machine-local command rules. Read-only mode gives that outer sandbox read-only repository access and requires identical before/after fixture SHA-256 plus identical Git status with no mutating command attempt. Fix mode gives the outer sandbox write access only to the fixture and isolated control state, requires a visible bounded plan before the first mutation, restricts changed paths to the audited Task's known repair set, preserves unrelated tracked and untracked bytes, and reruns the fixture test.
 
 ```bash
 npm run eval:audit:smoke -- --allow-model --mode readonly --model MODEL_ID --reasoning-effort EFFORT --auth-file PATH_TO_AUTH_JSON
 npm run eval:audit:smoke -- --allow-model --mode fix --model MODEL_ID --reasoning-effort EFFORT --auth-file PATH_TO_AUTH_JSON
 ```
 
-The smoke publishes no repository result artifact. A successful run prints a compact summary containing the Codex version, requested model/effort, source-read proof, before/after fixture hashes and Git status, mutation/plan ordering, changed paths, test result, and final verdict. Output-redirection analysis follows PowerShell quote/backtick rules on Windows and POSIX quote/backslash rules elsewhere, including nested command substitutions and explicit shell `-c`/`-Command` scripts. It blocks file redirects including `2>`/`2>>`, preserves exact `2>&1` as non-file descriptor duplication, and does not treat quoted JavaScript arrows or escaped literal `>` text as writes. A mutation failure prints only bounded redacted evidence: the event index and structural reason, or for file redirection the operator, original zero-based command offset, shell/quote/escape state, and at most 160 characters of local context. Credentials and absolute user/temporary paths are removed, full commands are omitted when match-local evidence is sufficient, and temporary repositories plus copied authentication are deleted after every run.
+The smoke publishes no repository result artifact. A successful run prints a compact summary containing the Codex version, requested model/effort, source-read proof, before/after fixture hashes and Git status, mutation/plan ordering, changed paths, test result, and final verdict. Output-redirection analysis follows PowerShell quote/backtick rules on Windows and POSIX quote/backslash rules elsewhere, including nested command substitutions and explicit shell `-c`/`-Command` scripts. It blocks file redirects including `2>`/`2>>`, preserves exact `2>&1` as non-file descriptor duplication, and does not treat quoted JavaScript arrows or escaped literal `>` text as writes. A mutation failure prints only bounded redacted evidence: the event index and structural reason, or for file redirection the operator, original zero-based command offset, shell/quote/escape state, and at most 160 characters of local context. Credentials and absolute user/temporary paths are removed, and full commands are omitted when match-local evidence is sufficient.
+
+On normal completion and handled failure, a bounded `finally` cleanup attempts to remove the audit smoke's evaluator-owned temporary root, including its repository, isolated home/`CODEX_HOME`, copied authentication, control files, and last-message scratch file. The smoke has no `SIGINT`, `SIGTERM`, or Windows console-interruption cleanup handler; abrupt interruption can therefore leave that root and a copied `auth.json`. `SIGKILL` and power loss are outside the cleanup guarantee. Treat any leftover root as sensitive and verify the exact evaluator-owned path before removal.
 
 The canonical section contracts live under `templates/project/` and `templates/task/`. Runtime consumers can use `src/core/template-contracts.mjs` to render and validate them and `src/core/task-artifacts.mjs` to inspect or create Task directories. `src/core/skill-installation.mjs` owns direct-install scope resolution, file ownership, transactions, recovery, and diagnostics. `kyw-grilling` provides the standalone conversational interview primitive, `kyw-init` wraps it with confirmed, non-destructive permanent-document materialization, `kyw-task` combines a thin packaged creation/validation adapter with a packaged execution/resume reference, and `kyw-audit` packages independent read-only inspection plus an exact-flag repair workflow without adding a runtime dependency.
 
@@ -195,11 +201,11 @@ CLI exit codes are stable:
 
 If a command returns 4 through 7, run `doctor`, inspect the named paths, and preserve unknown files and links. Do not delete the broad `.agents/skills` directory and do not point `--force` at an unsafe link. A valid, ownership-proven journal is recovered by retrying the intended mutating command; an unsafe/colliding path, unknown transaction entry, or orphaned path without a trustworthy journal requires manual reconciliation.
 
-The release candidate targets the unscoped npm name `kyw-dev`. The registry returned no package record during Task 0009, but that does not reserve the name; recheck it immediately before an approved publish. If it becomes unavailable, stop and select a real owner scope rather than inventing one, while keeping the CLI command and plugin name `kyw-dev`.
+The preferred pre-publication npm name is the unscoped `kyw-dev`, but it is not reserved by repository configuration or prior checks. Recheck it immediately before any separately approved publish. If it is unavailable, stop and select a real owner scope rather than inventing one, while keeping the CLI command and plugin name `kyw-dev`.
 
 ### Codex plugin distribution
 
-The npm package contains `.codex-plugin/plugin.json` and all four `skills/` directories. Task 0009 verifies the exact packed bytes by copying the extracted package to `./plugins/kyw-dev` beneath an isolated local marketplace, adding that marketplace with `codex plugin marketplace add`, installing `kyw-dev@kyw-dev-local`, and inspecting the cached Skill files. The repository fixture is development-only and is not included in the npm tarball.
+The npm package contains `.codex-plugin/plugin.json` and all four `skills/` directories. Pre-publication local verification copies extracted package bytes to `./plugins/kyw-dev` beneath an isolated marketplace, adds that marketplace with `codex plugin marketplace add`, installs `kyw-dev@kyw-dev-local`, and inspects the cached Skill files. The repository fixture is development-only and is not included in the npm tarball.
 
 An npm marketplace entry can replace the local source after the package is published. No GitHub source URL or public-directory entry is advertised until a real repository and an explicit submission decision exist. Plugin and direct-Skills installation are alternative paths; avoid installing both copies at once because duplicate Skill names can appear separately.
 
@@ -244,23 +250,9 @@ kyw-dev/
 
 The exact implementation may evolve, but changes to this structure must be reflected in `docs/ARCHITECTURE.md`.
 
-## Development sequence
+## Contributor guidance
 
-Implement one folder at a time:
-
-1. `0001-plugin-foundation`
-2. `0002-template-contracts`
-3. `0003-kyw-grilling-skill`
-4. `0004-kyw-init-skill`
-5. `0005-kyw-task-authoring`
-6. `0006-kyw-task-execution`
-7. `0007-kyw-audit-skill`
-8. `0008-cli-installation`
-9. `0009-distribution-and-release`
-10. `0010-continuous-integration`
-11. `0011-grilling-eval-harness`
-
-The recommended Codex prompts are in `CODEX_PROMPTS.md`.
+Numbered work contracts and retained evidence live under `docs/tasks/`; use the active Task rather than an old chronological list to determine current scope. Recommended Codex prompts are in `CODEX_PROMPTS.md`.
 
 ## Design principles
 
