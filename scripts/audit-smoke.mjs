@@ -26,8 +26,45 @@ const FIXTURE_PROJECT = join(FIXTURE_ROOT, "fresh-session-project");
 const FIXTURE_CONFIG = join(FIXTURE_ROOT, "fresh-session.json");
 const SKILL_ROOT = join(REPOSITORY_ROOT, "skills", "kyw-audit");
 const REASONING_EFFORTS = new Set(["minimal", "low", "medium", "high", "xhigh"]);
-const MUTATING_COMMAND_PATTERN =
-  /(?:^|[\s;&|])(set-content|add-content|out-file|remove-item|move-item|copy-item|new-item|mkdir|md|rm|rmdir|del|erase|mv|cp|touch|tee|apply_patch|sed\s+-i|npm\s+(?:install|ci|update|publish)|git\s+(?:add|am|apply|checkout|cherry-pick|clean|commit|merge|mv|rebase|reset|restore|rm|switch|tag|push))(?:\s|$)/i;
+const SIMPLE_MUTATING_COMMANDS = new Set([
+  "add-content",
+  "apply_patch",
+  "copy-item",
+  "cp",
+  "del",
+  "erase",
+  "md",
+  "mkdir",
+  "move-item",
+  "mv",
+  "new-item",
+  "out-file",
+  "remove-item",
+  "rm",
+  "rmdir",
+  "set-content",
+  "tee",
+  "touch",
+]);
+const GIT_MUTATING_SUBCOMMANDS = new Set([
+  "add",
+  "am",
+  "apply",
+  "checkout",
+  "cherry-pick",
+  "clean",
+  "commit",
+  "merge",
+  "mv",
+  "push",
+  "rebase",
+  "reset",
+  "restore",
+  "rm",
+  "switch",
+  "tag",
+]);
+const NPM_MUTATING_SUBCOMMANDS = new Set(["ci", "install", "publish", "update"]);
 const COMMAND_SHELLS = new Set(["posix", "powershell"]);
 const MAX_DIAGNOSTIC_ATTEMPTS = 8;
 const MAX_DIAGNOSTIC_COMMAND_LENGTH = 600;
@@ -460,22 +497,99 @@ function boundedMatchContext(command, offset) {
   return { context: command.slice(start, end), contextStart: start };
 }
 
-function outputRedirectionAt(command, offset, shell) {
-  const descriptor = descriptorBefore(command, offset);
-  if (isAllowedStderrDuplication(command, offset, descriptor)) return null;
-  const operator = command[offset + 1] === ">" ? ">>" : ">";
+function originalOffset(view, offset) {
+  const mapped = view.sourceOffsets[offset];
+  return Number.isInteger(mapped) ? mapped : offset;
+}
+
+function sourceMappedContext(command, offset) {
+  return { ...boundedMatchContext(command, offset), offset };
+}
+
+function tokenMappedContext(command, token) {
+  const offset = token.sourceOffsets[0] ?? token.start;
+  const lastOffset = token.sourceOffsets.at(-1) ?? offset;
   return {
-    ...boundedMatchContext(command, offset),
-    escaped: false,
-    fileDescriptor: descriptor.value,
+    context: command.slice(offset, lastOffset + 1),
+    contextStart: offset,
     offset,
-    operator,
-    quoteState: "unquoted",
+  };
+}
+
+function shellEvidence(command, view, offset, shell, context) {
+  const mappedOffset = originalOffset(view, offset);
+  return {
+    ...sourceMappedContext(command, mappedOffset),
+    evaluationDepth: context.evaluationDepth,
+    outerQuoteState: context.outerQuoteState,
     shell,
   };
 }
 
-function scanPosixArithmetic(command, start, matches) {
+function readHereDocumentDelimiter(command, start, lineEnd) {
+  let index = start;
+  while (index < lineEnd && /[ \t]/.test(command[index])) index += 1;
+  let delimiter = "";
+  let quoteState = "unquoted";
+  let quoted = false;
+  for (; index < lineEnd; index += 1) {
+    const character = command[index];
+    if (quoteState === "single") {
+      if (character === "'") quoteState = "unquoted";
+      else delimiter += character;
+      continue;
+    }
+    if (quoteState === "double") {
+      if (character === "\\" && index + 1 < lineEnd) {
+        index += 1;
+        delimiter += command[index];
+      } else if (character === '"') {
+        quoteState = "unquoted";
+      } else {
+        delimiter += character;
+      }
+      continue;
+    }
+    if (/\s/.test(character) || /[;&|()<>]/.test(character)) break;
+    if (character === "'") {
+      quoted = true;
+      quoteState = "single";
+      continue;
+    }
+    if (character === '"') {
+      quoted = true;
+      quoteState = "double";
+      continue;
+    }
+    if (character === "\\" && index + 1 < lineEnd) {
+      quoted = true;
+      index += 1;
+      delimiter += command[index];
+      continue;
+    }
+    delimiter += character;
+  }
+  return { delimiter, end: index, quoteState, quoted };
+}
+
+function findHereDocumentTerminator(command, start, delimiter, stripTabs) {
+  let cursor = start;
+  while (cursor <= command.length) {
+    const newline = command.indexOf("\n", cursor);
+    const lineEnd = newline === -1 ? command.length : newline;
+    let line = command.slice(cursor, lineEnd);
+    if (line.endsWith("\r")) line = line.slice(0, -1);
+    const comparable = stripTabs ? line.replace(/^\t+/, "") : line;
+    if (comparable === delimiter) {
+      return { end: newline === -1 ? lineEnd : newline + 1, terminatorStart: cursor };
+    }
+    if (newline === -1) break;
+    cursor = newline + 1;
+  }
+  return null;
+}
+
+function skipPosixArithmeticForHereDocuments(command, start) {
   let parenthesisDepth = 0;
   let quoteState = "unquoted";
   for (let index = start; index < command.length; index += 1) {
@@ -485,11 +599,8 @@ function scanPosixArithmetic(command, start, matches) {
       continue;
     }
     if (quoteState === "double") {
-      if (character === "\\" && index + 1 < command.length) {
-        index += 1;
-        continue;
-      }
-      if (character === '"') quoteState = "unquoted";
+      if (character === "\\" && index + 1 < command.length) index += 1;
+      else if (character === '"') quoteState = "unquoted";
       continue;
     }
     if (character === "\\" && index + 1 < command.length) {
@@ -504,12 +615,8 @@ function scanPosixArithmetic(command, start, matches) {
       quoteState = "double";
       continue;
     }
-    if (character === "$" && command[index + 1] === "(") {
-      if (command[index + 2] === "(") {
-        index = scanPosixArithmetic(command, index + 3, matches);
-      } else {
-        index = scanExecutableShell(command, index + 2, "posix", matches, ")");
-      }
+    if (character === "$" && command[index + 1] === "(" && command[index + 2] === "(") {
+      index = skipPosixArithmeticForHereDocuments(command, index + 3);
       continue;
     }
     if (character === "(") {
@@ -523,167 +630,132 @@ function scanPosixArithmetic(command, start, matches) {
     }
     if (command[index + 1] === ")") return index + 1;
   }
-  return command.length;
+  return command.length - 1;
 }
 
-function scanExecutableShell(command, start, shell, matches, terminator = null) {
-  let parenthesisDepth = 0;
+function posixHereDocumentInfo(command) {
+  const issues = [];
+  const spans = [];
+  const pending = [];
   let quoteState = "unquoted";
-  const escapeCharacter = shell === "powershell" ? "`" : "\\";
-
-  for (let index = start; index < command.length; index += 1) {
-    const character = command[index];
-    if (quoteState === "single") {
-      if (character !== "'") continue;
-      if (shell === "powershell" && command[index + 1] === "'") {
-        index += 1;
-      } else {
-        quoteState = "unquoted";
-      }
-      continue;
-    }
-    if (quoteState === "double") {
-      if (character === escapeCharacter && index + 1 < command.length) {
-        index += 1;
-        continue;
-      }
-      if (character === '"') {
-        quoteState = "unquoted";
-        continue;
-      }
-      if (character === "$" && command[index + 1] === "(") {
-        if (shell === "posix" && command[index + 2] === "(") {
-          index = scanPosixArithmetic(command, index + 3, matches);
-        } else {
-          index = scanExecutableShell(command, index + 2, shell, matches, ")");
-        }
-        continue;
-      }
-      if (shell === "posix" && character === "`") {
-        index = scanExecutableShell(command, index + 1, shell, matches, "`");
-      }
-      continue;
-    }
-
-    if (terminator === "`" && character === "`") return index;
-    if (character === escapeCharacter && index + 1 < command.length) {
-      index += 1;
-      continue;
-    }
-    if (character === "'") {
-      quoteState = "single";
-      continue;
-    }
-    if (character === '"') {
-      quoteState = "double";
-      continue;
-    }
-    if (character === "$" && command[index + 1] === "(") {
-      if (shell === "posix" && command[index + 2] === "(") {
-        index = scanPosixArithmetic(command, index + 3, matches);
-      } else {
-        index = scanExecutableShell(command, index + 2, shell, matches, ")");
-      }
-      continue;
-    }
-    if (shell === "posix" && character === "`") {
-      index = scanExecutableShell(command, index + 1, shell, matches, "`");
-      continue;
-    }
-    if (character === "(") {
-      parenthesisDepth += 1;
-      continue;
-    }
-    if (character === ")") {
-      if (terminator === ")" && parenthesisDepth === 0) return index;
-      if (parenthesisDepth > 0) parenthesisDepth -= 1;
-      continue;
-    }
-    if (character !== ">") continue;
-
-    const redirection = outputRedirectionAt(command, index, shell);
-    if (redirection === null) {
-      index += 2;
-      continue;
-    }
-    matches.push(redirection);
-    if (redirection.operator === ">>") index += 1;
-  }
-  return command.length;
-}
-
-function tokenizeShellWords(command, shell) {
-  const tokens = [];
-  let quoteState = "unquoted";
-  let token = null;
-  const escapeCharacter = shell === "powershell" ? "`" : "\\";
-  const ensureToken = (start) => {
-    token ??= { quoteStates: [], sourceOffsets: [], start, value: "" };
-  };
-  const append = (character, sourceOffset, state) => {
-    ensureToken(sourceOffset);
-    token.value += character;
-    token.sourceOffsets.push(sourceOffset);
-    token.quoteStates.push(state);
-  };
-  const finishToken = () => {
-    if (token !== null) tokens.push(token);
-    token = null;
-  };
-
+  let tokenActive = false;
   for (let index = 0; index < command.length; index += 1) {
     const character = command[index];
     if (quoteState === "single") {
-      if (character !== "'") {
-        append(character, index, "single");
-      } else if (shell === "powershell" && command[index + 1] === "'") {
-        append("'", index, "single-escaped");
-        index += 1;
-      } else {
-        quoteState = "unquoted";
-      }
+      if (character === "'") quoteState = "unquoted";
       continue;
     }
     if (quoteState === "double") {
-      if (character === escapeCharacter && index + 1 < command.length) {
-        index += 1;
-        append(command[index], index, "double-escaped");
-      } else if (character === '"') {
-        quoteState = "unquoted";
-      } else {
-        append(character, index, "double");
-      }
+      if (character === "\\" && index + 1 < command.length) index += 1;
+      else if (character === '"') quoteState = "unquoted";
       continue;
     }
-    if (character === escapeCharacter && index + 1 < command.length) {
+    if (character === "\\" && index + 1 < command.length) {
+      tokenActive = true;
       index += 1;
-      append(command[index], index, "unquoted-escaped");
       continue;
     }
     if (character === "'") {
-      ensureToken(index);
+      tokenActive = true;
       quoteState = "single";
       continue;
     }
     if (character === '"') {
-      ensureToken(index);
+      tokenActive = true;
       quoteState = "double";
       continue;
     }
-    if (/\s/.test(character)) {
-      finishToken();
-      if (character === "\r" || character === "\n") tokens.push({ separator: true });
+    if (character === "#" && !tokenActive) {
+      const newline = command.indexOf("\n", index);
+      if (newline === -1) break;
+      index = newline - 1;
       continue;
     }
-    if (/[;&|<>]/.test(character)) {
-      finishToken();
-      tokens.push({ separator: true });
+    if (character === "$" && command[index + 1] === "(" && command[index + 2] === "(") {
+      tokenActive = true;
+      index = skipPosixArithmeticForHereDocuments(command, index + 3);
       continue;
     }
-    append(character, index, "unquoted");
+    if (
+      character === "<" &&
+      command[index - 1] !== "<" &&
+      command[index + 1] === "<" &&
+      command[index + 2] !== "<"
+    ) {
+      const operatorOffset = index;
+      const stripTabs = command[index + 2] === "-";
+      const lineEndCandidate = command.indexOf("\n", index);
+      const lineEnd = lineEndCandidate === -1 ? command.length : lineEndCandidate;
+      const delimiter = readHereDocumentDelimiter(command, index + (stripTabs ? 3 : 2), lineEnd);
+      if (!delimiter.delimiter || delimiter.quoteState !== "unquoted") {
+        issues.push({
+          kind: !delimiter.delimiter ? "HERE_DOCUMENT_DELIMITER_MISSING" : "HERE_DOCUMENT_DELIMITER_MALFORMED",
+          message: !delimiter.delimiter
+            ? "here-document operator lacks a literal delimiter"
+            : "here-document delimiter has an unterminated quote",
+          offset: operatorOffset,
+        });
+      } else {
+        pending.push({
+          delimiter: delimiter.delimiter,
+          offset: operatorOffset,
+          quoted: delimiter.quoted,
+          stripTabs,
+        });
+      }
+      tokenActive = true;
+      index = Math.max(index + 1, delimiter.end - 1);
+      continue;
+    }
+    if (character !== "\n" || pending.length === 0) {
+      if (/\s/.test(character) || /[;&|(){}<>]/.test(character)) tokenActive = false;
+      else tokenActive = true;
+      continue;
+    }
+
+    let bodyStart = index + 1;
+    for (const hereDocument of pending.splice(0)) {
+      const terminator = findHereDocumentTerminator(
+        command,
+        bodyStart,
+        hereDocument.delimiter,
+        hereDocument.stripTabs,
+      );
+      if (terminator === null) {
+        issues.push({
+          kind: "HERE_DOCUMENT_UNTERMINATED",
+          message: `here-document delimiter ${JSON.stringify(hereDocument.delimiter)} has no terminator line`,
+          offset: hereDocument.offset,
+        });
+        spans.push({
+          end: command.length,
+          quoted: hereDocument.quoted,
+          start: bodyStart,
+          terminatorStart: command.length,
+        });
+        bodyStart = command.length;
+        break;
+      }
+      spans.push({
+        end: terminator.end,
+        quoted: hereDocument.quoted,
+        start: bodyStart,
+        terminatorStart: terminator.terminatorStart,
+      });
+      bodyStart = terminator.end;
+    }
+    index = Math.max(index, bodyStart - 1);
+    quoteState = "unquoted";
+    tokenActive = false;
   }
-  finishToken();
-  return tokens;
+  for (const hereDocument of pending) {
+    issues.push({
+      kind: "HERE_DOCUMENT_BODY_MISSING",
+      message: `here-document delimiter ${JSON.stringify(hereDocument.delimiter)} has no body line`,
+      offset: hereDocument.offset,
+    });
+  }
+  return { issues, spans };
 }
 
 function nestedShellDialect(commandName) {
@@ -693,59 +765,659 @@ function nestedShellDialect(commandName) {
   return null;
 }
 
-function nestedShellScriptTokens(command, shell) {
-  const tokens = tokenizeShellWords(command, shell);
-  const scripts = [];
+function normalizedCommandName(value) {
+  return value.replaceAll("\\", "/").split("/").at(-1).toLowerCase().replace(/\.exe$/, "");
+}
+
+function tokenCanBeStaticExecutable(token, shell, previousCommandOperator) {
+  if (token.separator || token.dynamic || !token.value) return false;
+  if (shell === "posix") return true;
+  return (
+    String(token.quoteStates[0] ?? "").startsWith("unquoted") ||
+    previousCommandOperator === "&"
+  );
+}
+
+function isPosixAssignmentToken(token) {
+  return (
+    !token.dynamic &&
+    String(token.quoteStates[0] ?? "").startsWith("unquoted") &&
+    /^[A-Za-z_][A-Za-z0-9_]*=/.test(token.value)
+  );
+}
+
+function commandPositionIndexes(tokens, shell) {
+  const positions = [];
+  let expectingCommand = true;
+  let previousCommandOperator = null;
+  let redirectionTargetPending = false;
+
   for (let index = 0; index < tokens.length; index += 1) {
-    const launcher = tokens[index];
-    if (launcher.separator) continue;
+    const token = tokens[index];
+    if (token.separator) {
+      if (token.kind === "redirection") {
+        if (token.takesTarget !== false) redirectionTargetPending = true;
+      } else {
+        expectingCommand = true;
+        previousCommandOperator = token.operator ?? null;
+        redirectionTargetPending = false;
+      }
+      continue;
+    }
+    if (redirectionTargetPending) {
+      redirectionTargetPending = false;
+      continue;
+    }
+    if (!expectingCommand) continue;
+    if (shell === "posix" && isPosixAssignmentToken(token)) continue;
+    if (tokenCanBeStaticExecutable(token, shell, previousCommandOperator)) positions.push(index);
+    expectingCommand = false;
+    previousCommandOperator = null;
+  }
+
+  for (const position of [...positions]) {
+    if (shell !== "posix" || normalizedCommandName(tokens[position].value) !== "env") continue;
+    for (let index = position + 1; index < tokens.length; index += 1) {
+      const token = tokens[index];
+      if (token.separator) {
+        if (token.kind === "redirection" && token.takesTarget !== false) index += 1;
+        else if (token.kind !== "redirection") break;
+        continue;
+      }
+      if (token.value === "--" || token.value.startsWith("-") || isPosixAssignmentToken(token)) {
+        continue;
+      }
+      if (tokenCanBeStaticExecutable(token, shell, null)) positions.push(index);
+      break;
+    }
+  }
+
+  return [...new Set(positions)].sort((left, right) => left - right);
+}
+
+function startsShellVariable(text, offset, shell) {
+  const next = text[offset + 1];
+  if (next === undefined) return false;
+  return shell === "powershell"
+    ? /[A-Za-z_{?]/.test(next)
+    : /[A-Za-z_0-9{?*@$#!-]/.test(next);
+}
+
+function mutatorMatchAt(tokens, index) {
+  const token = tokens[index];
+  const commandName = normalizedCommandName(token.value);
+  if (SIMPLE_MUTATING_COMMANDS.has(commandName)) return { match: token.value, token };
+  const next = tokens[index + 1];
+  if (!next || next.separator) return null;
+  const subcommand = next.value.toLowerCase();
+  if (commandName === "sed" && subcommand.startsWith("-i")) {
+    return { match: `${token.value} ${next.value}`, token };
+  }
+  if (commandName === "npm" && NPM_MUTATING_SUBCOMMANDS.has(subcommand)) {
+    return { match: `${token.value} ${next.value}`, token };
+  }
+  if (commandName === "git" && GIT_MUTATING_SUBCOMMANDS.has(subcommand)) {
+    return { match: `${token.value} ${next.value}`, token };
+  }
+  return null;
+}
+
+function deduplicateBy(items, keyFor) {
+  const unique = new Map();
+  for (const item of items) unique.set(keyFor(item), item);
+  return [...unique.values()];
+}
+
+function parseShellView(view, shell, rootCommand, context, aggregate) {
+  const hereDocuments = shell === "posix" ? posixHereDocumentInfo(view.text) : { issues: [], spans: [] };
+  const hereDocumentByStart = new Map(hereDocuments.spans.map((span) => [span.start, span]));
+  const escapeCharacter = shell === "powershell" ? "`" : "\\";
+
+  const addIssue = (kind, message, offset, issueContext = context) => {
+    aggregate.issues.push({
+      ...shellEvidence(rootCommand, view, offset, shell, issueContext),
+      kind,
+      message,
+    });
+  };
+  for (const issue of hereDocuments.issues) addIssue(issue.kind, issue.message, issue.offset);
+
+  let scanSegment;
+  const scanHereDocumentBody = (hereDocument, segmentContext) => {
+    const bodyEnd = hereDocument.terminatorStart ?? hereDocument.end;
+    for (let index = hereDocument.start; index < bodyEnd; index += 1) {
+      const character = view.text[index];
+      if (character === "\\" && index + 1 < bodyEnd && /[\\$`\n]/.test(view.text[index + 1])) {
+        index += 1;
+        continue;
+      }
+      if (character === "$" && view.text[index + 1] === "(" && view.text[index + 2] === "(") {
+        addIssue(
+          "HERE_DOCUMENT_ARITHMETIC_EXPANSION_UNSUPPORTED",
+          "unquoted here-document arithmetic expansion is not classified as program source",
+          index,
+          {
+            ...segmentContext,
+            evaluationDepth: segmentContext.evaluationDepth + 1,
+            outerQuoteState: "here-document",
+          },
+        );
+        index += 2;
+        continue;
+      }
+      if (character === "$" && view.text[index + 1] === "(") {
+        const child = scanSegment(index + 2, ")", {
+          ...segmentContext,
+          evaluationDepth: segmentContext.evaluationDepth + 1,
+          outerQuoteState: "here-document",
+        });
+        index = child.end;
+        continue;
+      }
+      if (character === "`") {
+        const child = scanSegment(index + 1, "`", {
+          ...segmentContext,
+          evaluationDepth: segmentContext.evaluationDepth + 1,
+          outerQuoteState: "here-document",
+        });
+        index = child.end;
+      }
+    }
+  };
+
+  scanSegment = (start, terminator, segmentContext) => {
+    const tokens = [];
+    let token = null;
+    let quoteState = "unquoted";
+    let quoteStart = null;
+    let parenthesisDepth = 0;
+    const ensureToken = (offset) => {
+      token ??= { dynamic: false, quoteStates: [], sourceOffsets: [], start: originalOffset(view, offset), value: "" };
+    };
+    const append = (character, offset, state) => {
+      ensureToken(offset);
+      token.value += character;
+      token.sourceOffsets.push(originalOffset(view, offset));
+      token.quoteStates.push(state);
+    };
+    const finishToken = () => {
+      if (token !== null) tokens.push(token);
+      token = null;
+    };
+    const separator = (kind, offset, details = {}) => {
+      finishToken();
+      tokens.push({ ...details, kind, offset: originalOffset(view, offset), separator: true });
+    };
+
+    const scanArithmetic = (arithmeticStart, arithmeticContext) => {
+      let arithmeticQuote = "unquoted";
+      let arithmeticDepth = 0;
+      for (let index = arithmeticStart; index < view.text.length; index += 1) {
+        const character = view.text[index];
+        if (arithmeticQuote === "single") {
+          if (character === "'") arithmeticQuote = "unquoted";
+          continue;
+        }
+        if (arithmeticQuote === "double") {
+          if (character === "\\" && index + 1 < view.text.length) index += 1;
+          else if (character === '"') arithmeticQuote = "unquoted";
+          continue;
+        }
+        if (character === "\\" && index + 1 < view.text.length) {
+          index += 1;
+          continue;
+        }
+        if (character === "'") {
+          arithmeticQuote = "single";
+          continue;
+        }
+        if (character === '"') {
+          arithmeticQuote = "double";
+          continue;
+        }
+        if (character === "$" && view.text[index + 1] === "(") {
+          if (view.text[index + 2] === "(") {
+            index = scanArithmetic(index + 3, {
+              ...arithmeticContext,
+              evaluationDepth: arithmeticContext.evaluationDepth + 1,
+              outerQuoteState: "arithmetic",
+            });
+          } else {
+            const child = scanSegment(index + 2, ")", {
+              ...arithmeticContext,
+              evaluationDepth: arithmeticContext.evaluationDepth + 1,
+              outerQuoteState: "arithmetic",
+            });
+            index = child.end;
+          }
+          continue;
+        }
+        if (character === "(") {
+          arithmeticDepth += 1;
+          continue;
+        }
+        if (character !== ")") continue;
+        if (arithmeticDepth > 0) {
+          arithmeticDepth -= 1;
+          continue;
+        }
+        if (view.text[index + 1] === ")") return index + 1;
+      }
+      addIssue(
+        "ARITHMETIC_EXPANSION_UNTERMINATED",
+        "POSIX arithmetic expansion has no closing double parenthesis",
+        Math.max(0, arithmeticStart - 3),
+        arithmeticContext,
+      );
+      return view.text.length;
+    };
+
+    let index = start;
+    for (; index < view.text.length; index += 1) {
+      const hereDocument = hereDocumentByStart.get(index);
+      if (hereDocument) {
+        finishToken();
+        if (!hereDocument.quoted) scanHereDocumentBody(hereDocument, segmentContext);
+        index = hereDocument.end - 1;
+        continue;
+      }
+
+      const character = view.text[index];
+      if (quoteState === "single") {
+        if (character !== "'") {
+          append(character, index, "single");
+        } else if (shell === "powershell" && view.text[index + 1] === "'") {
+          append("'", index, "single-escaped");
+          index += 1;
+        } else {
+          quoteState = "unquoted";
+          quoteStart = null;
+        }
+        continue;
+      }
+      if (quoteState === "double") {
+        if (character === escapeCharacter) {
+          if (index + 1 >= view.text.length) {
+            addIssue("DANGLING_ESCAPE", "double-quoted shell text ends with an escape character", index, segmentContext);
+            continue;
+          }
+          index += 1;
+          append(view.text[index], index, "double-escaped");
+          continue;
+        }
+        if (character === '"') {
+          quoteState = "unquoted";
+          quoteStart = null;
+          continue;
+        }
+        if (character === "$" && view.text[index + 1] === "(") {
+          ensureToken(index);
+          token.dynamic = true;
+          if (shell === "posix" && view.text[index + 2] === "(") {
+            index = scanArithmetic(index + 3, {
+              ...segmentContext,
+              evaluationDepth: segmentContext.evaluationDepth + 1,
+              outerQuoteState: "double",
+            });
+          } else {
+            const child = scanSegment(index + 2, ")", {
+              ...segmentContext,
+              evaluationDepth: segmentContext.evaluationDepth + 1,
+              outerQuoteState: "double",
+            });
+            index = child.end;
+          }
+          continue;
+        }
+        if (character === "$" && startsShellVariable(view.text, index, shell)) {
+          ensureToken(index);
+          token.dynamic = true;
+          append(character, index, "double");
+          continue;
+        }
+        if (shell === "posix" && character === "`") {
+          ensureToken(index);
+          token.dynamic = true;
+          const child = scanSegment(index + 1, "`", {
+            ...segmentContext,
+            evaluationDepth: segmentContext.evaluationDepth + 1,
+            outerQuoteState: "double",
+          });
+          index = child.end;
+          continue;
+        }
+        append(character, index, "double");
+        continue;
+      }
+
+      if (terminator === "`" && character === "`") {
+        finishToken();
+        classifyTokens(tokens, shell, rootCommand, segmentContext, aggregate);
+        inspectNestedShells(tokens, shell, rootCommand, segmentContext, aggregate);
+        return { end: index, terminated: true };
+      }
+      if (character === escapeCharacter) {
+        if (index + 1 >= view.text.length) {
+          addIssue("DANGLING_ESCAPE", "shell text ends with an escape character", index, segmentContext);
+          continue;
+        }
+        index += 1;
+        append(view.text[index], index, "unquoted-escaped");
+        continue;
+      }
+      if (character === "'") {
+        ensureToken(index);
+        quoteState = "single";
+        quoteStart = index;
+        continue;
+      }
+      if (character === '"') {
+        ensureToken(index);
+        quoteState = "double";
+        quoteStart = index;
+        continue;
+      }
+      if (character === "$" && view.text[index + 1] === "(") {
+        ensureToken(index);
+        token.dynamic = true;
+        if (shell === "posix" && view.text[index + 2] === "(") {
+          index = scanArithmetic(index + 3, {
+            ...segmentContext,
+            evaluationDepth: segmentContext.evaluationDepth + 1,
+            outerQuoteState: "unquoted",
+          });
+        } else {
+          const child = scanSegment(index + 2, ")", {
+            ...segmentContext,
+            evaluationDepth: segmentContext.evaluationDepth + 1,
+            outerQuoteState: "unquoted",
+          });
+          index = child.end;
+        }
+        continue;
+      }
+      if (character === "$" && startsShellVariable(view.text, index, shell)) {
+        ensureToken(index);
+        token.dynamic = true;
+        append(character, index, "unquoted");
+        continue;
+      }
+      if (shell === "posix" && character === "`") {
+        ensureToken(index);
+        token.dynamic = true;
+        const child = scanSegment(index + 1, "`", {
+          ...segmentContext,
+          evaluationDepth: segmentContext.evaluationDepth + 1,
+          outerQuoteState: "unquoted",
+        });
+        index = child.end;
+        continue;
+      }
+      if (character === "(") {
+        parenthesisDepth += 1;
+        separator("group", index, { operator: "(" });
+        continue;
+      }
+      if (character === ")") {
+        if (terminator === ")" && parenthesisDepth === 0) {
+          finishToken();
+          classifyTokens(tokens, shell, rootCommand, segmentContext, aggregate);
+          inspectNestedShells(tokens, shell, rootCommand, segmentContext, aggregate);
+          return { end: index, terminated: true };
+        }
+        if (parenthesisDepth > 0) parenthesisDepth -= 1;
+        separator("group", index, { operator: ")" });
+        continue;
+      }
+      if (/\s/.test(character)) {
+        finishToken();
+        if (character === "\r" || character === "\n") {
+          separator("command", index, { operator: "newline" });
+        }
+        continue;
+      }
+      if (character === ">") {
+        const descriptor = descriptorBefore(view.text, index);
+        const tokenIsDescriptor =
+          descriptor.value !== null &&
+          token?.value === descriptor.value &&
+          token.sourceOffsets[0] === originalOffset(view, descriptor.start) &&
+          token.sourceOffsets.at(-1) === originalOffset(view, index - 1);
+        if (tokenIsDescriptor) token = null;
+        else finishToken();
+        if (isAllowedStderrDuplication(view.text, index, descriptor)) {
+          separator("redirection", index, { operator: ">&1", takesTarget: false });
+          index += 2;
+          continue;
+        }
+        const operator = view.text[index + 1] === ">" ? ">>" : ">";
+        aggregate.redirections.push({
+          ...shellEvidence(rootCommand, view, index, shell, segmentContext),
+          escaped: false,
+          fileDescriptor: descriptor.value,
+          operator,
+          quoteState: "unquoted",
+        });
+        separator("redirection", index, { operator, takesTarget: true });
+        if (operator === ">>") index += 1;
+        continue;
+      }
+      if (/[;&|<{}]/.test(character)) {
+        const kind = character === "<" ? "redirection" : "command";
+        const doubled =
+          view.text[index + 1] === character && new Set(["&", "|", "<"]).has(character);
+        separator(kind, index, {
+          operator: doubled ? `${character}${character}` : character,
+          takesTarget: kind === "redirection",
+        });
+        if (doubled) index += 1;
+        continue;
+      }
+      if (character === "#" && token === null) {
+        const newline = view.text.indexOf("\n", index);
+        if (newline === -1) {
+          index = view.text.length;
+          break;
+        }
+        index = newline - 1;
+        continue;
+      }
+      append(character, index, "unquoted");
+    }
+
+    finishToken();
+    classifyTokens(tokens, shell, rootCommand, segmentContext, aggregate);
+    inspectNestedShells(tokens, shell, rootCommand, segmentContext, aggregate);
+    if (quoteState !== "unquoted") {
+      addIssue(
+        "UNTERMINATED_QUOTE",
+        `${quoteState}-quoted shell text has no closing quote`,
+        quoteStart ?? Math.max(start, view.text.length - 1),
+        segmentContext,
+      );
+    }
+    if (terminator !== null) {
+      addIssue(
+        "COMMAND_SUBSTITUTION_UNTERMINATED",
+        `executable shell substitution has no closing ${JSON.stringify(terminator)}`,
+        Math.max(0, start - (terminator === ")" ? 2 : 1)),
+        segmentContext,
+      );
+    }
+    return { end: view.text.length, terminated: false };
+  };
+
+  scanSegment(0, null, context);
+}
+
+function classifyTokens(tokens, shell, rootCommand, context, aggregate) {
+  for (const index of commandPositionIndexes(tokens, shell)) {
+    const result = mutatorMatchAt(tokens, index);
+    if (result === null) continue;
+    const offset = result.token.sourceOffsets[0] ?? result.token.start;
+    aggregate.mutators.push({
+      ...sourceMappedContext(rootCommand, offset),
+      evaluationDepth: context.evaluationDepth,
+      match: result.match,
+      outerQuoteState: context.outerQuoteState,
+      quoteState: result.token.quoteStates[0] ?? "unknown",
+      shell,
+    });
+  }
+}
+
+function inspectNestedShells(tokens, shell, rootCommand, context, aggregate) {
+  const addLauncherIssue = (kind, message, token, dialect, { matchLocal = false } = {}) => {
+    const offset = token.sourceOffsets[0] ?? token.start;
+    aggregate.issues.push({
+      ...(matchLocal ? tokenMappedContext(rootCommand, token) : sourceMappedContext(rootCommand, offset)),
+      evaluationDepth: context.evaluationDepth,
+      kind,
+      message,
+      outerQuoteState: context.outerQuoteState,
+      shell: dialect,
+    });
+  };
+
+  for (const launcherIndex of commandPositionIndexes(tokens, shell)) {
+    const launcher = tokens[launcherIndex];
     const dialect = nestedShellDialect(launcher.value);
     if (dialect === null) continue;
-    for (let optionIndex = index + 1; optionIndex < tokens.length; optionIndex += 1) {
+    for (let optionIndex = launcherIndex + 1; optionIndex < tokens.length; optionIndex += 1) {
       const option = tokens[optionIndex];
       if (option.separator) break;
       const normalized = option.value.toLowerCase();
+      if (option.dynamic) {
+        addLauncherIssue(
+          "LAUNCHER_OPTION_DYNAMIC_UNSUPPORTED",
+          `${launcher.value} uses a dynamic launcher option that cannot be classified literally`,
+          option,
+          dialect,
+          { matchLocal: true },
+        );
+        break;
+      }
+      if (
+        dialect === "powershell" &&
+        new Set(["-enc", "-encodedcommand"]).has(normalized)
+      ) {
+        addLauncherIssue(
+          "ENCODED_COMMAND_UNSUPPORTED",
+          `${launcher.value} uses an encoded command payload that is not decoded`,
+          option,
+          dialect,
+          { matchLocal: true },
+        );
+        break;
+      }
       const isCommandOption =
         dialect === "powershell"
           ? new Set(["-c", "-command", "-commandwithargs"]).has(normalized)
           : /^-[a-z]*c[a-z]*$/i.test(option.value) && !option.value.startsWith("--");
-      if (!isCommandOption) continue;
+      if (!isCommandOption) {
+        if (option.value === "--" || !option.value.startsWith("-")) break;
+        continue;
+      }
       const script = tokens[optionIndex + 1];
-      if (script && !script.separator) scripts.push({ dialect, token: script });
+      if (!script || script.separator) {
+        const offset = option.sourceOffsets[0] ?? option.start;
+        aggregate.issues.push({
+          ...sourceMappedContext(rootCommand, offset),
+          evaluationDepth: context.evaluationDepth,
+          kind: "NESTED_SCRIPT_MISSING",
+          message: `${launcher.value} ${option.value} lacks a literal script argument`,
+          outerQuoteState: context.outerQuoteState,
+          shell,
+        });
+        break;
+      }
+      if (context.launcherDepth >= MAX_NESTED_SHELL_DEPTH) {
+        const offset = script.sourceOffsets[0] ?? script.start;
+        aggregate.issues.push({
+          ...sourceMappedContext(rootCommand, offset),
+          evaluationDepth: context.evaluationDepth + 1,
+          kind: "NESTED_SHELL_DEPTH_EXCEEDED",
+          message: `nested shell analysis exceeds the supported depth ${MAX_NESTED_SHELL_DEPTH}`,
+          outerQuoteState: script.quoteStates[0] ?? "unknown",
+          shell: dialect,
+        });
+        break;
+      }
+      if (script.dynamic) {
+        const offset = script.sourceOffsets[0] ?? script.start;
+        aggregate.issues.push({
+          ...sourceMappedContext(rootCommand, offset),
+          evaluationDepth: context.evaluationDepth + 1,
+          kind: "NESTED_SCRIPT_DYNAMIC_UNSUPPORTED",
+          message: "nested shell script depends on outer-shell expansion and cannot be classified literally",
+          outerQuoteState: script.quoteStates[0] ?? "unknown",
+          shell: dialect,
+        });
+        break;
+      }
+      if (script.value.length !== script.sourceOffsets.length) {
+        const offset = script.sourceOffsets[0] ?? script.start;
+        aggregate.issues.push({
+          ...sourceMappedContext(rootCommand, offset),
+          evaluationDepth: context.evaluationDepth + 1,
+          kind: "NESTED_SCRIPT_SOURCE_MAP_UNSUPPORTED",
+          message: "nested literal script cannot be mapped to the original command",
+          outerQuoteState: script.quoteStates[0] ?? "unknown",
+          shell: dialect,
+        });
+        break;
+      }
+      parseShellView(
+        {
+          sourceOffsets: script.sourceOffsets,
+          text: script.value,
+        },
+        dialect,
+        rootCommand,
+        {
+          evaluationDepth: context.evaluationDepth + 1,
+          launcherDepth: context.launcherDepth + 1,
+          outerQuoteState: script.quoteStates[0] ?? "unknown",
+        },
+        aggregate,
+      );
       break;
     }
   }
-  return scripts;
 }
 
-function findOutputRedirectionsInternal(command, shell, depth) {
-  const matches = [];
-  scanExecutableShell(command, 0, shell, matches);
-  if (depth < MAX_NESTED_SHELL_DEPTH) {
-    for (const { dialect, token } of nestedShellScriptTokens(command, shell)) {
-      for (const nested of findOutputRedirectionsInternal(token.value, dialect, depth + 1)) {
-        const offset = token.sourceOffsets[nested.offset];
-        if (!Number.isInteger(offset)) continue;
-        matches.push({
-          ...nested,
-          ...boundedMatchContext(command, offset),
-          evaluationDepth: depth + 1,
-          offset,
-          outerQuoteState: token.quoteStates[nested.offset] ?? "unknown",
-        });
-      }
-    }
-  }
-  const unique = new Map();
-  for (const match of matches) {
-    unique.set(`${match.offset}\0${match.operator}\0${match.shell}`, match);
-  }
-  return [...unique.values()].sort((left, right) => left.offset - right.offset);
+function classifyShellCommand(command, shell) {
+  const rootCommand = String(command ?? "");
+  const aggregate = { issues: [], mutators: [], redirections: [] };
+  parseShellView(
+    {
+      sourceOffsets: Array.from({ length: rootCommand.length }, (_, index) => index),
+      text: rootCommand,
+    },
+    shell,
+    rootCommand,
+    { evaluationDepth: 0, launcherDepth: 0, outerQuoteState: null },
+    aggregate,
+  );
+  return {
+    issues: deduplicateBy(
+      aggregate.issues,
+      (issue) => `${issue.kind}\0${issue.offset}\0${issue.shell}\0${issue.evaluationDepth}`,
+    ).sort((left, right) => left.offset - right.offset),
+    mutators: deduplicateBy(
+      aggregate.mutators,
+      (mutator) => `${mutator.match.toLowerCase()}\0${mutator.offset}\0${mutator.shell}\0${mutator.evaluationDepth}`,
+    ).sort((left, right) => left.offset - right.offset),
+    redirections: deduplicateBy(
+      aggregate.redirections,
+      (redirection) => `${redirection.offset}\0${redirection.operator}\0${redirection.shell}`,
+    ).sort((left, right) => left.offset - right.offset),
+  };
 }
 
 export function findOutputRedirections(command, { shell = commandShellForPlatform() } = {}) {
   assertCommandShell(shell);
-  return findOutputRedirectionsInternal(String(command ?? ""), shell, 0);
+  return classifyShellCommand(command, shell).redirections;
 }
 
 function commandText(event) {
@@ -755,22 +1427,27 @@ function commandText(event) {
 
 function commandMutationReasons(command, shell) {
   const reasons = [];
-  const mutatingMatches = [
-    ...command.matchAll(new RegExp(MUTATING_COMMAND_PATTERN.source, `${MUTATING_COMMAND_PATTERN.flags}g`)),
-  ].map((match) => match[1]);
-  if (mutatingMatches.length > 0) {
+  const classification = classifyShellCommand(command, shell);
+  if (classification.mutators.length > 0) {
     reasons.push({
       code: "MUTATING_COMMAND_GRAMMAR",
       description: "command text matched the detector's mutating executable or subcommand grammar",
-      matches: [...new Set(mutatingMatches)],
+      matches: [...new Set(classification.mutators.map(({ match }) => match))],
+      mutators: classification.mutators,
     });
   }
-  const redirectionMatches = findOutputRedirections(command, { shell });
-  if (redirectionMatches.length > 0) {
+  if (classification.redirections.length > 0) {
     reasons.push({
       code: "OUTPUT_REDIRECTION_GRAMMAR",
       description: "command text matched shell output redirection that can write a file",
-      redirections: redirectionMatches,
+      redirections: classification.redirections,
+    });
+  }
+  if (classification.issues.length > 0) {
+    reasons.push({
+      code: "UNSUPPORTED_COMMAND_GRAMMAR",
+      description: "command text used malformed or unsupported shell grammar at a mutation boundary",
+      issues: classification.issues,
     });
   }
   return reasons;
@@ -850,8 +1527,30 @@ export function mutationAttemptDiagnostic({ analysis, before, after, statusBefor
   for (const attempt of attempts.slice(0, MAX_DIAGNOSTIC_ATTEMPTS)) {
     const reasons = attempt.reasons
       .map(
-        ({ code, description, matches, redirections }) =>
+        ({ code, description, issues, matches, mutators, redirections }) =>
           `${code}: ${description}${matches?.length ? ` [matched=${matches.join(",")}]` : ""}${
+            mutators?.length
+              ? ` ${mutators
+                  .map(
+                    ({
+                      context,
+                      contextStart,
+                      evaluationDepth,
+                      match,
+                      offset,
+                      outerQuoteState,
+                      quoteState,
+                      shell,
+                    }) =>
+                      `[mutator=${JSON.stringify(match)} offset=${offset} shell=${shell} quoteState=${quoteState}${
+                        evaluationDepth
+                          ? ` evaluationDepth=${evaluationDepth} outerQuoteState=${outerQuoteState}`
+                          : ""
+                      } contextStart=${contextStart} contextLength=${context.length} context=${JSON.stringify(context)}]`,
+                  )
+                  .join(" ")}`
+              : ""
+          }${
             redirections?.length
               ? ` ${redirections
                   .map(
@@ -875,11 +1574,36 @@ export function mutationAttemptDiagnostic({ analysis, before, after, statusBefor
                   )
                   .join(" ")}`
               : ""
+          }${
+            issues?.length
+              ? ` ${issues
+                  .map(
+                    ({
+                      context,
+                      contextStart,
+                      evaluationDepth,
+                      kind,
+                      message,
+                      offset,
+                      outerQuoteState,
+                      shell,
+                    }) =>
+                      `[issue=${kind} offset=${offset} shell=${shell}${
+                        evaluationDepth
+                          ? ` evaluationDepth=${evaluationDepth} outerQuoteState=${outerQuoteState}`
+                          : ""
+                      } message=${JSON.stringify(message)} contextStart=${contextStart} contextLength=${context.length} context=${JSON.stringify(context)}]`,
+                  )
+                  .join(" ")}`
+              : ""
           }`,
       )
       .join("; ");
     if (attempt.eventType === "command_execution") {
-      const needsCommandPreview = attempt.reasons.some(({ code }) => code !== "OUTPUT_REDIRECTION_GRAMMAR");
+      const needsCommandPreview = attempt.reasons.some(
+        ({ issues, mutators, redirections }) =>
+          !issues?.length && !mutators?.length && !redirections?.length,
+      );
       let commandEvidence = `commandLength=${attempt.command.length}`;
       if (needsCommandPreview) {
         const redactedCommand = redactedDiagnostic(attempt.command, paths).replace(/\s+/g, " ").trim();
