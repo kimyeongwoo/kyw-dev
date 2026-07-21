@@ -75,21 +75,40 @@ async function readReady(path) {
   return JSON.parse(readFileSync(path, "utf8"));
 }
 
-function stopExactTree(pid) {
-  if (!Number.isInteger(pid) || !processAlive(pid)) return;
+function stopExactPid(pid) {
+  if (!Number.isInteger(pid)) return;
+  try {
+    process.kill(pid, "SIGKILL");
+  } catch (error) {
+    if (new Set(["ESRCH", "ENOENT"]).has(error?.code)) return;
+    throw error;
+  }
+}
+
+function stopFixtureProcesses(ready) {
+  if (!ready) return;
   if (process.platform === "win32") {
-    spawnSync("taskkill.exe", ["/PID", String(pid), "/T", "/F"], {
-      encoding: "utf8",
-      timeout: 5_000,
-      windowsHide: true,
-    });
+    if (!Number.isInteger(ready.pid)) return;
+    const result = spawnSync(
+      "taskkill.exe",
+      ["/PID", String(ready.pid), "/T", "/F"],
+      {
+        encoding: "utf8",
+        timeout: 5_000,
+        windowsHide: true,
+      },
+    );
+    if (result.error) throw result.error;
+    // taskkill uses status 128 when the exact PID is already absent.
+    if (!new Set([0, 128]).has(result.status)) {
+      const error = new Error(`taskkill failed with status=${result.status ?? "unknown"}`);
+      error.code = "TASKKILL_FAILED";
+      throw error;
+    }
     return;
   }
-  try {
-    process.kill(-pid, "SIGKILL");
-  } catch (error) {
-    if (error?.code !== "ESRCH") throw error;
-  }
+  stopExactPid(ready.descendantPid);
+  stopExactPid(ready.pid);
 }
 
 function startFlow(
@@ -235,15 +254,14 @@ test("both evaluator flows preserve timeout classification and remove the timed-
       modelTurnTimeoutMs: 1_000,
     });
     const ready = await readReady(invocation.readyPath);
-    try {
-      await assert.rejects(
-        invocation.promise,
-        (error) =>
-          error?.code === (flow === "audit" ? "CODEX_EXEC_FAILED" : "CODEX_TIMEOUT"),
-      );
-    } finally {
-      stopExactTree(ready.pid);
-    }
+    t.after(() => {
+      stopFixtureProcesses(ready);
+    });
+    await assert.rejects(
+      invocation.promise,
+      (error) =>
+        error?.code === (flow === "audit" ? "CODEX_EXEC_FAILED" : "CODEX_TIMEOUT"),
+    );
     await waitFor(() => !processAlive(ready.pid), `${flow} timed-out child exit`);
     await waitFor(
       () => !processAlive(ready.descendantPid),
@@ -281,19 +299,18 @@ test("both evaluator flows interrupt active children idempotently without listen
       processTarget: target,
     });
     const ready = await readReady(invocation.readyPath);
-    try {
-      target.emit("SIGINT");
-      target.emit("SIGINT");
-      await assert.rejects(
-        invocation.promise,
-        (error) =>
-          error?.code ===
-            (flow === "audit" ? "AUDIT_SMOKE_INTERRUPTED" : "EVALUATION_INTERRUPTED") &&
-          error?.exitCode === 130,
-      );
-    } finally {
-      stopExactTree(ready.pid);
-    }
+    t.after(() => {
+      stopFixtureProcesses(ready);
+    });
+    target.emit("SIGINT");
+    target.emit("SIGINT");
+    await assert.rejects(
+      invocation.promise,
+      (error) =>
+        error?.code ===
+          (flow === "audit" ? "AUDIT_SMOKE_INTERRUPTED" : "EVALUATION_INTERRUPTED") &&
+        error?.exitCode === 130,
+    );
     await waitFor(() => !processAlive(ready.pid), `${flow} interrupted child exit`);
     await waitFor(
       () => !processAlive(ready.descendantPid),
@@ -395,19 +412,23 @@ test("cleanup failures append one safe diagnostic while interruption stays prima
       for (const path of leakedRoots) rmSync(path, { recursive: true, force: true });
     });
     const ready = await readReady(invocation.readyPath);
+    t.after(() => {
+      stopFixtureProcesses(ready);
+    });
     let observed;
-    try {
-      target.emit("SIGINT");
-      await assert.rejects(invocation.promise, (error) => {
-        observed = error;
-        return (
-          error?.code ===
-          (flow === "audit" ? "AUDIT_SMOKE_INTERRUPTED" : "EVALUATION_INTERRUPTED")
-        );
-      });
-    } finally {
-      stopExactTree(ready.pid);
-    }
+    target.emit("SIGINT");
+    await assert.rejects(invocation.promise, (error) => {
+      observed = error;
+      return (
+        error?.code ===
+        (flow === "audit" ? "AUDIT_SMOKE_INTERRUPTED" : "EVALUATION_INTERRUPTED")
+      );
+    });
+    await waitFor(() => !processAlive(ready.pid), `${flow} cleanup-failure child exit`);
+    await waitFor(
+      () => !processAlive(ready.descendantPid),
+      `${flow} cleanup-failure descendant exit`,
+    );
     assert.match(observed.message, /Evaluator interrupted by SIGINT/);
     assert.match(observed.message, /cleanup operation=/);
     assert.match(observed.message, /pathLabel=/);

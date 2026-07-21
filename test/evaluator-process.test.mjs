@@ -69,21 +69,40 @@ async function readReady(path) {
   return JSON.parse(readFileSync(path, "utf8"));
 }
 
-function stopExactTree(pid) {
-  if (!Number.isInteger(pid) || !processAlive(pid)) return;
+function stopExactPid(pid) {
+  if (!Number.isInteger(pid)) return;
+  try {
+    process.kill(pid, "SIGKILL");
+  } catch (error) {
+    if (new Set(["ESRCH", "ENOENT"]).has(error?.code)) return;
+    throw error;
+  }
+}
+
+function stopFixtureProcesses(ready) {
+  if (!ready) return;
   if (process.platform === "win32") {
-    spawnSync("taskkill.exe", ["/PID", String(pid), "/T", "/F"], {
-      encoding: "utf8",
-      timeout: 5_000,
-      windowsHide: true,
-    });
+    if (!Number.isInteger(ready.pid)) return;
+    const result = spawnSync(
+      "taskkill.exe",
+      ["/PID", String(ready.pid), "/T", "/F"],
+      {
+        encoding: "utf8",
+        timeout: 5_000,
+        windowsHide: true,
+      },
+    );
+    if (result.error) throw result.error;
+    // taskkill uses status 128 when the exact PID is already absent.
+    if (!new Set([0, 128]).has(result.status)) {
+      const error = new Error(`taskkill failed with status=${result.status ?? "unknown"}`);
+      error.code = "TASKKILL_FAILED";
+      throw error;
+    }
     return;
   }
-  try {
-    process.kill(-pid, "SIGKILL");
-  } catch (error) {
-    if (error?.code !== "ESRCH") throw error;
-  }
+  stopExactPid(ready.descendantPid);
+  stopExactPid(ready.pid);
 }
 
 function newScope(target, options = {}) {
@@ -163,19 +182,25 @@ test("timeout and max-output causes terminate the exact owned child tree within 
     const scope = newScope(target);
     const readyPath = join(root, `${expectation.mode}.json`);
     let ready;
+    let result;
     try {
-      const result = await scope.runChild({
+      const running = scope.runChild({
         args: [FAKE_CHILD, expectation.mode, readyPath],
         command: process.execPath,
         maxBuffer: expectation.maxBuffer,
         timeout: expectation.timeout,
       });
-      assert.equal(result.error?.code, expectation.code);
-      if (expectation.mode === "hang") ready = await readReady(readyPath);
+      if (expectation.mode === "hang") {
+        ready = await readReady(readyPath);
+        t.after(() => {
+          stopFixtureProcesses(ready);
+        });
+      }
+      result = await running;
     } finally {
       await scope.finalize();
-      if (ready) stopExactTree(ready.pid);
     }
+    assert.equal(result.error?.code, expectation.code);
     if (ready) {
       await waitFor(() => !processAlive(ready.pid), "timed-out child exit");
       await waitFor(() => !processAlive(ready.descendantPid), "timed-out descendant exit");
@@ -206,6 +231,9 @@ test("repeated interruption owns only the tracked tree, is idempotent, and remov
       timeout: 10_000,
     });
     ready = await readReady(readyPath);
+    t.after(() => {
+      stopFixtureProcesses(ready);
+    });
     target.emit("SIGINT");
     target.emit("SIGINT");
     await assert.rejects(
@@ -219,7 +247,6 @@ test("repeated interruption owns only the tracked tree, is idempotent, and remov
     assert.equal(first, second);
     const [firstResult, secondResult] = await Promise.all([first, second]);
     assert.deepEqual(firstResult, secondResult);
-    if (ready) stopExactTree(ready.pid);
   }
   await waitFor(() => !processAlive(ready.pid), "interrupted child exit");
   await waitFor(() => !processAlive(ready.descendantPid), "interrupted descendant exit");
@@ -241,6 +268,9 @@ test("timeout remains authoritative when a later signal races with termination",
       timeout: 1_000,
     });
     ready = await readReady(readyPath);
+    t.after(() => {
+      stopFixtureProcesses(ready);
+    });
     await waitFor(() => scope.cause?.kind === "timeout", "timeout cause", 3_000);
     target.emit("SIGINT");
     const result = await running;
@@ -248,8 +278,9 @@ test("timeout remains authoritative when a later signal races with termination",
     assert.equal(scope.cause.kind, "timeout");
   } finally {
     await scope.finalize();
-    if (ready) stopExactTree(ready.pid);
   }
+  await waitFor(() => !processAlive(ready.pid), "timeout-race child exit");
+  await waitFor(() => !processAlive(ready.descendantPid), "timeout-race descendant exit");
 });
 
 test("a signal after child exit but before final cleanup prevents success", async () => {
