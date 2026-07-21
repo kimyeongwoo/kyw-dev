@@ -28,6 +28,14 @@ import {
 } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import {
+  appendEvaluatorDiagnostics,
+  cleanupFailureDiagnostic,
+  createEvaluatorRunScope,
+  defaultRemoveOwnedPath,
+  EvaluatorInterruptedError,
+} from "../evaluator-process.mjs";
+
 export const REPOSITORY_ROOT = fileURLToPath(new URL("../../", import.meta.url));
 export const EVAL_ROOT = join(REPOSITORY_ROOT, "eval", "grilling");
 export const DEFAULT_RESULTS_ROOT = join(EVAL_ROOT, "results");
@@ -998,7 +1006,7 @@ function classifyCodexFailure(result, context) {
   return new EvaluationError("CODEX_EXEC_FAILED", `Codex model turn failed: ${detail}`);
 }
 
-function invokeCodexTurn({
+async function invokeCodexTurn({
   launcher,
   env,
   repository,
@@ -1009,6 +1017,7 @@ function invokeCodexTurn({
   lastMessagePath,
   timeout,
   context,
+  runChild,
 }) {
   const common = [
     "--json",
@@ -1027,11 +1036,14 @@ function invokeCodexTurn({
   const args = threadId
     ? ["exec", "resume", ...common, threadId, "-"]
     : ["exec", "--sandbox", "read-only", "--cd", repository, ...common, "-"];
-  const result = runProcess(launcher, args, {
+  const result = await runChild({
+    command: launcher.command,
+    args: [...(launcher.prefixArgs ?? []), ...args],
     cwd: repository,
     env,
     input: prompt,
     timeout,
+    maxBuffer: 20 * 1024 * 1024,
   });
   if (result.status !== 0) throw classifyCodexFailure(result, context);
   const parsed = parseJsonl(result.stdout);
@@ -1138,8 +1150,15 @@ export async function runEvaluation({
   evalRoot = EVAL_ROOT,
   repositoryRoot = REPOSITORY_ROOT,
   launcher = defaultCodexLauncher(),
+  preflight = preflightCodex,
   modelTurnTimeoutMs = 300_000,
   extraEnv = {},
+  removeOwnedPath = defaultRemoveOwnedPath,
+  onState,
+  platform,
+  processTarget,
+  gracefulTerminationMs,
+  forcedTerminationMs,
 } = {}) {
   assertNonemptyString(variantId, "variant");
   assertNonemptyString(scenarioId, "scenario");
@@ -1166,6 +1185,16 @@ export async function runEvaluation({
   const outputRootExisted = existsSync(resolvedOutputRoot);
   let stagingDirectory;
   let publishedDirectory;
+  let completed;
+  let primaryError;
+
+  const scope = createEvaluatorRunScope({
+    platform,
+    processTarget,
+    gracefulTerminationMs,
+    forcedTerminationMs,
+    onChildSpawn: ({ pid }) => onState?.({ type: "child-spawn", pid }),
+  });
 
   const context = {
     evalRepository,
@@ -1177,9 +1206,19 @@ export async function runEvaluation({
   };
 
   try {
+    onState?.({ type: "temporary-root", temporaryRoot });
+    await scope.checkpoint();
     mkdirSync(temporaryHome, { recursive: true });
     mkdirSync(codexHome, { recursive: true });
     materializeRepository(scenario.repository, evalRepository);
+    onState?.({
+      type: "isolated-state",
+      authCopy: join(codexHome, "auth.json"),
+      codexHome,
+      evalRepository,
+      temporaryHome,
+    });
+    await scope.checkpoint();
     mkdirSync(repositorySkillsRoot, { recursive: true });
     const installedSkillDirectory = join(repositorySkillsRoot, variant.skillName);
     copySkillDirectory(variant.sourceDirectory, installedSkillDirectory);
@@ -1196,13 +1235,20 @@ export async function runEvaluation({
       useEnvApiKey,
       extraEnv,
     });
-    const codex = preflightCodex({ launcher, env });
+    const codex = preflight({ launcher, env });
 
     mkdirSync(resolvedOutputRoot, { recursive: true });
     stagingDirectory = join(resolvedOutputRoot, `.staging-${runId}`);
     mkdirSync(stagingDirectory, { recursive: false });
     publishedDirectory = join(resolvedOutputRoot, runId);
     assert(!existsSync(publishedDirectory), `Result directory already exists: ${runId}`, "OUTPUT_CONFLICT");
+    onState?.({
+      type: "staging",
+      outputRoot: resolvedOutputRoot,
+      publishedDirectory,
+      stagingDirectory,
+    });
+    await scope.checkpoint();
 
     const initialPrompt = [
       `Use $${variant.skillName} to interview me about this subject:`,
@@ -1217,7 +1263,7 @@ export async function runEvaluation({
     for (let index = 0; index < prompts.length; index += 1) {
       const turnStartedAt = new Date().toISOString();
       const lastMessagePath = join(temporaryRoot, `last-message-${index + 1}.txt`);
-      const invocation = invokeCodexTurn({
+      const invocation = await invokeCodexTurn({
         launcher,
         env,
         repository: evalRepository,
@@ -1228,6 +1274,7 @@ export async function runEvaluation({
         lastMessagePath,
         timeout: modelTurnTimeoutMs,
         context,
+        runChild: scope.runChild,
       });
       if (index === 0) {
         assert(
@@ -1261,6 +1308,7 @@ export async function runEvaluation({
         diagnostic: redactText(invocation.stderr, context).slice(0, 2_000),
         events: redactedEvents,
       });
+      await scope.checkpoint();
     }
 
     const fixtureAfter = snapshotDirectory(evalRepository, { exclude: new Set([".git", ".agents"]) });
@@ -1344,16 +1392,69 @@ export async function runEvaluation({
       `Redacted result still contains sensitive output: ${sensitiveFindings.join(", ")}`,
       "SENSITIVE_OUTPUT",
     );
+    onState?.({ type: "publication-ready", publishedDirectory, stagingDirectory });
+    await scope.checkpoint();
     renameSync(stagingDirectory, publishedDirectory);
     stagingDirectory = undefined;
-    return { result, resultDirectory: publishedDirectory };
-  } finally {
-    if (stagingDirectory && existsSync(stagingDirectory)) rmSync(stagingDirectory, { recursive: true, force: true });
-    rmSync(temporaryRoot, { recursive: true, force: true });
-    if (!outputRootExisted && existsSync(resolvedOutputRoot) && readdirSync(resolvedOutputRoot).length === 0) {
-      rmdirSync(resolvedOutputRoot);
-    }
+    onState?.({ type: "published", publishedDirectory });
+    completed = { result, resultDirectory: publishedDirectory };
+  } catch (error) {
+    primaryError = error;
+    scope.claimFailure();
   }
+
+  const finalState = await scope.finalize(async () => {
+    const failures = [];
+    const remove = (path, options, operation, pathLabel) => {
+      try {
+        removeOwnedPath(path, options);
+      } catch (error) {
+        failures.push(cleanupFailureDiagnostic({ operation, pathLabel, error }));
+      }
+    };
+    if (stagingDirectory && existsSync(stagingDirectory)) {
+      remove(
+        stagingDirectory,
+        { recursive: true, force: true },
+        "remove-tree",
+        "grilling-unpublished-staging",
+      );
+    }
+    remove(
+      temporaryRoot,
+      { recursive: true, force: true },
+      "remove-tree",
+      "grilling-temporary-root",
+    );
+    if (
+      !outputRootExisted &&
+      existsSync(resolvedOutputRoot) &&
+      readdirSync(resolvedOutputRoot).length === 0
+    ) {
+      remove(
+        resolvedOutputRoot,
+        { directoryOnly: true },
+        "remove-directory",
+        "grilling-empty-output-root",
+      );
+    }
+    onState?.({ type: "cleanup-complete", temporaryRoot });
+    return failures;
+  });
+
+  if (finalState.cause.kind === "interruption") {
+    const interrupted = new EvaluatorInterruptedError(finalState.cause.signal);
+    const error = new EvaluationError("EVALUATION_INTERRUPTED", interrupted.message);
+    error.exitCode = interrupted.exitCode;
+    primaryError = error;
+  } else if (!primaryError && finalState.diagnostics.length > 0) {
+    primaryError = new EvaluationError("EVALUATOR_CLEANUP_FAILED", "Evaluator cleanup failed");
+  }
+  if (primaryError) {
+    appendEvaluatorDiagnostics(primaryError, finalState.diagnostics);
+    throw primaryError;
+  }
+  return completed;
 }
 
 export function resultSummary(result) {
@@ -1811,7 +1912,6 @@ export async function runComparison({ scenarios, runs, outputRoot = DEFAULT_RESU
     });
     return { ...published, runs: completed };
   } catch (error) {
-    for (const run of completed) rmSync(run.resultDirectory, { recursive: true, force: true });
     if (!outputRootExisted && existsSync(resolvedOutputRoot) && readdirSync(resolvedOutputRoot).length === 0) {
       rmdirSync(resolvedOutputRoot);
     }

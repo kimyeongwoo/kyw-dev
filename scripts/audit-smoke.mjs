@@ -12,13 +12,20 @@ import {
   mkdtempSync,
   readFileSync,
   readdirSync,
-  rmSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { getCACertificates, rootCertificates } from "node:tls";
 import { fileURLToPath, pathToFileURL } from "node:url";
+
+import {
+  appendEvaluatorDiagnostics,
+  cleanupFailureDiagnostic,
+  createEvaluatorRunScope,
+  defaultRemoveOwnedPath,
+  EvaluatorInterruptedError,
+} from "./evaluator-process.mjs";
 
 export const REPOSITORY_ROOT = fileURLToPath(new URL("../", import.meta.url));
 const FIXTURE_ROOT = join(REPOSITORY_ROOT, "test", "fixtures", "kyw-audit");
@@ -1729,13 +1736,38 @@ export function parseArguments(argv) {
   };
 }
 
-export function runAuditSmoke(options) {
-  const launcher = codexLauncher();
-  const codexVersion = preflightCodex(launcher);
+export async function runAuditSmoke(
+  options,
+  {
+    launcher = codexLauncher(),
+    preflight = preflightCodex,
+    removeOwnedPath = defaultRemoveOwnedPath,
+    onState,
+    extraEnv = {},
+    platform,
+    processTarget,
+    gracefulTerminationMs,
+    forcedTerminationMs,
+  } = {},
+) {
+  const codexVersion = preflight(launcher);
   const temporaryRoot = mkdtempSync(join(tmpdir(), "kyw-audit-smoke-"));
   const diagnosticPaths = [temporaryRoot, REPOSITORY_ROOT];
+  const scope = createEvaluatorRunScope({
+    platform,
+    processTarget,
+    gracefulTerminationMs,
+    forcedTerminationMs,
+    onChildSpawn: ({ pid }) => onState?.({ type: "child-spawn", pid }),
+  });
+  let completed;
+  let primaryError;
   try {
+    onState?.({ type: "temporary-root", temporaryRoot });
+    await scope.checkpoint();
     const { config, repository } = prepareFixture(temporaryRoot);
+    onState?.({ type: "repository", repository });
+    await scope.checkpoint();
     const controlDirectory = join(temporaryRoot, "control");
     const temporaryHome = join(controlDirectory, "home");
     const codexHome = join(controlDirectory, "codex-home");
@@ -1748,12 +1780,21 @@ export function runAuditSmoke(options) {
     writeFileSync(join(codexHome, "config.toml"), outerSandboxConfig({ controlDirectory, mode: options.mode }), "utf8");
     const auth = copyAuthentication(options.authFile, codexHome);
     diagnosticPaths.push(auth.source);
+    onState?.({
+      type: "isolated-state",
+      authCopy: join(codexHome, "auth.json"),
+      codexHome,
+      controlDirectory,
+      temporaryHome,
+    });
+    await scope.checkpoint();
     const environment = buildChildEnvironment({
       caBundlePath,
       temporaryHome,
       codexHome,
       temporaryRoot: controlDirectory,
     });
+    Object.assign(environment, extraEnv);
     const before = snapshotTree(repository);
     const statusBefore = gitStatus(repository);
     const invocation = options.mode === "readonly" ? "$kyw-audit 0001" : "$kyw-audit 0001 --fix";
@@ -1791,11 +1832,14 @@ export function runAuditSmoke(options) {
       ...launcher.prefixArgs,
       ...innerArgs,
     ];
-    const result = runCodex(launcher, outerArgs, {
+    const result = await scope.runChild({
+      command: launcher.command,
+      args: [...launcher.prefixArgs, ...outerArgs],
       cwd: repository,
       env: environment,
       input: prompt,
       timeout: options.timeoutMs,
+      maxBuffer: 30 * 1024 * 1024,
     });
     if (result.status !== 0) fail("CODEX_EXEC_FAILED", `Codex execution failed: ${processFailure(result)}`);
     const events = parseJsonl(result.stdout);
@@ -1874,7 +1918,7 @@ export function runAuditSmoke(options) {
       if (testResult.status !== 0) fail("FIX_VERIFICATION_FAILED", `Fixture test failed: ${processFailure(testResult)}`);
     }
 
-    return {
+    completed = {
       authSourceUnchanged: true,
       changedPaths: [...diff.added, ...diff.changed, ...diff.deleted].sort(),
       codexVersion,
@@ -1892,34 +1936,65 @@ export function runAuditSmoke(options) {
       treeSha256Before: before.sha256,
       verdict,
     };
+    await scope.checkpoint();
   } catch (error) {
-    if (error instanceof AuditSmokeError) {
-      throw new AuditSmokeError(error.code, redactedDiagnostic(error.message, diagnosticPaths));
-    }
-    throw error;
-  } finally {
-    rmSync(temporaryRoot, { recursive: true, force: true });
+    primaryError =
+      error instanceof AuditSmokeError
+        ? new AuditSmokeError(error.code, redactedDiagnostic(error.message, diagnosticPaths))
+        : error;
+    scope.claimFailure();
   }
+
+  const finalState = await scope.finalize(async () => {
+    const failures = [];
+    try {
+      removeOwnedPath(temporaryRoot, { recursive: true, force: true });
+    } catch (error) {
+      failures.push(
+        cleanupFailureDiagnostic({
+          operation: "remove-tree",
+          pathLabel: "audit-temporary-root",
+          error,
+        }),
+      );
+    }
+    onState?.({ type: "cleanup-complete", temporaryRoot });
+    return failures;
+  });
+
+  if (finalState.cause.kind === "interruption") {
+    const interrupted = new EvaluatorInterruptedError(finalState.cause.signal);
+    const error = new AuditSmokeError("AUDIT_SMOKE_INTERRUPTED", interrupted.message);
+    error.exitCode = interrupted.exitCode;
+    primaryError = error;
+  } else if (!primaryError && finalState.diagnostics.length > 0) {
+    primaryError = new AuditSmokeError("EVALUATOR_CLEANUP_FAILED", "Evaluator cleanup failed");
+  }
+  if (primaryError) {
+    appendEvaluatorDiagnostics(primaryError, finalState.diagnostics);
+    throw primaryError;
+  }
+  return completed;
 }
 
-function main() {
+async function main() {
   const options = parseArguments(process.argv.slice(2));
   if (options.help) {
     console.log(HELP);
     return;
   }
-  console.log(JSON.stringify(runAuditSmoke(options)));
+  console.log(JSON.stringify(await runAuditSmoke(options)));
 }
 
 const entrypoint = process.argv[1] ? pathToFileURL(resolve(process.argv[1])).href : null;
 if (entrypoint === import.meta.url) {
   try {
-    main();
+    await main();
   } catch (error) {
     const code = error instanceof AuditSmokeError ? error.code : "UNEXPECTED_ERROR";
     const message = error instanceof Error ? error.message : String(error);
     console.error(`${code}: ${message}`);
-    console.error("No audit smoke result artifact was published; temporary state was removed.");
-    process.exitCode = 1;
+    console.error("No audit smoke result artifact was published; temporary-state cleanup was attempted.");
+    process.exitCode = Number.isInteger(error?.exitCode) ? error.exitCode : 1;
   }
 }
