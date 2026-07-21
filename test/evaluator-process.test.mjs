@@ -36,7 +36,7 @@ function processTarget() {
 
 function processAlive(pid) {
   if (!Number.isInteger(pid)) return false;
-  if (process.platform !== "win32") {
+  if (process.platform === "linux") {
     try {
       const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
       const state = stat.slice(stat.lastIndexOf(")") + 2).split(" ", 1)[0];
