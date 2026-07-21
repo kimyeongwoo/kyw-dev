@@ -159,5 +159,5 @@ main().catch((error) => {
   const message = error instanceof Error ? error.message : String(error);
   console.error(`${code}: ${message}`);
   console.error("No incomplete comparison or failed-run result artifact was published.");
-  process.exitCode = 1;
+  process.exitCode = Number.isInteger(error?.exitCode) ? error.exitCode : 1;
 });
