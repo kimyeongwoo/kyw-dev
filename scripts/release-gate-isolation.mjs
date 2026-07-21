@@ -26,16 +26,30 @@ import {
 } from "./lib/validate-foundation.mjs";
 
 export const ISOLATION_ERROR_CODES = Object.freeze({
+  AMBIENT_STATE_CHANGED: "AMBIENT_STATE_CHANGED",
   CLEANUP_GUARD: "CLEANUP_GUARD",
   CHILD_FAILED: "CHILD_FAILED",
+  ISOLATION_VIOLATION: "ISOLATION_VIOLATION",
   ISOLATION_PATH_GUARD: "ISOLATION_PATH_GUARD",
   MARKETPLACE_UNAVAILABLE: "MARKETPLACE_UNAVAILABLE",
-  NORMAL_STATE_CHANGED: "NORMAL_STATE_CHANGED",
   NORMAL_STATE_SNAPSHOT_FAILED: "NORMAL_STATE_SNAPSHOT_FAILED",
   PACKAGE_INVALID: "PACKAGE_INVALID",
 });
 
+export const ISOLATION_OUTCOMES = Object.freeze({
+  CLEAN: "CLEAN",
+  ISOLATION_VIOLATION: "ISOLATION_VIOLATION",
+  AMBIENT_STATE_CHANGED: "AMBIENT_STATE_CHANGED",
+});
+
 const managedSkillNames = Object.freeze(["kyw-audit", "kyw-grilling", "kyw-init", "kyw-task"]);
+const attributionIdentifiers = Object.freeze([
+  "kyw-dev-local",
+  "kyw-dev",
+  ...managedSkillNames,
+]);
+const maximumDisplayedDifferences = 20;
+const maximumSafeRelativePathLength = 240;
 const forbiddenLifecycleScripts = Object.freeze([
   "preinstall",
   "install",
@@ -123,21 +137,36 @@ const codexControlNames = new Set([
   "vendor_imports",
   "version.json",
 ]);
+const windowsCodexControlNames = new Set(
+  [...codexControlNames].map((name) => name.toLowerCase()),
+);
 
 export class ReleaseGateIsolationError extends Error {
   constructor(code, message, options = {}) {
-    super(message, options);
+    super(message, options.cause ? { cause: options.cause } : undefined);
     this.name = "ReleaseGateIsolationError";
     this.code = code;
+    for (const property of ["status", "retryable", "inconclusive", "attempts", "history", "isolation"]) {
+      if (Object.hasOwn(options, property)) {
+        this[property] = options[property];
+      }
+    }
   }
 }
 
-function isolationError(code, message, cause) {
-  return new ReleaseGateIsolationError(code, message, cause ? { cause } : undefined);
+function isolationError(code, message, cause, details = {}) {
+  return new ReleaseGateIsolationError(code, message, {
+    ...details,
+    ...(cause ? { cause } : {}),
+  });
 }
 
 function sha256(contents) {
   return createHash("sha256").update(contents).digest("hex");
+}
+
+function compareText(left, right) {
+  return left < right ? -1 : left > right ? 1 : 0;
 }
 
 function environmentValue(environment, requestedName) {
@@ -616,6 +645,25 @@ function captureParentEnvironment(environment = process.env) {
   );
 }
 
+function parentEnvironmentDifferences(before, after) {
+  const changes = [];
+  const canonicalNames = new Map(
+    isolatedEnvironmentKeys.map((name) => [name.toLowerCase(), name]),
+  );
+  for (const [normalizedName, canonicalName] of canonicalNames) {
+    const beforeEntries = Object.entries(before)
+      .filter(([name]) => name.toLowerCase() === normalizedName)
+      .sort(([left], [right]) => compareText(left, right));
+    const afterEntries = Object.entries(after)
+      .filter(([name]) => name.toLowerCase() === normalizedName)
+      .sort(([left], [right]) => compareText(left, right));
+    if (JSON.stringify(beforeEntries) !== JSON.stringify(afterEntries)) {
+      changes.push(canonicalName);
+    }
+  }
+  return Object.freeze(changes.sort(compareText));
+}
+
 function findNearestExistingAncestor(filePath) {
   let current = resolve(filePath);
   while (!pathState(current)) {
@@ -628,94 +676,231 @@ function findNearestExistingAncestor(filePath) {
   return current;
 }
 
+function filesystemEntryType(state) {
+  if (state.isSymbolicLink()) {
+    return "link";
+  }
+  if (state.isDirectory()) {
+    return "directory";
+  }
+  if (state.isFile()) {
+    return "file";
+  }
+  return "special";
+}
+
+function safeRelativePath(relativePath) {
+  const normalized = (relativePath || ".")
+    .replaceAll("\\", "/")
+    .replace(/[\u0000-\u001f\u007f]/g, (character) =>
+      `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`,
+    )
+    .replace(
+      /\b(?:sk-(?:proj-)?[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|npm_[A-Za-z0-9]{20,})\b/g,
+      "[REDACTED_CREDENTIAL]",
+    )
+    .replace(
+      /(?:_authToken|npmAuthToken|password|passwd)\s*[:=]\s*[^/\s]{8,}/gi,
+      "[REDACTED_CREDENTIAL_ASSIGNMENT]",
+    );
+  if (normalized.length <= maximumSafeRelativePathLength) {
+    return normalized;
+  }
+  const suffix = sha256(Buffer.from(relativePath, "utf8")).slice(0, 16);
+  return `${normalized.slice(0, maximumSafeRelativePathLength - 19)}...#${suffix}`;
+}
+
+function isIdentifierByte(value) {
+  return (
+    (value >= 48 && value <= 57) ||
+    (value >= 65 && value <= 90) ||
+    (value >= 97 && value <= 122) ||
+    value === 45 ||
+    value === 95
+  );
+}
+
+function bufferContainsExactIdentifier(contents, identifier) {
+  const needle = Buffer.from(identifier, "utf8");
+  let offset = contents.indexOf(needle);
+  while (offset >= 0) {
+    const before = offset > 0 ? contents[offset - 1] : undefined;
+    const afterOffset = offset + needle.length;
+    const after = afterOffset < contents.length ? contents[afterOffset] : undefined;
+    if (
+      (before === undefined || !isIdentifierByte(before)) &&
+      (after === undefined || !isIdentifierByte(after))
+    ) {
+      return true;
+    }
+    offset = contents.indexOf(needle, offset + 1);
+  }
+  return false;
+}
+
+function exactIdentifiersIn(contents) {
+  const buffer = Buffer.isBuffer(contents) ? contents : Buffer.from(contents, "utf8");
+  return attributionIdentifiers.filter((identifier) =>
+    bufferContainsExactIdentifier(buffer, identifier),
+  );
+}
+
+function managedAgentsPathKind(relativePath, platform) {
+  const comparable = platform === "win32" ? relativePath.toLowerCase() : relativePath;
+  if (comparable === "skills/.kyw-dev-install.json") {
+    return "ownership-metadata";
+  }
+  for (const skillName of managedSkillNames) {
+    const root = `skills/${skillName}`;
+    if (comparable === root || comparable.startsWith(`${root}/`)) {
+      return "managed-skill";
+    }
+  }
+  return undefined;
+}
+
+function protectedEntryCategory(location, structural) {
+  if (location.label.startsWith("normal-agents")) {
+    return "agents-state";
+  }
+  if (location.label.includes("npm-userconfig")) {
+    return "npm-userconfig";
+  }
+  if (location.mode === "codex-control") {
+    return structural ? "codex-volatile-structure" : "codex-control";
+  }
+  return "protected-state";
+}
+
+function isCodexControlName(name, platform) {
+  return platform === "win32"
+    ? windowsCodexControlNames.has(name.toLowerCase())
+    : codexControlNames.has(name);
+}
+
 function snapshotProtectedLocation(location) {
   try {
     const rootState = pathState(location.path);
-    const digest = createHash("sha256");
-    let entryCount = 0;
+    const platform = location.platform ?? process.platform;
+    const entries = [];
     let unreadableCount = 0;
+
+    function recordEntry(filePath, relativePath, state, structural) {
+      const normalizedRelativePath = relativePath.replaceAll("\\", "/") || ".";
+      const comparableRelativePath =
+        platform === "win32" ? normalizedRelativePath.toLowerCase() : normalizedRelativePath;
+      const entryType = filesystemEntryType(state);
+      let contentSha256;
+      let linkTargetSha256;
+      let unreadableCode;
+      let contentMarkers = [];
+
+      if (entryType === "link") {
+        linkTargetSha256 = sha256(Buffer.from(readlinkSync(filePath), "utf8"));
+      } else if (entryType === "file" && !structural) {
+        try {
+          const contents = readFileSync(filePath);
+          contentSha256 = sha256(contents);
+          contentMarkers = exactIdentifiersIn(contents);
+        } catch (error) {
+          if (!["EACCES", "EBUSY", "EPERM"].includes(error.code)) {
+            throw error;
+          }
+          unreadableCount += 1;
+          unreadableCode = error.code;
+        }
+      }
+
+      const pathMarkers = exactIdentifiersIn(comparableRelativePath);
+      entries.push(
+        Object.freeze({
+          pathId: sha256(Buffer.from(comparableRelativePath, "utf8")),
+          relativePath: safeRelativePath(normalizedRelativePath),
+          category: protectedEntryCategory(location, structural),
+          entryType,
+          structural,
+          identitySha256: structural ? undefined : sha256(metadataFingerprint(state)),
+          contentSha256,
+          linkTargetSha256,
+          unreadableCode,
+          markers: Object.freeze([...new Set([...pathMarkers, ...contentMarkers])].sort(compareText)),
+          managedAgentsPath: location.label.startsWith("normal-agents")
+            ? managedAgentsPathKind(comparableRelativePath, platform)
+            : undefined,
+        }),
+      );
+    }
+
+    function visit(filePath, relativePath, structural = false) {
+      const state = pathState(filePath);
+      if (!state) {
+        throw new Error(`entry disappeared while snapshotting protected ${location.label}`);
+      }
+      recordEntry(filePath, relativePath, state, structural);
+      if (!state.isDirectory() || state.isSymbolicLink()) {
+        return;
+      }
+      for (const entry of readdirSync(filePath, { withFileTypes: true }).sort((left, right) =>
+        compareText(left.name, right.name),
+      )) {
+        const childRelativePath = relativePath === "." ? entry.name : `${relativePath}/${entry.name}`;
+        visit(join(filePath, entry.name), childRelativePath, structural);
+      }
+    }
+
     if (!rootState) {
       const ancestor = findNearestExistingAncestor(location.path);
       if (!ancestor) {
         throw new Error("no existing ancestor is available");
       }
       const ancestorState = pathState(ancestor);
-      digest.update(`absent\0${metadataFingerprint(ancestorState)}\0`);
+      entries.push(
+        Object.freeze({
+          pathId: sha256(Buffer.from(".", "utf8")),
+          relativePath: ".",
+          category: "absence-sentinel",
+          entryType: "absent",
+          structural: false,
+          identitySha256: sha256(metadataFingerprint(ancestorState)),
+          contentSha256: undefined,
+          linkTargetSha256: undefined,
+          unreadableCode: undefined,
+          markers: Object.freeze([]),
+          managedAgentsPath: undefined,
+        }),
+      );
       return Object.freeze({
         label: location.label,
         state: "absent",
-        entryCount,
+        entryCount: entries.length,
         unreadableCount,
-        sha256: digest.digest("hex"),
+        sha256: sha256(JSON.stringify(entries)),
+        entries: Object.freeze(entries),
       });
     }
 
-    function visit(filePath, relativePath) {
-      const state = pathState(filePath);
-      if (!state) {
-        throw new Error(`entry disappeared while hashing: ${relativePath}`);
-      }
-      entryCount += 1;
-      if (state.isSymbolicLink()) {
-        digest.update(`link\0${relativePath}\0${metadataFingerprint(state)}\0${readlinkSync(filePath)}\0`);
-        return;
-      }
-      if (state.isDirectory()) {
-        digest.update(`directory\0${relativePath}\0${metadataFingerprint(state)}\0`);
-        for (const entry of readdirSync(filePath, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name))) {
-          visit(join(filePath, entry.name), relativePath ? `${relativePath}/${entry.name}` : entry.name);
-        }
-        return;
-      }
-      if (state.isFile()) {
-        digest.update(`file\0${relativePath}\0${metadataFingerprint(state)}\0`);
-        try {
-          digest.update(readFileSync(filePath));
-        } catch (error) {
-          if (!["EACCES", "EBUSY", "EPERM"].includes(error.code)) {
-            throw error;
-          }
-          unreadableCount += 1;
-          digest.update(`unreadable:${error.code}`);
-        }
-        digest.update("\0");
-        return;
-      }
-      digest.update(`special\0${relativePath}\0${metadataFingerprint(state)}\0`);
-    }
-
     if (location.mode === "codex-control" && rootState.isDirectory()) {
-      entryCount += 1;
-      digest.update(`codex-control-root\0${metadataFingerprint(rootState)}\0`);
-      for (const entry of readdirSync(location.path, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name))) {
+      recordEntry(location.path, ".", rootState, false);
+      for (const entry of readdirSync(location.path, { withFileTypes: true }).sort((left, right) =>
+        compareText(left.name, right.name),
+      )) {
         const entryPath = join(location.path, entry.name);
-        const entryState = pathState(entryPath);
-        if (!entryState) {
-          throw new Error(`entry disappeared while hashing: ${entry.name}`);
-        }
-        entryCount += 1;
-        const entryType = entryState.isSymbolicLink()
-          ? "link"
-          : entryState.isDirectory()
-            ? "directory"
-            : entryState.isFile()
-              ? "file"
-              : "special";
-        digest.update(`codex-top-level\0${entry.name}\0${entryType}\0`);
-        if (codexControlNames.has(entry.name)) {
-          entryCount -= 1;
-          visit(entryPath, entry.name);
-        }
+        visit(entryPath, entry.name, !isCodexControlName(entry.name, platform));
       }
     } else {
       visit(location.path, ".");
     }
+    entries.sort(
+      (left, right) =>
+        compareText(left.relativePath, right.relativePath) || compareText(left.pathId, right.pathId),
+    );
     return Object.freeze({
       label: location.label,
       state: "present",
-      entryCount,
+      entryCount: entries.length,
       unreadableCount,
-      sha256: digest.digest("hex"),
+      sha256: sha256(JSON.stringify(entries)),
+      entries: Object.freeze(entries),
     });
   } catch (error) {
     throw isolationError(
@@ -727,41 +912,251 @@ function snapshotProtectedLocation(location) {
 }
 
 export function snapshotProtectedState(protectedLocations) {
-  return Object.freeze(protectedLocations.entries.map((entry) => snapshotProtectedLocation(entry)));
+  return Object.freeze(
+    protectedLocations.entries
+      .map((entry) =>
+        snapshotProtectedLocation({ ...entry, platform: protectedLocations.platform }),
+      )
+      .sort((left, right) => compareText(left.label, right.label)),
+  );
+}
+
+function entriesByIdentity(snapshot) {
+  const entries = new Map();
+  for (const location of snapshot) {
+    for (const entry of location.entries ?? []) {
+      entries.set(`${location.label}\0${entry.pathId}`, { location, entry });
+    }
+  }
+  return entries;
+}
+
+function comparableEntry(entry) {
+  if (!entry) {
+    return undefined;
+  }
+  return {
+    category: entry.category,
+    entryType: entry.entryType,
+    structural: entry.structural,
+    identitySha256: entry.identitySha256,
+    contentSha256: entry.contentSha256,
+    linkTargetSha256: entry.linkTargetSha256,
+    unreadableCode: entry.unreadableCode,
+    markers: entry.markers,
+    managedAgentsPath: entry.managedAgentsPath,
+  };
 }
 
 export function protectedStateDifferences(before, after) {
-  const afterByLabel = new Map(after.map((entry) => [entry.label, entry]));
+  const beforeEntries = entriesByIdentity(before);
+  const afterEntries = entriesByIdentity(after);
+  const identities = [...new Set([...beforeEntries.keys(), ...afterEntries.keys()])].sort(compareText);
   const differences = [];
-  for (const beforeEntry of before) {
-    const afterEntry = afterByLabel.get(beforeEntry.label);
-    if (
-      !afterEntry ||
-      beforeEntry.state !== afterEntry.state ||
-      beforeEntry.entryCount !== afterEntry.entryCount ||
-      beforeEntry.unreadableCount !== afterEntry.unreadableCount ||
-      beforeEntry.sha256 !== afterEntry.sha256
-    ) {
-      differences.push(beforeEntry.label);
+  for (const identity of identities) {
+    const beforeValue = beforeEntries.get(identity);
+    const afterValue = afterEntries.get(identity);
+    const beforeEntry = beforeValue?.entry;
+    const afterEntry = afterValue?.entry;
+    let kind;
+    if (!beforeEntry) {
+      kind = "added";
+    } else if (!afterEntry) {
+      kind = "removed";
+    } else if (beforeEntry.entryType !== afterEntry.entryType) {
+      kind = "type changed";
+    } else if (JSON.stringify(comparableEntry(beforeEntry)) !== JSON.stringify(comparableEntry(afterEntry))) {
+      kind = "modified";
+    } else {
+      continue;
     }
-  }
-  for (const afterEntry of after) {
-    if (!before.some((entry) => entry.label === afterEntry.label)) {
-      differences.push(afterEntry.label);
-    }
-  }
-  return Object.freeze([...new Set(differences)].sort());
-}
-
-export function assertProtectedStateUnchanged(before, after) {
-  const differences = protectedStateDifferences(before, after);
-  if (differences.length > 0) {
-    throw isolationError(
-      ISOLATION_ERROR_CODES.NORMAL_STATE_CHANGED,
-      `Normal user state changed: ${differences.join(", ")}`,
+    differences.push(
+      Object.freeze({
+        protectedLocation: afterValue?.location.label ?? beforeValue.location.label,
+        relativePath: afterEntry?.relativePath ?? beforeEntry.relativePath,
+        pathId: afterEntry?.pathId ?? beforeEntry.pathId,
+        category: afterEntry?.category ?? beforeEntry.category,
+        kind,
+        entryType: afterEntry?.entryType ?? beforeEntry.entryType,
+        before: beforeEntry,
+        after: afterEntry,
+      }),
     );
   }
-  return true;
+  return Object.freeze(
+    differences.sort(
+      (left, right) =>
+        compareText(left.protectedLocation, right.protectedLocation) ||
+        compareText(left.relativePath, right.relativePath) ||
+        compareText(left.pathId, right.pathId),
+    ),
+  );
+}
+
+function packedDigestMatches(difference, packedSkillDigests) {
+  for (const entry of [difference.before, difference.after]) {
+    if (entry?.contentSha256 && packedSkillDigests.has(entry.contentSha256)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function attributionForDifference(difference, packedSkillDigests) {
+  for (const entry of [difference.before, difference.after]) {
+    if (entry?.managedAgentsPath === "ownership-metadata") {
+      return "managed ownership metadata";
+    }
+    if (entry?.managedAgentsPath === "managed-skill") {
+      return "managed Skill path";
+    }
+  }
+  const markers = [
+    ...new Set([
+      ...(difference.before?.markers ?? []),
+      ...(difference.after?.markers ?? []),
+    ]),
+  ].sort(compareText);
+  if (markers.length > 0) {
+    return `exact kyw-dev identifier: ${markers[0]}`;
+  }
+  if (packedDigestMatches(difference, packedSkillDigests)) {
+    return "exact packed Skill bytes";
+  }
+  return undefined;
+}
+
+function diagnosticDifference(difference, packedSkillDigests) {
+  const reason = attributionForDifference(difference, packedSkillDigests);
+  const markers = [
+    ...new Set([
+      ...(difference.before?.markers ?? []),
+      ...(difference.after?.markers ?? []),
+    ]),
+  ].sort(compareText);
+  const contentDigest = difference.after?.contentSha256 ?? difference.before?.contentSha256;
+  return Object.freeze({
+    protectedLocation: difference.protectedLocation,
+    relativePath: difference.relativePath,
+    category: difference.category,
+    kind: difference.kind,
+    entryType: difference.entryType,
+    attributed: Boolean(reason),
+    reason: reason ?? "no exact kyw-dev attribution marker",
+    markers: Object.freeze(markers),
+    contentDigest: contentDigest?.slice(0, 16),
+  });
+}
+
+export function classifyProtectedState(
+  before,
+  after,
+  {
+    packedSkillDigests = [],
+    parentEnvironmentChanges = [],
+    maxDisplayedDifferences = maximumDisplayedDifferences,
+  } = {},
+) {
+  const packedDigests = new Set(packedSkillDigests);
+  const protectedDifferences = protectedStateDifferences(before, after);
+  const differences = protectedDifferences.map((difference) =>
+    diagnosticDifference(difference, packedDigests),
+  );
+  const protectedEnvironmentNames = new Map(
+    isolatedEnvironmentKeys.map((name) => [name.toLowerCase(), name]),
+  );
+  const safeEnvironmentChanges = [
+    ...new Set(
+      parentEnvironmentChanges.map(
+        (change) =>
+          protectedEnvironmentNames.get(String(change).toLowerCase()) ?? "protected-environment-key",
+      ),
+    ),
+  ].sort(compareText);
+  for (const change of safeEnvironmentChanges) {
+    differences.push(
+      Object.freeze({
+        protectedLocation: "parent-environment",
+        relativePath: change,
+        category: "protected-environment",
+        kind: "modified",
+        entryType: "environment",
+        attributed: true,
+        reason: "runner process protected environment mutation",
+        markers: Object.freeze([]),
+        contentDigest: undefined,
+      }),
+    );
+  }
+  differences.sort(
+    (left, right) =>
+      compareText(left.protectedLocation, right.protectedLocation) ||
+      compareText(left.relativePath, right.relativePath) ||
+      compareText(left.kind, right.kind),
+  );
+
+  const attributedCount = differences.filter((difference) => difference.attributed).length;
+  const status =
+    differences.length === 0
+      ? ISOLATION_OUTCOMES.CLEAN
+      : attributedCount > 0
+        ? ISOLATION_OUTCOMES.ISOLATION_VIOLATION
+        : ISOLATION_OUTCOMES.AMBIENT_STATE_CHANGED;
+  const displayLimit = Number.isInteger(maxDisplayedDifferences) && maxDisplayedDifferences >= 0
+    ? Math.min(maximumDisplayedDifferences, maxDisplayedDifferences)
+    : maximumDisplayedDifferences;
+  return Object.freeze({
+    status,
+    differenceCount: differences.length,
+    attributedCount,
+    retryable: status === ISOLATION_OUTCOMES.AMBIENT_STATE_CHANGED,
+    inconclusive: status === ISOLATION_OUTCOMES.AMBIENT_STATE_CHANGED,
+    differences: Object.freeze(differences),
+    displayedDifferences: Object.freeze(differences.slice(0, displayLimit)),
+    truncated: differences.length > displayLimit,
+  });
+}
+
+function attributionError(classification, isolation) {
+  const code =
+    classification.status === ISOLATION_OUTCOMES.ISOLATION_VIOLATION
+      ? ISOLATION_ERROR_CODES.ISOLATION_VIOLATION
+      : ISOLATION_ERROR_CODES.AMBIENT_STATE_CHANGED;
+  const message =
+    classification.status === ISOLATION_OUTCOMES.ISOLATION_VIOLATION
+      ? `Protected state change is attributable to kyw-dev (${classification.differenceCount} difference(s))`
+      : `Protected state changed without positive kyw-dev attribution (${classification.differenceCount} difference(s)); isolation proof is inconclusive`;
+  return isolationError(code, message, undefined, {
+    status: classification.status,
+    retryable: classification.retryable,
+    inconclusive: classification.inconclusive,
+    attempts: isolation.attempts,
+    history: isolation.history,
+    isolation,
+  });
+}
+
+export function assertProtectedStateUnchanged(before, after, options = {}) {
+  const classification = classifyProtectedState(before, after, options);
+  if (classification.status !== ISOLATION_OUTCOMES.CLEAN) {
+    const attempt = Object.freeze({
+      attempt: 1,
+      status: classification.status,
+      differenceCount: classification.differenceCount,
+      attributedCount: classification.attributedCount,
+      differences: classification.displayedDifferences,
+      truncated: classification.truncated,
+    });
+    const isolation = Object.freeze({
+      status: classification.status,
+      attempts: 1,
+      history: Object.freeze([attempt]),
+      retryable: classification.retryable,
+      inconclusive: classification.inconclusive,
+    });
+    throw attributionError(classification, isolation);
+  }
+  return classification;
 }
 
 function assertChildEnvironment(plan, environment) {
@@ -882,6 +1277,17 @@ function collectRegularFiles(root) {
   }
   visit(root);
   return files;
+}
+
+function collectPackedSkillDigests(packageRoot) {
+  const digests = new Set();
+  for (const skillName of managedSkillNames) {
+    const skillRoot = join(packageRoot, "skills", skillName);
+    for (const filePath of collectRegularFiles(skillRoot)) {
+      digests.add(sha256(readFileSync(filePath)));
+    }
+  }
+  return digests;
 }
 
 function parsePackReport(stdout) {
@@ -1219,6 +1625,17 @@ function createAndExtractTarball(context) {
   });
 }
 
+function runReleaseLifecycleAttempt(context) {
+  const tarball = createAndExtractTarball(context);
+  const packedSkillDigests = collectPackedSkillDigests(context.plan.extractedPackageRoot);
+  const direct = runDirectLifecycles(context);
+  const marketplace = runMarketplaceLifecycle(context, context.requireMarketplace);
+  return Object.freeze({
+    summary: Object.freeze({ tarball, direct, marketplace }),
+    packedSkillDigests,
+  });
+}
+
 function validateCleanupTree(root) {
   function visit(directory) {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
@@ -1274,25 +1691,85 @@ function combineFailures(failures) {
   if (failures.length === 1) {
     return failures[0];
   }
-  return new AggregateError(failures, "Release gate isolation failed in multiple safety boundaries");
+  const error = new AggregateError(
+    failures,
+    "Release gate isolation failed in multiple safety boundaries",
+  );
+  error.code = "RELEASE_GATE_ISOLATION_FAILED";
+  error.errorCodes = Object.freeze(
+    failures.map((failure) => failure?.code ?? "RELEASE_GATE_ISOLATION_FAILED"),
+  );
+  const attributedFailure = failures.find((failure) => failure?.isolation);
+  if (attributedFailure) {
+    error.status = attributedFailure.status;
+    error.retryable = attributedFailure.retryable;
+    error.inconclusive = attributedFailure.inconclusive;
+    error.isolation = attributedFailure.isolation;
+  }
+  return error;
 }
 
-export function runIsolatedReleaseLifecycle({
-  repositoryRoot = REPOSITORY_ROOT,
-  requireMarketplace = true,
-  inheritedEnvironment = process.env,
-  spawnProcess = spawnSync,
+function protectedSnapshotSummary(snapshot) {
+  return Object.freeze(
+    snapshot.map(({ label, state, entryCount, unreadableCount, sha256: digest }) =>
+      Object.freeze({ label, state, entryCount, unreadableCount, sha256: digest }),
+    ),
+  );
+}
+
+function attemptHistoryRecord(attempt, classification) {
+  return Object.freeze({
+    attempt,
+    status: classification.status,
+    differenceCount: classification.differenceCount,
+    attributedCount: classification.attributedCount,
+    retryable: classification.retryable,
+    inconclusive: classification.inconclusive,
+    differences: classification.displayedDifferences,
+    truncated: classification.truncated,
+  });
+}
+
+function finalIsolationSummary(status, history) {
+  return Object.freeze({
+    status,
+    attempts: history.length,
+    history: Object.freeze([...history]),
+    retryable: status === ISOLATION_OUTCOMES.AMBIENT_STATE_CHANGED,
+    inconclusive: status === ISOLATION_OUTCOMES.AMBIENT_STATE_CHANGED,
+    retryExhausted:
+      status === ISOLATION_OUTCOMES.AMBIENT_STATE_CHANGED && history.length === 2,
+  });
+}
+
+function attachAttemptMetadata(error, attempts, history) {
+  if (error && typeof error === "object") {
+    error.attempts = attempts;
+    error.history = Object.freeze([...history]);
+  }
+  return error;
+}
+
+function runSingleIsolationAttempt({
+  attempt,
+  physicalRepositoryRoot,
+  requireMarketplace,
+  inheritedEnvironment,
+  spawnProcess,
   targetOverrides,
-  temporaryParent = tmpdir(),
-} = {}) {
-  const physicalRepositoryRoot = realpathSync(resolve(repositoryRoot));
+  temporaryParent,
+  attemptLifecycle,
+}) {
   const protectedLocations = resolveProtectedLocations({ environment: inheritedEnvironment });
   const approvedTemporaryParent = assertTemporaryParent(temporaryParent, protectedLocations);
   const parentEnvironmentBefore = captureParentEnvironment(process.env);
   let plan;
   let protectedBefore;
   let protectedAfter;
-  let lifecycleResult;
+  let lifecycleSummary;
+  let packedSkillDigests = new Set();
+  let classification;
+  let cleanupResult;
   const failures = [];
 
   const approvedTemporaryRoot = mkdtempSync(join(approvedTemporaryParent, temporaryPrefix));
@@ -1320,55 +1797,148 @@ export function runIsolatedReleaseLifecycle({
       environment,
       spawnProcess,
       repositoryRoot: physicalRepositoryRoot,
+      requireMarketplace,
+      attempt,
     };
-    const tarball = createAndExtractTarball(context);
-    const direct = runDirectLifecycles(context);
-    const marketplace = runMarketplaceLifecycle(context, requireMarketplace);
-    lifecycleResult = { tarball, direct, marketplace };
+    const lifecycleResult = attemptLifecycle(context);
+    lifecycleSummary = lifecycleResult?.summary ?? {};
+    packedSkillDigests = new Set(lifecycleResult?.packedSkillDigests ?? []);
   } catch (error) {
     failures.push(error);
   } finally {
     if (protectedBefore) {
       try {
         protectedAfter = snapshotProtectedState(protectedLocations);
-        assertProtectedStateUnchanged(protectedBefore, protectedAfter);
       } catch (error) {
         failures.push(error);
       }
     }
     const parentEnvironmentAfter = captureParentEnvironment(process.env);
-    try {
-      assert.deepEqual(parentEnvironmentAfter, parentEnvironmentBefore, "runner mutated parent environment");
-    } catch (error) {
-      failures.push(
-        isolationError(
-          ISOLATION_ERROR_CODES.NORMAL_STATE_CHANGED,
-          "Runner process environment changed",
-          error,
-        ),
-      );
+    const environmentChanges = parentEnvironmentDifferences(
+      parentEnvironmentBefore,
+      parentEnvironmentAfter,
+    );
+    if (protectedBefore && protectedAfter) {
+      classification = classifyProtectedState(protectedBefore, protectedAfter, {
+        packedSkillDigests,
+        parentEnvironmentChanges: environmentChanges,
+      });
+    } else if (environmentChanges.length > 0) {
+      classification = classifyProtectedState([], [], {
+        parentEnvironmentChanges: environmentChanges,
+      });
     }
     try {
-      removeApprovedTemporaryRoot(plan ?? cleanupApproval);
+      cleanupResult = removeApprovedTemporaryRoot(plan ?? cleanupApproval);
     } catch (error) {
       failures.push(error);
     }
   }
 
   if (failures.length > 0) {
+    if (classification && classification.status !== ISOLATION_OUTCOMES.CLEAN) {
+      const record = attemptHistoryRecord(attempt, classification);
+      const isolation = finalIsolationSummary(classification.status, [record]);
+      failures.push(attributionError(classification, isolation));
+    }
     throw combineFailures(failures);
   }
+  if (!classification) {
+    throw isolationError(
+      ISOLATION_ERROR_CODES.NORMAL_STATE_SNAPSHOT_FAILED,
+      "Protected-state classification was unavailable",
+    );
+  }
+
   return Object.freeze({
+    classification,
+    history: attemptHistoryRecord(attempt, classification),
     pathGuard: Object.freeze({
       approvedRootRemoved: !existsSync(plan.approvedTemporaryRoot),
       protectedLocationCount: protectedLocations.entries.length,
       targetCount: plan.targets.length,
     }),
-    sentinels: Object.freeze({ before: protectedBefore, after: protectedAfter, unchanged: true }),
-    environment: Object.freeze({ childOnly: true, parentUnchanged: true }),
-    cleanup: Object.freeze({ removed: true }),
-    ...lifecycleResult,
+    sentinels: Object.freeze({
+      before: protectedSnapshotSummary(protectedBefore),
+      after: protectedSnapshotSummary(protectedAfter),
+      unchanged: protectedStateDifferences(protectedBefore, protectedAfter).length === 0,
+    }),
+    environment: Object.freeze({
+      childOnly: true,
+      parentUnchanged: classification.differences.every(
+        ({ protectedLocation }) => protectedLocation !== "parent-environment",
+      ),
+    }),
+    cleanup: Object.freeze({ removed: cleanupResult.removed }),
+    lifecycleSummary,
   });
+}
+
+export function runIsolatedReleaseLifecycle({
+  repositoryRoot = REPOSITORY_ROOT,
+  requireMarketplace = true,
+  inheritedEnvironment = process.env,
+  spawnProcess = spawnSync,
+  targetOverrides,
+  temporaryParent = tmpdir(),
+  attemptLifecycle = runReleaseLifecycleAttempt,
+} = {}) {
+  const physicalRepositoryRoot = realpathSync(resolve(repositoryRoot));
+  const history = [];
+
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    let result;
+    try {
+      result = runSingleIsolationAttempt({
+        attempt,
+        physicalRepositoryRoot,
+        requireMarketplace,
+        inheritedEnvironment,
+        spawnProcess,
+        targetOverrides,
+        temporaryParent,
+        attemptLifecycle,
+      });
+    } catch (error) {
+      throw attachAttemptMetadata(error, attempt, history);
+    }
+
+    history.push(result.history);
+    const { status } = result.classification;
+    if (status === ISOLATION_OUTCOMES.CLEAN) {
+      return Object.freeze({
+        isolation: finalIsolationSummary(status, history),
+        pathGuard: result.pathGuard,
+        sentinels: result.sentinels,
+        environment: result.environment,
+        cleanup: result.cleanup,
+        ...result.lifecycleSummary,
+      });
+    }
+    if (status === ISOLATION_OUTCOMES.ISOLATION_VIOLATION) {
+      const isolation = finalIsolationSummary(status, history);
+      throw attributionError(result.classification, isolation);
+    }
+    if (attempt === 2) {
+      const isolation = finalIsolationSummary(status, history);
+      throw attributionError(result.classification, isolation);
+    }
+  }
+
+  throw new Error("Unreachable isolation retry state");
+}
+
+export function formatIsolationFailure(error) {
+  const code = error?.code ?? "RELEASE_GATE_ISOLATION_FAILED";
+  const message = error instanceof Error ? error.message : String(error);
+  const details = {
+    ...(error?.errorCodes ? { failureCodes: error.errorCodes } : {}),
+    ...(error?.isolation ? { isolation: error.isolation } : {}),
+  };
+  const structured = Object.keys(details).length > 0
+    ? `\n${JSON.stringify(details, null, 2)}`
+    : "";
+  return `${code}: ${message}${structured}\n`;
 }
 
 function isMainModule() {
@@ -1387,8 +1957,7 @@ if (isMainModule()) {
     const summary = runIsolatedReleaseLifecycle();
     process.stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
   } catch (error) {
-    const code = error.code ?? "RELEASE_GATE_ISOLATION_FAILED";
-    process.stderr.write(`${code}: ${error.message}\n`);
+    process.stderr.write(formatIsolationFailure(error));
     process.exitCode = 1;
   }
 }
