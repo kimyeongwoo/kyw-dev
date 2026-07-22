@@ -1,0 +1,1 @@
+This sentinel belongs to the fixture user and must remain byte-identical.
