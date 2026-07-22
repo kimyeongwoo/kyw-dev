@@ -23,7 +23,7 @@ import {
   appendEvaluatorDiagnostics,
   cleanupFailureDiagnostic,
   createEvaluatorRunScope,
-  defaultRemoveOwnedPath,
+  defaultRemoveEvaluatorOwnedPath,
   EvaluatorInterruptedError,
 } from "./evaluator-process.mjs";
 
@@ -1741,7 +1741,7 @@ export async function runAuditSmoke(
   {
     launcher = codexLauncher(),
     preflight = preflightCodex,
-    removeOwnedPath = defaultRemoveOwnedPath,
+    removeOwnedPath = defaultRemoveEvaluatorOwnedPath,
     onState,
     extraEnv = {},
     platform,
@@ -1948,7 +1948,7 @@ export async function runAuditSmoke(
   const finalState = await scope.finalize(async () => {
     const failures = [];
     try {
-      removeOwnedPath(temporaryRoot, { recursive: true, force: true });
+      await removeOwnedPath(temporaryRoot, { recursive: true, force: true });
     } catch (error) {
       failures.push(
         cleanupFailureDiagnostic({

@@ -2,7 +2,7 @@
 
 ## Status
 
-DONE
+BLOCKED
 
 ## Goal
 
@@ -72,6 +72,7 @@ Use the current active Codex session and the exact packed kyw-dev Skills to veri
 - The historical Task 0026 fixtures and scenario intent are inputs only. Its nested harness, retained outputs, and statuses remain unchanged.
 - A real repository defect may be fixed only within the canonical Skill/direct reference, necessary permanent truth, focused deterministic test, and this pair. No new production dependency is planned.
 - CI success is repository regression evidence, not behavioral acceptance evidence; direct scenario evidence is evaluated separately.
+- The direct behavioral sub-verdict is immutable historical evidence. Task 0028 may remediate the repository at a different commit, but it cannot convert Task 0027's failed post-merge delivery into success.
 
 ## Risks
 
@@ -102,6 +103,10 @@ Use the current active Codex session and the exact packed kyw-dev Skills to veri
 - The separately required `npm run release:ci` repeated 220/220 tests, lint, format, and pack checks and passed the packed release lifecycle with the same 29 files, 62,049 bytes, and SHA-256 `ff484e1d17562a2d2da9f574fe7fb8688a9dd0e9de31eae574870df396022f79`.
 - The Task-owned tarball/extraction/fixture/home/cache root was removed after evidence capture. Link-aware normal-state checkpoints, direct auth/config/npm hashes, source Git content, source Skills, and historical Tasks remained unchanged; final Git status contains only this Task's two files.
 - Final local/remote safety found remote `main` still `46ea3ddd...`, no Task 0027 remote branch or PR, no run after `29922054134`, no tag, no GitHub Release, no Task 0028, and no publication action.
+- Task 0027 was committed as `b7b8dd0f6dd5a9663ba092efe6f3754bed372bdb` with parent `46ea3ddd4a23bbdaccd75c43335bd70d2c25c465`, pushed non-force, and delivered through non-draft PR #12 from `task/0027-spec-behavioral-acceptance` to `main`.
+- Exact-head PR run `29928926570` succeeded 9/9 at `b7b8dd0...`, including Windows/Node 24 job `88953195346`. PR #12 merged as `a72d3cdbd1e860271143ac4068501b4853b973ac` with parents `46ea3ddd... b7b8dd0...`.
+- Exact-SHA post-merge main run `29929111557` failed 7/9 at `a72d3cdb...`. The actual failure was `Stable / Windows / Node 24.x` job `88953825441`: `npm test` passed 219/220 and failed `test/evaluator-cleanup.test.mjs` at `interruption checkpoints clean partially acquired resources and prevent publication`, where the evaluator temporary root still existed. `Required / credential-free CI` job `88954204846` failed only as the derivative aggregate.
+- The overall delivery verdict is therefore `POST_MERGE_MAIN_CI_FAILED`. The `SPEC_AC04_AC08_DIRECTLY_VERIFIED` behavioral sub-verdict and all `CURRENT_SESSION_DIRECT` S-01 through S-06 evidence remain passed and retain their original limitations.
 
 ## Documentation Impact
 
@@ -124,19 +129,23 @@ Use the current active Codex session and the exact packed kyw-dev Skills to veri
 - Passed focused syntax/fixture/25-test verification, standalone full verification, and `npm run release:ci`; reviewed every changed path, package file, behavior, branch, fallback, document route, and explicit limitation.
 - Rechecked normal/protected state and historical Tasks, removed the exact Task-owned disposable root, and confirmed only this Task/Test pair remains changed.
 - Set terminal verdict `SPEC_AC04_AC08_DIRECTLY_VERIFIED`. This does not alter Task 0017, Task 0020, Task 0026, full-MVP acceptance, release readiness, or publication authority.
+- Completed the original pre-merge lifecycle through exact-head PR CI 9/9 and expected-head PR #12 merge; the subsequent exact-merge-SHA main CI failure prevented delivery completion.
 
 ## Remaining
 
-- None.
+- Historical delivery blocker: exact merge commit `a72d3cdbd1e860271143ac4068501b4853b973ac` has post-merge main run `29929111557` at 7/9 with actual Windows/Node 24 job `88953825441` failed and aggregate job `88954204846` failed derivatively.
+- Task 0027 must not be resumed for implementation or re-execution. Remediation is owned exclusively by Task 0028.
 
 ## Resume Point
 
-Task complete; do not resume or create Task 0028. Deliver this exact terminal pair through the authorized single commit, non-force push, non-draft PR, exact-head CI, expected-head merge, and post-merge main CI without publication.
+Do not resume Task 0027 for implementation, behavioral rerun, or status conversion. Preserve its direct behavioral PASS and failed post-merge delivery evidence; continue remediation only in Task 0028.
 
 ## Blockers
 
-- None currently known.
+- `POST_MERGE_MAIN_CI_FAILED`: run `29929111557` at exact Task 0027 merge SHA `a72d3cdb...` failed 7/9 because Windows/Node 24 job `88953825441` failed 219/220; aggregate job `88954204846` is derivative. This historical blocker is not cleared by later Task 0028 commits or CI.
 
 ## Verdict
 
-`SPEC_AC04_AC08_DIRECTLY_VERIFIED`
+Behavioral sub-verdict: `SPEC_AC04_AC08_DIRECTLY_VERIFIED` (`CURRENT_SESSION_DIRECT`, passed)
+
+Overall delivery verdict: `POST_MERGE_MAIN_CI_FAILED`

@@ -2,7 +2,7 @@
 
 ## Status
 
-PASSED
+BLOCKED
 
 ## Test Basis
 
@@ -29,7 +29,8 @@ PASSED
 | T-08 | AC-08 per-scenario evidence completeness and isolated-state integrity | Record fresh-copy pre/post lists/hashes, Git status/diff, commands/exits, mutations, preserved paths, protected hashes, writable-root attribution, evidence label/limitation, and cleanup | Integration/Audit | PASS | Six distinct fixture roots; exact tree/Git/Skill/preservation hashes and statuses below. HOME/USERPROFILE/CODEX_HOME/npm cache+config/TEMP/TMP all pointed below Task-owned state. Aggregate evidence validator exited 0. Cleanup remains part of T-10 final safety. |
 | T-09 | AC-09 failure, retry, and minimal-defect policy | Preserve every first failure; audit classification and unchanged retry conditions; if fixed, require smallest allowed diff, focused regression, and fresh affected scenario evidence | Audit/Regression | PASS | No behavioral failure or repository defect occurred. All command/evidence mistakes remain listed below. Only S-04 used one permitted fresh-copy infrastructure retry; product/Skill wording and verdict conditions were unchanged; no selective favorable-result retry or repair occurred. |
 | T-10 | AC-10 focused/full verification, package allowlist, historical immutability, and final diff coverage | Run Task/evidence validators, affected tests, stable/full commands, release CI, diff check, hash historical files, inspect refs/releases/publication/normal state, and map every changed behavior | Integration/Packaging/Audit | PASS | Fixture contract 6/6; focused 25/25; standalone `npm test` 220/220; lint 54; format 216; pack 29/62,049; `release:ci` repeated all and packed SHA `ff484e1d...`; validators/diff/safety/cleanup PASS. |
-| T-11 | AC-11 exact terminal verdict and non-overclaim boundary | Reconcile all matrix rows and required evidence; validate terminal pair and assert historical/release/publication claims remain unchanged | Audit | PASS | All T-01 through T-10 PASS; Task/Test `DONE/PASSED`; exact verdict `SPEC_AC04_AC08_DIRECTLY_VERIFIED`; explicit same-session and historical/release non-overclaim retained. |
+| T-11 | AC-11 exact behavioral verdict and non-overclaim boundary | Reconcile all matrix rows and required evidence; validate the behavioral pair and assert historical/release/publication claims remain unchanged | Audit | PASS | All T-01 through T-10 passed before integration; exact behavioral sub-verdict `SPEC_AC04_AC08_DIRECTLY_VERIFIED`; explicit same-session and historical/release non-overclaim retained. |
+| T-12 | Post-merge delivery lifecycle | Record exact commit, PR, exact-head CI, merge, and exact-merge-SHA main CI without substituting later remediation evidence | GitHub/Audit | BLOCKED | Commit `b7b8dd0...`; PR #12; PR run `29928926570` 9/9; merge `a72d3cdb...`; main run `29929111557` 7/9 with actual Windows/Node 24 job `88953825441` failed and aggregate `88954204846` derivative. Overall `POST_MERGE_MAIN_CI_FAILED`. |
 
 ## Regression Coverage
 
@@ -69,6 +70,8 @@ Prohibited commands include nested `codex exec`, `npm publish`, `npm publish --d
 | E-07 | S-01 through S-06 direct execution | All six acceptance verdicts PASS; S-05 PASS means required gap detection; no behavioral retry | PASS |
 | E-08 | Focused and full verification | Exit 0: fixture 6, focused 25/25, full 220/220, lint 54, format 216, pack 29/62,049, release CI and packed SHA exact | PASS |
 | E-09 | Final diff/document/package/safety review | Exit 0; only Task/Test changed, historical/protected/package state intact, owned root removed, no Task 0028/tag/release/publication | PASS |
+| E-10 | Commit `b7b8dd0...`, non-force push, PR #12, and exact-head run `29928926570` | Commit parent `46ea3ddd...`; ready PR to `main`; exact head; 9/9 | PASS |
+| E-11 | Merge `a72d3cdb...` and exact-SHA main run `29929111557` | Merge parents `46ea3ddd... b7b8dd0...`; 7/9; actual job `88953825441` failed 219/220; aggregate `88954204846` derivative | BLOCKED |
 
 ## Retry and Interruption History
 
@@ -96,7 +99,16 @@ Prohibited commands include nested `codex exec`, `npm publish`, `npm publish --d
 - Standalone required commands passed: `npm test` 220/220; lint 54; format 216; pack check 29 files/62,049 bytes; `git diff --check` exit 0.
 - `npm run release:ci` passed independently, including another 220/220 suite and packed release check at exact SHA-256 `ff484e1d17562a2d2da9f574fe7fb8688a9dd0e9de31eae574870df396022f79`.
 - The exact Task-owned root was safely removed and verified absent. Final source status contains only this pair; no historical Task, permanent document, Skill, source/test/config/package/workflow path changed.
-- Task 0027 verdict: `SPEC_AC04_AC08_DIRECTLY_VERIFIED`.
+- Task 0027 behavioral sub-verdict: `SPEC_AC04_AC08_DIRECTLY_VERIFIED` (`CURRENT_SESSION_DIRECT`, passed).
+- Task 0027 overall delivery verdict: `POST_MERGE_MAIN_CI_FAILED` (`BLOCKED/BLOCKED`).
+
+## Delivery Reconciliation
+
+- The exact Task 0027 commit is `b7b8dd0f6dd5a9663ba092efe6f3754bed372bdb`, parent `46ea3ddd4a23bbdaccd75c43335bd70d2c25c465`. PR #12 was non-draft, targeted `main`, and merged that exact head.
+- Exact-head PR run `29928926570` succeeded 9/9. Its Windows/Node 24 job `88953195346` passed the same 220-test suite.
+- Merge commit `a72d3cdbd1e860271143ac4068501b4853b973ac` has parents `46ea3ddd... b7b8dd0...`. Exact-SHA main run `29929111557` failed 7/9: Windows/Node 24 job `88953825441` ran 220 tests, passed 219, and left the evaluator temporary root at the checkpoint cleanup assertion; aggregate job `88954204846` failed derivatively.
+- The behavioral rows, direct scenario evidence, original pre-merge verification, package identity, and `CURRENT_SESSION_DIRECT` limitation remain unchanged. Later Task 0028 remediation must not be counted as Task 0027 post-merge PASS.
+- Task 0027 must not be resumed for implementation. Task 0028 exclusively owns remediation.
 
 ### Packed tarball identity
 
@@ -122,7 +134,7 @@ Prohibited commands include nested `codex exec`, `npm publish`, `npm publish --d
 ## Unverified
 
 - Same-session direct evidence does not establish fresh-session, independent-model, subagent, or model-cohort behavior; those claims are intentionally outside this Task and are not required for its direct verdict.
-- Commit/PR/CI/merge/post-merge delivery evidence is reported out-of-band after this single terminal commit; CI success remains repository evidence and is never substituted for S-01 through S-06.
+- Task 0027 post-merge delivery is verified as failed at its own exact merge SHA. Task 0028's different commit and CI cannot clear or reinterpret that historical result.
 
 ## Final Coverage Review
 
@@ -133,6 +145,6 @@ Prohibited commands include nested `codex exec`, `npm publish`, `npm publish --d
 - [x] Confirm focused and required full regressions actually ran on the final implementation/package bytes; final evidence-only pair reconciliation is covered by the terminal validator and format/diff checks.
 - [x] Confirm source/packed Skill identity, package allowlist/exclusions, and extracted-root cleanup.
 - [x] Confirm per-scenario fresh copies, pre/post hashes/Git state, mutation manifests, preservation checks, and `CURRENT_SESSION_DIRECT` limitation.
-- [x] Confirm Task 0017/0020/0026 paths and historical states are unchanged and no Task 0028 exists.
+- [x] Confirm Task 0017/0020/0026 paths and historical states are unchanged; no Task 0028 existed at Task 0027's pre-integration final review, and Task 0028 now owns only the delivery remediation.
 - [x] Confirm no normal-state mutation, nested model execution, selective retry, publication, tag, or GitHub Release occurred.
 - [x] Validate the terminal Task/Test pair and record exactly one final verdict without release/MVP overclaim.
