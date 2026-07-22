@@ -15,7 +15,10 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { runAuditSmoke } from "../scripts/audit-smoke.mjs";
-import { defaultRemoveOwnedPath } from "../scripts/evaluator-process.mjs";
+import {
+  defaultRemoveEvaluatorOwnedPath,
+  defaultRemoveOwnedPath,
+} from "../scripts/evaluator-process.mjs";
 import { runComparison, runEvaluation } from "../scripts/grilling-eval/core.mjs";
 
 const REPOSITORY_ROOT = fileURLToPath(new URL("../", import.meta.url));
@@ -71,7 +74,7 @@ async function waitFor(predicate, description, milliseconds = 8_000) {
 }
 
 async function readReady(path) {
-  await waitFor(() => existsSync(path), `readiness marker ${path}`);
+  await waitFor(() => existsSync(path), `readiness marker ${normalizedOwnedPath(path)}`);
   return JSON.parse(readFileSync(path, "utf8"));
 }
 
@@ -123,7 +126,7 @@ function startFlow(
     onState,
     preflight,
     processTarget: target,
-    removeOwnedPath = defaultRemoveOwnedPath,
+    removeOwnedPath = defaultRemoveEvaluatorOwnedPath,
   } = {},
 ) {
   const root = temporaryDirectory(t, `kyw-${flow}-flow-`);
@@ -179,7 +182,7 @@ function startFlow(
           scenario: "existing-code-facts",
           variant: "kyw",
         });
-  return { authBytes, authFile, events, outputRoot, promise, readyPath, root };
+  return { authBytes, authFile, events, flow, outputRoot, promise, readyPath, root };
 }
 
 function temporaryEvent(events) {
@@ -190,33 +193,101 @@ function isolatedEvent(events) {
   return events.find((event) => event.type === "isolated-state");
 }
 
-function assertOwnedStateRemoved(invocation) {
+function normalizedOwnedPath(path) {
+  const normalized = String(path).replaceAll("\\", "/");
+  const normalizedTemporaryRoot = tmpdir().replaceAll("\\", "/").replace(/\/$/, "");
+  const normalizedHome = homedir().replaceAll("\\", "/").replace(/\/$/, "");
+  if (normalized === normalizedTemporaryRoot || normalized.startsWith(`${normalizedTemporaryRoot}/`)) {
+    return `<TASK_TEMP>${normalized.slice(normalizedTemporaryRoot.length)}`;
+  }
+  if (normalized === normalizedHome || normalized.startsWith(`${normalizedHome}/`)) {
+    return `<USER_HOME>${normalized.slice(normalizedHome.length)}`;
+  }
+  return normalized;
+}
+
+function terminalDiagnostic(invocation, { error, phase = "terminal" } = {}) {
+  const processStates = invocation.events
+    .filter((event) => event.type === "child-spawn")
+    .map((event) => `child:${event.pid}:alive=${processAlive(event.pid)}`);
+  if (existsSync(invocation.readyPath)) {
+    try {
+      const ready = JSON.parse(readFileSync(invocation.readyPath, "utf8"));
+      for (const [label, pid] of [
+        ["ready-child", ready.pid],
+        ["ready-descendant", ready.descendantPid],
+      ]) {
+        if (Number.isInteger(pid)) processStates.push(`${label}:${pid}:alive=${processAlive(pid)}`);
+      }
+    } catch {
+      processStates.push("ready-state=invalid");
+    }
+  }
+  const cleanupDiagnostics = String(error?.message ?? "")
+    .split("\n")
+    .filter((line) => /^(?:cleanup|termination) operation=/.test(line));
+  return [
+    `flow=${invocation.flow}`,
+    `phase=${phase}`,
+    `eventOrder=${invocation.events.map((event) => event.type).join(">") || "none"}`,
+    `processState=${processStates.join(",") || "none-observed"}`,
+    `cleanupDiagnostics=${cleanupDiagnostics.join("|") || "none"}`,
+  ].join(" ");
+}
+
+function assertOwnedPathAbsent(path, pathLabel, diagnostic) {
+  const exists = existsSync(path);
+  assert.equal(
+    exists,
+    false,
+    `${diagnostic} pathLabel=${pathLabel} ownedPath=${normalizedOwnedPath(path)} existence=${exists}`,
+  );
+}
+
+function assertOwnedStateRemoved(invocation, context) {
+  const diagnostic = terminalDiagnostic(invocation, context);
   const temporary = temporaryEvent(invocation.events);
-  assert.ok(temporary, "temporary root acquisition must be observable to the fixture");
-  assert.equal(existsSync(temporary.temporaryRoot), false);
+  assert.ok(
+    temporary,
+    `${diagnostic} temporary root acquisition must be observable to the fixture`,
+  );
+  assertOwnedPathAbsent(temporary.temporaryRoot, "temporary-root", diagnostic);
   const isolated = isolatedEvent(invocation.events);
   if (isolated) {
-    for (const path of [
-      isolated.authCopy,
-      isolated.codexHome,
-      isolated.evalRepository,
-      isolated.repository,
-      isolated.temporaryHome,
+    for (const [pathLabel, path] of [
+      ["auth-copy", isolated.authCopy],
+      ["codex-home", isolated.codexHome],
+      ["evaluation-repository", isolated.evalRepository],
+      ["audit-repository", isolated.repository],
+      ["temporary-home", isolated.temporaryHome],
     ]) {
-      if (path) assert.equal(existsSync(path), false, path);
+      if (path) assertOwnedPathAbsent(path, pathLabel, diagnostic);
     }
   }
   for (const staging of invocation.events.filter((event) => event.type === "staging")) {
-    assert.equal(existsSync(staging.stagingDirectory), false);
+    assertOwnedPathAbsent(staging.stagingDirectory, "unpublished-staging", diagnostic);
   }
-  assert.deepEqual(readFileSync(invocation.authFile), invocation.authBytes);
+  assert.deepEqual(
+    readFileSync(invocation.authFile),
+    invocation.authBytes,
+    `${diagnostic} auth source must remain byte-identical`,
+  );
 }
 
-function assertNoIncompletePublication(invocation) {
+function assertNoIncompletePublication(invocation, context) {
   if (!existsSync(invocation.outputRoot)) return;
   const names = readdirSync(invocation.outputRoot);
-  assert.equal(names.some((name) => name.startsWith(".staging-")), false);
-  assert.equal(names.some((name) => name.startsWith("comparison-")), false);
+  const diagnostic = terminalDiagnostic(invocation, context);
+  assert.equal(
+    names.some((name) => name.startsWith(".staging-")),
+    false,
+    `${diagnostic} pathLabel=output-root ownedPath=${normalizedOwnedPath(invocation.outputRoot)} incompleteStaging=${names.filter((name) => name.startsWith(".staging-")).join(",") || "none"}`,
+  );
+  assert.equal(
+    names.some((name) => name.startsWith("comparison-")),
+    false,
+    `${diagnostic} pathLabel=output-root ownedPath=${normalizedOwnedPath(invocation.outputRoot)} incompleteComparison=${names.filter((name) => name.startsWith("comparison-")).join(",") || "none"}`,
+  );
 }
 
 test("both evaluator flows preserve success and ordinary cleanup", async (t) => {
@@ -228,7 +299,10 @@ test("both evaluator flows preserve success and ordinary cleanup", async (t) => 
       assert.equal(completed.authSourceUnchanged, true);
       assert.equal(completed.verdict, "BLOCKED");
     } else {
-      assert.ok(existsSync(completed.resultDirectory));
+      assert.ok(
+        existsSync(completed.resultDirectory),
+        `flow=${flow} phase=success pathLabel=published-result ownedPath=${normalizedOwnedPath(completed.resultDirectory)} existence=false`,
+      );
       assert.equal(completed.result.status.startsWith("completed"), true);
       assert.equal(
         invocation.events.filter((event) => event.type === "published").length,
@@ -337,6 +411,7 @@ test("interruption checkpoints clean partially acquired resources and prevent pu
   for (const [flow, phase] of cases) {
     const target = processTarget();
     let emitted = false;
+    let observedError;
     const invocation = startFlow(t, flow, {
       onState(event) {
         if (!emitted && event.type === phase) {
@@ -349,18 +424,94 @@ test("interruption checkpoints clean partially acquired resources and prevent pu
     });
     await assert.rejects(
       invocation.promise,
-      (error) =>
-        error?.code ===
-        (flow === "audit" ? "AUDIT_SMOKE_INTERRUPTED" : "EVALUATION_INTERRUPTED"),
+      (error) => {
+        observedError = error;
+        return (
+          error?.code ===
+          (flow === "audit" ? "AUDIT_SMOKE_INTERRUPTED" : "EVALUATION_INTERRUPTED")
+        );
+      },
       `${flow} ${phase}`,
     );
     assert.equal(emitted, true, `${flow} ${phase}`);
-    assertOwnedStateRemoved(invocation);
-    assertNoIncompletePublication(invocation);
+    const context = { error: observedError, phase };
+    assertOwnedStateRemoved(invocation, context);
+    assertNoIncompletePublication(invocation, context);
     assert.equal(
       invocation.events.filter((event) => event.type === "published").length,
       0,
     );
+  }
+});
+
+test("both evaluator flows await owned removal before interruption becomes terminal", async (t) => {
+  for (const flow of ["audit", "grilling"]) {
+    const target = processTarget();
+    const baselineInt = target.listenerCount("SIGINT");
+    const baselineTerm = target.listenerCount("SIGTERM");
+    let releaseRemoval;
+    let reportRemovalStarted;
+    const removalStarted = new Promise((resolve) => {
+      reportRemovalStarted = resolve;
+    });
+    const removalReleased = new Promise((resolve) => {
+      releaseRemoval = resolve;
+    });
+    let removalCompleted;
+    const invocation = startFlow(t, flow, {
+      onState(event) {
+        if (event.type === "temporary-root") target.emit("SIGINT");
+      },
+      processTarget: target,
+      removeOwnedPath(path, options) {
+        reportRemovalStarted();
+        removalCompleted = removalReleased.then(() => defaultRemoveOwnedPath(path, options));
+        return removalCompleted;
+      },
+    });
+    let observedError;
+    const terminal = invocation.promise.then(
+      () => "resolved",
+      (error) => {
+        observedError = error;
+        return "rejected";
+      },
+    );
+    await removalStarted;
+    const stateBeforeRelease = await Promise.race([
+      terminal,
+      new Promise((resolve) => setImmediate(() => resolve("pending"))),
+    ]);
+    const acquired = temporaryEvent(invocation.events);
+    assert.ok(acquired, `flow=${flow} phase=temporary-root acquisition event`);
+    assert.equal(
+      existsSync(acquired.temporaryRoot),
+      true,
+      `flow=${flow} phase=temporary-root pathLabel=temporary-root ownedPath=${normalizedOwnedPath(acquired.temporaryRoot)} existence=false before release`,
+    );
+    releaseRemoval();
+    await removalCompleted;
+    assert.equal(
+      stateBeforeRelease,
+      "pending",
+      `flow=${flow} phase=temporary-root terminal state must await owned removal`,
+    );
+    assert.equal(await terminal, "rejected", `flow=${flow} phase=temporary-root`);
+    assert.equal(
+      observedError?.code,
+      flow === "audit" ? "AUDIT_SMOKE_INTERRUPTED" : "EVALUATION_INTERRUPTED",
+      `flow=${flow} phase=temporary-root first interruption cause must be preserved`,
+    );
+    assertOwnedStateRemoved(invocation, {
+      error: observedError,
+      phase: "temporary-root-delayed-removal",
+    });
+    assertNoIncompletePublication(invocation, {
+      error: observedError,
+      phase: "temporary-root-delayed-removal",
+    });
+    assert.equal(target.listenerCount("SIGINT"), baselineInt, `flow=${flow} SIGINT listeners`);
+    assert.equal(target.listenerCount("SIGTERM"), baselineTerm, `flow=${flow} SIGTERM listeners`);
   }
 });
 
@@ -388,7 +539,11 @@ test("an interruption during ordinary cleanup remains bounded for both flows", a
     if (flow === "grilling") {
       const published = invocation.events.find((event) => event.type === "published");
       assert.ok(published);
-      assert.equal(existsSync(published.publishedDirectory), true);
+      assert.equal(
+        existsSync(published.publishedDirectory),
+        true,
+        `flow=${flow} phase=cleanup-complete pathLabel=published-result ownedPath=${normalizedOwnedPath(published.publishedDirectory)} existence=false`,
+      );
     }
   }
 });
@@ -474,5 +629,10 @@ test("an incomplete comparison preserves already atomically published run direct
   assert.equal(entries.filter((name) => !name.startsWith(".")).length, 1);
   assert.equal(entries.some((name) => name.startsWith(".staging-")), false);
   assert.equal(entries.some((name) => name.startsWith("comparison-")), false);
-  assert.equal(existsSync(join(outputRoot, entries[0], "run.json")), true);
+  const runPath = join(outputRoot, entries[0], "run.json");
+  assert.equal(
+    existsSync(runPath),
+    true,
+    `flow=grilling phase=comparison-failure pathLabel=published-run ownedPath=${normalizedOwnedPath(runPath)} existence=false`,
+  );
 });

@@ -32,7 +32,7 @@ import {
   appendEvaluatorDiagnostics,
   cleanupFailureDiagnostic,
   createEvaluatorRunScope,
-  defaultRemoveOwnedPath,
+  defaultRemoveEvaluatorOwnedPath,
   EvaluatorInterruptedError,
 } from "../evaluator-process.mjs";
 
@@ -1153,7 +1153,7 @@ export async function runEvaluation({
   preflight = preflightCodex,
   modelTurnTimeoutMs = 300_000,
   extraEnv = {},
-  removeOwnedPath = defaultRemoveOwnedPath,
+  removeOwnedPath = defaultRemoveEvaluatorOwnedPath,
   onState,
   platform,
   processTarget,
@@ -1405,22 +1405,22 @@ export async function runEvaluation({
 
   const finalState = await scope.finalize(async () => {
     const failures = [];
-    const remove = (path, options, operation, pathLabel) => {
+    const remove = async (path, options, operation, pathLabel) => {
       try {
-        removeOwnedPath(path, options);
+        await removeOwnedPath(path, options);
       } catch (error) {
         failures.push(cleanupFailureDiagnostic({ operation, pathLabel, error }));
       }
     };
     if (stagingDirectory && existsSync(stagingDirectory)) {
-      remove(
+      await remove(
         stagingDirectory,
         { recursive: true, force: true },
         "remove-tree",
         "grilling-unpublished-staging",
       );
     }
-    remove(
+    await remove(
       temporaryRoot,
       { recursive: true, force: true },
       "remove-tree",
@@ -1431,7 +1431,7 @@ export async function runEvaluation({
       existsSync(resolvedOutputRoot) &&
       readdirSync(resolvedOutputRoot).length === 0
     ) {
-      remove(
+      await remove(
         resolvedOutputRoot,
         { directoryOnly: true },
         "remove-directory",

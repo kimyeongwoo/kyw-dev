@@ -1,9 +1,12 @@
 import { spawn, spawnSync } from "node:child_process";
 import { rmSync, rmdirSync } from "node:fs";
+import { rm, rmdir } from "node:fs/promises";
 import { setImmediate as waitForImmediate } from "node:timers/promises";
 
 export const DEFAULT_GRACEFUL_TERMINATION_MS = 1_500;
 export const DEFAULT_FORCED_TERMINATION_MS = 1_500;
+export const DEFAULT_CLEANUP_MAX_RETRIES = 5;
+export const DEFAULT_CLEANUP_RETRY_DELAY_MS = 100;
 
 const SIGNAL_EXIT_CODES = Object.freeze({ SIGINT: 130, SIGTERM: 143 });
 const SAFE_LABEL_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/;
@@ -68,6 +71,20 @@ export function defaultRemoveOwnedPath(path, options = {}) {
   const removeOptions = { ...options };
   delete removeOptions.directoryOnly;
   rmSync(path, removeOptions);
+}
+
+export async function defaultRemoveEvaluatorOwnedPath(path, options = {}) {
+  if (options.directoryOnly) {
+    await rmdir(path);
+    return;
+  }
+  const removeOptions = { ...options };
+  delete removeOptions.directoryOnly;
+  if (removeOptions.recursive) {
+    removeOptions.maxRetries ??= DEFAULT_CLEANUP_MAX_RETRIES;
+    removeOptions.retryDelay ??= DEFAULT_CLEANUP_RETRY_DELAY_MS;
+  }
+  await rm(path, removeOptions);
 }
 
 function supportedSignals(platform) {

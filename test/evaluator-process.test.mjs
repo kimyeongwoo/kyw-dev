@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -10,6 +10,9 @@ import { fileURLToPath } from "node:url";
 import {
   cleanupFailureDiagnostic,
   createEvaluatorRunScope,
+  DEFAULT_CLEANUP_MAX_RETRIES,
+  DEFAULT_CLEANUP_RETRY_DELAY_MS,
+  defaultRemoveEvaluatorOwnedPath,
   defaultRemoveOwnedPath,
 } from "../scripts/evaluator-process.mjs";
 
@@ -65,7 +68,7 @@ async function waitFor(predicate, description, milliseconds = 5_000) {
 }
 
 async function readReady(path) {
-  await waitFor(() => existsSync(path), `readiness marker ${path}`);
+  await waitFor(() => existsSync(path), "fixture readiness marker");
   return JSON.parse(readFileSync(path, "utf8"));
 }
 
@@ -120,6 +123,69 @@ test("owned-process termination remains PID-rooted without global process enumer
   assert.match(source, /\["\/PID", String\(pid\), "\/T"\]/);
   assert.doesNotMatch(source, /\b(?:Get-Process|tasklist|wmic|ps\s+-|pgrep|pkill)\b/i);
 });
+
+test(
+  "Windows evaluator cleanup awaits bounded release of an owned exclusive handle",
+  { skip: process.platform !== "win32" },
+  async (t) => {
+    const root = mkdtempSync(join(tmpdir(), "kyw-evaluator-handle-"));
+    const heldPath = join(root, "held.tmp");
+    writeFileSync(heldPath, "task-0028\n", "utf8");
+    const holder = spawn(
+      "powershell.exe",
+      [
+        "-NoProfile",
+        "-Command",
+        '$handle=[System.IO.File]::Open($env:KYW_EVALUATOR_HELD_PATH,[System.IO.FileMode]::Open,[System.IO.FileAccess]::ReadWrite,[System.IO.FileShare]::None); [Console]::Out.WriteLine("READY"); Start-Sleep -Milliseconds 300; $handle.Dispose()',
+      ],
+      {
+        env: { ...process.env, KYW_EVALUATOR_HELD_PATH: heldPath },
+        stdio: ["ignore", "pipe", "pipe"],
+        windowsHide: true,
+      },
+    );
+    t.after(() => {
+      if (processAlive(holder.pid)) stopFixtureProcesses({ pid: holder.pid });
+      rmSync(root, { recursive: true, force: true });
+    });
+    let holderStderr = "";
+    holder.stderr.on("data", (chunk) => {
+      holderStderr += chunk;
+    });
+    await new Promise((resolveReady, rejectReady) => {
+      holder.once("error", rejectReady);
+      holder.stdout.once("data", resolveReady);
+      holder.once("close", (status) => {
+        rejectReady(
+          new Error(
+            `exclusive-handle fixture closed before readiness status=${status ?? "unknown"} stderrPresent=${Boolean(holderStderr.trim())}`,
+          ),
+        );
+      });
+    });
+
+    assert.throws(
+      () => defaultRemoveOwnedPath(root, { recursive: true, force: true }),
+      (error) => new Set(["EBUSY", "EPERM"]).has(error?.code),
+      "the previous one-shot synchronous removal must expose the transient Windows handle",
+    );
+    assert.equal(existsSync(root), true, "the transient handle must leave the owned root present");
+    assert.equal(DEFAULT_CLEANUP_MAX_RETRIES, 5);
+    assert.equal(DEFAULT_CLEANUP_RETRY_DELAY_MS, 100);
+
+    await defaultRemoveEvaluatorOwnedPath(root, { recursive: true, force: true });
+    await new Promise((resolveClose) => {
+      if (holder.exitCode !== null) resolveClose();
+      else holder.once("close", resolveClose);
+    });
+    assert.equal(holder.exitCode, 0, "exclusive-handle fixture must exit cleanly");
+    assert.equal(
+      existsSync(root),
+      false,
+      "flow=shared phase=finalize pathLabel=evaluator-temporary-root existence=true",
+    );
+  },
+);
 
 test("run-scoped child execution preserves input, UTF-8 output, non-zero status, and spawn errors", async () => {
   for (const expectation of [
