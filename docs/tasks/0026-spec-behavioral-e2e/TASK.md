@@ -2,7 +2,7 @@
 
 ## Status
 
-BLOCKED
+CANCELLED
 
 ## Goal
 
@@ -81,6 +81,10 @@ Provide one auditable, development-only behavioral gate proving SPEC §15 AC-04 
 - Raw transcripts are not committed. Only sanitized bounded evidence and hashes enter Task/Test; any local raw evidence remains ignored and must pass secret/protected-path scans.
 - Harness and fixture logic is development-only and may reuse the narrow evaluator child lifecycle and existing deterministic pack/auth/redaction primitives where compatible.
 - The final preservation handoff authorizes no model, capability, cohort, or scenario execution. It preserves the development-only harness and blocked evidence without claiming a reusable behavioral gate.
+- On 2026-07-22, the user explicitly cancelled Task 0026's mandatory exactly-six-session fixed-cohort outcome. This closes the Task as `CANCELLED`, not `DONE`, and does not change any acceptance or evidence result to a pass.
+- Testing and evidence remain required. The active Codex model performs proportionate verification directly by default; nested `codex exec` is not a required testing mechanism.
+- Subagents and isolated or fresh sessions are optional and are used only by explicit user request or when the active model judges independent or isolated verification materially useful. Not using delegation is not itself a blocker.
+- The existing development-only harness, fixtures, and retained evidence remain historical material and are not deleted, expanded, or reinterpreted by this cancellation.
 
 ## Scenario Definitions
 
@@ -153,14 +157,19 @@ Provide one auditable, development-only behavioral gate proving SPEC §15 AC-04 
 - Capability probe 3 changed only the global `--ask-for-approval never` option. The CLI parsed that option, one model process and one turn completed with zero retries, and exactly one requested action advanced from `item.started` to `item.completed`; the same PowerShell-wrapped Git command was again declined before execution with status `declined`, exit `-1`, and `rejected: blocked by policy`, while the outer process exited `0`. Complete retained evidence proves no repository-root output, no additional command, no repository/protected-state mutation, and complete cleanup. The retained verdict is `BLOCKED_POLICY_REJECTION`.
 - Probe 3 excludes authentication, network/TLS, model availability, and model-process spawn as the direct blocker for that invocation, but it does not identify the exact policy rule/source, prove shell-child spawn or read-only command execution, test product Skill behavior, establish a product defect, or verify SPEC AC-04 through AC-08.
 - Further option trial-and-error and model probes stopped after probe 3. No post-probe behavioral cohort ran, no product or harness change is supported by this evidence, and Task 0027 was neither created nor started.
+- The latest product decision explicitly cancels only Task 0026's mandatory fixed-cohort verification outcome. It retains the requirement for acceptance-specific testing and evidence while making current-session verification the default and delegation optional.
+- No scenario, model, nested Codex, fresh-session, or subagent execution accompanied the cancellation. AC-04 through AC-08 remain unchecked and unverified in this Task.
+- The committed development-only harness and all retained cohort, probe, hash, failure, partial, and blocked evidence remain historical and unchanged in meaning.
 
 ## Documentation Impact
 
-- SPEC: unchanged; this Task verifies existing §15 AC-04 through AC-08 and did not alter or weaken product requirements.
-- ARCHITECTURE: unchanged from base after final reconciliation. No operational model-backed behavioral gate was established, so Task-local topology, failure history, and residual risks remain in this Task/Test pair rather than permanent Architecture.
-- README: unchanged. The first cohort is blocked, so no stable passing contributor command or release-status claim is added; keeping it unchanged also leaves the packaged README bytes identical to the tested tarball.
-- AGENTS: unchanged; no repository-wide completion or workflow rule changed.
-- Historical Tasks: unchanged, including Task 0020 `BLOCKED` and Tasks 0019/0024/0025.
+- `docs/SPEC.md`: updated because product verification behavior changed to current-session-first, proportionate verification with optional delegation.
+- `AGENTS.md`: updated because repository-wide agent verification behavior changed.
+- `templates/project/AGENTS.md`: updated because generated project agent verification behavior changed.
+- `skills/kyw-task/references/execution.md`: updated because packaged Task execution behavior changed.
+- `README.md`: unaffected; setup, commands, configuration, usage, and contributor workflow did not change.
+- `docs/ARCHITECTURE.md`: unaffected; no component, boundary, dependency, data flow, distribution structure, or runtime architecture changed.
+- Historical Tasks remain unchanged, including Task 0020 `BLOCKED` and Tasks 0019/0024/0025. Task 0027 was not created.
 
 ## Completed
 
@@ -188,22 +197,29 @@ Provide one auditable, development-only behavioral gate proving SPEC §15 AC-04 
 - Reproduced the final handoff's non-model syntax checks, six-fixture validator, focused 25/25 suite, combined 55/55 deterministic suite, cohort-one validator twice with identical fail-closed normalized SHA-256 `be615b4dfae3ad7e962eb3fed1d318e3c6d25f81c74ec48c36e34d28fc734409`, and capability validator with expected invalid normalized SHA-256 `769195f7d6a5a076b2e971c71e9a59f292d7d68d0fcc828d937e431b5a396962`.
 - Ran the explicitly required blocked-evidence handoff `npm run release:ci` as an ordinary non-model regression. It passed 220/220 tests, lint over 54 JavaScript modules and foundation metadata, format over 214 UTF-8/LF files, and reproduced the exact 29-file, 61,708-byte package with SHA-256 `750341395357fb6463ce426cbacb8d37215b762a53440665e738567809d2a65f`.
 - Incorporated the retained probe 2, policy-source investigation, and probe 3 blocked evidence into this Task/Test pair without changing evidence, product, harness, permanent documents, Git refs, or GitHub state. The canonical Task validator, exact two-file UTF-8/LF format check, and `git diff --check` each exited `0` on the documentation-only update.
+- Applied the explicit cancellation decision to the product verification contract, root and generated-project agent rules, packaged Task execution guidance, and this Task/Test pair. No source, test, harness, fixture, raw retained evidence, Task 0020, or Task 0027 path was changed.
+- Verified the cancellation closure directly in the current session without a model-backed invocation, nested `codex exec`, subagent, fresh session, or S-01 through S-06 execution. The Task validator, `npm test` (220/220), lint (54 modules and metadata), format check (214 UTF-8/LF files), pack check (unchanged 29-file allowlist; 62,049 dry-run bytes), and `git diff --check` each exited `0` before final evidence reconciliation.
+- Repeated the complete required model-free command set after evidence reconciliation with the same successful results, then passed a read-only contract check for terminal statuses, delegation policy alignment, and AC-04 through AC-08 non-PASS state. Final scope review found exactly the six authorized modified paths, an empty index, no non-ignored untracked path, no harness/fixture diff, and matching retained Task 0026 evidence hashes.
+- Retained one later `npm test` timing failure instead of replacing it with the retry: the Windows interruption test timed out waiting for an interrupted child exit, producing 219/220 and exit `1`. No test file was changed; the focused evaluator-process suite then passed 7/7 and an unchanged full-suite rerun passed 220/220.
 
 ## Remaining
 
-- AC-04 through AC-08 remain unverified. The current model process and turn can complete, but the required read-only command execution is blocked by policy before execution; the exact policy source remains unresolved and no post-probe behavioral cohort ran. Preserve every retained evidence root without reuse or overwrite. Task 0027 remains uncreated and unstarted.
+- No remaining implementation or behavioral-cohort work belongs to Task 0026.
+- The mandatory fixed-cohort objective was explicitly cancelled. AC-04 through AC-08 remain historically unverified in this Task and are not converted to `PASS`.
 
 ## Resume Point
 
-Preserve this branch, all retained evidence roots, and the frozen scenario contract. Independent review must treat cohort one as `INVALID_HARNESS_BOUNDARY`, the native probe as `EPERM`, the Docker matrix as deterministic topology evidence only, the first one-shot model capability report as `CODEX_EXEC_FAILED`, probe 2 as `BLOCKED_EVIDENCE_INCOMPLETE`, and probe 3 as `BLOCKED_POLICY_REJECTION`; none is behavioral acceptance. Do not run another option trial, model capability probe, S-01 through S-06 cohort, or release re-gate under the exhausted authorization. Resume Task 0026 only when a separately approved execution boundary or policy environment is provided; do not create Task 0027 or reinterpret retained evidence.
+Do not resume Task 0026. Preserve its committed harness, fixtures, and retained evidence as historical development-only material. Future Tasks choose proportionate verification under the updated SPEC and may use subagents or isolated sessions only when the user requests them or the active model judges them materially useful.
 
 ## Blockers
 
+- Task 0026 ended by explicit product decision, not by successful behavioral acceptance. The following blockers are retained as historical evidence and no longer define an active recovery or resume action.
 - Cohort one remains `INVALID_HARNESS_BOUNDARY / BLOCKED`; it is neither product PASS nor product FAIL.
 - Current model/control pipeline: model process and turn completion verified.
 - Command execution: `BLOCKED_BY_POLICY` before execution; no repository-root command output exists.
 - Exact policy source: `UNRESOLVED`.
 - Current post-probe behavioral cohort: `NOT RUN`.
 - SPEC AC-04 through AC-08: `UNVERIFIED`.
-- The latest evidence does not establish a product or harness defect and therefore does not authorize product/harness repair or a next Task. Resume this Task only after a separately approved execution boundary or policy environment is available, not through further option trial-and-error. Task 0027 was not created or started.
+- The latest evidence did not establish a product or harness defect and did not authorize product/harness repair or a next Task. Task 0027 was not created or started.
 - The blocked-evidence commit and PR do not clear this blocker, establish a packed-product defect, authorize product repair, or establish release acceptance.
+- These historical blockers do not authorize a pass and do not define a recovery path for this cancelled Task.

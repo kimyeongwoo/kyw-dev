@@ -50,7 +50,8 @@ Do not edit unaffected documents merely to mark them reviewed. Record the impact
 - Map every Task acceptance criterion to at least one test or an explicit verification method.
 - Update both files when discoveries, scope, design, or risk changes during implementation.
 - Before reporting completion, compare the final diff against the Task and the intent-to-test matrix.
-- Record commands actually run, results, and anything not verified.
+- By default, the current agent runs acceptance-specific, risk-proportionate verification directly. Use subagents or isolated sessions only when the user requests them or independent or isolated verification would materially improve confidence; do not require nested `codex exec` or a subagent cohort merely to simulate independence.
+- Record commands actually run, results, and anything not verified. Not using delegation is not by itself a blocker.
 - If compaction is likely, first update `Completed`, `Remaining`, `Resume Point`, and current test results.
 
 ## Completion gate

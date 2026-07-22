@@ -10,7 +10,14 @@ BLOCKED
 - Product requirements: `../../SPEC.md`, especially §§6.1, 7, 9, 10, and 15 AC-04 through AC-08.
 - Architecture constraints: `../../ARCHITECTURE.md`, especially Skills, Task lifecycle, test contract, packed distribution, evaluator isolation, and development-only validation boundaries.
 - Exact base: `8f4279c69f170c293af12581b51b994da5cc8de4`.
-- Fixed cohort: S-01 through S-06 once each with model `gpt-5.6-sol` and reasoning effort `high`.
+- Historical fixed cohort: S-01 through S-06 once each with model `gpt-5.6-sol` and reasoning effort `high`; the user later cancelled this mandatory method as a product requirement.
+
+### Cancellation Record — 2026-07-22
+
+- Task 0026 was explicitly cancelled because its mandatory fixed-cohort verification method is no longer a product requirement.
+- The behavioral scenarios did not pass and remain historical unverified evidence. The cancellation does not invalidate deterministic `PASS` rows or convert blocked model-backed rows to `PASS`.
+- Testing and evidence remain required. Future verification is proportionate and current-session-first, with optional delegation only by explicit user request or active-model judgment that independent or isolated evidence is materially useful.
+- No cancellation statement verifies SPEC AC-04 through AC-08, rewrites prior failures, or treats an unexecuted test as passed.
 
 ## Intent-to-Test Matrix
 
@@ -28,8 +35,8 @@ BLOCKED
 | T-10 | AC-08 S-06 ordinary small prompt routes durable README impact without Task | Actual non-Skill fresh session plus bounded source/test/docs mutation and command-evidence validation | E2E | BLOCKED | Cohort one reported documentation impact but could not mutate or verify through its invalid boundary; it is classified `INVALID_HARNESS_BOUNDARY`, not a product failure. Cohort two was not run. |
 | T-11 | AC-09 scenario evidence completeness, valid-failure retention, invalid-attempt policy, and cohort aggregation | Deterministic report validator plus retained actual attempt manifest | integration | BLOCKED | Cohort-one evidence remains byte-identical and the hardened validator still rejects S-03 twice identically. It remains `INVALID_HARNESS_BOUNDARY / BLOCKED`, never product PASS or product FAIL. |
 | T-12 | AC-09 credentials/protected paths/raw transcripts excluded and owned roots/auth copies removed | Evidence scan, before/after hashes, exact-root cleanup checks, ignored-root inspection | audit | PASS | Auth before/after hashes identical; every scenario reports no sensitive finding and residue-free cleanup; cohort/preflight roots were removed and the final intended-diff scan was clean. |
-| T-13 | AC-10 documentation impact and permanent/historical truth | Semantic review and exact changed-path allowlist | audit | PASS | Architecture is byte-identical to base because no operational reusable behavioral gate was established; README/SPEC/AGENTS and historical Tasks are unchanged, and Task 0020 remains `BLOCKED`. |
-| T-14 | AC-10 focused/full regression, repeatable report, Task validation, and final diff/scope review | Required command suite and complete pre-commit inspection | integration | PASS | Final blocked-evidence handoff passed deterministic validators and mandatory `npm run release:ci`; canonical Task validation, diff check, clean index, exact 37-path scope, and privacy/artifact scans remain mandatory before staging. |
+| T-13 | AC-10 documentation impact and permanent/historical truth | Semantic review and exact changed-path allowlist | audit | PASS | Historical implementation evidence remains: Architecture was byte-identical to base and Task 0020 stayed `BLOCKED`. Cancellation closure updates only SPEC, root/template AGENTS, the Task execution reference, and this pair; README, Architecture, and other Tasks remain unchanged. |
+| T-14 | AC-10 focused/full regression, repeatable report, Task validation, and final diff/scope review | Required command suite and complete pre-commit inspection | integration | PASS | Historical blocked-evidence handoff evidence remains unchanged. Cancellation closure validation passed the canonical validator, 220/220 tests, lint, format, unchanged 29-file package allowlist, and diff check within the exact six-path allowlist. |
 
 ## Scenario Contracts
 
@@ -131,6 +138,13 @@ BLOCKED
 - Full regression: `npm test`, `npm run lint`, `npm run format:check`, `npm run pack:check`, and `npm run check`; the later blocked-evidence handoff explicitly requires `npm run release:ci` as ordinary repository and packed-release regression without authorizing another behavioral cohort.
 - Final validation: canonical Task validator and `git diff --check`, plus exact scope/privacy/archive/residue/empty-index scans.
 
+### Cancellation closure commands — 2026-07-22
+
+- Preflight: `git status --short`; `git status --porcelain=v2 --branch`; `git rev-parse HEAD`; `git ls-remote origin refs/heads/main`; `git ls-remote origin refs/heads/task/0026-spec-behavioral-e2e`; `gh pr view 10 --repo kimyeongwoo/kyw-dev --json number,state,isDraft,mergedAt,mergeCommit,headRefName,headRefOid,baseRefName,url`.
+- Tree identity without fetching: `git rev-parse 'HEAD^{tree}'`; `git cat-file -e '0bb46d00b37abc84a90143a10b5066d336cef4ba^{commit}'`; `gh api repos/kimyeongwoo/kyw-dev/git/commits/0bb46d00b37abc84a90143a10b5066d336cef4ba --jq '.tree.sha'`.
+- Required model-free verification: `node ./skills/kyw-task/scripts/task-artifacts.mjs validate --task-directory ./docs/tasks/0026-spec-behavioral-e2e`; `npm test`; `npm run lint`; `npm run format:check`; `npm run pack:check`; `git diff --check`.
+- Final scope review: `git status --short`; `git diff --name-only`; `git diff --stat`; `git diff --check`; `git diff`.
+
 ## Results
 
 - Preflight: PASS. Required base/parents, PR #8 merged state, exact-head push run `29842456774`, 9/9 successful jobs, clean initial tree, and no Task 0026 collision were observed.
@@ -151,6 +165,12 @@ BLOCKED
 - Latest aggregates: `npm run check` PASS; `npm run release:ci` PASS and reproduced packed SHA-256 `750341395357fb6463ce426cbacb8d37215b762a53440665e738567809d2a65f`.
 - Latest report validation: FAIL twice, as required by the retained S-03 omission, with byte-identical output `REPORT_INVALID: S-03 retained verdict differs from deterministic validation`; normalized output SHA-256 `071268639935ff7cc4eb45463d77868b7f5f1ff584e16f84c75f8d4d5e8fd1ce` and raw PowerShell capture SHA-256 `50080649d1cf1684e1d7aa48433c3109128c645902a2f6885f6222959812a9b7`.
 - Final scope/privacy review: PASS for the authorized 38 paths (1 tracked plus 37 untracked); no forbidden path, staged byte, dependency/package/workflow/product change, credential, protected local path, raw evidence file, archive, auth copy, or temporary residue was found.
+- Cancellation preflight: PASS. Every required command exited `0` and matched branch `task/0026-spec-behavioral-e2e`, local/remote Task head `cb0b220ab6e5c8adedaba6b72a15ee63063e0f48`, remote main/PR #10 merge `0bb46d00b37abc84a90143a10b5066d336cef4ba`, merged PR state, and a clean worktree. The merge object was absent locally (`git cat-file -e` exit `1`), so the read-only GitHub API check exited `0` and proved that its tree `0a2b708b7bd86ec9584c26edec05b01181475e21` equals the local HEAD tree; no fetch, reset, or checkout occurred. An initial unquoted auxiliary `HEAD^{tree}` expression was misparsed by PowerShell and exited `1`; the quoted command above exited `0` without repository mutation.
+- Cancellation closure verification before final evidence reconciliation: PASS. Task validator exit `0` with `valid: true`; `npm test` exit `0` with 220/220; lint exit `0` over 54 JavaScript modules and foundation metadata; format check exit `0` over 214 UTF-8/LF files; pack check exit `0` with the same 29-file allowlist and 62,049 dry-run bytes; `git diff --check` exit `0` with no output.
+- Cancellation execution boundary: zero model-backed calls, zero nested `codex exec` calls, zero subagent calls, zero fresh-session or scenario invocations, zero Git-ref/GitHub/publication mutations, and no retained-evidence artifact mutation. Repository mutations are limited to the six authorized documentation paths.
+- Final post-evidence verification: PASS. The complete required model-free command set was repeated and every command again exited `0` with the same validator, 220/220, lint, format, 29-file/62,049-byte pack, and diff-check results. A read-only semantic contract check exited `0`, confirming `TASK=CANCELLED`, `TEST=BLOCKED`, aligned current-session/optional-delegation rules on all four policy surfaces, and unchecked/non-`PASS` AC-04 through AC-08 rows.
+- Final scope/evidence review: PASS. `git status`, name-only/stat/check, and the complete diff showed exactly the six authorized modified paths; staged and non-ignored untracked paths were empty; harness/test/fixture diff was empty; Task 0027 was absent. The ignored surface remained `eval/grilling/results/` (2,972 existing files), including 34 Task 0026 files under four retained roots. The recorded cohort report, capability report/freeze/topology, and probe 2/3 manifest/prompt SHA-256 values all matched exactly.
+- Retained verification retry evidence: a later unchanged `npm test` run exited `1` with 219/220 when `repeated interruption owns only the tracked tree, is idempotent, and removes listeners` timed out after 6,765 ms waiting for an interrupted child exit at `test/evaluator-process.test.mjs:251`. This was not a verification-policy assertion failure. No test or production file was edited; `node --test test/evaluator-process.test.mjs` then exited `0` with 7/7, and the next unchanged `npm test` exited `0` with 220/220. The one timing-sensitive Windows failure remains a residual flaky-test risk.
 
 ## Corrected-Cohort Continuation — 2026-07-22
 
@@ -383,7 +403,8 @@ Common fields: model `gpt-5.6-sol`; effort `high`; packed tarball SHA-256 `75034
 
 ## Unverified
 
-- SPEC AC-04 through AC-08 remain unverified: cohort one crossed an invalid writable execution boundary, and no later behavioral cohort started. Probes 2 and 3 completed their model processes and turns, but their requested read-only command was declined before execution by router policy; the exact policy source remains unresolved.
+- Task 0026 itself did not produce behavioral acceptance evidence for SPEC AC-04 through AC-08: cohort one crossed an invalid writable execution boundary, and no later behavioral cohort started. Probes 2 and 3 completed their model processes and turns, but their requested read-only command was declined before execution by router policy; the exact policy source remains unresolved.
+- A mandatory six-session or subagent cohort is no longer required by product truth. That decision changes the generic verification method, not these unverified results.
 - The retained S-03 summary does not contain its fixed expected-mutation labels. Its actual empty mutation manifest is preserved, and the final report validator reproducibly rejects the resulting retained-verdict mismatch.
 - The authorized corrected cohort did not start. The Docker boundary proved nested `git`, `node`, `npm`, and `tar` execution deterministically, while the latest model-backed probe still did not prove read-only command execution. No new tarball or cohort-two report exists, and no post-cohort validator claim is made.
 
