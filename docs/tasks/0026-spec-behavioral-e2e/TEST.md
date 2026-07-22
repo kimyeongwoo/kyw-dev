@@ -19,7 +19,7 @@ BLOCKED
 | T-01 | AC-01 exact clean base, hosted evidence, collision-free allocation, branch, and user-work preservation | Exact Git/GitHub command transcript plus final base/status comparison | audit | PASS | Exact base/parents, merged PR #8, run 29842456774 9/9, clean branch creation, no collision, and unchanged final HEAD proved. |
 | T-02 | AC-02 all 20 required harness verdict branches | Node test over synthetic events/transcripts and temporary Git fixtures | unit | PASS | Latest focused run: 25/25 passed; case 22 now proves both bounded S-05/S-06 equivalent wording acceptance and vague wording rejection. |
 | T-03 | AC-03 one actual 29-file tarball and extracted packed Skill/support provenance | Real npm pack, inventory/hash/extraction checks, read-event hash matching, and source-fallback rejection | packaging | PASS | `kyw-dev-0.1.0.tgz`, 61,708 bytes, SHA-256 `750341395357fb6463ce426cbacb8d37215b762a53440665e738567809d2a65f`, exact 29 files; every required read matched packed bytes. |
-| T-04 | AC-03 isolated auth/environment/thread/cleanup boundary | Before/after auth hashing, distinct thread validation, isolated environment assertions, residue and redaction scans | integration | FAIL | The final Docker topology matrix passed 25/25 with all required launchers, protected write denials, and cleanup, but the single model capability process exited `1` before complete action evidence; model call count `1`, no retry, cohort two not started. |
+| T-04 | AC-03 isolated auth/environment/thread/cleanup boundary | Before/after auth hashing, distinct thread validation, isolated environment assertions, residue and redaction scans | integration | BLOCKED | The final Docker topology matrix passed 25/25. Later probes 2 and 3 each completed one model turn with zero retries, but the requested read-only command was declined before execution; protected state and cleanup passed, the exact policy source remains unresolved, and no post-probe cohort ran. |
 | T-05 | AC-04 S-01 empty initialization | Actual packed `$kyw-init` fresh-session flow with pre-confirmation checkpoints and post-confirmation mutation validation | E2E | BLOCKED | Cohort-one interview evidence exists, but its writes were policy-rejected by an invalid harness boundary; it is classified `INVALID_HARNESS_BOUNDARY`, not a product failure. Cohort two was not run. |
 | T-06 | AC-04 S-02 non-destructive adoption | Actual packed `$kyw-init` fresh-session flow with preservation and application/test byte checks | E2E | BLOCKED | Cohort-one adoption evidence exists, but required writes were policy-rejected by an invalid harness boundary; it is classified `INVALID_HARNESS_BOUNDARY`, not a product failure. Cohort two was not run. |
 | T-07 | AC-05 AC-06 S-03 exact Task creation and pre-confirmation refusal | Actual packed `$kyw-task` fresh session stopped before confirmation; pair/number/source immutability assertions | E2E | BLOCKED | Cohort-one adapter execution was policy-rejected before `0004` publication. The retained summary also has the known validator defect; it is classified `INVALID_HARNESS_BOUNDARY` and establishes no product result. |
@@ -292,7 +292,7 @@ Common fields: model `gpt-5.6-sol`; effort `high`; packed tarball SHA-256 `75034
 - Before the model call, the frozen hashes were: harness `a3b13394503dabbfa86ef3e2e1426a70bd75c291c7a24bf9fd2483c06708b7e9`; focused test `202d0dddce9811ff07ff8bbe845c550175b100c3e171ab38744773fb976d74d1`; fixture tree `22ea3ac2028a4068ef5ca58f857e471e70d331aaebd14ced1064e95aca91d171`; Docker boundary `5f70ad2ba9b0b923c69f598fb75974c0a522907e6f965965c90da0ef1fd1d1a1`; non-SPEC capability prompt `a4ddd5b71e68cb16d0cf743d4594213bdc9864de3aae16a805d2d7b3b6b947ff`; semantic freeze-manifest SHA-256 `3304b09bb9aa0c085ca7883c3646ce44b8eb222b6476432866a6feef9a274975`; freeze file SHA-256 `a24dbbac3ab3db5fb5b7ed1ae107aa18c1bcd052fb8c1c502f5296574fed1d88`.
 - Exactly one fresh non-SPEC model capability process was started with model `gpt-5.6-sol`, reasoning effort `high`, one bounded turn, no kyw Skill invocation, and the frozen Docker boundary. It exited `1` with `CODEX_EXEC_FAILED` before complete sanitized command/action evidence was available. The capability report records `modelCallCount: 1`, verdict `FAIL`, and `cohortStarted: false`.
 - Capability report SHA-256 is `ef79b6f3908bc34edc9049e0ca3b44a0e198d787b7c7cb45cefc03cdd555ce30`. Its validator correctly exits `1` with `CAPABILITY_REPORT_INVALID: Capability evidence is incomplete`; normalized output SHA-256 is `769195f7d6a5a076b2e971c71e9a59f292d7d68d0fcc828d937e431b5a396962`.
-- The failed or ambiguous probe was not rerun, and the frozen boundary was not modified after it started. No additional model call is authorized in Task 0026.
+- That failed or ambiguous probe was not rerun, and the frozen boundary was not modified after it started. That authorization permitted no additional model call; later separately approved probes 2 and 3 are recorded below.
 - Because the model capability probe failed, the conditional new tarball reproduction was NOT RUN, cohort two S-01 through S-06 was NOT RUN, no individual scenario was retried, and no third cohort exists. The earlier exact 29-file/61,708-byte/package SHA-256 evidence remains historical cohort-one provenance only, not a new reproduction under this authorization.
 - The capability evidence root contains only `capability-report.json`, `freeze-manifest.json`, and `topology-report.json`; it contains no raw transcript, credential, protected host path, archive, or incomplete model-action directory. Its owned root remains as required evidence; disposable model root/auth copy/container/temp state were removed.
 
@@ -313,7 +313,56 @@ Common fields: model `gpt-5.6-sol`; effort `high`; packed tarball SHA-256 `75034
 - PASS: both syntax checks, all six fixture contracts, focused 25/25, and combined 55/55.
 - PASS: cohort-one validation ran twice, exited `1` twice on the retained S-03 verdict mismatch, and produced identical normalized SHA-256 `be615b4dfae3ad7e962eb3fed1d318e3c6d25f81c74ec48c36e34d28fc734409`. Capability validation exited `1` with `CAPABILITY_REPORT_INVALID: Capability evidence is incomplete` and normalized SHA-256 `769195f7d6a5a076b2e971c71e9a59f292d7d68d0fcc828d937e431b5a396962`.
 - PASS: mandatory `npm run release:ci` exited `0` with 220/220 tests, lint over 54 JavaScript modules and foundation metadata, format over 214 UTF-8/LF files, and exact packed identity 29 files / 61,708 bytes / SHA-256 `750341395357fb6463ce426cbacb8d37215b762a53440665e738567809d2a65f`.
-- The handoff authorizes no further model, capability, cohort, or scenario execution. Future continuation requires new explicit authorization and must resume Task 0026; it must not create Task 0027 or claim behavioral/release acceptance while SPEC AC-04 through AC-08 remain unverified.
+- That handoff itself authorized no further model, capability, cohort, or scenario execution. Later separately approved probes 2 and 3 are recorded below; future continuation still requires new explicit authorization and must resume Task 0026 without creating Task 0027 or claiming behavioral/release acceptance while SPEC AC-04 through AC-08 remain unverified.
+
+## Subsequent capability evidence — 2026-07-22
+
+### Capability probe 2
+
+- Evidence root: `eval/grilling/results/task-0026-capability-probe-2`.
+- Execution: 1 model call, 1 model process, 1 turn started / 1 turn completed, 0 retries, 0 Skill invocations, and 0 scenario invocations.
+- Requested command: `git rev-parse --show-toplevel`; captured wrapper: `"C:\Program Files\PowerShell\7\pwsh.exe" -Command 'git rev-parse --show-toplevel'`.
+- Action evidence: `item.started` then `item.completed`, status `declined`, exit `-1`, output `blocked by policy`; outer process exit `0`. The action lifecycle and final message were retained, but the command did not execute to completion and produced no repository-root output.
+- Evidence identity: manifest SHA-256 `0e191f51749b126bd7fb1e050415963d61cab1cfe66c7f76dc252c6801c77547`; prompt SHA-256 `490d240fbdd64604872ace381dc4f77bafb414f0abf52380d648afb44f7053bc`; raw stdout SHA-256 `7ca19b31905a56a51d476a0ff5146a97b082e5d187bc576d2ac358a3273b7a1a`; retained stdout SHA-256 `349ccdb505b03a5e1159828ee4f8cdcae476cb7ef3f771475d92f15bbae634b9`; raw/retained stderr SHA-256 `fb22dfafc6a59f632a8ecd3e0618447d6334fe8f6992f5441efc2f7d3f7d7c0b`.
+- Protection and cleanup: repository, Git state, repository/user Skills, auth source, and prior retained evidence were unchanged; the worktree stayed clean, no Task 0027 appeared, and the temporary root, auth copy, and last-message scratch were removed.
+- Verdict: `BLOCKED_EVIDENCE_INCOMPLETE`. Model-process, turn, JSONL, action/final-message, sanitization, and cleanup evidence completed; command-completion evidence did not.
+
+### Read-only policy-source investigation
+
+- Execution: 0 model calls and 0 `codex exec` calls. Help-only calls were `codex --version`, `codex --help`, and `codex exec --help`; repository/evidence mutations were 0.
+- The exact model proposal reached the Codex tool router as a PowerShell-wrapped command and was declined at the router policy-gate stage. Retained evidence contains no exact policy name/code, approval request/response, or shell-child PID, so approval, sandbox, classifier, and wrapper attribution remain unproven. No code change was indicated.
+- Verdict: `BLOCKED_POLICY_SOURCE_UNRESOLVED`.
+
+### Capability probe 3
+
+- Evidence root: `eval/grilling/results/task-0026-capability-probe-3`.
+- Invocation delta: only the global option pair `--ask-for-approval never` was inserted before `exec`; model, prompt, requested command, sandbox, effort, isolation, and protection boundaries were unchanged. The CLI parsed the option successfully.
+- Execution: 1 model call, 1 model process, 1 turn started / 1 turn completed, 0 retries, 0 additional commands, 0 Skill invocations, and 0 scenario invocations.
+- Requested command: `git rev-parse --show-toplevel`; captured wrapper: `"C:\Program Files\PowerShell\7\pwsh.exe" -Command 'git rev-parse --show-toplevel'`.
+- Action evidence: `item.started` then `item.completed`, status `declined`, exit `-1`, output `rejected: blocked by policy`; outer process exit `0`, timeout `false`, and no repository-root output. Evidence completeness is `true` even though command execution did not complete.
+- Evidence identity: manifest SHA-256 `21e1151ef59a4c3c7c73003a2c673a58f1711873a3cbd78de80bb65b47a8ea91`; prompt SHA-256 `490d240fbdd64604872ace381dc4f77bafb414f0abf52380d648afb44f7053bc`; raw stdout SHA-256 `b88f45548538c9c89bb7ed3487cc5eee0bcca9bd3044e35c51793498b33e4e35`; retained stdout SHA-256 `894ec0697c6abe07b4d54a30fee743ce860a1ddb72449cb0e308a98c0f2f3f82`; raw/retained stderr SHA-256 `a7489a95631aaba2d931e633c43ab1dde75e05096e16960886756c45fbec84d3`.
+- Protection and cleanup: repository, Git state, packed/user Skills, auth source, and pre-existing retained evidence were unchanged; the worktree stayed clean, no Task 0027 appeared, and the temporary root, auth copy, last-message scratch, and probe runner were removed.
+- Verdict: `BLOCKED_POLICY_REJECTION`. This excludes authentication, network/TLS, model availability, and model-process spawn as the direct blocker for this invocation, but does not identify the exact policy source, prove shell-child spawn/read-only command capability, test product behavior, establish a product defect, or verify SPEC AC-04 through AC-08.
+
+### Current status and stop decision
+
+- Current model/control pipeline: model process and turn completion verified.
+- Command execution: `BLOCKED_BY_POLICY`.
+- Exact policy source: `UNRESOLVED`.
+- Post-probe behavioral cohort: `NOT RUN`; no capability retry, S-01 through S-06 execution, cohort two, or third cohort followed probe 3.
+- AC-04: `UNVERIFIED`.
+- AC-05: `UNVERIFIED`.
+- AC-06: `UNVERIFIED`.
+- AC-07: `UNVERIFIED`.
+- AC-08: `UNVERIFIED`.
+- Further option trials and model probes stopped. No product/harness change or product-defect conclusion is supported, Task 0020 remains `BLOCKED`, Task 0027 was not created or started, and no release approval exists.
+
+### Documentation-only update validation
+
+- `node ./skills/kyw-task/scripts/task-artifacts.mjs validate --task-directory ./docs/tasks/0026-spec-behavioral-e2e` exited `0` with `valid: true`.
+- A read-only `node --input-type=module --eval` check limited to `TASK.md` and `TEST.md` exited `0`: both files are UTF-8 without BOM, use LF, end with a newline, and have no trailing whitespace.
+- `git diff --check` exited `0` with no output.
+- A read-only inline Node evidence/document consistency check exited `0` with 51/51 checks, covering terminal statuses, AC-04 through AC-08, Task 0020/0027 state, probe counts/verdicts/action results, retained hashes, protection, and cleanup.
 
 ## Failure and Retry History
 
@@ -334,9 +383,9 @@ Common fields: model `gpt-5.6-sol`; effort `high`; packed tarball SHA-256 `75034
 
 ## Unverified
 
-- SPEC AC-04 through AC-08 remain unverified: cohort one crossed an invalid writable execution boundary, and cohort two never started because the one authorized model capability process failed before complete action evidence.
+- SPEC AC-04 through AC-08 remain unverified: cohort one crossed an invalid writable execution boundary, and no later behavioral cohort started. Probes 2 and 3 completed their model processes and turns, but their requested read-only command was declined before execution by router policy; the exact policy source remains unresolved.
 - The retained S-03 summary does not contain its fixed expected-mutation labels. Its actual empty mutation manifest is preserved, and the final report validator reproducibly rejects the resulting retained-verdict mismatch.
-- The authorized corrected cohort did not start. The Docker boundary proved nested `git`, `node`, `npm`, and `tar` execution deterministically, but the one model capability process itself failed before complete action evidence. No new tarball or cohort-two report exists, and no post-cohort validator claim is made.
+- The authorized corrected cohort did not start. The Docker boundary proved nested `git`, `node`, `npm`, and `tar` execution deterministically, while the latest model-backed probe still did not prove read-only command execution. No new tarball or cohort-two report exists, and no post-cohort validator claim is made.
 
 ## Final Coverage Review
 
