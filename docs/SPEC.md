@@ -428,6 +428,13 @@ Do not split by arbitrary file count or estimated token count alone.
 - Add cases for discovered branches, bugs, fallback behavior, compatibility constraints, and revised design.
 - Keep changed intent synchronized with Task acceptance criteria and durable documents.
 
+### Verification execution policy
+
+- Acceptance-specific verification and reproducible evidence remain required. The active Codex model performs risk-proportionate verification directly in the current session by default.
+- Nested `codex exec`, fresh model cohorts, and subagent orchestration are not universal verification requirements. Use subagents or isolated or fresh sessions only when the user explicitly requests them or the active model determines that independent or isolated verification would materially improve confidence.
+- Not using a subagent is not by itself a blocker. A Task that genuinely requires a fresh session or independent agent must state that requirement explicitly in its acceptance criteria and Test contract.
+- Never record an unexecuted verification method as `PASS`.
+
 ### After implementation
 
 - Inspect the final diff and enumerate every meaningful new behavior, state transition, error path, and compatibility change.

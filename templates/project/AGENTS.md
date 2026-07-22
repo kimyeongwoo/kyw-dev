@@ -30,7 +30,9 @@ Record each impact decision in the active Task. Do not edit an unaffected docume
 
 {{VERIFY_COMMANDS}}
 
-Record commands actually run, their results, and anything not verified in the active `TEST.md`.
+Run proportionate verification in the current session by default. Use subagents or isolated sessions only when the user requests them or independent verification would materially improve confidence. Do not require nested Codex execution or a subagent cohort merely to satisfy a generic verification step.
+
+Record commands actually run, their results, and anything not verified in the active `TEST.md`; not using delegation is not by itself a blocker.
 
 ## Completion Gate
 
