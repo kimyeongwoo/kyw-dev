@@ -68,25 +68,15 @@ After selection, restart inspection and the size gate for only that outcome. Nev
 
 ## Phase 3 - Grill Task-level decisions
 
-Apply the installed `$kyw-grilling` protocol as the interview phase. Preserve dependency order, exactly one decision question per turn, one recommended answer with concise reasoning, user-owned decisions, and a wait after every question.
-
-Ask only unresolved choices needed to make this Task independently implementable and verifiable, such as precise scope, visible edge behavior, compatibility, migration, failure handling, or verification. Skip product behavior, architecture, commands, and repository rules already settled in the permanent documents or inspected code. If a material fact is inaccessible, record it as a remaining unknown or blocker; do not turn it into a user preference.
+Apply the installed `$kyw-grilling` protocol in dependency order. A genuine unresolved user-owned blocker gets exactly one decision question per turn, one recommended answer, and a wait; otherwise use evidence or a safe reversible choice. Skip product behavior, architecture, commands, and repository rules already settled by documents or inspection. Record inaccessible facts as unknowns or blockers, not preferences.
 
 Do not allocate or write while questions remain.
 
 ## Phase 4 - Author one DRAFT pair
 
-Before allocation, derive:
+Before allocation, derive title, one Goal, dependencies, scope boundaries, Plan/decisions/risks, documentation impact, handoff, and static `STANDARD` or reasoned `NONE` delivery. Add stable IDs `AC-01`, `AC-02` and stable IDs `T-01`, `T-02` with method, level, unexecuted status, regressions, commands, and blank evidence.
 
-- a concise title and single-sentence Goal;
-- explicit dependencies;
-- In Scope and nearby Out of Scope boundaries;
-- observable acceptance criteria with sequential stable IDs `AC-01`, `AC-02`, and so on;
-- an implementation Plan, Task-level Decisions, Risks, documentation-impact expectations, Remaining work, and a concrete Resume Point;
-- a static Delivery Requirement of `STANDARD` or `NONE — <reason>` without mutable PR, merge, or Actions state;
-- initial test rows with stable IDs `T-01`, `T-02`, and so on, including method, level, an unexecuted status, required regressions, expected commands, and blank evidence.
-
-Map every acceptance criterion to at least one initial test row. Include known failure paths and compatibility regressions. Once the pair is published, never renumber or reuse an acceptance or test ID; append a new ID when intent grows and explain any retired case.
+Map every acceptance criterion to at least one initial test row, including failures and compatibility. Append IDs; never renumber or reuse them. For the one artifact type, keep standard, documentation-only, and bug-fix Tasks concise: use `Not applicable — <reason>`, never bare `None`/empty/reasonless content. ACs/matrix stay substantive; release/security evidence has no global length cap.
 
 If the user cancels or required facts remain inaccessible before publication, stop with no artifact and do not run the adapter.
 

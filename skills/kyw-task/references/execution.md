@@ -132,7 +132,7 @@ Publication, npm registry mutation, tag, GitHub Release, public plugin submissio
 
 ## Apply overrides and preserve model provenance
 
-Only text appended by the current user to the matched invocation is an execution override. Record it verbatim before acting. Its default scope is the first selected Task; apply it to every remaining Task only when the user explicitly says so. A bounded override may narrow method, ordering, or checks. It cannot waive acceptance, evidence honesty, safety, user-work preservation, or separately gated external mutation. Report a conflict rather than choosing silently.
+Only current-user text appended to the matched invocation is an override. Record and consume it without re-asking. Its default scope is the first selected Task; extend it only when the user explicitly says so. It may narrow method, order, or checks but cannot waive acceptance, evidence honesty, safety, user-work preservation, or separately gated external mutation; conflicts stop.
 
 Inherit the active session's configured model and reasoning effort. Do not set, downgrade, substitute, or sweep either value unless the current user explicitly requests that change. Record exact model, requested alias, effort, Codex surface, and version only when observable; use `UNAVAILABLE` for values the surface does not expose and never infer them.
 
@@ -154,7 +154,7 @@ Use the exact exposed value with `OBSERVED`. Use `UNAVAILABLE` as both value and
 
 Before the first implementation mutation, update the verified pair together from `READY` / `READY` to `IN_PROGRESS` / `RUNNING`, record the start in Completed or Discoveries, make Remaining and Resume Point concrete, and validate again.
 
-An exact, automatic, or continuous `READY/READY` selection is already implementation and ordinary-delivery confirmation. A selected `DONE/PASSED` Task with resumable delivery is already delivery confirmation. Do not ask again unless appended instructions conflict, a separate authority boundary is reached, or a genuinely unresolved user-owned decision remains.
+Exact, automatic, or continuous `READY/READY` selection confirms implementation and ordinary delivery; selected resumable `DONE/PASSED` confirms delivery. Never reconfirm. Only a genuine unresolved user-owned blocker permits one question with one recommendation; otherwise use evidence or a safe reversible choice.
 
 When a recorded blocker has cleared, change `BLOCKED` / `BLOCKED` back to `IN_PROGRESS` / `RUNNING`, record why it cleared, and validate before continuing. Do not erase the earlier blocked result or command evidence.
 
@@ -192,7 +192,7 @@ After every code or configuration change, reassess permanent-document impact and
 - Keep Completed factual, Remaining ordered, Resume Point executable, and Blockers current.
 - Add Test rows for discovered branches, failures, fallbacks, compatibility behavior, and regressions before claiming coverage.
 - Record exact commands, exit status, concise output, failures, retries, skipped work, and residual risk. Never replace failed history with only the final successful run.
-- Keep current-contract Plan, acceptance, Results, Remaining, Resume Point, and Final Coverage Review repository-local. Never pre-claim a future PR, merge, post-merge run, or delivery result in Task/Test.
+- Keep Plan, acceptance, Results, handoff, and Final Coverage Review repository-local. Never pre-claim a future PR, merge, post-merge run, or delivery result. Use one `Not applicable — <reason>`, never bare `None`/empty content; ACs/matrix stay substantive, with no hard cap on release/security evidence.
 
 Validate the pair after lifecycle changes and before every checkpoint or terminal report.
 

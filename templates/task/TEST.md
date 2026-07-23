@@ -28,7 +28,7 @@ DRAFT
 
 ## Regression Coverage
 
-<!-- List existing behavior that must remain intact. -->
+<!-- List existing behavior that must remain intact, or use `Not applicable — <reason>`. -->
 
 ## Commands
 
@@ -36,11 +36,11 @@ DRAFT
 
 ## Results
 
-- Not run yet.
+- Not applicable — verification has not run.
 
 ## Unverified
 
-- None recorded yet.
+- Not applicable — no residual risk has been recorded yet.
 
 ## Final Coverage Review
 

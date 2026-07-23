@@ -152,7 +152,7 @@ The positive npm `files` allowlist also excludes repository Tasks/docs, the remo
 
 The packaged deterministic mechanics are split into three core modules:
 
-- `src/core/template-contracts.mjs` implements the canonical template registry and enforces token rendering, required-section contracts, current-contract and legacy Task/Test status rules, static delivery-requirement parsing, acceptance-to-test traceability, and evidence validation.
+- `src/core/template-contracts.mjs` implements the canonical template registry and enforces token rendering, required-section contracts, lifecycle-aware meaningful-content or reasoned-N/A rules, current-contract and legacy Task/Test status rules, static delivery-requirement parsing, acceptance-to-test traceability, and evidence validation. It applies no global Task length cap.
 - `src/core/task-artifacts.mjs` owns Task directory inventory, max-plus-one ID allocation, bounded ASCII slug generation, cross-platform path containment, atomic Task/Test scaffolding, file-backed validation, hard-dependency graph construction, and deterministic exact/automatic queue resolution.
 - `src/core/skill-installation.mjs` owns direct-install source inventory and hashing, user/project scope resolution, ownership metadata, conflict inspection, journaled file transactions and recovery, ownership-safe uninstall, tool detection, and doctor diagnostics.
 
@@ -305,6 +305,8 @@ The resolver reads literal `Task NNNN` references only from the Task `Dependenci
 The current queue frontier is the highest-numbered current-contract Task. If no active, resumable-delivery, or ready pair exists, a blocked or inconsistent frontier reports its exact blocker. A `DONE/PASSED` or `CANCELLED/BLOCKED` frontier produces the exact no-work response only after its static delivery requirement is satisfied.
 
 Only text appended by the current user to the dispatch form is an override. It applies to the first selected Task unless that user explicitly scopes it to every remaining Task. The semantic workflow may accept a bounded method, ordering, or check constraint, but reports a conflict rather than allowing an override to waive acceptance, truthful evidence, safety, user-work preservation, or separately gated external mutation. The active session's model and reasoning effort are inherited unchanged unless the current user explicitly overrides them; observable provenance is recorded and unavailable values are never guessed.
+
+The semantic workflow treats an appended constraint as settled input instead of asking the user to repeat it. It emits a question only when one genuine user-owned decision blocks further safe progress; that turn contains exactly one decision question and one recommended answer. Repository evidence and safe reversible implementation choices resolve non-blocking uncertainty without a question, and recognized `READY/READY` selection never receives ceremonial reconfirmation.
 
 Execution mutations remain limited to the current pair, implementation/tests required by its acceptance criteria, and permanent documents whose durable meaning changed. The only other-pair exception is an explicitly scoped, contract-only migration of named pre-created nonterminal Tasks; their outcomes remain unimplemented. Resume verifies Completed work against repository evidence and begins at Resume Point or the first valid Remaining item instead of blindly repeating recorded actions.
 
@@ -461,6 +463,10 @@ Task status and Test status remain separate fields but current-contract pairings
 
 During execution, discoveries update Task intent and Test coverage together; durable meaning is routed to its permanent owner before implementation alignment. Before compaction or interruption, the workflow persists Completed, Remaining, Resume Point, Blockers, current decisions/document impact, repository state, commands, results, row evidence, and unverified risks in the existing pair. Terminal `DONE`/`PASSED` requires mapped acceptance criteria, executed required checks, synchronized durable documents, a complete final diff coverage review, reproducible evidence, final pair validation, and no repository work left in Plan, Remaining, or Resume Point. An unavailable required check produces recorded `BLOCKED` status instead of inferred success. Required external delivery is checked afterward from GitHub and never inserted as self-referential future repository work.
 
+Current-contract `DRAFT/DRAFT` scaffolds may retain authoring guidance, and `CANCELLED/BLOCKED` may preserve that incomplete history. From `READY/READY` onward, each required section must have substantive content or one exact `Not applicable — <reason>` entry; an empty/comment-only section, bare `None`, or reasonless N/A fails validation. Acceptance Criteria and the Intent-to-Test Matrix remain substantive graph nodes with at least one AC, one row, and complete mapping. This semantic completeness check does not impose a size profile or second artifact type: routine Tasks stay concise by guidance, while release/security evidence may expand as needed.
+
+For byte-preserving compatibility, pre-rule contract-v2 pairs without any reasoned-N/A entry retain their historical negative placeholders. Empty required content and missing AC/matrix graph nodes still fail. The updated canonical template includes reasoned N/A, so adopting any such entry activates strict bare-None and N/A-shape validation for the complete pair without creating another Task type or rewriting old evidence.
+
 Atomic Task creation resolves and rejects a symlinked tasks root, renders and validates both documents before publication, writes them into a unique hidden sibling staging directory, then acquires an exclusive creation lock. While holding the lock it rechecks the allocated ID and target absence before renaming the complete directory into place. Expected failures remove the staging directory, so a final Task directory never exposes only one of the two contract files.
 
 ## 9. Test contract architecture
@@ -478,6 +484,8 @@ Final diff behavior B-N
 
 Validation checks should detect:
 
+- selectable or active current sections that are empty, comment-only, bare `None`, or malformed reasoned N/A;
+- selectable or active current pairs with no acceptance criterion or no matrix row;
 - acceptance criterion with no test reference;
 - test row with no intent/source;
 - PASS without evidence;
@@ -645,6 +653,8 @@ Templates define section contracts, not final project content.
 - `TEST.md`: paired current-contract marker, traceability, and repository evidence fields.
 
 `kyw-init` and `kyw-task` must customize templates from inspected facts and settled decisions. They must not leave unexplained placeholders in completed documents.
+
+Task templates show `Not applicable — <reason>` as the only concise substitute for inapplicable required content. They do not define a short or long variant and do not enforce a global size threshold. Release/security Tasks use the same templates and validator while retaining whatever evidence is necessary.
 
 The six canonical files are `templates/project/{README,AGENTS,SPEC,ARCHITECTURE}.md` and `templates/task/{TASK,TEST}.md`. Project-name, verification-command, Task-ID, and Task-title tokens are explicit inputs. The reserved `<!-- kyw-task-contract: 2 -->` marker is durable machine-readable contract identity rather than authoring guidance; other explanatory HTML comments must be removed or resolved when final project-specific content is materialized.
 

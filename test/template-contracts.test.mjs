@@ -18,6 +18,7 @@ import {
 } from "../src/core/template-contracts.mjs";
 
 const fixturesRoot = fileURLToPath(new URL("./fixtures/task-repositories/", import.meta.url));
+const ergonomicsFixturesRoot = path.join(fixturesRoot, "ergonomics");
 
 test("template contracts cover every canonical project, Task, and Test document", async () => {
   for (const kind of Object.keys(DOCUMENT_CONTRACTS)) {
@@ -41,6 +42,110 @@ test("rendered Task templates form a valid DRAFT pair without unresolved tokens"
   assert.throws(
     () => renderTemplate("{{KNOWN}} {{MISSING}}", { KNOWN: "value" }),
     /Missing template values: MISSING/,
+  );
+});
+
+test("current Task ergonomics accept reasoned N/A, reject empty ambiguity, and retain one artifact type", async () => {
+  const fixtureNames = [
+    "0101-standard-task",
+    "0102-documentation-only",
+    "0103-bug-fix",
+    "0104-blocked-task",
+    "0105-release-task",
+  ];
+  for (const fixtureName of fixtureNames) {
+    assert.deepEqual(
+      await validateTaskDirectory(path.join(ergonomicsFixturesRoot, fixtureName)),
+      [],
+      fixtureName,
+    );
+  }
+
+  const standardDirectory = path.join(ergonomicsFixturesRoot, "0101-standard-task");
+  const standardTask = await readFile(path.join(standardDirectory, "TASK.md"), "utf8");
+  const standardTest = await readFile(path.join(standardDirectory, "TEST.md"), "utf8");
+  const validateStandardMutation = (taskMarkdown, testMarkdown = standardTest) =>
+    validateTaskTestContract({ taskMarkdown, testMarkdown }).join("\n");
+
+  assert.match(
+    validateStandardMutation(
+      standardTask.replace(
+        "- Not applicable — the pure string transformation has no material compatibility risk.",
+        "- None",
+      ),
+    ),
+    /section "Risks" cannot use bare None/,
+  );
+  assert.match(
+    validateStandardMutation(
+      standardTask.replace(
+        "- Not applicable — existing normalization policy settles the implementation choice.",
+        "- Preserve the existing normalization policy.\n- None",
+      ),
+    ),
+    /section "Decisions" cannot use bare None/,
+  );
+  assert.match(
+    validateStandardMutation(
+      standardTask.replace(
+        "## Decisions\n\n- Not applicable — existing normalization policy settles the implementation choice.",
+        "## Decisions\n\n<!-- unresolved placeholder -->",
+      ),
+    ),
+    /section "Decisions" requires meaningful content/,
+  );
+  assert.match(
+    validateStandardMutation(
+      standardTask.replace(
+        "- Not applicable — no discovery has changed the approved fixture scope.",
+        "- Not applicable",
+      ),
+    ),
+    /section "Discoveries and Changes" must use one standalone "Not applicable — <reason>" entry/,
+  );
+  assert.match(
+    validateStandardMutation(
+      standardTask.replace(
+        "- [ ] AC-01: A display label is returned without surrounding whitespace.",
+        "- Not applicable — the Task still requires observable acceptance.",
+      ),
+    ),
+    /requires at least one acceptance criterion/,
+  );
+  assert.match(
+    validateStandardMutation(
+      standardTask,
+      standardTest.replace(
+        "| T-01 | AC-01 — surrounding whitespace is removed | Run the focused label fixture | Unit | TODO | Verification has not run. |",
+        "",
+      ),
+    ),
+    /requires at least one matrix row/,
+  );
+
+  const releaseDirectory = path.join(ergonomicsFixturesRoot, "0105-release-task");
+  const releaseTask = await readFile(path.join(releaseDirectory, "TASK.md"), "utf8");
+  assert.ok(
+    releaseTask.split(/\r?\n/).length > standardTask.split(/\r?\n/).length,
+    "the same validator accepts longer justified release evidence without a size profile",
+  );
+
+  const values = { TASK_ID: "0999", TASK_TITLE: "Cancelled draft" };
+  const cancelledDraftTask = renderTemplate(await readCanonicalTemplate("TASK"), values).replace(
+    "\nDRAFT\n",
+    "\nCANCELLED\n",
+  );
+  const cancelledDraftTest = renderTemplate(await readCanonicalTemplate("TEST"), values).replace(
+    "\nDRAFT\n",
+    "\nBLOCKED\n",
+  );
+  assert.deepEqual(
+    validateTaskTestContract({
+      taskMarkdown: cancelledDraftTask,
+      testMarkdown: cancelledDraftTest,
+    }),
+    [],
+    "cancelled authoring preserves incomplete DRAFT history without invented content",
   );
 });
 
@@ -257,6 +362,18 @@ test("validator enforces exact lifecycle pairs while retaining legacy completed 
       "## Risks\n\n- None known.\n\n## Discoveries and Changes",
     )
     .replace(
+      /^## Dependencies\n\n- None$/m,
+      "## Dependencies\n\n- Not applicable — the fixture has no hard Task dependency.",
+    )
+    .replace(
+      /^## Discoveries and Changes\n\n- None\.$/m,
+      "## Discoveries and Changes\n\n- Not applicable — no discovery changed the fixture.",
+    )
+    .replace(
+      /^## Blockers\n\n- None\.$/m,
+      "## Blockers\n\n- Not applicable — no blocker remains.",
+    )
+    .replace(
       /^## Remaining\n\n- None\.$/m,
       "## Remaining\n\n- None — repository outcome complete.",
     )
@@ -264,10 +381,12 @@ test("validator enforces exact lifecycle pairs while retaining legacy completed 
       /^## Resume Point\n\nNo work remains\.$/m,
       "## Resume Point\n\n- None — repository outcome complete.",
     );
-  const currentTest = passedTest.replace(
-    /^# TEST 0001 — Complete Task$/m,
-    `$&\n\n${TASK_CONTRACT_MARKER}`,
-  );
+  const currentTest = passedTest
+    .replace(/^# TEST 0001 — Complete Task$/m, `$&\n\n${TASK_CONTRACT_MARKER}`)
+    .replace(
+      /^## Unverified\n\n- None\.$/m,
+      "## Unverified\n\n- Not applicable — no residual risk remains.",
+    );
 
   for (const [taskStatus, testStatus] of TASK_TEST_STATUS_PAIRS) {
     const taskMarkdown = currentTask.replace("\nDONE\n", `\n${taskStatus}\n`);
@@ -344,14 +463,28 @@ test("current contract validates static delivery policy and repository-only term
       "## Risks\n\n- None known.\n\n## Discoveries and Changes",
     )
     .replace(
+      /^## Dependencies\n\n- None$/m,
+      "## Dependencies\n\n- Not applicable — the fixture has no hard Task dependency.",
+    )
+    .replace(
+      /^## Discoveries and Changes\n\n- None\.$/m,
+      "## Discoveries and Changes\n\n- Not applicable — no discovery changed the fixture.",
+    )
+    .replace(
+      /^## Blockers\n\n- None\.$/m,
+      "## Blockers\n\n- Not applicable — no blocker remains.",
+    )
+    .replace(
       /^## Remaining\n\n- None\.$/m,
       "## Remaining\n\n- None — repository outcome complete.",
     )
     .replace(/^## Resume Point\n\nNo work remains\.$/m, "## Resume Point\n\n- None — repository outcome complete.");
-  const currentTest = legacyTest.replace(
-    /^# TEST 0001 — Complete Task$/m,
-    `$&\n\n${TASK_CONTRACT_MARKER}`,
-  );
+  const currentTest = legacyTest
+    .replace(/^# TEST 0001 — Complete Task$/m, `$&\n\n${TASK_CONTRACT_MARKER}`)
+    .replace(
+      /^## Unverified\n\n- None\.$/m,
+      "## Unverified\n\n- Not applicable — no residual risk remains.",
+    );
 
   assert.deepEqual(
     validateTaskTestContract({ taskMarkdown: currentTask, testMarkdown: currentTest }),
