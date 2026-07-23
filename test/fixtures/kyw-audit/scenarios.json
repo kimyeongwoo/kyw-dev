@@ -193,7 +193,9 @@
         "command": "node --test test/account-unlock.test.mjs",
         "exitCode": 0,
         "result": "2/2 passed",
-        "reproduced": true
+        "reproduced": false,
+        "retainedEvidenceVerified": true,
+        "rerunLimitation": "Bare audit skips node test execution because it is outside the strict literal read-only boundary."
       }
     ],
     "findings": [],

@@ -107,6 +107,12 @@ const skillNames = existsSync(skillsRoot)
 const skillPath =
   skillNames.length === 1 ? join(skillsRoot, skillNames[0], "SKILL.md") : null;
 const skillSource = skillPath && existsSync(skillPath) ? readFileSync(skillPath, "utf8") : "";
+const relativeSkillPath =
+  skillNames.length === 1 ? `.agents/skills/${skillNames[0]}/SKILL.md` : ".agents/skills";
+const skillReadCommand =
+  process.platform === "win32"
+    ? `Get-Content -Raw -LiteralPath '${relativeSkillPath}'`
+    : `cat -- '${relativeSkillPath}'`;
 const isAudit = existsSync(join(repository, "docs", "tasks", "0001-greeting-contract"));
 const message = isAudit
   ? "F-01: synthetic fixture contract mismatch.\n\n## Verdict\n\nBLOCKED"
@@ -126,7 +132,7 @@ for (const event of [
     type: "item.completed",
     item: {
       type: "command_execution",
-      command: skillPath ? `read ${skillPath}` : "read installed Skill",
+      command: skillReadCommand,
       aggregated_output: skillSource,
       status: "completed",
     },
