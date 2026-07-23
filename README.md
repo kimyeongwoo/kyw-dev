@@ -14,7 +14,7 @@ Task 0020 remains immutable historical `BLOCKED` evidence for its old candidate.
 
 Source: [kimyeongwoo/kyw-dev](https://github.com/kimyeongwoo/kyw-dev) · Issues: [GitHub issue tracker](https://github.com/kimyeongwoo/kyw-dev/issues)
 
-`$kyw-grilling` is implemented as an explicit-invocation-only, read-only interview Skill. `$kyw-init` is implemented as its explicit-only initialization wrapper: it inspects first, waits for confirmation, and then creates or minimally updates only the four permanent documents. `$kyw-task` sizes and clarifies one outcome, authors one atomic DRAFT Task/Test pair, enters execution after confirmation, or resumes an existing Task by four-digit ID. It keeps scope, documents, handoff state, tests, and final diff coverage synchronized until evidence supports `DONE`/`PASSED` or a recorded blocker. `$kyw-audit` independently treats those completion records as claims, reproduces available evidence, detects scope and documentation drift, and returns `PASS` or `BLOCKED` without modifying the repository by default. Only the exact `--fix` form authorizes bounded in-scope repair.
+`$kyw-grilling` is implemented as an explicit-invocation-only, read-only interview Skill. `$kyw-init` is implemented as its explicit-only initialization wrapper: it inspects first, waits for confirmation, and then creates or minimally updates only the four permanent documents. `$kyw-task` sizes and clarifies one outcome, authors one atomic DRAFT Task/Test pair, executes an exact existing Task, or advances a pre-created dependency-aware queue one Task at a time. It keeps scope, documents, handoff state, tests, final diff coverage, and repository-versus-delivery evidence honest until completion or a recorded blocker. `$kyw-audit` independently treats those completion records as claims, reproduces available evidence, detects scope and documentation drift, and returns `PASS` or `BLOCKED` without modifying the repository by default. Only the exact `--fix` form authorizes bounded in-scope repair.
 
 The authoritative product requirements are in `docs/SPEC.md`; the system structure is in `docs/ARCHITECTURE.md`; implementation is divided under `docs/tasks/`.
 
@@ -79,7 +79,7 @@ The smoke publishes no repository result artifact. A successful run prints a com
 
 The audit smoke uses the same run-scoped POSIX `SIGINT`/`SIGTERM` and Windows console Ctrl+C lifecycle, exit codes, two-phase child-tree termination bounds, awaited bounded owned-state removal, idempotent cleanup, and safe cleanup-failure diagnostics as the grilling evaluator. Cleanup owns only its single temporary root, including the repository, isolated HOME/`CODEX_HOME`, copied `auth.json`, control files, and last-message scratch file; it publishes no repository result artifact and leaves the auth source unchanged. Windows Ctrl+Break/SIGBREAK is not claimed, and `SIGKILL`, OS crash, and power loss remain outside the cleanup guarantee.
 
-The canonical section contracts live under `templates/project/` and `templates/task/`. Runtime consumers can use `src/core/template-contracts.mjs` to render and validate them and `src/core/task-artifacts.mjs` to inspect or create Task directories. `src/core/skill-installation.mjs` owns direct-install scope resolution, file ownership, transactions, recovery, and diagnostics. `kyw-grilling` provides the standalone conversational interview primitive, `kyw-init` wraps it with confirmed, non-destructive permanent-document materialization, `kyw-task` combines a thin packaged creation/validation adapter with a packaged execution/resume reference, and `kyw-audit` packages independent read-only inspection plus an exact-flag repair workflow without adding a runtime dependency.
+The canonical section contracts live under `templates/project/` and `templates/task/`. Runtime consumers can use `src/core/template-contracts.mjs` to render and validate them and `src/core/task-artifacts.mjs` to inspect, create, validate, and resolve Task directories and queues. `src/core/skill-installation.mjs` owns direct-install scope resolution, file ownership, transactions, recovery, and diagnostics. `kyw-grilling` provides the standalone conversational interview primitive, `kyw-init` wraps it with confirmed, non-destructive permanent-document materialization, `kyw-task` combines a thin packaged artifact/dispatch adapter with a packaged execution and queue reference, and `kyw-audit` packages independent read-only inspection plus an exact-flag repair workflow without adding a runtime dependency.
 
 ## Target workflow
 
@@ -107,10 +107,10 @@ Small questions and narrowly scoped changes do not require a Task folder. They s
 |---|---|---|
 | `$kyw-grilling` | Implemented | Internal/advanced interview primitive: resolve dependent decisions one at a time, with a recommended answer. |
 | `$kyw-init` | Implemented | Discover, adopt, or intentionally re-baseline a project, grill unresolved durable decisions, then create or minimally update the four permanent documents after confirmation. |
-| `$kyw-task` | Implemented | Create one confirmed Task/Test pair, execute it within scope, or resume it by ID through evidence-backed completion or a recorded blocker. |
+| `$kyw-task` | Implemented | Create one confirmed Task/Test pair, execute an exact Task, or advance a pre-created queue serially through evidence-backed completion or a recorded blocker. |
 | `$kyw-audit` | Implemented | Independently compare one Task's intent, code/diff, test evidence, scope, and permanent documents without writes; repair only through the exact `--fix` form. |
 
-All four Skills require explicit invocation. To use the implemented primitive directly:
+All four packaged Skills keep implicit invocation disabled. Use their explicit `$skill-name` forms on every supported surface; a kyw-managed repository may additionally route only the exact Task aliases documented below through its loaded `AGENTS.md`.
 
 ```text
 $kyw-grilling "stress-test this account lockout design"
@@ -141,6 +141,28 @@ $kyw-task 0006
 ```
 
 Numeric resume verifies the recorded Task/Test state against permanent documents, repository status, relevant diff, code, and test evidence. It continues at the verified `Resume Point` without repeating Completed work. A required test that cannot run leaves evidence-backed `BLOCKED` status; the Skill never substitutes an unsupported `DONE`/`PASSED` claim.
+
+`$kyw-task NNNN` is the portable exact-Task form. In a repository whose managed `AGENTS.md` routing contract is loaded, these anchored aliases are also available:
+
+```text
+task 0006 실행해줘
+task 진행해줘
+남은 task 계속 실행해줘
+```
+
+The first alias selects exactly one existing Task. `task 진행해줘` resumes the sole `IN_PROGRESS/RUNNING` pair when safe or selects the lowest-numbered dependency-satisfied `READY/READY` pair. `남은 task 계속 실행해줘` repeats that selection serially for pre-created Tasks only, with one active Task and a fresh repository, remote, and required-delivery preflight at every transition. It runs only during the current host invocation; it neither creates a Task nor promises unattended background continuation. On a surface that has not loaded the managed routing contract, use `$kyw-task NNNN`.
+
+Exact selection of a current-contract `READY/READY` pair is execution confirmation, so no ceremonial second confirmation is required unless a real user-owned decision or instruction conflict remains. Current pairs use only `DRAFT/DRAFT`, `READY/READY`, `IN_PROGRESS/RUNNING`, `DONE/PASSED`, `BLOCKED/BLOCKED`, or terminal `CANCELLED/BLOCKED`; contradictory pairs, multiple active Tasks, missing hard dependencies, and dependency cycles fail closed. Only literal `Task NNNN` references in `## Dependencies` are queue edges. An unrelated historical blocker is not a queue edge and does not stop later work.
+
+Text appended by the current user to a dispatch command is an execution override for the first selected Task unless the user explicitly applies it to every remaining Task. An override may narrow method, order, or checks, but cannot waive acceptance, evidence honesty, safety, preservation of user work, or separately gated external authority. The active model and reasoning effort remain unchanged unless that same user explicitly overrides them; unavailable provenance is recorded as unavailable rather than guessed.
+
+Each current Task/Test pair declares a static delivery requirement: `STANDARD`, whose canonical ledger is GitHub PR/Actions exact-SHA state, or reasoned `NONE`. Task/Test owns repository outcome and reproducible evidence; mutable PR, review, merge, and Actions results stay in GitHub. The dispatcher binds the GitHub ledger to separately inspected local repository, base, and outcome-SHA expectations. `STANDARD` is a gate, not permission to commit, push, open, or merge a PR; those actions need a current-user instruction or explicit selected-Task scope. A `DONE/PASSED` Task may therefore wait at the delivery gate before queue advancement without putting future facts in `Remaining` or `Resume Point`. Legacy completed artifacts remain historical evidence and are not retroactively rewritten. Only when no ready or active current Task remains, the frontier is terminal, and required delivery is satisfied does the workflow return exactly:
+
+```text
+현재 만들어진 Task는 모두 완료됐습니다. 더 이상 진행할 작업이 없습니다. 추가로 하고 싶은 작업이 있나요?
+```
+
+Incidental prose containing the word `task` does not match these anchored forms and retains ordinary-prompt behavior.
 
 To independently audit one Task:
 

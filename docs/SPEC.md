@@ -54,7 +54,7 @@ The workflow must be distributable from GitHub and npm, usable as a Codex plugin
 - Running unattended background work.
 - Guaranteeing completion by token counting alone.
 - Adding MCP servers, external connectors, or lifecycle hooks.
-- Automatically committing, pushing, or opening pull requests.
+- Automatically committing, pushing, or opening pull requests without a current-user instruction or explicit selected-Task scope.
 - Supporting other coding agents as a first-class target in v0.1.
 - Maintaining separate Plan, Progress, Status, Handoff, Verification, or Test Plan documents.
 - Enforcing one universal software architecture across target projects.
@@ -110,14 +110,19 @@ Output:
 
 ### `$kyw-task`
 
-Purpose: create or resume one numbered Task and carry it through implementation and verification.
+Purpose: create one numbered Task, execute an exact existing Task, or advance a pre-created Task queue serially through implementation and verification.
 
 Invocation examples:
 
 ```text
 $kyw-task "add account lockout"
 $kyw-task 0007
+task 0007 실행해줘
+task 진행해줘
+남은 task 계속 실행해줘
 ```
+
+The `$kyw-task NNNN` form is portable. The three natural-language forms are anchored repository aliases available only when a kyw-managed `AGENTS.md` routing contract is loaded; a surface without that contract must direct the user to the portable form.
 
 New-Task behavior:
 
@@ -145,6 +150,22 @@ Resume behavior:
 2. Verify recorded state against the repository.
 3. Resume at `Resume Point` rather than repeating completed work.
 4. Before compaction, refresh `Completed`, `Remaining`, `Resume Point`, and test evidence.
+
+Existing-Task dispatch behavior:
+
+1. Resolve an exact ID to exactly one existing Task. Selecting a current-contract `READY/READY` pair confirms execution; ask again only for a genuinely unresolved user-owned decision or a conflicting appended instruction. A different active Task blocks exact selection.
+2. Treat `DRAFT/DRAFT` as unconfirmed authoring, `READY/READY` as selectable, `IN_PROGRESS/RUNNING` as active, `DONE/PASSED` as repository-complete, `BLOCKED/BLOCKED` as stopped, and `CANCELLED/BLOCKED` as terminal. Any other pair fails closed.
+3. Treat only literal `Task NNNN` references inside `## Dependencies` as hard queue edges. Evidence and implementation-input prose is not an edge. A missing referenced Task, dependency cycle, or unsatisfied hard dependency fails closed.
+4. For `task 진행해줘`, safely resume the sole active pair; if none exists, select the lowest-numbered dependency-satisfied ready pair. Multiple active pairs fail closed.
+5. For `남은 task 계속 실행해줘`, process only pre-created eligible Tasks, serially and within the current invocation. Recheck repository, remote, and required GitHub delivery state before every transition; never promise background continuation.
+6. Stop on an active or hard-dependency blocker, current queue-frontier blocker, unsafe drift, unexplained user work, unresolved product decision, review or CI failure, or separately gated authority. A historical blocker that is neither active nor a hard dependency does not freeze a current queue.
+7. Treat only text appended by the current user to the invocation as an execution override. It applies to the first selected Task unless the user explicitly scopes it to every remaining Task, and it cannot waive acceptance, evidence honesty, safety, user-work preservation, or external-mutation authority.
+8. Preserve the active model and reasoning effort unless the current user explicitly overrides them. Record observable provenance and mark unavailable values unavailable; never infer, downgrade, substitute, or sweep settings.
+9. Let Task/Test own repository outcome and reproducible evidence. A current-contract pair declares `STANDARD` delivery with GitHub PR/Actions exact-SHA state as its canonical ledger, or `NONE` with a reason. Bind that ledger to separately inspected local repository, base, and outcome-SHA expectations. Mutable delivery results never become future facts required inside the pair. `STANDARD` is a gate, not authority to commit, push, open or merge a PR; those actions require a current-user instruction or explicit selected-Task scope.
+10. Do not advance past a repository-complete Task while required delivery remains unknown, pending, or failed. CI success proves delivery state, not behavioral acceptance.
+11. If no ready or active current Task exists, the frontier is `DONE/PASSED` or `CANCELLED/BLOCKED`, and required delivery is satisfied, create no Task and return exactly: `현재 만들어진 Task는 모두 완료됐습니다. 더 이상 진행할 작업이 없습니다. 추가로 하고 싶은 작업이 있나요?`
+12. If the current frontier is blocked or inconsistent, report the exact blocker instead of returning the no-work message.
+13. Incidental text containing `task` does not match an anchored alias and retains ordinary-prompt behavior.
 
 ### `$kyw-audit`
 
@@ -340,7 +361,9 @@ Numbering rules:
 - slug is lowercase ASCII kebab-case where possible;
 - renaming a completed Task requires explicit intent because links may depend on it.
 
-### Required `TASK.md` sections
+### Required current-contract `TASK.md` sections
+
+Legacy unmarked pairs retain their historical section contract; queue-aware pairs require:
 
 - ID and title
 - Status
@@ -351,8 +374,10 @@ Numbering rules:
 - Acceptance Criteria
 - Plan
 - Decisions
+- Risks
 - Discoveries and Changes
 - Documentation Impact
+- Delivery
 - Completed
 - Remaining
 - Resume Point
@@ -365,6 +390,21 @@ DRAFT → READY → IN_PROGRESS → DONE
                      ↘ BLOCKED
 DRAFT/READY/IN_PROGRESS → CANCELLED
 ```
+
+Queue-aware Task/Test pairs carry the paired current-contract marker `<!-- kyw-task-contract: 2 -->`; immutable historical pairs without that marker retain their original validation meaning. A current pair also contains a `Delivery` section with exactly one static requirement:
+
+```text
+- Requirement: STANDARD
+- Canonical ledger: GitHub PR/Actions exact-SHA state.
+```
+
+or:
+
+```text
+- Requirement: NONE — <reason>
+```
+
+`STANDARD` records only the kind and canonical external ledger. Mutable PR, review, merge, and Actions results do not belong in the Task artifact and must not remain as future work in a repository-complete pair.
 
 ### Required `TEST.md` sections
 
@@ -383,6 +423,8 @@ Allowed statuses:
 DRAFT → READY → RUNNING → PASSED
                      ↘ BLOCKED
 ```
+
+For the current contract, valid Task/Test pairs are `DRAFT/DRAFT`, `READY/READY`, `IN_PROGRESS/RUNNING`, `DONE/PASSED`, `BLOCKED/BLOCKED`, and `CANCELLED/BLOCKED`. Pair validation fails closed before selection or implementation.
 
 The test matrix must contain:
 
@@ -446,6 +488,7 @@ Do not split by arbitrary file count or estimated token count alone.
 
 When the user asks a question or small, bounded change without invoking a Skill:
 
+- first recognize only the three exact anchored Task aliases when the managed repository routing contract is loaded;
 - do not create a numbered Task by default;
 - inspect the repository and answer or implement directly;
 - run proportionate verification for code/configuration changes;

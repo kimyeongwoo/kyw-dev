@@ -7,6 +7,8 @@ import { fileURLToPath } from "node:url";
 import { validateTaskDirectory } from "../src/core/task-artifacts.mjs";
 import {
   DOCUMENT_CONTRACTS,
+  TASK_CONTRACT_MARKER,
+  TASK_TEST_STATUS_PAIRS,
   readCanonicalTemplate,
   renderTemplate,
   validateCanonicalTemplate,
@@ -71,7 +73,7 @@ test("validator rejects invalid Test status and inconsistent DONE or PASS claims
   const runningTest = passedTest.replace("\nPASSED\n", "\nRUNNING\n");
   assert.match(
     validateTaskTestContract({ taskMarkdown, testMarkdown: runningTest }).join("\n"),
-    /DONE requires TEST\.md Status PASSED/,
+    /DONE requires TEST.md Status PASSED/,
   );
 
   const unsupportedPass = passedTest.replace(
@@ -97,4 +99,219 @@ test("validator rejects invalid Test status and inconsistent DONE or PASS claims
     validateTaskTestContract({ taskMarkdown, testMarkdown: mismatchedId }).join("\n"),
     /IDs do not match \(0001 != 0002\)/,
   );
+});
+
+test("validator enforces exact lifecycle pairs while retaining legacy completed evidence", async () => {
+  const directory = path.join(fixturesRoot, "normal", "docs", "tasks", "0001-complete-task");
+  const doneTask = await readFile(path.join(directory, "TASK.md"), "utf8");
+  const passedTest = await readFile(path.join(directory, "TEST.md"), "utf8");
+  const currentTask = doneTask
+    .replace(/^# TASK 0001 — Complete Task$/m, `$&\n\n${TASK_CONTRACT_MARKER}`)
+    .replace(
+      /^## Completed$/m,
+      "## Delivery\n\n- Requirement: STANDARD\n- Canonical ledger: GitHub PR/Actions exact-SHA state.\n\nRepository outcome only.\n\n## Completed",
+    )
+    .replace(
+      /^## Discoveries and Changes$/m,
+      "## Risks\n\n- None known.\n\n## Discoveries and Changes",
+    )
+    .replace(
+      /^## Remaining\n\n- None\.$/m,
+      "## Remaining\n\n- None — repository outcome complete.",
+    )
+    .replace(
+      /^## Resume Point\n\nNo work remains\.$/m,
+      "## Resume Point\n\n- None — repository outcome complete.",
+    );
+  const currentTest = passedTest.replace(
+    /^# TEST 0001 — Complete Task$/m,
+    `$&\n\n${TASK_CONTRACT_MARKER}`,
+  );
+
+  for (const [taskStatus, testStatus] of TASK_TEST_STATUS_PAIRS) {
+    const taskMarkdown = currentTask.replace("\nDONE\n", `\n${taskStatus}\n`);
+    const testMarkdown = currentTest.replace("\nPASSED\n", `\n${testStatus}\n`);
+    assert.deepEqual(
+      validateTaskTestContract({ taskMarkdown, testMarkdown }),
+      [],
+      `${taskStatus}/${testStatus}`,
+    );
+  }
+
+  for (const [taskStatus, testStatus] of [
+    ["DRAFT", "READY"],
+    ["READY", "RUNNING"],
+    ["IN_PROGRESS", "READY"],
+    ["BLOCKED", "READY"],
+    ["CANCELLED", "READY"],
+    ["READY", "PASSED"],
+  ]) {
+    const taskMarkdown = currentTask.replace("\nDONE\n", `\n${taskStatus}\n`);
+    const testMarkdown = currentTest.replace("\nPASSED\n", `\n${testStatus}\n`);
+    assert.match(
+      validateTaskTestContract({ taskMarkdown, testMarkdown }).join("\n"),
+      new RegExp(`inconsistent status pair ${taskStatus}/${testStatus}`),
+    );
+  }
+
+  assert.deepEqual(validateTaskTestContract({ taskMarkdown: doneTask, testMarkdown: passedTest }), []);
+  assert.deepEqual(
+    validateTaskTestContract({
+      taskMarkdown: doneTask.replace("\nDONE\n", "\nREADY\n"),
+      testMarkdown: passedTest.replace("\nPASSED\n", "\nRUNNING\n"),
+    }),
+    [],
+    "unmarked history retains its legacy status validation",
+  );
+});
+
+test("current contract validates static delivery policy and repository-only terminal handoff", async () => {
+  const directory = path.join(fixturesRoot, "normal", "docs", "tasks", "0001-complete-task");
+  const legacyTask = await readFile(path.join(directory, "TASK.md"), "utf8");
+  const legacyTest = await readFile(path.join(directory, "TEST.md"), "utf8");
+  const currentTask = legacyTask
+    .replace(/^# TASK 0001 — Complete Task$/m, `$&\n\n${TASK_CONTRACT_MARKER}`)
+    .replace(
+      /^## Completed$/m,
+      "## Delivery\n\n- Requirement: STANDARD\n- Canonical ledger: GitHub PR/Actions exact-SHA state.\n\nRepository outcome only.\n\n## Completed",
+    )
+    .replace(
+      /^## Discoveries and Changes$/m,
+      "## Risks\n\n- None known.\n\n## Discoveries and Changes",
+    )
+    .replace(
+      /^## Remaining\n\n- None\.$/m,
+      "## Remaining\n\n- None — repository outcome complete.",
+    )
+    .replace(/^## Resume Point\n\nNo work remains\.$/m, "## Resume Point\n\n- None — repository outcome complete.");
+  const currentTest = legacyTest.replace(
+    /^# TEST 0001 — Complete Task$/m,
+    `$&\n\n${TASK_CONTRACT_MARKER}`,
+  );
+
+  assert.deepEqual(
+    validateTaskTestContract({ taskMarkdown: currentTask, testMarkdown: currentTest }),
+    [],
+  );
+
+  assert.match(
+    validateTaskTestContract({
+      taskMarkdown: currentTask.replace(/^## Delivery[\s\S]*?(?=^## Completed$)/m, ""),
+      testMarkdown: currentTest,
+    }).join("\n"),
+    /current contract requires exactly one section "Delivery"/,
+  );
+  assert.match(
+    validateTaskTestContract({
+      taskMarkdown: currentTask.replace(/^## Risks[\s\S]*?(?=^## Discoveries and Changes$)/m, ""),
+      testMarkdown: currentTest,
+    }).join("\n"),
+    /current contract requires exactly one section "Risks"/,
+  );
+  assert.match(
+    validateTaskTestContract({
+      taskMarkdown: `${currentTask}\n## Status\n\nCANCELLED\n`,
+      testMarkdown: currentTest,
+    }).join("\n"),
+    /current contract requires exactly one section "Status"/,
+  );
+  assert.match(
+    validateTaskTestContract({
+      taskMarkdown: currentTask.replace(
+        "- Requirement: STANDARD",
+        "- Requirement: NONE",
+      ),
+      testMarkdown: currentTest,
+    }).join("\n"),
+    /Delivery Requirement must be STANDARD or NONE/,
+  );
+  assert.match(
+    validateTaskTestContract({
+      taskMarkdown: currentTask.replace(
+        "- Requirement: STANDARD",
+        "- Requirement: STANDARD\n- Requirement: NONE — local-only fixture",
+      ),
+      testMarkdown: currentTest,
+    }).join("\n"),
+    /requires exactly one Delivery Requirement/,
+  );
+  assert.match(
+    validateTaskTestContract({
+      taskMarkdown: currentTask.replace(
+        "- Requirement: STANDARD",
+        "- Requirement: NONE — local-only fixture",
+      ),
+      testMarkdown: currentTest,
+    }).join("\n"),
+    /NONE delivery must not declare an external canonical ledger/,
+  );
+  assert.match(
+    validateTaskTestContract({
+      taskMarkdown: currentTask.replace(
+        "Repository outcome only.",
+        "- State: PENDING",
+      ),
+      testMarkdown: currentTest,
+    }).join("\n"),
+    /mutable GitHub delivery state belongs in the external ledger/,
+  );
+  assert.match(
+    validateTaskTestContract({
+      taskMarkdown: currentTask.replace(
+        "Repository outcome only.",
+        "PR #999 is merged; Actions passed on deadbeef.",
+      ),
+      testMarkdown: currentTest,
+    }).join("\n"),
+    /must not contain mutable PR, merge, SHA, or Actions results/,
+  );
+  assert.match(
+    validateTaskTestContract({
+      taskMarkdown: currentTask.replace(
+        "- None — repository outcome complete.",
+        "- None.",
+      ),
+      testMarkdown: currentTest,
+    }).join("\n"),
+    /DONE requires Remaining to record reasoned None/,
+  );
+  assert.match(
+    validateTaskTestContract({
+      taskMarkdown: currentTask.replace(
+        "## Resume Point\n\n- None — repository outcome complete.",
+        "## Resume Point\n\nMerge the pull request after this commit.",
+      ),
+      testMarkdown: currentTest,
+    }).join("\n"),
+    /DONE requires Resume Point to record reasoned None/,
+  );
+  assert.match(
+    validateTaskTestContract({
+      taskMarkdown: currentTask.replace(
+        "## Remaining\n\n- None — repository outcome complete.",
+        "## Remaining\n\n- None — repository outcome complete.\n- Open a pull request later.",
+      ),
+      testMarkdown: currentTest,
+    }).join("\n"),
+    /DONE requires Remaining to record reasoned None/,
+  );
+  assert.match(
+    validateTaskTestContract({
+      taskMarkdown: currentTask.replace(
+        "## Resume Point\n\n- None — repository outcome complete.",
+        "## Resume Point\n\n- None — repository outcome complete.\n- Merge later.",
+      ),
+      testMarkdown: currentTest,
+    }).join("\n"),
+    /DONE requires Resume Point to record reasoned None/,
+  );
+
+  const malformedTask = currentTask.replace(TASK_CONTRACT_MARKER, "<!-- kyw-task-contract: 2.0 -->");
+  const malformedTest = currentTest.replace(TASK_CONTRACT_MARKER, "<!-- kyw-task-contract: 2.0 -->");
+  const malformedErrors = validateTaskTestContract({
+    taskMarkdown: malformedTask,
+    testMarkdown: malformedTest,
+  }).join("\n");
+  assert.match(malformedErrors, /TASK.md: malformed Task contract marker/);
+  assert.match(malformedErrors, /TEST.md: malformed Task contract marker/);
 });

@@ -1,4 +1,5 @@
 # TASK 0038 — Post-Simplification Release Readiness Re-Gate
+<!-- kyw-task-contract: 2 -->
 
 ## Status
 
@@ -11,7 +12,7 @@ Supersede the Task 0029 pre-change candidate with one immutable candidate built 
 ## Dependencies
 
 - Task 0037.
-- Task 0029 immutable historical candidate and `READY_FOR_APPROVAL` evidence for comparison only.
+- The immutable historical 0029 candidate and its `READY_FOR_APPROVAL` evidence, used for comparison only and not as a hard queue edge.
 - Current official Codex Plugin/Skill requirements and current public npm registry state at execution time.
 
 ## In Scope
@@ -42,7 +43,7 @@ Supersede the Task 0029 pre-change candidate with one immutable candidate built 
 - [ ] AC-06: Current official requirements and registry name state are rechecked read-only with access time/source, and publication credentials remain a separate prerequisite.
 - [ ] AC-07: One fresh attempt-1 exact-candidate hosted run and all required stable/packed jobs succeed with real native fixtures and no capability skip.
 - [ ] AC-08: The terminal result is exactly `READY_FOR_APPROVAL` with `DONE/PASSED` or `BLOCKED` with `BLOCKED/BLOCKED`; no defect is repaired or failed evidence hidden in this Task.
-- [ ] AC-09: Candidate/evidence/merge package identity and external exact-head/post-merge delivery are proven through the GitHub ledger without self-referential future text in the Task artifact.
+- [ ] AC-09: Candidate and repository evidence-head package identity are proven for exact recorded SHAs, while external PR/merge/post-merge delivery remains exclusively in the GitHub ledger and is not a Task/Test completion claim.
 - [ ] AC-10: No publication, tag, Release, public submission, rollback command, Task 0039, or normal user-state mutation occurs.
 
 ## Plan
@@ -54,7 +55,7 @@ Supersede the Task 0029 pre-change candidate with one immutable candidate built 
 - [ ] Verify the candidate from isolated detached state through the complete acceptance, package, lifecycle, hosted, official, registry, and protected-state gate.
 - [ ] Preserve the first failure and make no product repair; determine `READY_FOR_APPROVAL` or `BLOCKED` from the frozen criteria.
 - [ ] Commit only terminal evidence allowed outside the candidate, prove package identity, and update durable release-status wording only where its meaning changed.
-- [ ] Set the repository outcome without preclaiming future delivery; complete exact-head PR/merge/post-merge delivery through the GitHub ledger and stop.
+- [ ] Set the repository outcome and stop at the first real blocker.
 
 ## Decisions
 
@@ -62,6 +63,7 @@ Supersede the Task 0029 pre-change candidate with one immutable candidate built 
 - Current configured model/effort is preserved.
 - This is a verification-only release gate; defects produce `BLOCKED` and a later user decision.
 - Published-tarball identity/licensing remains pending until a separately approved publication Task.
+- This Task's explicit In Scope delivery line—not its `STANDARD` declaration alone—authorizes normal commit, push, PR, and merge actions when Task 0038 is selected.
 
 ## Risks
 
@@ -81,6 +83,13 @@ Supersede the Task 0029 pre-change candidate with one immutable candidate built 
 - README: Reconcile current candidate/readiness status and publication boundary.
 - AGENTS: Unchanged.
 
+## Delivery
+
+- Requirement: STANDARD
+- Canonical ledger: GitHub PR/Actions exact-SHA state.
+
+This artifact records repository outcome only and does not pre-claim delivery.
+
 ## Completed
 
 - Task scope and initial acceptance contract were approved as the final step of the ordered follow-up queue.
@@ -88,7 +97,7 @@ Supersede the Task 0029 pre-change candidate with one immutable candidate built 
 
 ## Remaining
 
-- Candidate formation and the complete pre-publication gate have not started. External delivery is intentionally not a future fact required inside this artifact.
+- Candidate formation and the complete pre-publication gate have not started.
 
 ## Resume Point
 

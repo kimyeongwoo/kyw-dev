@@ -1,4 +1,5 @@
 # TEST 0038 — Post-Simplification Release Readiness Re-Gate
+<!-- kyw-task-contract: 2 -->
 
 ## Status
 
@@ -25,7 +26,7 @@ READY
 | T-06 | AC-06 — Official and registry state | Recheck primary official sources, name availability, and authentication prerequisite read-only. | External read-only | TODO | Not run. |
 | T-07 | AC-07 — Fresh exact-candidate hosted CI | Dispatch one attempt-1 workflow and inspect every required job/native fixture. | Hosted integration | TODO | Not run. |
 | T-08 | AC-08 — Verification-only terminal verdict | Validate `READY_FOR_APPROVAL` or `BLOCKED`, preserve failures, and prove no defect repair. | Static/integrity | TODO | Not run. |
-| T-09 | AC-09 — Package and delivery identity | Compare candidate/evidence/PR/merge package bytes and inspect exact external delivery ledger. | Package/GitHub | TODO | Not run. |
+| T-09 | AC-09 — Candidate/evidence-head identity and ledger boundary | Compare candidate and repository evidence-head package bytes for exact recorded SHAs; confirm PR/merge/post-merge evidence remains external to Task/Test completion. | Package/integrity | TODO | Not run. |
 | T-10 | AC-10 — Publication and user-state boundary | Prove zero publish/tag/Release/submission/rollback/Task0039 action and unchanged normal state. | Integrity | TODO | Not run. |
 
 ## Regression Coverage
@@ -55,5 +56,5 @@ READY
 - [ ] Map every acceptance criterion to exact executed or byte-identity evidence.
 - [ ] Confirm all time-sensitive checks name access time and source.
 - [ ] Confirm no repair, selective retry, model/effort change, or publication mutation occurred.
-- [ ] Confirm package identity and external delivery are exact and non-self-referential.
+- [ ] Confirm candidate/evidence-head package identity is exact and this pair makes no external-delivery claim.
 - [ ] Confirm any published-tarball-only requirement remains explicit until publication.

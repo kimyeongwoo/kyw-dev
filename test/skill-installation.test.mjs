@@ -375,6 +375,25 @@ test("user install writes complete hashed Skills and a runnable direct-install T
   assert.equal(adapterOutput.id, "0001");
   assert.ok(existsSync(join(adapterOutput.directory, "TASK.md")));
   assert.ok(existsSync(join(adapterOutput.directory, "TEST.md")));
+  const dispatchResult = spawnSync(
+    process.execPath,
+    [
+      adapter,
+      "dispatch",
+      "--tasks-root",
+      join(targetRepository, "docs", "tasks"),
+      "--invocation",
+      "$kyw-task 0001",
+      "--managed-routing",
+      "false",
+    ],
+    { encoding: "utf8" },
+  );
+  assert.equal(dispatchResult.status, 0, dispatchResult.stderr);
+  const dispatchOutput = JSON.parse(dispatchResult.stdout);
+  assert.equal(dispatchOutput.outcome, "SELECTED");
+  assert.equal(dispatchOutput.action, "AUTHOR");
+  assert.equal(dispatchOutput.confirmation, false);
 
   const uninstall = uninstallManagedSkills({ scope: "user", home });
   assert.equal(uninstall.removedFileCount, 19);
@@ -1206,6 +1225,24 @@ test("actual npm tarball installs, diagnoses, runs its installed adapter, and un
   assert.equal(created.id, "0001");
   assert.ok(existsSync(join(created.directory, "TASK.md")));
   assert.ok(existsSync(join(created.directory, "TEST.md")));
+  const dispatchResult = spawnSync(
+    process.execPath,
+    [
+      adapter,
+      "dispatch",
+      "--tasks-root",
+      join(target, "docs", "tasks"),
+      "--invocation",
+      "task 0001 실행해줘",
+      "--managed-routing",
+      "false",
+    ],
+    { encoding: "utf8" },
+  );
+  assert.equal(dispatchResult.status, 0, dispatchResult.stderr);
+  const dispatchOutput = JSON.parse(dispatchResult.stdout);
+  assert.equal(dispatchOutput.outcome, "FALLBACK_REQUIRED");
+  assert.equal(dispatchOutput.portableFallback, "$kyw-task 0001");
 
   const uninstall = spawnSync(process.execPath, [cli, "uninstall", "--scope", "user"], {
     cwd: work,

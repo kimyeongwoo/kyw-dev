@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { existsSync, realpathSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -17,14 +18,22 @@ if (!existsSync(fileURLToPath(coreUrl))) {
   );
 }
 
-const { TaskArtifactError, createTaskArtifacts, validateTaskDirectory } = await import(coreUrl);
+const {
+  TaskArtifactError,
+  createTaskArtifacts,
+  resolveTaskDispatch,
+  validateTaskDirectory,
+} = await import(coreUrl);
 
 const usage =
   "Usage: task-artifacts.mjs create --tasks-root <path> --title <title>\n" +
-  "   or: task-artifacts.mjs validate --task-directory <path>";
+  "   or: task-artifacts.mjs validate --task-directory <path>\n" +
+  "   or: task-artifacts.mjs dispatch --tasks-root <path> --invocation <text> " +
+  "--managed-routing <true|false> [--delivery-ledger <json-path> | --delivery-ledger-json <json>] " +
+  "[--delivery-expectations <json-path> | --delivery-expectations-json <json>]";
 
-function parseOptions(args, allowedNames) {
-  const allowed = new Set(allowedNames);
+function parseOptions(args, requiredNames, optionalNames = []) {
+  const allowed = new Set([...requiredNames, ...optionalNames]);
   const options = new Map();
 
   for (let index = 0; index < args.length; index += 2) {
@@ -45,12 +54,50 @@ function parseOptions(args, allowedNames) {
     options.set(name, value);
   }
 
-  for (const name of allowedNames) {
+  for (const name of requiredNames) {
     if (!options.has(name)) {
       throw new TaskArtifactError("INVALID_TASK_ADAPTER_ARGUMENTS", `Missing required option ${name}\n${usage}`);
     }
   }
   return options;
+}
+
+async function readJsonObjectOption(options, {
+  pathOption,
+  jsonOption,
+  label,
+  errorCode,
+}) {
+  const filePath = options.get(pathOption);
+  const inlineJson = options.get(jsonOption);
+  if (filePath && inlineJson) {
+    throw new TaskArtifactError(
+      "INVALID_TASK_ADAPTER_ARGUMENTS",
+      `Use only one of ${pathOption} or ${jsonOption}`,
+    );
+  }
+  if (!filePath && !inlineJson) {
+    return {};
+  }
+
+  let value;
+  try {
+    value = JSON.parse(inlineJson ?? (await readFile(resolve(filePath), "utf8")));
+  } catch (error) {
+    const source = filePath ? resolve(filePath) : "inline JSON";
+    throw new TaskArtifactError(
+      errorCode,
+      `Cannot read ${label} ${source}: ${error.message}`,
+      { cause: error },
+    );
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new TaskArtifactError(
+      errorCode,
+      `${label} must be a JSON object keyed by four-digit Task ID`,
+    );
+  }
+  return value;
 }
 
 export async function runTaskArtifactCommand(argv) {
@@ -78,9 +125,51 @@ export async function runTaskArtifactCommand(argv) {
     return { command, directory, valid: true };
   }
 
+  if (command === "dispatch") {
+    const options = parseOptions(
+      args,
+      ["--tasks-root", "--invocation", "--managed-routing"],
+      [
+        "--delivery-ledger",
+        "--delivery-ledger-json",
+        "--delivery-expectations",
+        "--delivery-expectations-json",
+      ],
+    );
+    const managedRoutingValue = options.get("--managed-routing");
+    if (!["true", "false"].includes(managedRoutingValue)) {
+      throw new TaskArtifactError(
+        "INVALID_TASK_ADAPTER_ARGUMENTS",
+        "--managed-routing must be true or false",
+      );
+    }
+
+    const deliveryLedger = await readJsonObjectOption(options, {
+      pathOption: "--delivery-ledger",
+      jsonOption: "--delivery-ledger-json",
+      label: "delivery ledger",
+      errorCode: "INVALID_DELIVERY_LEDGER",
+    });
+    const deliveryExpectations = await readJsonObjectOption(options, {
+      pathOption: "--delivery-expectations",
+      jsonOption: "--delivery-expectations-json",
+      label: "delivery expectations",
+      errorCode: "INVALID_DELIVERY_EXPECTATIONS",
+    });
+
+    const result = await resolveTaskDispatch({
+      tasksRoot: resolve(options.get("--tasks-root")),
+      invocation: options.get("--invocation"),
+      managedRoutingAvailable: managedRoutingValue === "true",
+      deliveryLedger,
+      deliveryExpectations,
+    });
+    return { command, ...result };
+  }
+
   throw new TaskArtifactError(
     "INVALID_TASK_ADAPTER_ARGUMENTS",
-    `Expected create or validate, received ${command ?? "<missing>"}\n${usage}`,
+    `Expected create, validate, or dispatch, received ${command ?? "<missing>"}\n${usage}`,
   );
 }
 

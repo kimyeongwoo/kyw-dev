@@ -183,14 +183,18 @@ function validateSkill(root, skillName, errors) {
       const executionReferencePath = join(root, "skills", skillName, "references", "execution.md");
       expect(skill.includes("Do not allocate an ID, run the adapter, create a directory, or write any file"), `${skillName} must apply its size gate before writes`, errors);
       expect(skill.includes("Until confirmation, keep both files `DRAFT`"), `${skillName} must retain its pre-confirmation DRAFT boundary`, errors);
-      expect(skill.includes("resume(task-id)"), `${skillName} must route numeric Task resume`, errors);
+      expect(skill.includes("exact(task-id)"), `${skillName} must route exact existing Tasks`, errors);
       expect(skill.includes("[Task Execution and Resume](references/execution.md)"), `${skillName} must link its execution reference`, errors);
       expect(existsSync(executionReferencePath), `${skillName} is missing its execution reference`, errors);
       if (existsSync(executionReferencePath)) {
         const executionReference = readFileSync(executionReferencePath, "utf8");
         expect(executionReference.includes("## Contents"), `${skillName} execution reference must provide navigation`, errors);
         expect(executionReference.includes("READY` / `READY` to `IN_PROGRESS` / `RUNNING"), `${skillName} must define the execution transition`, errors);
-        expect(executionReference.includes("Do not edit another numbered Task"), `${skillName} must enforce the current-Task boundary`, errors);
+        expect(
+          executionReference.includes("Edit another numbered Task only for a bounded contract migration"),
+          `${skillName} must enforce the current-Task boundary`,
+          errors,
+        );
         expect(executionReference.includes("Never use `DONE` or `PASSED` with an unexecuted required test"), `${skillName} must block unsupported terminal success`, errors);
         expect(executionReference.includes("Persist a compaction or interruption checkpoint"), `${skillName} must define a compaction handoff`, errors);
         expect(executionReference.includes("Perform the final diff coverage review"), `${skillName} must define final coverage review`, errors);

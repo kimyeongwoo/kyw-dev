@@ -1,5 +1,7 @@
 # TASK {{TASK_ID}} — {{TASK_TITLE}}
 
+<!-- kyw-task-contract: 2 -->
+
 ## Status
 
 DRAFT
@@ -47,6 +49,13 @@ DRAFT
 - README: <!-- changed meaning or why unaffected -->
 - AGENTS: <!-- changed meaning or why unaffected -->
 
+## Delivery
+
+- Requirement: STANDARD
+- Canonical ledger: GitHub PR/Actions exact-SHA state.
+
+<!-- Use `STANDARD` with the canonical ledger below, or `NONE — <reason>`. Record policy only, never future delivery state. -->
+
 ## Completed
 
 - None yet.
@@ -54,10 +63,12 @@ DRAFT
 ## Remaining
 
 <!-- List the work still needed to satisfy the Task. -->
+<!-- For DONE, use `- None — repository outcome complete.` -->
 
 ## Resume Point
 
 <!-- Give the next concrete action and the minimum context needed to continue. -->
+<!-- For DONE, use `- None — repository outcome complete.` -->
 
 ## Blockers
 

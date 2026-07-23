@@ -1,4 +1,5 @@
 # TASK 0035 — Verification Tiering and Maintainer Workflow Simplification
+<!-- kyw-task-contract: 2 -->
 
 ## Status
 
@@ -46,9 +47,9 @@ Define and enforce proportional focused, stable, and release verification tiers 
 - [ ] Treat the explicit or automatic selection of this `READY/READY` Task as execution confirmation; ask only if a real unresolved user-owned decision remains.
 - [ ] Transition this pair to `IN_PROGRESS/RUNNING`, capture an acceptance-specific baseline, and preserve existing failure evidence and user work.
 - [ ] Implement the smallest design that satisfies the acceptance criteria.
-- [ ] Run focused verification, then the required stable/package/hosted checks implied by the final diff.
+- [ ] Run focused and locally reproducible stable/package checks, verify the hosted workflow contract, and leave mutable run results to the external ledger.
 - [ ] Review every changed path against scope, tests, permanent-document impact, and evidence honesty.
-- [ ] Set an evidence-backed repository outcome in this pair without preclaiming future PR/merge/post-merge facts; complete external delivery through the exact GitHub ledger and stop at the first real blocker.
+- [ ] Set an evidence-backed repository outcome in this pair and stop at the first real blocker.
 
 ## Decisions
 
@@ -73,6 +74,13 @@ Define and enforce proportional focused, stable, and release verification tiers 
 - README: Document maintainer commands by tier.
 - AGENTS: Keep only the invariant to run risk-proportionate acceptance-specific checks.
 
+## Delivery
+
+- Requirement: STANDARD
+- Canonical ledger: GitHub PR/Actions exact-SHA state.
+
+This artifact records repository outcome only and does not pre-claim delivery.
+
 ## Completed
 
 - Task scope and initial acceptance contract were approved as part of the ordered follow-up queue.
@@ -80,7 +88,7 @@ Define and enforce proportional focused, stable, and release verification tiers 
 
 ## Remaining
 
-- Repository implementation and verification have not started. External delivery is intentionally not a future fact required inside this artifact.
+- Repository implementation and verification have not started.
 
 ## Resume Point
 

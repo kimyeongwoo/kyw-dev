@@ -1,4 +1,5 @@
 # TEST 0034 — Retire the Cancelled Nested Behavioral Harness
+<!-- kyw-task-contract: 2 -->
 
 ## Status
 
@@ -53,4 +54,4 @@ READY
 - [ ] Add coverage for introduced branches, failures, and compatibility behavior.
 - [ ] Confirm PASS evidence is reproducible and names exact source/package/model provenance where relevant.
 - [ ] Confirm required regressions actually ran.
-- [ ] Confirm future external delivery evidence is read from exact GitHub PR/Actions state rather than pre-claimed in this Task commit.
+- [ ] Confirm this pair records repository evidence only and makes no external-delivery claim.
