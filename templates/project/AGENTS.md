@@ -19,6 +19,8 @@ Stop and reconcile these documents when they conflict.
 
 ## Task Routing
 
+This is the minimal derived projection required for loaded repository routing. The installed `$kyw-task` execution reference owns the detailed procedure.
+
 - `$kyw-task NNNN` is portable for existing Tasks. With this contract, also route only `task NNNN 실행해줘`, `task 진행해줘`, and `남은 task 계속 실행해줘`; incidental `task` text never triggers.
 - Keep one Task active: exact cannot bypass it; ready selection confirms; otherwise resume the sole active or choose the lowest eligible ready. Continuous mode is serial here.
 - Preserve model/effort unless the user overrides. Task/Test owns repository outcome; GitHub exact-SHA state gates delivery and advancement.
@@ -36,9 +38,7 @@ Record each impact decision in the active Task. Do not edit an unaffected docume
 
 {{VERIFY_COMMANDS}}
 
-Run proportionate verification in the current session by default. Use subagents or isolated sessions only when the user requests them or independent verification would materially improve confidence. Do not require nested Codex execution or a subagent cohort merely to satisfy a generic verification step.
-
-Record commands actually run, their results, and anything not verified in the active `TEST.md`; not using delegation is not by itself a blocker.
+Run proportionate verification directly by default; delegate only when requested or materially confidence-improving. Record only commands that ran, their results, and unverified work in the active `TEST.md`.
 
 ## Completion Gate
 

@@ -16,6 +16,13 @@ export const TEST_STATUSES = Object.freeze(["DRAFT", "READY", "RUNNING", "PASSED
 export const TEST_ROW_STATUSES = Object.freeze(["TODO", "PASS", "FAIL", "BLOCKED", "N/A"]);
 export const CURRENT_TASK_CONTRACT_VERSION = 2;
 export const TASK_CONTRACT_MARKER = `<!-- kyw-task-contract: ${CURRENT_TASK_CONTRACT_VERSION} -->`;
+export const MODEL_PROVENANCE_FIELDS = Object.freeze([
+  "Model identifier",
+  "Requested model alias",
+  "Reasoning effort",
+  "Codex surface",
+  "Codex version",
+]);
 export const TASK_TEST_STATUS_PAIRS = Object.freeze([
   Object.freeze(["DRAFT", "DRAFT"]),
   Object.freeze(["READY", "READY"]),
@@ -383,6 +390,79 @@ export function validateDocumentSections(kind, markdown) {
     .map((heading) => `${normalizedKind}.md: missing required section "${heading}"`);
 }
 
+export function validateModelProvenance(markdown, { required = false } = {}) {
+  if (typeof markdown !== "string") {
+    return ["TEST.md: Model Provenance content must be a string"];
+  }
+
+  const heading = "Model Provenance";
+  const sections = parseSections(markdown);
+  const count = sectionHeadingCounts(markdown).get(normalizeHeading(heading)) ?? 0;
+  if (count === 0) {
+    return required ? [`TEST.md: missing required section "${heading}"`] : [];
+  }
+  if (count !== 1) {
+    return [`TEST.md: Model Provenance must appear exactly once`];
+  }
+
+  const lines = stripComments(sectionText(sections, heading))
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const errors = [];
+  if (lines.length !== MODEL_PROVENANCE_FIELDS.length) {
+    errors.push(
+      `TEST.md: Model Provenance must contain exactly ${MODEL_PROVENANCE_FIELDS.length} field lines`,
+    );
+  }
+
+  const knownPrefixes = MODEL_PROVENANCE_FIELDS.map((field) => `- ${field}: `);
+  for (const line of lines) {
+    if (!knownPrefixes.some((prefix) => line.startsWith(prefix))) {
+      errors.push(`TEST.md: Model Provenance contains an unknown field line`);
+    }
+  }
+
+  for (const [index, field] of MODEL_PROVENANCE_FIELDS.entries()) {
+    const prefix = `- ${field}: `;
+    const matches = lines.filter((line) => line.startsWith(prefix));
+    if (matches.length !== 1) {
+      errors.push(`TEST.md: Model Provenance requires exactly one "${field}" field`);
+      continue;
+    }
+    if (lines[index] !== matches[0]) {
+      errors.push(`TEST.md: Model Provenance fields must use the canonical order`);
+    }
+
+    const parsed = /^- [^:]+: `([^`]+)` \(`(OBSERVED|UNAVAILABLE)`: (.+)\)$/.exec(matches[0]);
+    if (!parsed || !parsed[1].trim() || parsed[1] !== parsed[1].trim() || !parsed[3].trim()) {
+      errors.push(
+        `TEST.md: Model Provenance "${field}" must use \`value\` (\`OBSERVED|UNAVAILABLE\`: basis)`,
+      );
+      continue;
+    }
+
+    const [, value, observability] = parsed;
+    if (observability === "UNAVAILABLE" && value !== "UNAVAILABLE") {
+      errors.push(
+        `TEST.md: Model Provenance "${field}" marked UNAVAILABLE must use value UNAVAILABLE`,
+      );
+    }
+    if (observability === "OBSERVED" && value === "UNAVAILABLE") {
+      errors.push(
+        `TEST.md: Model Provenance "${field}" marked OBSERVED must record an observed value`,
+      );
+    }
+    if (value === "NOT_REQUESTED" && field !== "Requested model alias") {
+      errors.push(
+        `TEST.md: Model Provenance NOT_REQUESTED is valid only for "Requested model alias"`,
+      );
+    }
+  }
+
+  return errors;
+}
+
 export function validateCanonicalTemplate(kind, markdown) {
   const normalizedKind = normalizeKind(kind);
   const errors = validateDocumentSections(normalizedKind, markdown);
@@ -400,6 +480,9 @@ export function validateCanonicalTemplate(kind, markdown) {
   if (normalizedKind === "TASK" && !parseSections(markdown).has(normalizeHeading("Delivery"))) {
     errors.push('TASK.md: canonical template is missing required section "Delivery"');
   }
+  if (normalizedKind === "TEST") {
+    errors.push(...validateModelProvenance(markdown, { required: true }));
+  }
   return errors;
 }
 
@@ -411,7 +494,6 @@ export function validateTaskTestContract({ taskMarkdown, testMarkdown }) {
   if (typeof taskMarkdown !== "string" || typeof testMarkdown !== "string") {
     return errors;
   }
-
   const taskSections = parseSections(taskMarkdown);
   const testSections = parseSections(testMarkdown);
   const taskSectionCounts = sectionHeadingCounts(taskMarkdown);
@@ -424,6 +506,10 @@ export function validateTaskTestContract({ taskMarkdown, testMarkdown }) {
   const testMarkerOccurrences = contractMarkerOccurrences(testMarkdown);
   const taskContractVersion = getTaskContractVersion(taskMarkdown);
   const testContractVersion = getTaskContractVersion(testMarkdown);
+
+  if (testContractVersion === CURRENT_TASK_CONTRACT_VERSION) {
+    errors.push(...validateModelProvenance(testMarkdown));
+  }
 
   if (taskMarkerOccurrences.length !== taskMarkers.length) {
     errors.push("TASK.md: malformed Task contract marker");

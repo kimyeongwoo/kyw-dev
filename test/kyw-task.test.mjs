@@ -66,6 +66,7 @@ function runAdapter(args) {
 
 test("kyw-task Skill is explicit-only and supports create, exact, next, and continuous dispatch", async () => {
   const skill = await readFile(SKILL_PATH, "utf8");
+  const execution = await readFile(EXECUTION_REFERENCE_PATH, "utf8");
   const metadata = await readFile(METADATA_PATH, "utf8");
   const frontmatter = frontmatterFields(skill);
 
@@ -80,18 +81,20 @@ test("kyw-task Skill is explicit-only and supports create, exact, next, and cont
   assert.match(skill, /task 진행해줘/);
   assert.match(skill, /남은 task 계속 실행해줘/);
   assert.match(skill, /incidental text containing “task” never invokes this workflow/);
-  assert.match(skill, /applies only to the first selected Task/);
-  assert.match(skill, /explicitly says it applies to every remaining Task/);
-  assert.match(skill, /cannot waive acceptance, evidence honesty, safety/);
-  assert.match(skill, /configured model and reasoning effort unchanged/);
-  assert.match(skill, /`STANDARD` is a gate, never action authority by itself/);
-  assert.match(skill, /bounded contract-only edit to explicitly named pre-created nonterminal Task pairs/);
   assert.match(skill, /Only continuous mode may process multiple Tasks/);
   assert.match(skill, /--delivery-ledger-json <json>/);
-  assert.match(skill, /future PR, merge, post-merge, or Actions results/);
   assert.match(skill, /four-digit Task ID/);
   assert.match(skill, /\[Task Execution and Resume\]\(references\/execution\.md\)/);
-  assert.match(skill, /If the verified pair is still `DRAFT`, resume customization and Phase 5 confirmation/);
+  assert.match(skill, /execution reference is the canonical detailed procedure/);
+  assert.doesNotMatch(skill, /^## Resume or execute an existing Task$/m);
+  assert.match(execution, /default scope is the first selected Task/);
+  assert.match(execution, /only when the user explicitly says so/);
+  assert.match(execution, /cannot waive acceptance, evidence honesty, safety/);
+  assert.match(execution, /configured model and reasoning effort/);
+  assert.match(execution, /`STANDARD` alone authorizes no mutation/);
+  assert.match(execution, /bounded contract migration/);
+  assert.match(execution, /Never pre-claim a future PR, merge, post-merge run, or delivery result/);
+  assert.match(execution, /## Model Provenance/);
   assert.doesNotMatch(skill, /supports only `create\(goal\)`/);
   assert.match(metadata, /default_prompt: "Use \$kyw-task /);
   assert.match(metadata, /Create, execute, or resume one verified Task/);
@@ -162,14 +165,29 @@ test("kyw-task authoring preserves traceability and the confirmation state bound
 
 test("kyw-task authoring mutation boundary excludes implementation and existing artifacts", async () => {
   const skill = await readFile(SKILL_PATH, "utf8");
+  const execution = await readFile(EXECUTION_REFERENCE_PATH, "utf8");
 
   assert.deepEqual(scenarios.normal.allowedAuthoringFiles, ["TASK.md", "TEST.md"]);
   assert.match(skill, /limit mutations to the returned new `TASK\.md` and `TEST\.md` paths/);
   assert.match(skill, /Do not modify permanent documents, implementation files/);
   assert.match(skill, /Do not create multiple Task directories/);
   assert.match(skill, /or touch implementation files/);
-  assert.match(skill, /expand mutations only to its Task\/Test pair/);
-  assert.match(skill, /never edit another numbered Task or implement a future outcome/);
+  assert.match(
+    skill,
+    /If the user cancels or required facts remain inaccessible before publication, stop with no artifact/,
+  );
+  assert.match(skill, /rely on its atomic rollback and report that no final pair was created/);
+  assert.match(
+    skill,
+    /Cancellation or authoring failure after publication leaves the same pair and number in `DRAFT`/,
+  );
+  assert.match(
+    skill,
+    /resume Phase 4 customization of the same `DRAFT\/DRAFT` pair, validate it, and then continue to Phase 5/,
+  );
+  assert.match(execution, /mutations may include only/);
+  assert.match(execution, /do not edit another Task/);
+  assert.match(execution, /never implement its outcome/);
 });
 
 test("kyw-task execution routes durable changes and enforces the current-Task boundary", async () => {
@@ -302,6 +320,8 @@ test("kyw-task authoring adapter scaffolds one pair and task execution validates
   let testMarkdown = await readFile(created.testPath, "utf8");
   assert.match(taskMarkdown, /## Status\n\nDRAFT/);
   assert.match(testMarkdown, /## Status\n\nDRAFT/);
+  assert.match(testMarkdown, /## Model Provenance/);
+  assert.match(testMarkdown, /- Requested model alias: `UNAVAILABLE` \(`UNAVAILABLE`:/);
 
   taskMarkdown = taskMarkdown
     .replace(
