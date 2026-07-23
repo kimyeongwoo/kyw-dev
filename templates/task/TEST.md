@@ -12,6 +12,14 @@ DRAFT
 - Product requirements: `../../SPEC.md`
 - Architecture constraints: `../../ARCHITECTURE.md`
 
+## Model Provenance
+
+- Model identifier: `UNAVAILABLE` (`UNAVAILABLE`: not recorded yet)
+- Requested model alias: `UNAVAILABLE` (`UNAVAILABLE`: not recorded yet)
+- Reasoning effort: `UNAVAILABLE` (`UNAVAILABLE`: not recorded yet)
+- Codex surface: `UNAVAILABLE` (`UNAVAILABLE`: not recorded yet)
+- Codex version: `UNAVAILABLE` (`UNAVAILABLE`: not recorded yet)
+
 ## Intent-to-Test Matrix
 
 | ID | Intent / acceptance criterion | Method | Level | Status | Evidence |

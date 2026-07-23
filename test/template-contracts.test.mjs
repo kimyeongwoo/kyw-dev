@@ -7,11 +7,13 @@ import { fileURLToPath } from "node:url";
 import { validateTaskDirectory } from "../src/core/task-artifacts.mjs";
 import {
   DOCUMENT_CONTRACTS,
+  MODEL_PROVENANCE_FIELDS,
   TASK_CONTRACT_MARKER,
   TASK_TEST_STATUS_PAIRS,
   readCanonicalTemplate,
   renderTemplate,
   validateCanonicalTemplate,
+  validateModelProvenance,
   validateTaskTestContract,
 } from "../src/core/template-contracts.mjs";
 
@@ -39,6 +41,145 @@ test("rendered Task templates form a valid DRAFT pair without unresolved tokens"
   assert.throws(
     () => renderTemplate("{{KNOWN}} {{MISSING}}", { KNOWN: "value" }),
     /Missing template values: MISSING/,
+  );
+});
+
+test("model provenance records observed and unavailable values without inference", async () => {
+  const unavailable = await readCanonicalTemplate("TEST");
+  assert.deepEqual(validateModelProvenance(unavailable, { required: true }), []);
+  for (const field of MODEL_PROVENANCE_FIELDS) {
+    assert.match(unavailable, new RegExp(`^- ${field}:`, "m"));
+  }
+
+  const observedValues = new Map([
+    ["Model identifier", "gpt-example-1"],
+    ["Requested model alias", "example-alias"],
+    ["Reasoning effort", "high"],
+    ["Codex surface", "CLI"],
+    ["Codex version", "1.2.3"],
+  ]);
+  const observed = [
+    "## Model Provenance",
+    "",
+    ...MODEL_PROVENANCE_FIELDS.map(
+      (field) => `- ${field}: \`${observedValues.get(field)}\` (\`OBSERVED\`: exposed by fixture)`,
+    ),
+  ].join("\n");
+  assert.deepEqual(validateModelProvenance(observed, { required: true }), []);
+
+  const mixed = observed
+    .replace(
+      "- Model identifier: `gpt-example-1` (`OBSERVED`: exposed by fixture)",
+      "- Model identifier: `UNAVAILABLE` (`UNAVAILABLE`: fixture hides the exact identifier)",
+    )
+    .replace(
+      "- Requested model alias: `example-alias` (`OBSERVED`: exposed by fixture)",
+      "- Requested model alias: `NOT_REQUESTED` (`OBSERVED`: fixture supplied no override)",
+    );
+  assert.deepEqual(validateModelProvenance(mixed, { required: true }), []);
+
+  assert.match(
+    validateModelProvenance(
+      mixed.replace(
+        "- Reasoning effort: `high` (`OBSERVED`: exposed by fixture)",
+        "- Reasoning effort: `high` (`UNAVAILABLE`: hidden by fixture)",
+      ),
+    ).join("\n"),
+    /marked UNAVAILABLE must use value UNAVAILABLE/,
+  );
+  assert.match(
+    validateModelProvenance(
+      mixed.replace(
+        "- Codex version: `1.2.3` (`OBSERVED`: exposed by fixture)",
+        "- Codex version: `UNAVAILABLE` (`OBSERVED`: exposed by fixture)",
+      ),
+    ).join("\n"),
+    /marked OBSERVED must record an observed value/,
+  );
+  assert.deepEqual(validateModelProvenance("# TEST 0001 — Legacy\n"), []);
+  assert.match(
+    validateModelProvenance("# TEST 0001 — New\n", { required: true }).join("\n"),
+    /missing required section "Model Provenance"/,
+  );
+  assert.match(
+    validateModelProvenance(undefined).join("\n"),
+    /Model Provenance content must be a string/,
+  );
+  assert.match(
+    validateModelProvenance(`${mixed}\n\n${mixed}`).join("\n"),
+    /Model Provenance must appear exactly once/,
+  );
+  assert.match(
+    validateModelProvenance(
+      mixed.replace(/^- Codex surface:.*\n/m, ""),
+    ).join("\n"),
+    /must contain exactly 5 field lines[\s\S]*requires exactly one "Codex surface" field/,
+  );
+  assert.match(
+    validateModelProvenance(
+      mixed.replace(
+        "- Codex version: `1.2.3` (`OBSERVED`: exposed by fixture)",
+        "- Codex version: 1.2.3 observed by fixture",
+      ),
+    ).join("\n"),
+    /must use `value` \(`OBSERVED\|UNAVAILABLE`: basis\)/,
+  );
+  assert.match(
+    validateModelProvenance(
+      observed.replace(
+        "- Model identifier: `gpt-example-1` (`OBSERVED`: exposed by fixture)",
+        "- Model identifier: `   ` (`OBSERVED`: exposed by fixture)",
+      ),
+    ).join("\n"),
+    /must use `value` \(`OBSERVED\|UNAVAILABLE`: basis\)/,
+  );
+  assert.match(
+    validateModelProvenance(
+      observed.replace(
+        "- Model identifier: `gpt-example-1` (`OBSERVED`: exposed by fixture)",
+        "- Model identifier: `NOT_REQUESTED` (`OBSERVED`: no identifier requested)",
+      ),
+    ).join("\n"),
+    /NOT_REQUESTED is valid only for "Requested model alias"/,
+  );
+  assert.match(
+    validateModelProvenance(
+      observed.replace(
+        "- Model identifier: `gpt-example-1` (`OBSERVED`: exposed by fixture)",
+        "- Model identifier: `gpt-example-1` (`OBSERVED`:    )",
+      ),
+    ).join("\n"),
+    /must use `value` \(`OBSERVED\|UNAVAILABLE`: basis\)/,
+  );
+  assert.match(
+    validateModelProvenance(
+      observed.replace(
+        "- Codex surface: `CLI` (`OBSERVED`: exposed by fixture)",
+        "- Reasoning effort: `high` (`OBSERVED`: exposed by fixture)",
+      ),
+    ).join("\n"),
+    /requires exactly one "Reasoning effort" field[\s\S]*requires exactly one "Codex surface" field/,
+  );
+  assert.match(
+    validateModelProvenance(
+      observed.replace(
+        "- Codex surface: `CLI` (`OBSERVED`: exposed by fixture)",
+        "- Runtime flavor: `CLI` (`OBSERVED`: exposed by fixture)",
+      ),
+    ).join("\n"),
+    /unknown field line[\s\S]*requires exactly one "Codex surface" field/,
+  );
+  const outOfOrderLines = observed.split("\n");
+  [outOfOrderLines[2], outOfOrderLines[3]] = [outOfOrderLines[3], outOfOrderLines[2]];
+  assert.match(
+    validateModelProvenance(outOfOrderLines.join("\n")).join("\n"),
+    /fields must use the canonical order/,
+  );
+
+  const withoutBlock = unavailable.replace(/^## Model Provenance[\s\S]*?(?=^## )/m, "");
+  assert.match(
+    validateCanonicalTemplate("TEST", withoutBlock).join("\n"),
+    /missing required section "Model Provenance"/,
   );
 });
 
@@ -155,6 +296,29 @@ test("validator enforces exact lifecycle pairs while retaining legacy completed 
   }
 
   assert.deepEqual(validateTaskTestContract({ taskMarkdown: doneTask, testMarkdown: passedTest }), []);
+  const legacyFreeformProvenance = passedTest.replace(
+    /^## Results$/m,
+    "## Model Provenance\n\nHistorical free-form note.\n\n## Results",
+  );
+  assert.deepEqual(
+    validateTaskTestContract({
+      taskMarkdown: doneTask,
+      testMarkdown: legacyFreeformProvenance,
+    }),
+    [],
+    "an unmarked legacy pair retains its historical free-form extra-section meaning",
+  );
+  const malformedCurrentProvenance = currentTest.replace(
+    /^## Results$/m,
+    "## Model Provenance\n\nHistorical free-form note.\n\n## Results",
+  );
+  assert.match(
+    validateTaskTestContract({
+      taskMarkdown: currentTask,
+      testMarkdown: malformedCurrentProvenance,
+    }).join("\n"),
+    /Model Provenance must contain exactly 5 field lines/,
+  );
   assert.deepEqual(
     validateTaskTestContract({
       taskMarkdown: doneTask.replace("\nDONE\n", "\nREADY\n"),

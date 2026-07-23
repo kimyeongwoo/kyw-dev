@@ -12,6 +12,13 @@ import {
 } from "../src/core/task-artifacts.mjs";
 import { TASK_CONTRACT_MARKER } from "../src/core/template-contracts.mjs";
 
+test("all-complete dispatch message remains the exact product phrase", () => {
+  assert.equal(
+    ALL_TASKS_COMPLETE_MESSAGE,
+    "현재 만들어진 Task는 모두 완료됐습니다. 더 이상 진행할 작업이 없습니다. 추가로 하고 싶은 작업이 있나요?",
+  );
+});
+
 function pairStatus(taskStatus) {
   return {
     DRAFT: "DRAFT",

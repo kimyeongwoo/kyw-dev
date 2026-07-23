@@ -7,63 +7,36 @@
 1. 이 문서 묶음의 내용을 로컬 `kyw-dev` 저장소 루트에 둔다.
 2. 루트 `AGENTS.md`가 적용되도록 저장소 루트에서 Codex를 시작한다.
 3. 매 세션마다 이전 대화 전체를 다시 붙여 넣지 않는다. 저장소 문서를 현재 진실의 원천으로 사용한다.
-4. 현재 Task가 명백히 작은 경우가 아니라면 한 세션에 번호가 붙은 Task 하나만 수행한다.
 
-## 최초 구현 프롬프트
+## Task 실행과 재개
 
-아래 내용을 첫 개발 요청으로 전달한다.
+`AGENTS.md`는 저장소 불변 규칙을, 현재 Task/Test는 현재 범위와 증거를, 설치된 `$kyw-task` 실행 reference는 상세 실행 절차를 소유한다. 이 파일은 절차를 복제하지 않고 호출만 제공한다.
 
-```text
-이 저장소에서 Codex 개발 워크플로 플러그인 kyw-dev를 구현한다.
-
-먼저 다음 문서를 읽고 그대로 따른다.
-- AGENTS.md
-- README.md
-- docs/SPEC.md
-- docs/ARCHITECTURE.md
-- docs/tasks/0001-plugin-foundation/TASK.md
-- docs/tasks/0001-plugin-foundation/TEST.md
-
-Task 0001만 수행한다. 이후 Task는 구현하지 않는다.
-
-파일을 수정하기 전에 현재 저장소 상태와 최신 공식 Codex Plugin/Skill 요구사항을 확인한다. 공식 요구사항과 현재 문서가 충돌하면 임의로 우회하지 말고, 영향받는 영구 문서를 먼저 갱신한 뒤 그 이유를 Task 0001의 Discoveries and Changes에 기록한다.
-
-작업 중 TASK.md와 TEST.md를 계속 최신 상태로 유지한다. 가능한 필수 검증을 실제로 모두 실행하고 정확한 결과를 기록한다. 최종 diff를 검수한 뒤 Task 0001을 PASS 또는 BLOCKED로 명확히 종료한다.
-```
-
-초기 manifest 뼈대를 만들 때 `$plugin-creator`가 사용 가능하다면 활용해도 된다. 단, 생성 결과는 반드시 `docs/ARCHITECTURE.md`와 Task 0001 기준으로 다시 검토한다.
-
-## 다음 Task 실행 프롬프트
-
-번호와 폴더명만 교체해서 사용한다.
+관리되는 저장소에서 정확한 Task를 실행하거나 재개:
 
 ```text
-kyw-dev 구현을 다음 작업 단위 하나로만 계속한다.
-`docs/tasks/000N-task-name/`
-
-다음만 읽는다.
-- AGENTS.md
-- README.md
-- docs/SPEC.md
-- docs/ARCHITECTURE.md
-- docs/tasks/000N-task-name/TASK.md
-- docs/tasks/000N-task-name/TEST.md
-- 현재 Task에서 명시적으로 참조한 의존 작업 또는 파일
-
-수정 전에 현재 코드, git status, 관련 diff를 확인한다. 이 Task만 수행하고 이후 Task는 구현하지 않는다. 발견 사항과 구현 변경에 맞게 TASK.md와 TEST.md를 계속 갱신한다. 제품 동작, 구조, 사용법, 저장소 공통 에이전트 규칙처럼 장기 기준이 바뀌면 해당 영구 문서를 반드시 갱신한다.
-
-완료 조건과 검증의 대응 관계를 확인하고, 필요한 명령을 실제로 실행하고, 최종 diff 검수가 끝나기 전에는 완료로 보고하지 않는다. 마지막에 PASS 또는 BLOCKED와 남은 위험을 보고한다.
+task 0001 실행해줘
 ```
 
-## Compact 또는 새 세션 이후 재개 프롬프트
+모든 지원 표면에서 사용할 수 있는 portable form:
 
 ```text
-Task 000N만 재개한다.
-
-AGENTS.md, 네 개의 영구 문서, 현재 TASK.md와 TEST.md를 읽고 git status와 현재 diff를 확인한다. TASK.md의 Completed, Remaining, Resume Point, Decisions와 TEST.md의 Results를 인계 상태로 사용하되, 저장소 실제 상태와 일치하는지 먼저 검증한다.
-
-처음부터 다시 수행하지 말고 다른 Task도 구현하지 않는다. 추가 compact 가능성이 생기면 그 전에 인계 항목과 테스트 상태를 먼저 갱신한다. 일반 Task 완료 게이트에 따라 종료한다.
+$kyw-task 0001
 ```
+
+활성 Task를 재개하거나 가장 낮은 eligible Task를 하나 선택:
+
+```text
+task 진행해줘
+```
+
+현재 invocation 동안 미리 생성된 queue를 직렬로 진행:
+
+```text
+남은 task 계속 실행해줘
+```
+
+번호만 바꾼다. 사용자가 새로 정한 제약이 없다면 문서 목록, lifecycle, 검증 checklist, 이전 대화를 호출에 다시 붙이지 않는다. Compact나 새 세션 이후에도 같은 짧은 호출을 사용하며, 저장소에 기록된 `Completed`, `Remaining`, `Resume Point`, `TEST.md` evidence가 재개 상태다.
 
 ## Task 없이 수행할 소규모 변경 프롬프트
 

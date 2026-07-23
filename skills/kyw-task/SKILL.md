@@ -23,6 +23,8 @@ These anchored aliases are repository routing, not implicit Skill matching. Keep
 
 Do not combine modes, run Tasks concurrently, or implement an independent audit in one invocation. Only continuous mode may process multiple Tasks, and it does so serially. Read `references/execution.md` completely before starting or resuming implementation; do not load it for create-mode inspection or authoring alone.
 
+This Skill owns Task authoring and dispatch entry. The execution reference is the canonical detailed procedure for selected existing work; do not mirror that procedure here.
+
 For any existing-Task form, pass the exact current-user invocation as a separate adapter argument before selecting:
 
 ```text
@@ -37,9 +39,7 @@ Keep the repository read-only until one outcome is selected, relevant facts are 
 
 Do not modify permanent documents, implementation files, target-product tests, configuration, package metadata, or any existing Task. Do not create multiple Task directories. Creating or editing the new pair is authoring, not permission to implement its Plan.
 
-After the current Task is confirmed and enters execution, expand mutations only to its Task/Test pair, implementation and tests required by its acceptance criteria, and permanent documents whose durable meaning changed. A selected Task may also make a bounded contract-only edit to explicitly named pre-created nonterminal Task pairs when its acceptance criteria require that migration; it must not implement their outcomes. Preserve pre-existing user changes and otherwise never edit another numbered Task or implement a future outcome.
-
-Read-only queue inspection and read-only GitHub delivery preflight do not broaden the mutation boundary. `STANDARD` is a gate, never action authority by itself. Normal commit, push, PR, or merge delivery is allowed only when the current user explicitly requests it or the selected Task explicitly names it in scope; publication, force push, workflow rerun, branch deletion, and other separately gated actions still require their own authority.
+After confirmation or existing-Task selection, the execution reference owns the expanded mutation, preservation, delivery, and terminal-state boundaries. Read it before any implementation mutation.
 
 ## Phase 1 - Inspect facts without writing
 
@@ -88,6 +88,8 @@ Before allocation, derive:
 
 Map every acceptance criterion to at least one initial test row. Include known failure paths and compatibility regressions. Once the pair is published, never renumber or reuse an acceptance or test ID; append a new ID when intent grows and explain any retired case.
 
+If the user cancels or required facts remain inaccessible before publication, stop with no artifact and do not run the adapter.
+
 Run the packaged adapter exactly once, passing every value as a separate process argument rather than interpolating user text into source code or a shell expression:
 
 ```text
@@ -103,6 +105,8 @@ node <kyw-task-skill-directory>/scripts/task-artifacts.mjs validate --task-direc
 ```
 
 If validation or customization fails after publication, leave both files visibly `DRAFT`, report the exact pair and incomplete work, and stop. Do not delete or reuse the published Task number, create a replacement Task, or touch implementation files.
+
+If the adapter fails before publication, rely on its atomic rollback and report that no final pair was created. Cancellation or authoring failure after publication leaves the same pair and number in `DRAFT`.
 
 ## Phase 5 - Confirm shared understanding
 
@@ -128,24 +132,4 @@ Proceed only after explicit confirmation of the current summary.
 4. Validate the pair again. Never report `READY` unless both files contain `READY` and validation succeeds.
 5. Read [Task Execution and Resume](references/execution.md) completely, use the current-summary confirmation as execution authorization, and follow its `READY` entry path without broadening scope.
 
-## Resume or execute an existing Task
-
-When the dispatcher selects an existing Task, do not allocate an ID or create another pair. Read [Task Execution and Resume](references/execution.md) completely and follow it from repository-state verification through the appropriate lifecycle state. If the verified pair is still `DRAFT`, resume customization and Phase 5 confirmation on that existing pair only.
-
-Use the current Task/Test pair as the resumable packet. Verify its recorded state against code, tests, permanent documents, status, and relevant diff; continue at its verified Resume Point without repeating Completed work. An explicit numeric execution/continuation request authorizes a confirmed `READY` Task unless the user requested inspection only.
-
-Record text appended by the current user to the matched invocation verbatim before acting. It applies only to the first selected Task unless the user explicitly says it applies to every remaining Task. It may narrow method, ordering, or checks, but cannot waive acceptance, evidence honesty, safety, user-work preservation, or separately gated external mutation. Report a conflict instead of silently ignoring either source.
-
-Keep the active session's configured model and reasoning effort unchanged. Do not set, downgrade, substitute, sweep, or infer them. Record exact values only when the current surface exposes them; otherwise record `UNAVAILABLE` with the surface/version information that is observable.
-
-In continuous mode, finish and externally deliver one Task before selecting another. Re-run local, remote, GitHub, worktree, queue, dependency, and delivery preflight at every transition, then call the dispatcher again. Never run Tasks in parallel, promise background work, or imply continuation after the host session ends. Persist the current Task's handoff before a session boundary.
-
-## Failure and stop conditions
-
-- Before publication, cancellation, an unresolved source conflict, an oversized unselected request, or inaccessible required facts must stop with no Task artifact.
-- Adapter creation failures rely on its atomic rollback: either both files publish or no final Task directory remains.
-- After publication but before confirmation, cancellation or authoring failure leaves the pair and its number in place as `DRAFT`; report recovery details and do not allocate another ID.
-- During execution, persist failures, blockers, test evidence, Remaining, and Resume Point in the current pair before stopping.
-- A current-contract Task/Test pair records repository outcome only. Never put future PR, merge, post-merge, or Actions results into its Plan, Remaining, Resume Point, acceptance PASS, or final review. Query the exact GitHub ledger after the repository outcome commit.
-- Do not invoke an audit, create proposed follow-on Tasks, install Skills, or implement work outside the current Task.
-- Report `DONE`, `BLOCKED`, or `CANCELLED` only from the evidence gates in the execution reference; never infer success from an unexecuted check.
+For an existing pair, use the dispatch action as the handoff: resume Phase 4 customization of the same `DRAFT/DRAFT` pair, validate it, and then continue to Phase 5; follow the execution reference for implementation, resume, blocker recheck, terminal reporting, continuous transition, and all execution stop conditions. Do not allocate another ID.

@@ -2,6 +2,10 @@
 
 Use this workflow only after create mode has a confirmed `READY` pair or the packaged dispatcher selects one existing Task from a portable or managed-repository command. Keep one Task as the context and mutation boundary.
 
+## Authority
+
+This reference is the canonical detailed execution procedure. `AGENTS.md` owns repository invariants, `docs/SPEC.md` owns product behavior, `README.md` and prompt examples are concise projections, and the current Task/Test pair owns only its delta and evidence. Stop on a contradiction instead of copying this procedure onto another loaded surface.
+
 ## Contents
 
 - Establish the repository state
@@ -120,6 +124,20 @@ Pass the two objects separately through `--delivery-expectations-json` and `--de
 Only text appended by the current user to the matched invocation is an execution override. Record it verbatim before acting. Its default scope is the first selected Task; apply it to every remaining Task only when the user explicitly says so. A bounded override may narrow method, ordering, or checks. It cannot waive acceptance, evidence honesty, safety, user-work preservation, or separately gated external mutation. Report a conflict rather than choosing silently.
 
 Inherit the active session's configured model and reasoning effort. Do not set, downgrade, substitute, or sweep either value unless the current user explicitly requests that change. Record exact model, requested alias, effort, Codex surface, and version only when observable; use `UNAVAILABLE` for values the surface does not expose and never infer them.
+
+Record model-dependent evidence in the current `TEST.md` with exactly this five-line block:
+
+```text
+## Model Provenance
+
+- Model identifier: `<value>` (`OBSERVED|UNAVAILABLE`: <basis>)
+- Requested model alias: `<value>` (`OBSERVED|UNAVAILABLE`: <basis>)
+- Reasoning effort: `<value>` (`OBSERVED|UNAVAILABLE`: <basis>)
+- Codex surface: `<value>` (`OBSERVED|UNAVAILABLE`: <basis>)
+- Codex version: `<value>` (`OBSERVED|UNAVAILABLE`: <basis>)
+```
+
+Use the exact exposed value with `OBSERVED`. Use `UNAVAILABLE` as both value and observability when the active surface does not expose a field. A known absence of a user model override is `NOT_REQUESTED` with `OBSERVED`; it is not an inferred model alias. Do not substitute an installed CLI version for the active surface version unless this execution is observably that CLI. New scaffolds contain the block; when executing an older current pair without it, add it to that pair rather than loading another provenance file.
 
 ## Enter or re-enter execution
 

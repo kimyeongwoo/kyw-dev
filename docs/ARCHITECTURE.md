@@ -152,7 +152,7 @@ The positive npm `files` allowlist also excludes repository Tasks/docs, the remo
 
 The packaged deterministic mechanics are split into three core modules:
 
-- `src/core/template-contracts.mjs` owns the canonical template registry, token rendering, required-section contracts, current-contract and legacy Task/Test status rules, static delivery-requirement parsing, acceptance-to-test traceability, and evidence validation.
+- `src/core/template-contracts.mjs` implements the canonical template registry and enforces token rendering, required-section contracts, current-contract and legacy Task/Test status rules, static delivery-requirement parsing, acceptance-to-test traceability, and evidence validation.
 - `src/core/task-artifacts.mjs` owns Task directory inventory, max-plus-one ID allocation, bounded ASCII slug generation, cross-platform path containment, atomic Task/Test scaffolding, file-backed validation, hard-dependency graph construction, and deterministic exact/automatic queue resolution.
 - `src/core/skill-installation.mjs` owns direct-install source inventory and hashing, user/project scope resolution, ownership metadata, conflict inspection, journaled file transactions and recovery, ownership-safe uninstall, tool detection, and doctor diagnostics.
 
@@ -394,6 +394,21 @@ Test intent / execution evidence            → TEST
 
 The owner document is updated first when a durable decision changes, followed by Task/Test alignment and implementation.
 
+### Instruction authority and projections
+
+Each normative rule family has one owner. A surface that cannot load that owner may carry only an identified, minimal projection; deterministic tests keep the projection semantically aligned.
+
+| Rule family | Canonical authority | Permitted projection |
+|---|---|---|
+| User-visible Task behavior and evidence meaning | `docs/SPEC.md` | Concise commands and outcomes in `README.md`; short invocations in `CODEX_PROMPTS.md` |
+| Repository-wide workspace, routing, model/delivery preservation, change/document discipline, Task/Test lifecycle, stable-check, and completion invariants | Root or generated `AGENTS.md` | The canonical project `AGENTS.md` template, tested against this repository's routing invariant bullets |
+| Task creation and authoring phases | `skills/kyw-task/SKILL.md` | UI metadata may name the invocation but carries no procedure |
+| Detailed selected existing-Task preflight, mutation, evidence-recording, delivery-ledger, queue-advancement, and reporting procedure | `skills/kyw-task/references/execution.md` | `SKILL.md` contains only the dispatch handoff and reference link |
+| Artifact shape and default evidence fields | Canonical Task/Test templates | `src/core/template-contracts.mjs` enforces the template-defined contract; existing artifacts retain compatible historical state |
+| Current scope, discoveries, handoff, and reproducible evidence | The active `TASK.md` / `TEST.md` pair | None; mutable GitHub delivery remains in its external ledger |
+
+`CODEX_PROMPTS.md` is maintainer convenience, not normative authority. It must invoke repository-resident procedure rather than restate it. `README.md` remains a user projection and links to the owning sources instead of duplicating execution checklists.
+
 ## 8. Task lifecycle architecture
 
 ```text
@@ -463,6 +478,8 @@ Validation checks should detect:
 - DONE Task with non-PASSED required test rows;
 - missing final coverage review;
 - stale documented command after CLI behavior changes.
+
+The canonical Test scaffold includes `Model Provenance` with model identifier, requested alias, reasoning effort, concrete Codex surface, and Codex version. Every field carries its value and an `OBSERVED` or `UNAVAILABLE` basis. A known absent user override is observable as `NOT_REQUESTED`; hidden values remain `UNAVAILABLE`, and a CLI version cannot stand in for a different active surface. The validator requires this block in the canonical template and validates it whenever present on a current-contract pair, while leaving an unmarked legacy pair's same-named free-form section under its historical meaning and keeping already-created current pairs without the block readable. Execution adds the block to a pre-existing pair before recording model-dependent evidence, so provenance adds no path beyond the existing `TEST.md` in the runtime context contract.
 
 ## 10. CLI architecture
 
@@ -787,7 +804,7 @@ Skill-level blocked states must be written into Task/Test when the active workfl
 
 - Keep root `AGENTS.md` under the project target size.
 - Keep each Skill focused and move long material to `references/`.
-- A running Task reads current Task/Test, permanent docs, and explicit dependencies only.
+- A running existing Task uses exactly the loaded repository instructions, four permanent documents, current Task/Test pair, Task Skill, and its single execution reference, plus only explicit dependencies needed by that Task.
 - Before compaction, persist handoff fields.
 - Completed Task details required by future work are promoted to durable documents or summarized in the new Task dependency section.
 

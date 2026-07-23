@@ -140,9 +140,7 @@ To resume one existing Task:
 $kyw-task 0006
 ```
 
-Numeric resume verifies the recorded Task/Test state against permanent documents, repository status, relevant diff, code, and test evidence. It continues at the verified `Resume Point` without repeating Completed work. A required test that cannot run leaves evidence-backed `BLOCKED` status; the Skill never substitutes an unsupported `DONE`/`PASSED` claim.
-
-`$kyw-task NNNN` is the portable exact-Task form. In a repository whose managed `AGENTS.md` routing contract is loaded, these anchored aliases are also available:
+Existing-Task execution verifies the recorded pair and repository evidence, continues at the verified `Resume Point` without repeating Completed work, and never substitutes an unsupported `DONE`/`PASSED` claim. `$kyw-task NNNN` is the portable exact form. A repository whose managed `AGENTS.md` contract is loaded also supports:
 
 ```text
 task 0006 실행해줘
@@ -150,19 +148,11 @@ task 진행해줘
 남은 task 계속 실행해줘
 ```
 
-The first alias selects exactly one existing Task. `task 진행해줘` resumes the sole `IN_PROGRESS/RUNNING` pair when safe or selects the lowest-numbered dependency-satisfied `READY/READY` pair. `남은 task 계속 실행해줘` repeats that selection serially for pre-created Tasks only, with one active Task and a fresh repository, remote, and required-delivery preflight at every transition. It runs only during the current host invocation; it neither creates a Task nor promises unattended background continuation. On a surface that has not loaded the managed routing contract, use `$kyw-task NNNN`.
+These commands are a concise user projection; [SPEC §6.1](docs/SPEC.md#61-codex-skills) owns product behavior, `AGENTS.md` owns repository invariants, and the packaged Task execution reference owns the detailed procedure. Exact `READY/READY` selection confirms execution, automatic selection resumes or chooses one eligible Task, and continuous mode remains serial and current-invocation-only. Invalid states or dependencies fail closed, incidental “task” prose does not route, and a surface without the managed contract uses `$kyw-task NNNN`.
 
-Exact selection of a current-contract `READY/READY` pair is execution confirmation, so no ceremonial second confirmation is required unless a real user-owned decision or instruction conflict remains. Current pairs use only `DRAFT/DRAFT`, `READY/READY`, `IN_PROGRESS/RUNNING`, `DONE/PASSED`, `BLOCKED/BLOCKED`, or terminal `CANCELLED/BLOCKED`; contradictory pairs, multiple active Tasks, missing hard dependencies, and dependency cycles fail closed. Only literal `Task NNNN` references in `## Dependencies` are queue edges. An unrelated historical blocker is not a queue edge and does not stop later work.
+Appended user text may constrain the first selected Task but cannot waive safety or evidence. The configured model and reasoning effort stay unchanged unless that user explicitly overrides them. `TEST.md` records model identifier, requested alias, reasoning effort, Codex surface, version, and per-field observability; hidden values remain `UNAVAILABLE`, never guessed.
 
-Text appended by the current user to a dispatch command is an execution override for the first selected Task unless the user explicitly applies it to every remaining Task. An override may narrow method, order, or checks, but cannot waive acceptance, evidence honesty, safety, preservation of user work, or separately gated external authority. The active model and reasoning effort remain unchanged unless that same user explicitly overrides them; unavailable provenance is recorded as unavailable rather than guessed.
-
-Each current Task/Test pair declares a static delivery requirement: `STANDARD`, whose canonical ledger is GitHub PR/Actions exact-SHA state, or reasoned `NONE`. Task/Test owns repository outcome and reproducible evidence; mutable PR, review, merge, and Actions results stay in GitHub. The dispatcher binds the GitHub ledger to separately inspected local repository, base, and outcome-SHA expectations. `STANDARD` is a gate, not permission to commit, push, open, or merge a PR; those actions need a current-user instruction or explicit selected-Task scope. A `DONE/PASSED` Task may therefore wait at the delivery gate before queue advancement without putting future facts in `Remaining` or `Resume Point`. Legacy completed artifacts remain historical evidence and are not retroactively rewritten. Only when no ready or active current Task remains, the frontier is terminal, and required delivery is satisfied does the workflow return exactly:
-
-```text
-현재 만들어진 Task는 모두 완료됐습니다. 더 이상 진행할 작업이 없습니다. 추가로 하고 싶은 작업이 있나요?
-```
-
-Incidental prose containing the word `task` does not match these anchored forms and retains ordinary-prompt behavior.
+Current pairs declare `STANDARD` delivery through the GitHub PR/Actions exact-SHA ledger or reasoned `NONE`. Task/Test owns repository outcome; GitHub owns mutable delivery state. The gate authorizes no commit, push, PR, or merge by itself.
 
 To independently audit one Task:
 

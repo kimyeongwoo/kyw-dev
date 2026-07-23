@@ -20,6 +20,8 @@ When documents conflict, stop and reconcile them before continuing. Do not silen
 
 ## Task routing
 
+These are the repository execution invariants. The detailed procedure lives in `skills/kyw-task/references/execution.md`.
+
 - `$kyw-task NNNN` is portable for existing Tasks. With this contract, also route only `task NNNN 실행해줘`, `task 진행해줘`, and `남은 task 계속 실행해줘`; incidental `task` text never triggers.
 - Keep one Task active: exact cannot bypass it; ready selection confirms; otherwise resume the sole active or choose the lowest eligible ready. Continuous mode is serial here.
 - Preserve model/effort unless the user overrides. Task/Test owns repository outcome; GitHub exact-SHA state gates delivery and advancement.
@@ -53,11 +55,10 @@ Do not edit unaffected documents merely to mark them reviewed. Record the impact
 ## Task and test lifecycle
 
 - Create `TASK.md` and `TEST.md` together before implementation begins.
-- Map every Task acceptance criterion to at least one test or an explicit verification method.
-- Update both files when discoveries, scope, design, or risk changes during implementation.
-- Before reporting completion, compare the final diff against the Task and the intent-to-test matrix.
-- By default, the current agent runs acceptance-specific, risk-proportionate verification directly. Use subagents or isolated sessions only when the user requests them or independent or isolated verification would materially improve confidence; do not require nested `codex exec` or a subagent cohort merely to simulate independence.
-- Record commands actually run, results, and anything not verified. Not using delegation is not by itself a blocker.
+- Keep both files synchronized with discoveries, scope, design, risk, and stable acceptance-to-test mappings.
+- Run acceptance-specific, risk-proportionate verification directly by default; delegate only when requested or materially confidence-improving.
+- Record only commands that ran, their results, and unverified work; delegation is not a generic completion requirement.
+- Compare the final diff with Task scope and the intent-to-test matrix before completion.
 - If compaction is likely, first update `Completed`, `Remaining`, `Resume Point`, and current test results.
 
 ## Completion gate

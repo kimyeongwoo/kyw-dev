@@ -160,7 +160,7 @@ Existing-Task dispatch behavior:
 5. For `남은 task 계속 실행해줘`, process only pre-created eligible Tasks, serially and within the current invocation. Recheck repository, remote, and required GitHub delivery state before every transition; never promise background continuation.
 6. Stop on an active or hard-dependency blocker, current queue-frontier blocker, unsafe drift, unexplained user work, unresolved product decision, review or CI failure, or separately gated authority. A historical blocker that is neither active nor a hard dependency does not freeze a current queue.
 7. Treat only text appended by the current user to the invocation as an execution override. It applies to the first selected Task unless the user explicitly scopes it to every remaining Task, and it cannot waive acceptance, evidence honesty, safety, user-work preservation, or external-mutation authority.
-8. Preserve the active model and reasoning effort unless the current user explicitly overrides them. Record observable provenance and mark unavailable values unavailable; never infer, downgrade, substitute, or sweep settings.
+8. Preserve the active model and reasoning effort unless the current user explicitly overrides them. For model-dependent evidence, record model identifier, requested model alias, reasoning effort, concrete Codex surface, Codex version, and per-field observability in `TEST.md`. A known absence of an override is observed; a value the active surface does not expose is `UNAVAILABLE`. Never infer, downgrade, substitute, or sweep settings.
 9. Let Task/Test own repository outcome and reproducible evidence. A current-contract pair declares `STANDARD` delivery with GitHub PR/Actions exact-SHA state as its canonical ledger, or `NONE` with a reason. Bind that ledger to separately inspected local repository, base, and outcome-SHA expectations. Mutable delivery results never become future facts required inside the pair. `STANDARD` is a gate, not authority to commit, push, open or merge a PR; those actions require a current-user instruction or explicit selected-Task scope.
 10. Do not advance past a repository-complete Task while required delivery remains unknown, pending, or failed. CI success proves delivery state, not behavioral acceptance.
 11. If no ready or active current Task exists, the frontier is `DONE/PASSED` or `CANCELLED/BLOCKED`, and required delivery is satisfied, create no Task and return exactly: `현재 만들어진 Task는 모두 완료됐습니다. 더 이상 진행할 작업이 없습니다. 추가로 하고 싶은 작업이 있나요?`
@@ -416,6 +416,8 @@ or:
 - Results
 - Unverified
 - Final Coverage Review
+
+Canonical new scaffolds also contain a five-field `Model Provenance` block. An executing pre-existing current pair adds the block when it records model-dependent evidence; legacy and pre-created pairs remain readable before that execution update. Each field records a value plus `OBSERVED` or `UNAVAILABLE`, and an unavailable field must not be inferred from a different Codex surface or installed CLI.
 
 Allowed statuses:
 
