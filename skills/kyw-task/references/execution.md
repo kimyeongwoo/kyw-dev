@@ -27,18 +27,19 @@ This reference is the canonical detailed execution procedure. `AGENTS.md` owns r
 3. Inspect version-control status and the relevant diff before mutation. Separate pre-existing changes from work owned by this execution. If version-control metadata is unavailable, record that limitation and establish the safest available baseline within the authorized scope without claiming Git state.
 4. Run the packaged validator against the pair. Compare its status, acceptance criteria, Plan, Decisions, Discoveries, Completed, Remaining, Resume Point, and Blockers with the files and repository state. Also compare every Test row, command, result, and unverified item with available evidence.
 5. Stop and reconcile a conflict among permanent sources, the Task/Test pair, or the repository before implementation. Never silently choose a convenient claim.
+6. Pass verified conflict, unexplained work, remote drift, or unresolved decisions as execution-preflight findings; empty means checked and clear.
 
 Dispatch from verified state:
 
 - `DRAFT` / `DRAFT`: resume existing-pair customization and current-summary confirmation without allocating another ID; do not implement.
-- `READY` / `READY`: start only when the current summary has been confirmed and the invocation authorizes execution.
+- `READY` / `READY`: start when the current summary has been confirmed and the recognized invocation authorizes implementation plus ordinary declared delivery.
 - `IN_PROGRESS` / `RUNNING`: resume from verified recorded state.
 - `BLOCKED` / `BLOCKED`: recheck the recorded blocker. Resume only if it cleared; otherwise refresh evidence and stop blocked.
-- `DONE` / `PASSED`: validate and report the already completed result without implementation mutations.
+- `DONE` / `PASSED`: validate the repository result; resume authorized ordinary `STANDARD` delivery when final evidence is absent, stop on supplied failing or unsafe evidence, or report terminal completion when delivery is satisfied.
 - `CANCELLED` / `BLOCKED`: stop without implementation mutations.
 - Any unsupported or contradictory pair: record the inconsistency as a blocker and stop before implementation.
 
-A confirmation of the current create-mode summary authorizes its implementation when the summary says implementation will begin. For an already confirmed `READY` pair, an explicit numeric invocation requesting execution or continuation supplies execution authorization. An inspect-only or ambiguous request does not.
+A confirmation of the current create-mode summary authorizes its implementation when the summary says implementation will begin. For an already confirmed existing Task, a recognized exact, automatic, or continuous invocation that selects it authorizes implementation and its ordinary declared `STANDARD` lifecycle. An inspect-only, ambiguous, or non-matching request does not.
 
 ## Dispatch and advance the queue
 
@@ -61,11 +62,11 @@ Selection is deterministic:
 
 1. Fail closed if more than one `IN_PROGRESS/RUNNING` Task exists.
 2. Exact selection may return a `DRAFT/DRAFT` pair for authoring, a `BLOCKED/BLOCKED` pair for read-only condition recheck, or select/resume READY or active work; another active Task blocks a different exact Task.
-3. Automatic selection resumes the one active Task. With none active, select the lowest-numbered dependency-satisfied current `READY/READY` Task.
+3. Automatic selection resumes the one active Task. With none active, select the lowest-numbered current `DONE/PASSED` Task with resumable `STANDARD` delivery before the lowest-numbered dependency-satisfied current `READY/READY` Task.
 4. Historical `BLOCKED` Tasks that are neither active nor hard dependencies do not block unrelated current work.
 5. Continuous mode uses the same selection once, finishes one Task serially, then performs a fresh preflight and calls the dispatcher again. It never allocates, parallelizes, or continues in the background.
 
-When no Task is active or selectable, use the highest current-contract Task as the queue frontier. A blocked frontier reports its blocker. Return exactly `현재 만들어진 Task는 모두 완료됐습니다. 더 이상 진행할 작업이 없습니다. 추가로 하고 싶은 작업이 있나요?` only when that frontier is `DONE/PASSED` or `CANCELLED/BLOCKED`, every hard dependency is satisfied, and required delivery is proven. Do not create a Task in response.
+When no Task is active, resumable for delivery, or selectable, use the highest current-contract Task as the queue frontier. A blocked frontier reports its blocker. Return exactly `현재 만들어진 Task는 모두 완료됐습니다. 더 이상 진행할 작업이 없습니다. 추가로 하고 싶은 작업이 있나요?` only when that frontier is `DONE/PASSED` or `CANCELLED/BLOCKED`, every hard dependency is satisfied, and required delivery is proven. Do not create a Task in response.
 
 Current-contract `## Delivery` contains static policy only:
 
@@ -117,7 +118,17 @@ Then collect a fresh read-only GitHub snapshot as a separate Task-keyed object:
 }
 ```
 
-Pass the two objects separately through `--delivery-expectations-json` and `--delivery-ledger-json`; use path forms only for existing authorized snapshots and never create a repository file. The evaluator binds GitHub repository, base, and PR head to the independently inspected local expectations. Exact-head checks must succeed, review state must be clear, the PR merge SHA must identify the successful base-branch run head, exact run/PR identifiers must be present, and the snapshot must come from the fresh trusted GitHub query. Repository `DONE/PASSED` may precede delivery, but exact, automatic, or continuous selection cannot advance past a current terminal Task while this ledger proof is pending. `STANDARD` alone authorizes no mutation: commit, push, PR, or merge actions require a current-user instruction or explicit selected-Task scope. Review failure, CI failure, missing authority, unsafe drift, or an unavailable exact object stops the invocation.
+Pass the two objects separately through `--delivery-expectations-json` and `--delivery-ledger-json`; use path forms only for existing authorized snapshots and never create a repository file. The evaluator binds GitHub repository, base, and PR head to the independently inspected local expectations. Exact-head checks must succeed, review state must be clear, the PR merge SHA must identify the successful base-branch run head, exact run/PR identifiers must be present, and the snapshot must come from the fresh trusted GitHub query.
+
+Classify delivery as:
+
+- `RESUMABLE`: final evidence is absent or an identity-bound snapshot is pending; select the complete Task with `DELIVER`.
+- `BLOCKED`: supplied evidence is failing, blocked, unsafe, malformed, or identity-drifted; report exact issues.
+- `SATISFIED`: fresh exact evidence proves the ledger; return terminal without duplicate mutation.
+
+The static `STANDARD` declaration alone authorizes no ambient mutation. A dispatch returning `IMPLEMENT`, `RESUME`, or `DELIVER` authorizes acceptance verification, `DONE/PASSED`, exact-path commit, non-force push, non-draft PR, exact-head CI, review/mergeability inspection, expected-head protected merge, post-merge base CI, and terminal reporting. Do not ask for ceremonial confirmation before those ordinary steps.
+
+Publication, npm registry mutation, tag, GitHub Release, public plugin submission, force push, destructive recovery, branch deletion, workflow rerun, bypass/admin override, and unrelated mutation remain separate authority boundaries. Conflict, unexplained user work, remote drift, failed CI, review blockage, a missing required exact object, or a new user-owned decision stops the invocation.
 
 ## Apply overrides and preserve model provenance
 
@@ -143,7 +154,7 @@ Use the exact exposed value with `OBSERVED`. Use `UNAVAILABLE` as both value and
 
 Before the first implementation mutation, update the verified pair together from `READY` / `READY` to `IN_PROGRESS` / `RUNNING`, record the start in Completed or Discoveries, make Remaining and Resume Point concrete, and validate again.
 
-An exact or automatic `READY/READY` selection is already execution confirmation. Do not ask for another confirmation unless appended instructions conflict or a genuinely unresolved user-owned decision remains.
+An exact, automatic, or continuous `READY/READY` selection is already implementation and ordinary-delivery confirmation. A selected `DONE/PASSED` Task with resumable delivery is already delivery confirmation. Do not ask again unless appended instructions conflict, a separate authority boundary is reached, or a genuinely unresolved user-owned decision remains.
 
 When a recorded blocker has cleared, change `BLOCKED` / `BLOCKED` back to `IN_PROGRESS` / `RUNNING`, record why it cleared, and validate before continuing. Do not erase the earlier blocked result or command evidence.
 
@@ -259,4 +270,4 @@ For the current contract, every Plan item must also be checked and both Remainin
 
 Use `BLOCKED` / `BLOCKED` when a required condition remains unmet and record the recovery path. Use `CANCELLED` only on explicit user cancellation and preserve the pair's history. Never mark terminal success because implementation merely looks complete or because time/context is low.
 
-Report the Task ID, repository terminal state, scope delivered, documentation impact, exact verification summary, diff/coverage review, external delivery state from the ledger when queried, and residual risks. In exact or next mode, do not automatically start another Task. In continuous mode only, re-preflight and dispatch the next pre-created Task after the current repository outcome and required delivery succeed. Never perform the independent audit owned by `$kyw-audit`.
+Report the Task ID, repository terminal state, scope delivered, documentation impact, exact verification summary, diff/coverage review, external delivery state from the ledger when queried, and residual risks. In exact or next mode, do not automatically start another Task. In continuous mode only, re-preflight and dispatch the next pre-created Task after the current repository outcome and required delivery succeed. In next mode, a repository-complete Task with resumable delivery is the selected work and no newer ready Task may bypass it. Never perform the independent audit owned by `$kyw-audit`.

@@ -83,6 +83,7 @@ test("kyw-task Skill is explicit-only and supports create, exact, next, and cont
   assert.match(skill, /incidental text containing “task” never invokes this workflow/);
   assert.match(skill, /Only continuous mode may process multiple Tasks/);
   assert.match(skill, /--delivery-ledger-json <json>/);
+  assert.match(skill, /--execution-preflight-json <json>/);
   assert.match(skill, /four-digit Task ID/);
   assert.match(skill, /\[Task Execution and Resume\]\(references\/execution\.md\)/);
   assert.match(skill, /execution reference is the canonical detailed procedure/);
@@ -91,7 +92,9 @@ test("kyw-task Skill is explicit-only and supports create, exact, next, and cont
   assert.match(execution, /only when the user explicitly says so/);
   assert.match(execution, /cannot waive acceptance, evidence honesty, safety/);
   assert.match(execution, /configured model and reasoning effort/);
-  assert.match(execution, /`STANDARD` alone authorizes no mutation/);
+  assert.match(execution, /static `STANDARD` declaration alone authorizes no ambient mutation/);
+  assert.match(execution, /Do not ask for ceremonial confirmation before those ordinary steps/);
+  assert.match(execution, /Publication, npm registry mutation, tag, GitHub Release/);
   assert.match(execution, /bounded contract migration/);
   assert.match(execution, /Never pre-claim a future PR, merge, post-merge run, or delivery result/);
   assert.match(execution, /## Model Provenance/);
@@ -113,7 +116,10 @@ test("kyw-task execution and resume documentation matches the packaged workflow"
   assert.doesNotMatch(readme, /Task execution\/resume and audit remain unavailable/);
   assert.match(architecture, /references\/execution\.md/);
   assert.match(architecture, /semantic state-machine reference for exact, automatic, and continuous Task execution/);
-  assert.match(architecture, /selecting a current-contract `READY\/READY` pair is implementation confirmation/);
+  assert.match(
+    architecture,
+    /selecting a current-contract `READY\/READY` pair confirms implementation and ordinary `STANDARD` delivery/,
+  );
   assert.match(architecture, /An unavailable required check produces recorded `BLOCKED` status/);
 });
 
@@ -445,25 +451,99 @@ test("kyw-task authoring adapter scaffolds one pair and task execution validates
     writeFile(join(dispatchDirectory, "TASK.md"), readyTaskMarkdown, "utf8"),
     writeFile(join(dispatchDirectory, "TEST.md"), readyTestMarkdown, "utf8"),
   ]);
-  const dispatchResult = runAdapter([
-    "dispatch",
-    "--tasks-root",
-    dispatchRoot,
-    "--invocation",
-    "$kyw-task 0002",
-    "--managed-routing",
-    "false",
-  ]);
-  assert.equal(dispatchResult.status, 0, dispatchResult.stderr);
-  const dispatch = JSON.parse(dispatchResult.stdout);
-  assert.equal(dispatch.outcome, "SELECTED");
-  assert.equal(dispatch.task.id, "0002");
-  assert.equal(dispatch.confirmation, true);
+  for (const [invocation, managedRouting, continuous] of [
+    ["$kyw-task 0002", "false", false],
+    ["task 0002 실행해줘", "true", false],
+    ["task 진행해줘", "true", false],
+    ["남은 task 계속 실행해줘", "true", true],
+  ]) {
+    const dispatchResult = runAdapter([
+      "dispatch",
+      "--tasks-root",
+      dispatchRoot,
+      "--invocation",
+      invocation,
+      "--managed-routing",
+      managedRouting,
+    ]);
+    assert.equal(dispatchResult.status, 0, dispatchResult.stderr);
+    const dispatch = JSON.parse(dispatchResult.stdout);
+    assert.equal(dispatch.outcome, "SELECTED");
+    assert.equal(dispatch.action, "IMPLEMENT");
+    assert.equal(dispatch.task.id, "0002");
+    assert.equal(dispatch.confirmation, true);
+    assert.equal(dispatch.authorityScope, "STANDARD_LIFECYCLE");
+    assert.equal(dispatch.standardDeliveryAuthorized, true);
+    assert.equal(dispatch.ceremonialConfirmationRequired, false);
+    assert.equal(dispatch.separateAuthorityBoundary, "NON_STANDARD_EXTERNAL_MUTATIONS");
+    assert.equal(dispatch.continuous, continuous);
+  }
+  for (const [field, detail] of [
+    ["conflicts", "synthetic merge conflict"],
+    ["unexplainedUserWork", "synthetic user file"],
+    ["remoteDrift", "synthetic main drift"],
+    ["userOwnedDecisions", "synthetic API choice"],
+  ]) {
+    const blockedResult = runAdapter([
+      "dispatch",
+      "--tasks-root",
+      dispatchRoot,
+      "--invocation",
+      "task 진행해줘",
+      "--managed-routing",
+      "true",
+      "--execution-preflight-json",
+      JSON.stringify({ [field]: [detail] }),
+    ]);
+    assert.equal(blockedResult.status, 0, blockedResult.stderr);
+    const blocked = JSON.parse(blockedResult.stdout);
+    assert.equal(blocked.outcome, "BLOCKED", field);
+    assert.equal(blocked.code, "PREFLIGHT_BLOCKED", field);
+  }
 
   await Promise.all([
     writeFile(join(dispatchDirectory, "TASK.md"), doneTaskMarkdown, "utf8"),
     writeFile(join(dispatchDirectory, "TEST.md"), passedTestMarkdown, "utf8"),
   ]);
+  for (const [invocation, managedRouting] of [
+    ["$kyw-task 0002", "false"],
+    ["task 0002 실행해줘", "true"],
+    ["task 진행해줘", "true"],
+    ["남은 task 계속 실행해줘", "true"],
+  ]) {
+    const resumeResult = runAdapter([
+      "dispatch",
+      "--tasks-root",
+      dispatchRoot,
+      "--invocation",
+      invocation,
+      "--managed-routing",
+      managedRouting,
+    ]);
+    assert.equal(resumeResult.status, 0, resumeResult.stderr);
+    const resume = JSON.parse(resumeResult.stdout);
+    assert.equal(resume.outcome, "SELECTED");
+    assert.equal(resume.action, "DELIVER");
+    assert.equal(resume.task.id, "0002");
+    assert.equal(resume.authorityScope, "STANDARD_LIFECYCLE");
+    assert.equal(resume.ceremonialConfirmationRequired, false);
+    assert.equal(resume.deliveryDisposition, "RESUMABLE");
+  }
+
+  const ordinaryPromptResult = runAdapter([
+    "dispatch",
+    "--tasks-root",
+    dispatchRoot,
+    "--invocation",
+    "Task 0031의 STANDARD delivery 결함을 설명해줘",
+    "--managed-routing",
+    "true",
+  ]);
+  assert.equal(ordinaryPromptResult.status, 0, ordinaryPromptResult.stderr);
+  const ordinaryPrompt = JSON.parse(ordinaryPromptResult.stdout);
+  assert.equal(ordinaryPrompt.outcome, "NOT_TASK_INVOCATION");
+  assert.equal("authorityScope" in ordinaryPrompt, false);
+
   const outcomeSha = "a".repeat(40);
   const mergeSha = "b".repeat(40);
   const deliveryLedger = {
@@ -501,6 +581,42 @@ test("kyw-task authoring adapter scaffolds one pair and task execution validates
       outcomeSha,
     },
   };
+  const pendingDeliveryLedger = {
+    "0002": {
+      source: "GITHUB",
+      taskId: "0002",
+      repository: "example/adapter-fixture",
+      outcomeSha,
+      pullRequest: {
+        number: 42,
+        headSha: outcomeSha,
+        baseRef: "main",
+        state: "OPEN",
+        checks: "PENDING",
+        review: "CLEAR",
+        runId: 1001,
+      },
+    },
+  };
+  const pendingDeliveryResult = runAdapter([
+    "dispatch",
+    "--tasks-root",
+    dispatchRoot,
+    "--invocation",
+    "task 진행해줘",
+    "--managed-routing",
+    "true",
+    "--delivery-ledger-json",
+    JSON.stringify(pendingDeliveryLedger),
+    "--delivery-expectations-json",
+    JSON.stringify(deliveryExpectations),
+  ]);
+  assert.equal(pendingDeliveryResult.status, 0, pendingDeliveryResult.stderr);
+  const pendingDelivery = JSON.parse(pendingDeliveryResult.stdout);
+  assert.equal(pendingDelivery.outcome, "SELECTED");
+  assert.equal(pendingDelivery.action, "DELIVER");
+  assert.equal(pendingDelivery.deliveryDisposition, "RESUMABLE");
+
   const inlineDeliveryResult = runAdapter([
     "dispatch",
     "--tasks-root",
@@ -616,6 +732,20 @@ test("kyw-task authoring adapter scaffolds one pair and task execution validates
       ],
       pattern: /INVALID_DELIVERY_EXPECTATIONS/,
     },
+    {
+      args: [
+        "dispatch",
+        "--tasks-root",
+        dispatchRoot,
+        "--invocation",
+        "task 진행해줘",
+        "--managed-routing",
+        "true",
+        "--execution-preflight-json",
+        "[]",
+      ],
+      pattern: /INVALID_EXECUTION_PREFLIGHT/,
+    },
   ];
   for (const { args, pattern } of invalidCases) {
     const result = runAdapter(args);
@@ -630,14 +760,28 @@ test("current queued artifacts validate without rewriting immutable historical T
   const directories = (await readdir(tasksRoot, { withFileTypes: true }))
     .filter((entry) => entry.isDirectory() && /^\d{4}-/.test(entry.name))
     .sort((left, right) => left.name.localeCompare(right.name));
+  assert.deepEqual(
+    directories
+      .filter((entry) => Number(entry.name.slice(0, 4)) <= 38)
+      .map((entry) => entry.name.slice(0, 4)),
+    Array.from({ length: 38 }, (_, index) => String(index + 1).padStart(4, "0")),
+  );
 
   for (const entry of directories) {
     const id = Number(entry.name.slice(0, 4));
     const directory = join(tasksRoot, entry.name);
-    const taskMarkdown = await readFile(join(directory, "TASK.md"), "utf8");
-    const testMarkdown = await readFile(join(directory, "TEST.md"), "utf8");
+    const taskPath = join(directory, "TASK.md");
+    const testPath = join(directory, "TEST.md");
+    const taskBytesBefore = await readFile(taskPath);
+    const testBytesBefore = await readFile(testPath);
+    const taskMarkdown = taskBytesBefore.toString("utf8");
+    const testMarkdown = testBytesBefore.toString("utf8");
     const validation = runAdapter(["validate", "--task-directory", directory]);
     assert.equal(validation.status, 0, `${entry.name}: ${validation.stderr}`);
+    if (id <= 38) {
+      assert.deepEqual(await readFile(taskPath), taskBytesBefore, `${entry.name} TASK.md`);
+      assert.deepEqual(await readFile(testPath), testBytesBefore, `${entry.name} TEST.md`);
+    }
 
     if (id <= 29) {
       assert.doesNotMatch(taskMarkdown, /kyw-task-contract: 2/, entry.name);
@@ -656,6 +800,9 @@ test("current queued artifacts validate without rewriting immutable historical T
         /Confirm future external delivery evidence is read/,
         entry.name,
       );
+      if (id === 32) {
+        assert.match(markdownSection(taskMarkdown, "Dependencies"), /Task 0039/);
+      }
       const repositoryHandoff = [
         markdownSection(taskMarkdown, "Plan"),
         markdownSection(taskMarkdown, "Remaining"),

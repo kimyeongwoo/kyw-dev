@@ -6,6 +6,7 @@ import test from "node:test";
 
 import {
   ALL_TASKS_COMPLETE_MESSAGE,
+  classifyDeliveryEvidence,
   evaluateDeliveryEvidence,
   parseTaskInvocation,
   resolveTaskDispatch,
@@ -235,6 +236,16 @@ function deliveredExpectation({
   };
 }
 
+function assertStandardAuthority(result, action) {
+  assert.equal(result.outcome, "SELECTED");
+  assert.equal(result.action, action);
+  assert.equal(result.authoritySource, "RECOGNIZED_TASK_INVOCATION");
+  assert.equal(result.authorityScope, "STANDARD_LIFECYCLE");
+  assert.equal(result.standardDeliveryAuthorized, true);
+  assert.equal(result.ceremonialConfirmationRequired, false);
+  assert.equal(result.separateAuthorityBoundary, "NON_STANDARD_EXTERNAL_MUTATIONS");
+}
+
 test("anchored invocation parsing preserves overrides and rejects incidental task text", () => {
   assert.deepEqual(parseTaskInvocation("$kyw-task 0042 verify only the parser"), {
     recognized: true,
@@ -304,15 +315,21 @@ test("exact READY selection is confirmation and legacy terminal dependencies rem
     { id: "0001", status: "DONE", legacy: true },
     { id: "0002", status: "READY", dependencies: "- Task 0001." },
   ]);
-  const result = await resolveTaskDispatch({
-    tasksRoot: root,
-    invocation: "$kyw-task 0002 verify the focused path",
-  });
-  assert.equal(result.outcome, "SELECTED");
-  assert.equal(result.task.id, "0002");
-  assert.equal(result.confirmation, true);
-  assert.equal(result.overrideText, "verify the focused path");
-  assert.equal(result.overrideScope, "FIRST_SELECTED_TASK");
+  for (const [invocation, managedRoutingAvailable] of [
+    ["$kyw-task 0002 verify the focused path", false],
+    ["task 0002 실행해줘 verify the focused path", true],
+  ]) {
+    const result = await resolveTaskDispatch({
+      tasksRoot: root,
+      invocation,
+      managedRoutingAvailable,
+    });
+    assertStandardAuthority(result, "IMPLEMENT");
+    assert.equal(result.task.id, "0002");
+    assert.equal(result.confirmation, true);
+    assert.equal(result.overrideText, "verify the focused path");
+    assert.equal(result.overrideScope, "FIRST_SELECTED_TASK");
+  }
 });
 
 test("exact dispatch can resume DRAFT authoring and recheck a recorded blocker without authorizing implementation", async (t) => {
@@ -350,6 +367,7 @@ test("automatic dispatch resumes one active Task and fails closed on multiple ac
   assert.equal(resumed.outcome, "SELECTED");
   assert.equal(resumed.task.id, "0001");
   assert.equal(resumed.confirmation, false);
+  assertStandardAuthority(resumed, "RESUME");
 
   await writePair(root, { id: "0003", status: "IN_PROGRESS" });
   const conflict = await resolveTaskDispatch({
@@ -359,6 +377,42 @@ test("automatic dispatch resumes one active Task and fails closed on multiple ac
   });
   assert.equal(conflict.outcome, "BLOCKED");
   assert.equal(conflict.code, "MULTIPLE_ACTIVE_TASKS");
+});
+
+test("verified execution preflight blockers stop routing before selection", async (t) => {
+  const root = await createQueue(t, [{ id: "0001", status: "READY" }]);
+  for (const [field, detail, pattern] of [
+    ["conflicts", "merge conflict in src/core", /conflict: merge conflict/],
+    ["unexplainedUserWork", "modified user-owned notes", /unexplained user work/],
+    ["remoteDrift", "origin/main moved", /remote drift/],
+    ["userOwnedDecisions", "choose a public API", /unresolved user-owned decision/],
+  ]) {
+    const result = await resolveTaskDispatch({
+      tasksRoot: root,
+      invocation: "task 진행해줘",
+      managedRoutingAvailable: true,
+      executionPreflight: { [field]: [detail] },
+    });
+    assert.equal(result.outcome, "BLOCKED", field);
+    assert.equal(result.code, "PREFLIGHT_BLOCKED", field);
+    assert.match(result.message, pattern, field);
+  }
+  const malformed = await resolveTaskDispatch({
+    tasksRoot: root,
+    invocation: "task 진행해줘",
+    managedRoutingAvailable: true,
+    executionPreflight: { unexplainedUserWork: "not-an-array" },
+  });
+  assert.equal(malformed.code, "PREFLIGHT_BLOCKED");
+  assert.match(malformed.message, /array of non-empty strings/);
+  const inheritedName = await resolveTaskDispatch({
+    tasksRoot: root,
+    invocation: "task 진행해줘",
+    managedRoutingAvailable: true,
+    executionPreflight: { constructor: [] },
+  });
+  assert.equal(inheritedName.code, "PREFLIGHT_BLOCKED");
+  assert.match(inheritedName.message, /unknown field constructor/);
 });
 
 test("automatic dispatch uses literal hard dependencies and the lowest satisfied READY Task", async (t) => {
@@ -475,6 +529,7 @@ test("continuous dispatch re-inspects serial state, gates transitions, and scope
   assert.equal(result.task.id, "0001");
   assert.equal(result.overrideText, "run only focused checks");
   assert.equal(result.overrideScope, "FIRST_SELECTED_TASK");
+  assertStandardAuthority(result, "IMPLEMENT");
 
   const resumedAfterSessionStop = await resolveTaskDispatch({
     tasksRoot: root,
@@ -490,8 +545,10 @@ test("continuous dispatch re-inspects serial state, gates transitions, and scope
     invocation: "남은 task 계속 실행해줘",
     managedRoutingAvailable: true,
   });
-  assert.equal(pendingDelivery.outcome, "BLOCKED");
-  assert.match(pendingDelivery.message, /Cannot advance past Task 0001|Task 0001 delivery/);
+  assertStandardAuthority(pendingDelivery, "DELIVER");
+  assert.equal(pendingDelivery.task.id, "0001");
+  assert.equal(pendingDelivery.deliveryDisposition, "RESUMABLE");
+  assert.match(pendingDelivery.message, /without ceremonial reconfirmation/);
 
   const next = await resolveTaskDispatch({
     tasksRoot: root,
@@ -512,12 +569,72 @@ test("exact GitHub ledger evidence gates terminal queue advancement and no-work 
     invocation: "task 진행해줘",
     managedRoutingAvailable: true,
   });
-  assert.equal(pending.code, "DELIVERY_EVIDENCE_REQUIRED");
+  assertStandardAuthority(pending, "DELIVER");
+  assert.equal(pending.task.id, "0001");
+  assert.deepEqual(classifyDeliveryEvidence("0001"), {
+    disposition: "RESUMABLE",
+    issues: [],
+  });
 
   const entry = deliveredEntry();
   const expectation = deliveredExpectation();
+  const pendingWithExpectation = await resolveTaskDispatch({
+    tasksRoot: root,
+    invocation: "task 진행해줘",
+    managedRoutingAvailable: true,
+    deliveryExpectations: { "0001": expectation },
+  });
+  assertStandardAuthority(pendingWithExpectation, "DELIVER");
+  assert.equal(pendingWithExpectation.deliveryDisposition, "RESUMABLE");
+  const pendingPullRequest = {
+    source: "GITHUB",
+    taskId: "0001",
+    repository: "example/dispatch-fixture",
+    outcomeSha: "a".repeat(40),
+    pullRequest: {
+      number: 42,
+      headSha: "a".repeat(40),
+      baseRef: "main",
+      state: "OPEN",
+      checks: "PENDING",
+      review: "CLEAR",
+      runId: 1001,
+    },
+  };
+  const pendingWithSnapshot = await resolveTaskDispatch({
+    tasksRoot: root,
+    invocation: "task 진행해줘",
+    managedRoutingAvailable: true,
+    deliveryLedger: { "0001": pendingPullRequest },
+    deliveryExpectations: { "0001": expectation },
+  });
+  assertStandardAuthority(pendingWithSnapshot, "DELIVER");
+  assert.deepEqual(classifyDeliveryEvidence("0001", pendingPullRequest, expectation), {
+    disposition: "RESUMABLE",
+    issues: [],
+  });
+  const pendingMain = deliveredEntry();
+  pendingMain.merge.checks = "PENDING";
+  delete pendingMain.merge.mainRunHeadSha;
+  delete pendingMain.merge.runId;
+  const pendingAfterMerge = await resolveTaskDispatch({
+    tasksRoot: root,
+    invocation: "task 진행해줘",
+    managedRoutingAvailable: true,
+    deliveryLedger: { "0001": pendingMain },
+    deliveryExpectations: { "0001": expectation },
+  });
+  assertStandardAuthority(pendingAfterMerge, "DELIVER");
+  assert.deepEqual(classifyDeliveryEvidence("0001", undefined, expectation), {
+    disposition: "RESUMABLE",
+    issues: [],
+  });
   assert.deepEqual(evaluateDeliveryEvidence("0001", entry, expectation), {
     satisfied: true,
+    issues: [],
+  });
+  assert.deepEqual(classifyDeliveryEvidence("0001", entry, expectation), {
+    disposition: "SATISFIED",
     issues: [],
   });
   assert.match(
@@ -575,7 +692,22 @@ test("exact GitHub ledger evidence gates terminal queue advancement and no-work 
   });
   assert.equal(complete.outcome, "NO_WORK");
   assert.equal(complete.message, ALL_TASKS_COMPLETE_MESSAGE);
+  assert.equal(complete.deliveryDisposition, "SATISFIED");
+  assert.equal(complete.mutationRequired, false);
+  assert.equal("action" in complete, false);
   assert.deepEqual((await readdir(root)).sort(), inventoryBefore);
+
+  const exactComplete = await resolveTaskDispatch({
+    tasksRoot: root,
+    invocation: "$kyw-task 0001",
+    deliveryLedger: { "0001": entry },
+    deliveryExpectations: { "0001": expectation },
+  });
+  assert.equal(exactComplete.outcome, "TERMINAL");
+  assert.equal(exactComplete.code, "TASK_COMPLETE");
+  assert.equal(exactComplete.deliveryDisposition, "SATISFIED");
+  assert.equal(exactComplete.mutationRequired, false);
+  assert.equal("action" in exactComplete, false);
 
   const staleEntry = structuredClone(entry);
   staleEntry.pullRequest.headSha = "c".repeat(40);
@@ -586,7 +718,8 @@ test("exact GitHub ledger evidence gates terminal queue advancement and no-work 
     deliveryLedger: { "0001": staleEntry },
     deliveryExpectations: { "0001": expectation },
   });
-  assert.equal(stale.code, "DELIVERY_EVIDENCE_REQUIRED");
+  assert.equal(stale.code, "DELIVERY_EVIDENCE_INVALID");
+  assert.equal(stale.deliveryDisposition, "BLOCKED");
   assert.match(stale.message, /headSha must equal outcomeSha/);
 
   const independentRoot = await createQueue(t, [
@@ -598,8 +731,8 @@ test("exact GitHub ledger evidence gates terminal queue advancement and no-work 
     invocation: "task 진행해줘",
     managedRoutingAvailable: true,
   });
-  assert.equal(cannotSkip.code, "QUEUE_TRANSITION_BLOCKED");
-  assert.match(cannotSkip.message, /Cannot advance past Task 0001/);
+  assertStandardAuthority(cannotSkip, "DELIVER");
+  assert.equal(cannotSkip.task.id, "0001");
   const allDelivered = await resolveTaskDispatch({
     tasksRoot: independentRoot,
     invocation: "task 진행해줘",
@@ -608,6 +741,168 @@ test("exact GitHub ledger evidence gates terminal queue advancement and no-work 
     deliveryExpectations: { "0001": deliveredExpectation() },
   });
   assert.equal(allDelivered.outcome, "NO_WORK");
+});
+
+test("Task 0031 regression resumes delivery before Task 0032 without another approval", async (t) => {
+  const root = await createQueue(t, [
+    { id: "0030", status: "DONE" },
+    { id: "0031", status: "DONE", dependencies: "- Task 0030." },
+    { id: "0032", status: "READY", dependencies: "- Task 0031." },
+  ]);
+  const ledger30 = deliveredEntry({
+    taskId: "0030",
+    outcomeCharacter: "a",
+    mergeCharacter: "b",
+  });
+  const expectation30 = deliveredExpectation({ taskId: "0030", outcomeCharacter: "a" });
+  const sharedState = {
+    deliveryLedger: { "0030": ledger30 },
+    deliveryExpectations: { "0030": expectation30 },
+  };
+
+  for (const [invocation, managedRoutingAvailable] of [
+    ["task 0031 실행해줘", true],
+    ["task 진행해줘", true],
+    ["$kyw-task 0031", false],
+  ]) {
+    const result = await resolveTaskDispatch({
+      tasksRoot: root,
+      invocation,
+      managedRoutingAvailable,
+      ...sharedState,
+    });
+    assertStandardAuthority(result, "DELIVER");
+    assert.equal(result.task.id, "0031");
+    assert.equal(result.confirmation, false);
+  }
+
+  const ledger31 = deliveredEntry({
+    taskId: "0031",
+    outcomeCharacter: "c",
+    mergeCharacter: "d",
+  });
+  const expectation31 = deliveredExpectation({ taskId: "0031", outcomeCharacter: "c" });
+  const deliveredState = {
+    deliveryLedger: { "0030": ledger30, "0031": ledger31 },
+    deliveryExpectations: { "0030": expectation30, "0031": expectation31 },
+  };
+  const terminal = await resolveTaskDispatch({
+    tasksRoot: root,
+    invocation: "$kyw-task 0031",
+    ...deliveredState,
+  });
+  assert.equal(terminal.outcome, "TERMINAL");
+  assert.equal(terminal.mutationRequired, false);
+
+  const next = await resolveTaskDispatch({
+    tasksRoot: root,
+    invocation: "task 진행해줘",
+    managedRoutingAvailable: true,
+    ...deliveredState,
+  });
+  assertStandardAuthority(next, "IMPLEMENT");
+  assert.equal(next.task.id, "0032");
+});
+
+test("Task 0039 active, blocked, and pending delivery states protect Task 0032", async (t) => {
+  const root = await createQueue(t, [
+    { id: "0030", status: "DONE", delivery: "local prerequisite fixture" },
+    { id: "0031", status: "DONE", delivery: "local prerequisite fixture" },
+    {
+      id: "0032",
+      status: "READY",
+      dependencies: "- Task 0031.\n- Task 0039.",
+    },
+    {
+      id: "0039",
+      status: "IN_PROGRESS",
+      dependencies: "- Task 0030.\n- Task 0031.",
+    },
+  ]);
+  const active = await resolveTaskDispatch({
+    tasksRoot: root,
+    invocation: "task 진행해줘",
+    managedRoutingAvailable: true,
+  });
+  assertStandardAuthority(active, "RESUME");
+  assert.equal(active.task.id, "0039");
+
+  await writePair(root, {
+    id: "0039",
+    status: "BLOCKED",
+    dependencies: "- Task 0030.\n- Task 0031.",
+    blocker: "- Required verification failed.",
+  });
+  const blocked = await resolveTaskDispatch({
+    tasksRoot: root,
+    invocation: "task 진행해줘",
+    managedRoutingAvailable: true,
+  });
+  assert.equal(blocked.outcome, "BLOCKED");
+  assert.match(blocked.message, /Task 0039 is BLOCKED/);
+  assert.notEqual(blocked.task?.id, "0032");
+
+  await writePair(root, {
+    id: "0039",
+    status: "DONE",
+    dependencies: "- Task 0030.\n- Task 0031.",
+  });
+  const pending = await resolveTaskDispatch({
+    tasksRoot: root,
+    invocation: "task 진행해줘",
+    managedRoutingAvailable: true,
+  });
+  assertStandardAuthority(pending, "DELIVER");
+  assert.equal(pending.task.id, "0039");
+
+  const delivered = await resolveTaskDispatch({
+    tasksRoot: root,
+    invocation: "task 진행해줘",
+    managedRoutingAvailable: true,
+    deliveryLedger: {
+      "0039": deliveredEntry({
+        taskId: "0039",
+        outcomeCharacter: "e",
+        mergeCharacter: "f",
+      }),
+    },
+    deliveryExpectations: {
+      "0039": deliveredExpectation({ taskId: "0039", outcomeCharacter: "e" }),
+    },
+  });
+  assertStandardAuthority(delivered, "IMPLEMENT");
+  assert.equal(delivered.task.id, "0032");
+});
+
+test("supplied CI, review, and identity failures block delivery resume", async (t) => {
+  const root = await createQueue(t, [{ id: "0001", status: "DONE" }]);
+  const expectation = deliveredExpectation();
+  const cases = [
+    ["PR CI failure", "DELIVERY_BLOCKED", (entry) => { entry.pullRequest.checks = "FAILURE"; }, /reports FAILURE/],
+    ["review blocker", "DELIVERY_BLOCKED", (entry) => { entry.pullRequest.review = "CHANGES_REQUESTED"; }, /reports CHANGES_REQUESTED/],
+    ["repository drift", "DELIVERY_EVIDENCE_INVALID", (entry) => { entry.repository = "other/repository"; }, /trusted local expectation/],
+    ["base drift", "DELIVERY_EVIDENCE_INVALID", (entry) => { entry.pullRequest.baseRef = "release"; }, /trusted local expectation/],
+    ["outcome drift", "DELIVERY_EVIDENCE_INVALID", (entry) => { entry.outcomeSha = "c".repeat(40); }, /trusted local expectation/],
+    ["head drift", "DELIVERY_EVIDENCE_INVALID", (entry) => { entry.pullRequest.headSha = "c".repeat(40); }, /headSha must equal outcomeSha/],
+    ["merge drift", "DELIVERY_EVIDENCE_INVALID", (entry) => { entry.merge.mainRunHeadSha = "c".repeat(40); }, /mainRunHeadSha/],
+    ["post-merge CI failure", "DELIVERY_BLOCKED", (entry) => { entry.merge.checks = "FAILURE"; }, /reports FAILURE/],
+  ];
+
+  for (const [label, expectedCode, mutate, pattern] of cases) {
+    const entry = deliveredEntry();
+    mutate(entry);
+    const result = await resolveTaskDispatch({
+      tasksRoot: root,
+      invocation: "task 진행해줘",
+      managedRoutingAvailable: true,
+      deliveryLedger: { "0001": entry },
+      deliveryExpectations: { "0001": expectation },
+    });
+    assert.equal(result.outcome, "BLOCKED", label);
+    assert.equal(result.code, expectedCode, label);
+    assert.equal(result.deliveryDisposition, "BLOCKED", label);
+    assert.match(result.message, pattern, label);
+  }
 });
 
 test("cancelled frontiers require standard delivery and unrelated historical blockers do not stop a later frontier", async (t) => {

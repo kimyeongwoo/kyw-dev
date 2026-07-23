@@ -198,7 +198,39 @@ export function parseTaskInvocation(invocation, { managedRoutingAvailable = fals
   });
 }
 
-export function evaluateDeliveryEvidence(taskId, entry, expectation) {
+export function evaluateTaskExecutionPreflight(preflight = {}) {
+  if (!preflight || typeof preflight !== "object" || Array.isArray(preflight)) {
+    return Object.freeze({
+      safe: false,
+      issues: Object.freeze(["execution preflight must be an object"]),
+    });
+  }
+  const labels = Object.freeze({
+    conflicts: "conflict",
+    unexplainedUserWork: "unexplained user work",
+    remoteDrift: "remote drift",
+    userOwnedDecisions: "unresolved user-owned decision",
+  });
+  const issues = [];
+  for (const key of Object.keys(preflight)) {
+    if (!Object.hasOwn(labels, key)) {
+      issues.push(`execution preflight contains unknown field ${key}`);
+      continue;
+    }
+    const values = preflight[key];
+    if (
+      !Array.isArray(values) ||
+      values.some((value) => typeof value !== "string" || !value.trim())
+    ) {
+      issues.push(`execution preflight ${key} must be an array of non-empty strings`);
+      continue;
+    }
+    issues.push(...values.map((value) => `${labels[key]}: ${value}`));
+  }
+  return Object.freeze({ safe: issues.length === 0, issues: Object.freeze(issues) });
+}
+
+function deliveryExpectationIssues(taskId, expectation) {
   const issues = [];
   if (!expectation || typeof expectation !== "object" || Array.isArray(expectation)) {
     issues.push(`Task ${taskId} requires trusted local delivery expectations`);
@@ -219,13 +251,11 @@ export function evaluateDeliveryEvidence(taskId, entry, expectation) {
       issues.push("expectation.outcomeSha must be an exact 40-character lowercase Git SHA");
     }
   }
-  if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
-    return Object.freeze({
-      satisfied: false,
-      issues: Object.freeze([...issues, `Task ${taskId} requires GitHub delivery evidence`]),
-    });
-  }
+  return issues;
+}
 
+function deliveryIdentityIssues(taskId, entry, expectation) {
+  const issues = [];
   if (entry.source !== "GITHUB") {
     issues.push("source must be GITHUB");
   }
@@ -244,6 +274,19 @@ export function evaluateDeliveryEvidence(taskId, entry, expectation) {
   if (entry.outcomeSha !== expectation?.outcomeSha) {
     issues.push("outcomeSha must equal the trusted local expectation");
   }
+  return issues;
+}
+
+export function evaluateDeliveryEvidence(taskId, entry, expectation) {
+  const issues = deliveryExpectationIssues(taskId, expectation);
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+    return Object.freeze({
+      satisfied: false,
+      issues: Object.freeze([...issues, `Task ${taskId} requires GitHub delivery evidence`]),
+    });
+  }
+
+  issues.push(...deliveryIdentityIssues(taskId, entry, expectation));
   const pullRequest = entry.pullRequest;
   if (!pullRequest || typeof pullRequest !== "object") {
     issues.push("pullRequest evidence is required");
@@ -305,6 +348,182 @@ export function evaluateDeliveryEvidence(taskId, entry, expectation) {
   }
 
   return Object.freeze({ satisfied: issues.length === 0, issues: Object.freeze(issues) });
+}
+
+function blockedDeliveryClassification(blockerCode, issues) {
+  return Object.freeze({
+    disposition: "BLOCKED",
+    blockerCode,
+    issues: Object.freeze(issues),
+  });
+}
+
+function classifyPendingDeliveryEvidence(taskId, entry, expectation) {
+  const invalidIssues = [
+    ...deliveryExpectationIssues(taskId, expectation),
+    ...deliveryIdentityIssues(taskId, entry, expectation),
+  ];
+  const pullRequest = entry.pullRequest;
+  if (!pullRequest || typeof pullRequest !== "object" || Array.isArray(pullRequest)) {
+    invalidIssues.push("pullRequest evidence is required");
+  } else {
+    if (!Number.isInteger(pullRequest.number) || pullRequest.number < 1) {
+      invalidIssues.push("pullRequest.number must be a positive integer");
+    }
+    if (pullRequest.headSha !== entry.outcomeSha) {
+      invalidIssues.push("pullRequest.headSha must equal outcomeSha");
+    }
+    if (pullRequest.baseRef !== expectation?.baseRef) {
+      invalidIssues.push("pullRequest.baseRef must equal the trusted local expectation");
+    }
+    if (!["OPEN", "MERGED"].includes(pullRequest.state)) {
+      invalidIssues.push("pullRequest.state must be OPEN or MERGED");
+    }
+    if (!["PENDING", "SUCCESS", "FAILURE"].includes(pullRequest.checks)) {
+      invalidIssues.push("pullRequest.checks must be PENDING, SUCCESS, or FAILURE");
+    }
+    if (!["PENDING", "CLEAR", "CHANGES_REQUESTED"].includes(pullRequest.review)) {
+      invalidIssues.push("pullRequest.review must be PENDING, CLEAR, or CHANGES_REQUESTED");
+    }
+    if (
+      pullRequest.runId !== undefined &&
+      (!Number.isInteger(pullRequest.runId) || pullRequest.runId < 1)
+    ) {
+      invalidIssues.push("pullRequest.runId must be a positive integer when present");
+    }
+  }
+  if (invalidIssues.length > 0) {
+    return blockedDeliveryClassification("DELIVERY_EVIDENCE_INVALID", invalidIssues);
+  }
+
+  if (pullRequest.state === "OPEN") {
+    const openIssues = [];
+    if (pullRequest.mergeSha !== undefined && pullRequest.mergeSha !== null) {
+      openIssues.push("an OPEN pullRequest must not assert mergeSha");
+    }
+    if (entry.merge !== undefined && entry.merge !== null) {
+      openIssues.push("an OPEN pullRequest must not assert merge evidence");
+    }
+    if (openIssues.length > 0) {
+      return blockedDeliveryClassification("DELIVERY_EVIDENCE_INVALID", openIssues);
+    }
+    const blockedIssues = [];
+    if (pullRequest.checks === "FAILURE") {
+      blockedIssues.push("pullRequest.checks reports FAILURE");
+    }
+    if (pullRequest.review === "CHANGES_REQUESTED") {
+      blockedIssues.push("pullRequest.review reports CHANGES_REQUESTED");
+    }
+    return blockedIssues.length > 0
+      ? blockedDeliveryClassification("DELIVERY_BLOCKED", blockedIssues)
+      : Object.freeze({ disposition: "RESUMABLE", issues: Object.freeze([]) });
+  }
+
+  const mergedIssues = [];
+  if (!gitShaPattern.test(pullRequest.mergeSha ?? "")) {
+    mergedIssues.push("pullRequest.mergeSha must be an exact 40-character lowercase Git SHA");
+  }
+  if (!Number.isInteger(pullRequest.runId) || pullRequest.runId < 1) {
+    mergedIssues.push("pullRequest.runId must be a positive integer");
+  }
+  const merge = entry.merge;
+  if (!merge || typeof merge !== "object" || Array.isArray(merge)) {
+    mergedIssues.push("merge evidence is required for a MERGED pullRequest");
+  } else {
+    if (merge.repository !== entry.repository) {
+      mergedIssues.push("merge.repository must equal repository");
+    }
+    if (merge.branch !== pullRequest.baseRef) {
+      mergedIssues.push("merge.branch must equal pullRequest.baseRef");
+    }
+    if (!gitShaPattern.test(merge.sha ?? "")) {
+      mergedIssues.push("merge.sha must be an exact 40-character lowercase Git SHA");
+    }
+    if (pullRequest.mergeSha !== merge.sha) {
+      mergedIssues.push("pullRequest.mergeSha must equal merge.sha");
+    }
+    if (!["PENDING", "SUCCESS", "FAILURE"].includes(merge.checks)) {
+      mergedIssues.push("merge.checks must be PENDING, SUCCESS, or FAILURE");
+    }
+    if (
+      merge.mainRunHeadSha !== undefined &&
+      merge.mainRunHeadSha !== null &&
+      merge.mainRunHeadSha !== merge.sha
+    ) {
+      mergedIssues.push("merge.mainRunHeadSha must equal merge.sha when present");
+    }
+    if (
+      merge.runId !== undefined &&
+      (!Number.isInteger(merge.runId) || merge.runId < 1)
+    ) {
+      mergedIssues.push("merge.runId must be a positive integer when present");
+    }
+    if (merge.checks !== "PENDING" && merge.mainRunHeadSha !== merge.sha) {
+      mergedIssues.push("completed merge evidence requires mainRunHeadSha equal to merge.sha");
+    }
+    if (
+      merge.checks !== "PENDING" &&
+      (!Number.isInteger(merge.runId) || merge.runId < 1)
+    ) {
+      mergedIssues.push("completed merge evidence requires a positive merge.runId");
+    }
+  }
+  if (mergedIssues.length > 0) {
+    return blockedDeliveryClassification("DELIVERY_EVIDENCE_INVALID", mergedIssues);
+  }
+  const blockedIssues = [];
+  if (pullRequest.checks === "FAILURE") {
+    blockedIssues.push("pullRequest.checks reports FAILURE");
+  }
+  if (pullRequest.review === "CHANGES_REQUESTED") {
+    blockedIssues.push("pullRequest.review reports CHANGES_REQUESTED");
+  }
+  if (merge.checks === "FAILURE") {
+    blockedIssues.push("merge.checks reports FAILURE");
+  }
+  if (blockedIssues.length > 0) {
+    return blockedDeliveryClassification("DELIVERY_BLOCKED", blockedIssues);
+  }
+  if (
+    pullRequest.checks === "PENDING" ||
+    pullRequest.review === "PENDING" ||
+    merge.checks === "PENDING"
+  ) {
+    return Object.freeze({ disposition: "RESUMABLE", issues: Object.freeze([]) });
+  }
+  return blockedDeliveryClassification("DELIVERY_EVIDENCE_INVALID", [
+    "supplied delivery evidence is neither pending nor a valid final ledger",
+  ]);
+}
+
+export function classifyDeliveryEvidence(taskId, entry, expectation) {
+  const evidenceSupplied = entry !== undefined;
+  const expectationSupplied = expectation !== undefined;
+  if (!evidenceSupplied && !expectationSupplied) {
+    return Object.freeze({ disposition: "RESUMABLE", issues: Object.freeze([]) });
+  }
+
+  const evaluation = evaluateDeliveryEvidence(taskId, entry, expectation);
+  if (!evidenceSupplied) {
+    const missingEvidenceIssue = `Task ${taskId} requires GitHub delivery evidence`;
+    const suppliedExpectationIssues = evaluation.issues.filter(
+      (issue) => issue !== missingEvidenceIssue,
+    );
+    return suppliedExpectationIssues.length === 0
+      ? Object.freeze({ disposition: "RESUMABLE", issues: Object.freeze([]) })
+      : blockedDeliveryClassification(
+          "DELIVERY_EVIDENCE_INVALID",
+          suppliedExpectationIssues,
+        );
+  }
+
+  if (evaluation.satisfied) {
+    return Object.freeze({ disposition: "SATISFIED", issues: Object.freeze([]) });
+  }
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+    return blockedDeliveryClassification("DELIVERY_EVIDENCE_INVALID", evaluation.issues);
+  }
+  return classifyPendingDeliveryEvidence(taskId, entry, expectation);
 }
 
 function normalizeComparable(filePath, pathApi) {
@@ -665,18 +884,26 @@ function blockedResult(code, message, details = {}) {
   return Object.freeze({ outcome: "BLOCKED", code, message, ...details });
 }
 
-function deliveryBlockers(task, deliveryState) {
+function deliveryClassification(task, deliveryState) {
   if (task.deliveryRequirement.kind !== "STANDARD") {
-    return [];
+    return Object.freeze({ disposition: "SATISFIED", issues: Object.freeze([]) });
   }
-  const evaluation = evaluateDeliveryEvidence(
+  return classifyDeliveryEvidence(
     task.id,
     deliveryState.ledger?.[task.id],
     deliveryState.expectations?.[task.id],
   );
-  return evaluation.satisfied
-    ? []
-    : evaluation.issues.map((issue) => `Task ${task.id} delivery: ${issue}`);
+}
+
+function deliveryBlockers(task, deliveryState) {
+  const classification = deliveryClassification(task, deliveryState);
+  if (classification.disposition === "SATISFIED") {
+    return [];
+  }
+  if (classification.disposition === "RESUMABLE") {
+    return [`Task ${task.id} delivery is resumable but not yet satisfied`];
+  }
+  return classification.issues.map((issue) => `Task ${task.id} delivery: ${issue}`);
 }
 
 function completionBlockers(task, byId, deliveryState, visited = new Set()) {
@@ -760,14 +987,19 @@ function selectionBlockedResult(task, blockers) {
   );
 }
 
-function selectedResult(task, parsedInvocation) {
-  const action = draftTask(task)
-    ? "AUTHOR"
-    : blockedTask(task)
-      ? "RECHECK_BLOCKER"
-      : activeTask(task)
-        ? "RESUME"
-        : "IMPLEMENT";
+function selectedResult(task, parsedInvocation, requestedAction) {
+  const action =
+    requestedAction ??
+    (draftTask(task)
+      ? "AUTHOR"
+      : blockedTask(task)
+        ? "RECHECK_BLOCKER"
+        : activeTask(task)
+          ? "RESUME"
+          : "IMPLEMENT");
+  const lifecycleSelection = ["IMPLEMENT", "RESUME", "DELIVER"].includes(action);
+  const standardDeliveryAuthorized =
+    lifecycleSelection && task.deliveryRequirement.kind === "STANDARD";
   return Object.freeze({
     outcome: "SELECTED",
     mode: parsedInvocation.mode,
@@ -775,13 +1007,42 @@ function selectedResult(task, parsedInvocation) {
     confirmation: readyTask(task),
     continuous: parsedInvocation.mode === "CONTINUOUS",
     task: taskSummary(task),
+    ...(lifecycleSelection
+      ? {
+          authoritySource: "RECOGNIZED_TASK_INVOCATION",
+          authorityScope: standardDeliveryAuthorized
+            ? "STANDARD_LIFECYCLE"
+            : "REPOSITORY_LIFECYCLE",
+          standardDeliveryAuthorized,
+          ceremonialConfirmationRequired: false,
+          separateAuthorityBoundary: "NON_STANDARD_EXTERNAL_MUTATIONS",
+        }
+      : {}),
+    ...(action === "DELIVER"
+      ? {
+          deliveryDisposition: "RESUMABLE",
+          message: `Task ${task.id} is repository-complete; the recognized invocation authorizes resuming ordinary STANDARD delivery without ceremonial reconfirmation.`,
+        }
+      : {}),
     ...(blockedTask(task) ? { blocker: task.blocker } : {}),
     overrideText: parsedInvocation.overrideText,
     overrideScope: parsedInvocation.overrideScope,
   });
 }
 
-function terminalTaskResult(task, byId, deliveryState) {
+function deliveryEvidenceBlockedResult(task, classification) {
+  return blockedResult(
+    classification.blockerCode ?? "DELIVERY_EVIDENCE_INVALID",
+    classification.issues.map((issue) => `Task ${task.id} delivery: ${issue}`).join("; "),
+    {
+      task: taskSummary(task),
+      deliveryDisposition: "BLOCKED",
+      issues: classification.issues,
+    },
+  );
+}
+
+function terminalTaskResult(task, byId, deliveryState, parsedInvocation) {
   if (completeTask(task)) {
     const dependencyBlockers = selectionBlockers(task, byId, deliveryState);
     if (dependencyBlockers.length > 0) {
@@ -791,19 +1052,20 @@ function terminalTaskResult(task, byId, deliveryState) {
         { task: taskSummary(task) },
       );
     }
-    const blockers = deliveryBlockers(task, deliveryState);
-    if (blockers.length > 0) {
-      return blockedResult(
-        "DELIVERY_EVIDENCE_REQUIRED",
-        blockers.join("; "),
-        { task: taskSummary(task) },
-      );
+    const classification = deliveryClassification(task, deliveryState);
+    if (classification.disposition === "RESUMABLE") {
+      return selectedResult(task, parsedInvocation, "DELIVER");
+    }
+    if (classification.disposition === "BLOCKED") {
+      return deliveryEvidenceBlockedResult(task, classification);
     }
     return Object.freeze({
       outcome: "TERMINAL",
       code: "TASK_COMPLETE",
       message: `Task ${task.id} is repository-complete and required delivery is satisfied.`,
       task: taskSummary(task),
+      deliveryDisposition: "SATISFIED",
+      mutationRequired: false,
     });
   }
   if (blockedTask(task)) {
@@ -850,6 +1112,7 @@ export async function resolveTaskDispatch({
   managedRoutingAvailable = false,
   deliveryLedger = {},
   deliveryExpectations = {},
+  executionPreflight = {},
 }) {
   const parsedInvocation = parseTaskInvocation(invocation, { managedRoutingAvailable });
   if (!parsedInvocation.recognized) {
@@ -864,6 +1127,13 @@ export async function resolveTaskDispatch({
       code: "MANAGED_ROUTING_UNAVAILABLE",
       message: parsedInvocation.message,
       portableFallback: parsedInvocation.portableFallback,
+    });
+  }
+
+  const preflight = evaluateTaskExecutionPreflight(executionPreflight);
+  if (!preflight.safe) {
+    return blockedResult("PREFLIGHT_BLOCKED", preflight.issues.join("; "), {
+      preflightIssues: preflight.issues,
     });
   }
 
@@ -941,7 +1211,7 @@ export async function resolveTaskDispatch({
         ? selectedResult(task, parsedInvocation)
         : selectionBlockedResult(task, blockers);
     }
-    return terminalTaskResult(task, byId, deliveryState);
+    return terminalTaskResult(task, byId, deliveryState, parsedInvocation);
   }
 
   if (active.length === 1) {
@@ -961,6 +1231,39 @@ export async function resolveTaskDispatch({
     return blockedResult(
       "CURRENT_QUEUE_UNAVAILABLE",
       "No current-contract Task queue exists. Select an existing Task with $kyw-task NNNN.",
+    );
+  }
+
+  const deliveryCandidates = queue.currentTasks
+    .filter(
+      (task) => completeTask(task) && task.deliveryRequirement.kind === "STANDARD",
+    )
+    .sort((left, right) => left.number - right.number);
+  const unavailableDelivery = [];
+  for (const task of deliveryCandidates) {
+    const classification = deliveryClassification(task, deliveryState);
+    if (classification.disposition === "SATISFIED") {
+      continue;
+    }
+    if (classification.disposition === "BLOCKED") {
+      return deliveryEvidenceBlockedResult(task, classification);
+    }
+    const blockers = queueSelectionBlockers(
+      task,
+      queue.currentTasks,
+      byId,
+      deliveryState,
+    );
+    if (blockers.length === 0) {
+      return selectedResult(task, parsedInvocation, "DELIVER");
+    }
+    unavailableDelivery.push(`Task ${task.id}: ${blockers.join("; ")}`);
+  }
+  if (unavailableDelivery.length > 0) {
+    return blockedResult(
+      "QUEUE_TRANSITION_BLOCKED",
+      unavailableDelivery.join("\n"),
+      { blockers: Object.freeze(unavailableDelivery) },
     );
   }
 
@@ -1010,17 +1313,20 @@ export async function resolveTaskDispatch({
         task: taskSummary(frontier),
       });
     }
-    const delivery = deliveryBlockers(frontier, deliveryState);
-    if (delivery.length > 0) {
-      return blockedResult("DELIVERY_EVIDENCE_REQUIRED", delivery.join("; "), {
-        task: taskSummary(frontier),
-      });
+    const classification = deliveryClassification(frontier, deliveryState);
+    if (classification.disposition === "RESUMABLE") {
+      return selectedResult(frontier, parsedInvocation, "DELIVER");
+    }
+    if (classification.disposition === "BLOCKED") {
+      return deliveryEvidenceBlockedResult(frontier, classification);
     }
     return Object.freeze({
       outcome: "NO_WORK",
       code: "ALL_TASKS_COMPLETE",
       message: ALL_TASKS_COMPLETE_MESSAGE,
       task: taskSummary(frontier),
+      deliveryDisposition: "SATISFIED",
+      mutationRequired: false,
     });
   }
   if (cancelledTask(frontier)) {
@@ -1052,6 +1358,8 @@ export async function resolveTaskDispatch({
       code: "ALL_TASKS_COMPLETE",
       message: ALL_TASKS_COMPLETE_MESSAGE,
       task: taskSummary(frontier),
+      deliveryDisposition: "SATISFIED",
+      mutationRequired: false,
     });
   }
   return blockedResult(

@@ -23,8 +23,8 @@ When documents conflict, stop and reconcile them before continuing. Do not silen
 These are the repository execution invariants. The detailed procedure lives in `skills/kyw-task/references/execution.md`.
 
 - `$kyw-task NNNN` is portable for existing Tasks. With this contract, also route only `task NNNN 실행해줘`, `task 진행해줘`, and `남은 task 계속 실행해줘`; incidental `task` text never triggers.
-- Keep one Task active: exact cannot bypass it; ready selection confirms; otherwise resume the sole active or choose the lowest eligible ready. Continuous mode is serial here.
-- Preserve model/effort unless the user overrides. Task/Test owns repository outcome; GitHub exact-SHA state gates delivery and advancement.
+- Keep one Task active: exact cannot bypass it; ready selection confirms; otherwise resume the sole active, then resumable `STANDARD` delivery, then the lowest eligible ready. Continuous mode is serial here.
+- Preserve model/effort unless overridden. Task/Test owns repository outcome. `IMPLEMENT`, `RESUME`, or `DELIVER` selection authorizes ordinary `STANDARD` delivery without reconfirmation; the field alone does not. GitHub gates advancement; publication/force/destructive/non-standard actions stay separate.
 
 ## Change discipline
 

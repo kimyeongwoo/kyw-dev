@@ -148,11 +148,11 @@ task 진행해줘
 남은 task 계속 실행해줘
 ```
 
-These commands are a concise user projection; [SPEC §6.1](docs/SPEC.md#61-codex-skills) owns product behavior, `AGENTS.md` owns repository invariants, and the packaged Task execution reference owns the detailed procedure. Exact `READY/READY` selection confirms execution, automatic selection resumes or chooses one eligible Task, and continuous mode remains serial and current-invocation-only. Invalid states or dependencies fail closed, incidental “task” prose does not route, and a surface without the managed contract uses `$kyw-task NNNN`.
+These commands are a concise user projection; [SPEC §6.1](docs/SPEC.md#61-codex-skills) owns product behavior, `AGENTS.md` owns repository invariants, and the packaged Task execution reference owns the detailed procedure. Exact `READY/READY` selection confirms implementation and ordinary `STANDARD` delivery. Automatic selection resumes active work, then resumable delivery, then one eligible ready Task; continuous mode remains serial and current-invocation-only. Invalid states or dependencies fail closed, incidental “task” prose does not route, and a surface without the managed contract uses `$kyw-task NNNN`.
 
 Appended user text may constrain the first selected Task but cannot waive safety or evidence. The configured model and reasoning effort stay unchanged unless that user explicitly overrides them. `TEST.md` records model identifier, requested alias, reasoning effort, Codex surface, version, and per-field observability; hidden values remain `UNAVAILABLE`, never guessed.
 
-Current pairs declare `STANDARD` delivery through the GitHub PR/Actions exact-SHA ledger or reasoned `NONE`. Task/Test owns repository outcome; GitHub owns mutable delivery state. The gate authorizes no commit, push, PR, or merge by itself.
+Current pairs declare `STANDARD` delivery through the GitHub PR/Actions exact-SHA ledger or reasoned `NONE`. Task/Test owns repository outcome; GitHub owns mutable delivery state. The static declaration alone grants no ambient authority, but `IMPLEMENT`, `RESUME`, or `DELIVER` selection authorizes exact-path commit, non-force push, non-draft PR, exact-head CI, expected-head merge, post-merge base-branch CI, and terminal reporting without ceremonial reconfirmation. Publication, registry mutation, tags/releases, public submission, force/destructive operations, reruns, bypasses, and unrelated mutations remain separately authorized.
 
 To independently audit one Task:
 
