@@ -85,10 +85,16 @@ test("kyw-audit locks bare read-only and exact-flag repair modes", async () => {
   assert.match(skill, /do not update the audited Task\/Test pair or permanent documents/);
   assert.match(skill, /no-mutation-attempt boundary also covers temporary, control, and isolated-copy state/);
   assert.match(skill, /do not create, populate, use, or clean an isolated copy during the invocation/);
+  assert.match(skill, /literal, single-process read-only command shapes/);
+  assert.match(skill, /Shell wrappers, control operators, pipes, redirects/);
   assert.match(skill, /Before the first mutation, send a standalone conversation message beginning `Bounded repair plan:`/);
   assert.match(audit, /The literal `--fix` token immediately after the one Task ID is the only repair authorization/);
   assert.match(audit, /Any repository write or attempted mutating command during `read-only` mode is a contract failure/);
   assert.match(audit, /temporary-copy preparation or cleanup is not an exception/);
+  assert.match(audit, /Get-Content -Raw -LiteralPath/);
+  assert.match(audit, /git --no-optional-locks --no-pager/);
+  assert.match(audit, /all redirects including `2>&1`/);
+  assert.match(audit, /A literal search pattern may contain mutator names/);
   assert.doesNotMatch(audit, /isolated rerun actually occurred/);
   assert.match(audit, /Name the finding IDs, the exact intended path set, the smallest expected change/);
 });
@@ -239,7 +245,13 @@ test("kyw-audit gives a clean Task PASS without churn and documents the verdict 
   assert.equal(scenario.changedPathsMapped, true);
   assert.equal(scenario.durableDocumentsSynchronized, true);
   assert.equal(scenario.taskPairValid, true);
-  assert.ok(scenario.requiredCommands.every(({ exitCode, reproduced }) => exitCode === 0 && reproduced));
+  assert.ok(
+    scenario.requiredCommands.every(
+      ({ exitCode, reproduced, retainedEvidenceVerified }) =>
+        exitCode === 0 && !reproduced && retainedEvidenceVerified,
+    ),
+  );
+  assert.match(scenario.requiredCommands[0].rerunLimitation, /strict literal read-only boundary/);
   assert.deepEqual(scenario.findings, []);
   assert.deepEqual(scenario.mutationLog, []);
   assert.equal(scenario.expectedVerdict, "PASS");
@@ -250,7 +262,9 @@ test("kyw-audit gives a clean Task PASS without churn and documents the verdict 
   assert.match(readme, /\$kyw-audit 0007/);
   assert.match(readme, /\$kyw-audit 0007 --fix/);
   assert.match(readme, /bare invocation is strictly read-only/);
+  assert.match(readme, /strict literal boundary instead of a general shell classifier/);
   assert.match(spec, /Treat bare `\$kyw-audit <ID>` as strictly read-only/);
+  assert.match(spec, /documented literal, single-process read-only shapes/);
   assert.match(spec, /literal `--fix` token immediately follows the Task ID/);
   assert.match(prompts, /\$kyw-audit 000N --fix/);
   assert.match(prompts, /자연어로 “고쳐줘”라고 덧붙이는 것은 수리 승인이 아니며/);
@@ -262,4 +276,5 @@ test("kyw-audit gives a clean Task PASS without churn and documents the verdict 
   assert.match(architecture, /references\/audit\.md/);
   assert.match(architecture, /Findings receive stable `F-NN` IDs/);
   assert.match(architecture, /bare invocation remains read-only through the final response/);
+  assert.match(architecture, /accepted inspection language is intentionally smaller than either host shell/);
 });

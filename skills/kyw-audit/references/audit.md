@@ -96,12 +96,22 @@ An out-of-scope implementation is an open `scope` error even when it appears use
 In `read-only` mode, complete the full inspection and reporting workflow without a repository mutation:
 
 1. Do not call file-editing tools or run a command that can create, edit, rename, move, delete, format, generate, install, recover, clean, stage, commit, or publish filesystem content. This prohibition covers the repository and temporary, control, cache, snapshot, and isolated-copy locations; a denied attempt still violates the contract.
-2. Do not update Task/Test status, check boxes, findings, Results, Unverified, handoff fields, permanent documents, generated files, caches, snapshots, or audit reports in the repository.
-3. Rerun a command in place only when repository evidence establishes that it is worktree-byte-preserving. When a required test, formatter, generator, packager, or build may write, use retained reproducible evidence. Do not create, populate, run against, or remove an isolated copy during the read-only invocation; skip the rerun and record the proof limitation.
-4. Record every skipped rerun and the resulting proof limitation. Reduced rerun evidence may produce `BLOCKED`, but never authorizes a helpful write.
-5. Report all findings with stable IDs, scope/document/test drift, exact evidence inspected, residual risk, and the final verdict in the response only. `Fixes and reruns` must say `None` unless a byte-preserving rerun actually occurred and is clearly identified.
+2. Before running an inspection command, require one literal executable and one documented argument shape:
+   - PowerShell file read: `Get-Content -Raw -LiteralPath '<repository-relative-path>'`;
+   - POSIX file read: `cat -- '<repository-relative-path>'` or `sed -n '<line-or-range>p' -- '<repository-relative-path>'`;
+   - file inventory/search: `rg --files [<repository-relative-path>...]` or `rg -n [-F] -- '<literal-pattern>' '<repository-relative-path>'...`;
+   - Git inspection: `git --no-optional-locks --no-pager` followed by `status`, guarded `diff|show|log` with `--no-ext-diff --no-textconv`, or bounded `rev-parse|merge-base|ls-files|ls-tree` arguments;
+   - Task pair validation only: `node skills/kyw-task/scripts/task-artifacts.mjs validate --task-directory '<repository-relative-task-directory>'`, with the equivalent repository-installed `.agents/skills/kyw-task/` path also allowed.
+3. Treat paths as lexical repository-relative values: no absolute path, parent traversal, direct `.git` access, provider path, or shell expansion. Use single-quoted literal arguments. A literal search pattern may contain mutator names, redirects, arrows, comparisons, or other data without being interpreted as executable grammar.
+4. Reject shell wrappers, multiple commands, newlines, control operators, pipes, all redirects including `2>&1`, variables, substitutions, here-documents, double-quoted expansion, comments, executable path indirection, unlisted commands/subcommands/options, and malformed or ambiguous grammar. Do not decode or expand an encoded or dynamic launcher. Skip the inspection and record the exact limitation instead of falling back to a broader shell parser.
+5. Do not update Task/Test status, check boxes, findings, Results, Unverified, handoff fields, permanent documents, generated files, caches, snapshots, or audit reports in the repository.
+6. Rerun a command in place only when repository evidence establishes that it is worktree-byte-preserving and the command fits the strict boundary. When a required test, formatter, generator, packager, build, or other command falls outside it, use retained reproducible evidence. Do not create, populate, run against, or remove an isolated copy during the read-only invocation; skip the rerun and record the proof limitation.
+7. Record every skipped rerun and the resulting proof limitation. Reduced rerun evidence may produce `BLOCKED`, but never authorizes a helpful write.
+8. Report all findings with stable IDs, scope/document/test drift, exact evidence inspected, residual risk, and the final verdict in the response only. `Fixes and reruns` must say `None` unless a byte-preserving rerun actually occurred and is clearly identified.
 
 Any repository write or attempted mutating command during `read-only` mode is a contract failure. The command boundary applies outside the repository too, so temporary-copy preparation or cleanup is not an exception. Stop, disclose it, and return `BLOCKED`; do not hide the attempt because the sandbox prevented it or because the final worktree happens to match.
+
+The same strict command boundary governs repair mode's read-only baseline. After the visible `Bounded repair plan:`, an out-of-boundary command is mutation-capable repair activity and therefore must occur only within the announced paths and verification plan. This preserves exact `--fix` behavior without teaching the bare audit a general shell language.
 
 ## Repair only in explicit fix mode
 

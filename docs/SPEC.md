@@ -183,13 +183,14 @@ Required behavior:
 
 1. Resolve exactly one four-digit Task ID and lock the mode from the invocation.
 2. Treat bare `$kyw-audit <ID>` as strictly read-only for the complete invocation. It must not change any tracked, untracked, generated, Task/Test, or durable-document byte, write a repository report, or attempt a mutating command. That attempt boundary includes temporary, control, snapshot, cache, and isolated-copy state; the audit must not prepare or clean a disposable rerun copy itself.
-3. In read-only mode, compare acceptance criteria, implementation, code and diff/history or a reproducible fallback baseline, test matrix and actual results, scope, handoff state, package effects, and permanent documents. Preserve stable finding IDs, evidence-specific limitations, byte-preserving evidence reruns, residual risks, and report quality even though findings remain unmodified. A potentially writing rerun uses retained evidence or is skipped with an explicit limitation.
-4. Permit repair only when the literal `--fix` token immediately follows the Task ID. Natural-language repair intent without that token never authorizes a write and must direct the user to a new exact invocation.
-5. In repair mode, establish the baseline and record findings read-only, then state a bounded plan with finding IDs, intended paths, and verification commands before the first mutation.
-6. Repair only an unambiguous finding already required by the audited Task and permanent truth. Limit changes to its Task/Test pair, required implementation/tests/configuration, and permanent documents whose durable meaning is affected; preserve unrelated user work.
-7. Keep ambiguous and out-of-scope findings report-only and propose, but do not allocate or create, a follow-on Task.
-8. After a repair, rerun the affected acceptance-specific check and required regressions, retain failed evidence and limitations, and re-audit the final diff.
-9. End with evidence-based `PASS` or `BLOCKED`; unavailable required evidence or an open blocker/error cannot be reported as a pass.
+3. Permit inspection commands only through documented literal, single-process read-only shapes for repository-relative file reads and searches, guarded Git inspection, and the packaged Task pair validator. Reject shell wrappers, control operators, pipes, redirects, dynamic or encoded launchers, expansions, absolute/traversing paths, unlisted arguments, and ambiguous grammar instead of trying to interpret a broader shell language. Single-quoted search data remains opaque.
+4. In read-only mode, compare acceptance criteria, implementation, code and diff/history or a reproducible fallback baseline, test matrix and actual results, scope, handoff state, package effects, and permanent documents. Preserve stable finding IDs, evidence-specific limitations, byte-preserving evidence reruns, residual risks, and report quality even though findings remain unmodified. A potentially writing or boundary-incompatible rerun uses retained evidence or is skipped with an explicit limitation.
+5. Permit repair only when the literal `--fix` token immediately follows the Task ID. Natural-language repair intent without that token never authorizes a write and must direct the user to a new exact invocation.
+6. In repair mode, establish the baseline within the same strict read-only boundary and record findings, then state a bounded plan with finding IDs, intended paths, and verification commands before the first mutation-capable command or file change.
+7. Repair only an unambiguous finding already required by the audited Task and permanent truth. Limit changes to its Task/Test pair, required implementation/tests/configuration, and permanent documents whose durable meaning is affected; preserve unrelated user work.
+8. Keep ambiguous and out-of-scope findings report-only and propose, but do not allocate or create, a follow-on Task.
+9. After a repair, rerun the affected acceptance-specific check and required regressions, retain failed evidence and limitations, and re-audit the final diff.
+10. End with evidence-based `PASS` or `BLOCKED`; unavailable required evidence or an open blocker/error cannot be reported as a pass.
 
 ### `$kyw-grilling`
 

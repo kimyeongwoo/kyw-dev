@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -12,7 +12,8 @@ import {
   commandShellForPlatform,
   diffSnapshots,
   extractFinalVerdict,
-  findOutputRedirections,
+  gitStatus,
+  inspectReadOnlyCommand,
   mutationAttemptDiagnostic,
   outerSandboxConfig,
   parseArguments,
@@ -31,23 +32,11 @@ function temporaryDirectory(t) {
   return directory;
 }
 
-function posixQuote(value) {
-  return `'${value.replaceAll("'", `'\\''`)}'`;
-}
-
-function powershellQuote(value) {
-  return `'${value.replaceAll("'", "''")}'`;
-}
-
 function analyzeCommand(command, shell) {
   return analyzeEvents(
     [{ type: "item.completed", item: { type: "command_execution", command } }],
     { shell },
   );
-}
-
-function reasonWithCode(analysis, code) {
-  return analysis.mutatingCommands[0]?.reasons.find((reason) => reason.code === code);
 }
 
 test("audit smoke requires an explicit model-cost and mode contract", () => {
@@ -145,12 +134,169 @@ test("fixture tree hashes expose tracked, untracked, generated, and Task changes
   });
 });
 
-test("event analysis rejects mutation attempts and proves plan ordering", () => {
+test("strict read-only boundary admits the required cross-platform inspection workload", () => {
+  const commands = [
+    ["Get-Content -Raw -LiteralPath 'docs/tasks/0033-audit/TASK.md'", "powershell"],
+    ["cat -- 'docs/tasks/0033-audit/TASK.md'", "posix"],
+    ["sed -n '1,160p' -- 'docs/tasks/0033-audit/TASK.md'", "posix"],
+    ["rg --files 'docs/tasks'", "powershell"],
+    ["rg --files 'docs/tasks'", "posix"],
+    ["rg -n -F -- '## Status' 'docs/tasks/0033-audit/TASK.md'", "powershell"],
+    ["rg -n -- 'AC-[0-9]+' 'docs/tasks/0033-audit/TEST.md'", "posix"],
+    [
+      "git --no-optional-locks --no-pager status --short --branch --untracked-files=all",
+      "powershell",
+    ],
+    [
+      "git --no-optional-locks --no-pager diff --no-ext-diff --no-textconv --stat HEAD~1..HEAD -- 'src'",
+      "posix",
+    ],
+    [
+      "git --no-optional-locks --no-pager log --no-ext-diff --no-textconv --oneline --max-count=5 main",
+      "powershell",
+    ],
+    [
+      "git --no-optional-locks --no-pager show --no-ext-diff --no-textconv --stat HEAD",
+      "posix",
+    ],
+    ["git --no-optional-locks --no-pager rev-parse --verify HEAD", "powershell"],
+    ["git --no-optional-locks --no-pager merge-base --is-ancestor main HEAD", "posix"],
+    [
+      "git --no-optional-locks --no-pager ls-files --others --exclude-standard",
+      "powershell",
+    ],
+    [
+      "git --no-optional-locks --no-pager ls-tree -r --name-only HEAD -- 'docs'",
+      "posix",
+    ],
+    [
+      "node skills/kyw-task/scripts/task-artifacts.mjs validate --task-directory 'docs/tasks/0033-audit'",
+      "powershell",
+    ],
+    [
+      "node .agents/skills/kyw-task/scripts/task-artifacts.mjs validate --task-directory 'docs/tasks/0033-audit'",
+      "posix",
+    ],
+  ];
+
+  for (const [command, shell] of commands) {
+    const result = inspectReadOnlyCommand(command, { shell });
+    assert.equal(result.allowed, true, `${shell}: ${command}\n${JSON.stringify(result.issues)}`);
+    assert.deepEqual(analyzeCommand(command, shell).mutationAttempts, []);
+  }
+  assert.equal(commandShellForPlatform("win32"), "powershell");
+  assert.equal(commandShellForPlatform("linux"), "posix");
+  assert.equal(commandShellForPlatform("darwin"), "posix");
+  assert.throws(
+    () => inspectReadOnlyCommand("rg --files", { shell: "cmd" }),
+    /Unsupported command shell/,
+  );
+});
+
+test("strict read-only boundary rejects mutators, wrappers, redirects, dynamics, and ambiguity", () => {
+  const cases = [
+    ["Set-Content 'out.txt' 'secret-value'", "powershell", "COMMAND_NOT_ALLOWED", "Set-Content"],
+    ["rm -f out.txt", "posix", "COMMAND_NOT_ALLOWED", "rm"],
+    ["npm publish", "posix", "COMMAND_NOT_ALLOWED", "npm"],
+    ["node --test", "powershell", "ARGUMENT_SHAPE_NOT_ALLOWED", "--test"],
+    ["git push origin main", "posix", "ARGUMENT_SHAPE_NOT_ALLOWED", "push"],
+    [
+      "git --no-optional-locks --no-pager push origin main",
+      "powershell",
+      "GIT_SUBCOMMAND_NOT_ALLOWED",
+      "push",
+    ],
+    ["bash -lc 'git push origin main'", "posix", "SHELL_WRAPPER_UNSUPPORTED", "bash"],
+    [
+      "pwsh -EncodedCommand sensitive-payload-value",
+      "powershell",
+      "SHELL_WRAPPER_UNSUPPORTED",
+      "pwsh",
+    ],
+    ["Get-Content -Raw -LiteralPath 'README.md' > 'copy.txt'", "powershell", "REDIRECTION_UNSUPPORTED", ">"],
+    ["cat -- 'README.md' 2>&1", "posix", "REDIRECTION_UNSUPPORTED", ">"],
+    ["rg --files | Set-Content 'files.txt'", "powershell", "CONTROL_OPERATOR_UNSUPPORTED", "|"],
+    ["rg --files; rm -f out.txt", "posix", "CONTROL_OPERATOR_UNSUPPORTED", ";"],
+    ["rg --files\nrm -f out.txt", "posix", "MULTI_COMMAND_UNSUPPORTED", "\n"],
+    ["rg -n -F -- $pattern 'README.md'", "powershell", "DYNAMIC_EXPANSION_UNSUPPORTED", "$"],
+    ["rg -n -F -- \"pattern\" 'README.md'", "posix", "DOUBLE_QUOTE_UNSUPPORTED", "\""],
+    ["rg -n -F -- 'pattern 'README.md'", "posix", "QUOTED_FRAGMENT_UNSUPPORTED", "README"],
+    ["cat <<'EOF'\ntext\nEOF", "posix", "REDIRECTION_UNSUPPORTED", "<"],
+    [
+      "Get-Content -Raw -LiteralPath '../outside.txt'",
+      "powershell",
+      "REPOSITORY_PATH_REQUIRED",
+      "'../outside.txt'",
+    ],
+    ["cat -- '/etc/passwd'", "posix", "REPOSITORY_PATH_REQUIRED", "'/etc/passwd'"],
+    ["rg --pre cat -- 'pattern' 'src'", "posix", "ARGUMENT_SHAPE_NOT_ALLOWED", "--pre"],
+    ["rg -n -F -- pattern 'src'", "posix", "ARGUMENT_SHAPE_NOT_ALLOWED", "pattern"],
+    ["rg --files '.g*'", "posix", "REPOSITORY_PATH_REQUIRED", "'.g*'"],
+    ["rg --files @paths", "powershell", "DYNAMIC_EXPANSION_UNSUPPORTED", "@"],
+  ];
+
+  for (const [command, shell, kind, offsetText] of cases) {
+    const result = inspectReadOnlyCommand(command, { shell });
+    assert.equal(result.allowed, false, `${shell}: ${command}`);
+    assert.equal(result.issues[0].kind, kind, `${shell}: ${command}`);
+    assert.equal(result.issues[0].offset, command.indexOf(offsetText), `${shell}: ${command}`);
+    assert.ok(result.issues[0].context.length <= 160);
+    const analysis = analyzeCommand(command, shell);
+    assert.equal(analysis.mutatingCommands.length, 1, `${shell}: ${command}`);
+    assert.equal(analysis.mutatingCommands[0].reasons[0].code, "READ_ONLY_COMMAND_BOUNDARY");
+  }
+
+  const encoded = inspectReadOnlyCommand(
+    "pwsh -EncodedCommand sensitive-payload-value",
+    { shell: "powershell" },
+  );
+  assert.equal(encoded.issues[0].context, "pwsh");
+  assert.doesNotMatch(encoded.issues[0].context, /sensitive-payload-value/);
+});
+
+test("literal data cases avoid whole-shell interpretation while executable forms stay rejected", () => {
+  const harmlessPatterns = [
+    "Never run git push origin main > out.txt",
+    "const positive = value => value > 0",
+    "Set-Content and rm are finding text; 2>&1 is data",
+    "$(rm -f x) and `git push origin main` are examples",
+  ];
+  for (const shell of ["powershell", "posix"]) {
+    for (const pattern of harmlessPatterns) {
+      const command = `rg -n -F -- '${pattern}' 'docs/SPEC.md'`;
+      const result = inspectReadOnlyCommand(command, { shell });
+      assert.equal(result.allowed, true, `${shell}: ${command}\n${JSON.stringify(result.issues)}`);
+    }
+  }
+
+  for (const [command, shell, kind] of [
+    ['node -e "const positive = value => value > 0"', "posix", "DOUBLE_QUOTE_UNSUPPORTED"],
+    ["python - <<'PY'\nprint(2 > 1)\nPY", "posix", "REDIRECTION_UNSUPPORTED"],
+    ["Write-Output 'Set-Content is only data'", "powershell", "COMMAND_NOT_ALLOWED"],
+  ]) {
+    const result = inspectReadOnlyCommand(command, { shell });
+    assert.equal(result.allowed, false, command);
+    assert.equal(result.issues[0].kind, kind, command);
+  }
+});
+
+test("event analysis treats the strict boundary as the pre-repair mutation-capable edge", () => {
   const readOnly = analyzeEvents([
-    { type: "item.completed", item: { type: "command_execution", command: "Get-Content -Raw README.md" } },
-    { type: "item.completed", item: { type: "command_execution", command: "git --no-optional-locks status --short" } },
-    { type: "item.completed", item: { type: "agent_message", text: "Verdict: BLOCKED" } },
-  ]);
+    {
+      type: "item.completed",
+      item: {
+        type: "command_execution",
+        command: "Get-Content -Raw -LiteralPath 'README.md'",
+      },
+    },
+    {
+      type: "item.completed",
+      item: {
+        type: "command_execution",
+        command: "git --no-optional-locks --no-pager status --short --untracked-files=all",
+      },
+    },
+  ], { shell: "powershell" });
   assert.deepEqual(readOnly.fileChanges, []);
   assert.deepEqual(readOnly.mutatingCommands, []);
   assert.equal(readOnly.firstMutationIndex, null);
@@ -158,718 +304,116 @@ test("event analysis rejects mutation attempts and proves plan ordering", () => 
   const repair = analyzeEvents([
     {
       type: "item.completed",
-      item: { type: "agent_message", text: "Repair plan for F-01: update src and its test, then run node --test." },
+      item: {
+        type: "agent_message",
+        text: "Bounded repair plan: F-01 changes src and test, then reruns node --test.",
+      },
+    },
+    {
+      type: "item.completed",
+      item: { type: "command_execution", command: "node --test" },
     },
     { type: "item.completed", item: { type: "file_change" } },
-  ]);
+  ], { shell: "powershell" });
   assert.equal(repair.firstMutationIndex, 1);
   assert.equal(repair.planBeforeMutation, true);
 
   const unplanned = analyzeEvents([
-    { type: "item.completed", item: { type: "command_execution", command: "Set-Content src/greeting.mjs 'changed'" } },
-    { type: "item.completed", item: { type: "agent_message", text: "Repair plan for F-01" } },
-  ]);
-  assert.equal(unplanned.mutatingCommands.length, 1);
-  const [mutatingReason] = unplanned.mutatingCommands[0].reasons;
-  assert.equal(mutatingReason.code, "MUTATING_COMMAND_GRAMMAR");
-  assert.equal(
-    mutatingReason.description,
-    "command text matched the detector's mutating executable or subcommand grammar",
-  );
-  assert.deepEqual(mutatingReason.matches, ["Set-Content"]);
-  assert.deepEqual(
-    mutatingReason.mutators.map(({ evaluationDepth, match, offset, quoteState, shell }) => ({
-      evaluationDepth,
-      match,
-      offset,
-      quoteState,
-      shell,
-    })),
-    [
-      {
-        evaluationDepth: 0,
-        match: "Set-Content",
-        offset: 0,
-        quoteState: "unquoted",
-        shell: commandShellForPlatform(),
-      },
-    ],
-  );
+    {
+      type: "item.completed",
+      item: { type: "command_execution", command: "Set-Content 'out.txt' 'changed'" },
+    },
+    {
+      type: "item.completed",
+      item: { type: "agent_message", text: "Bounded repair plan: F-01" },
+    },
+  ], { shell: "powershell" });
+  assert.equal(unplanned.firstMutationIndex, 0);
   assert.equal(unplanned.planBeforeMutation, false);
+  assert.equal(unplanned.mutatingCommands[0].reasons[0].code, "READ_ONLY_COMMAND_BOUNDARY");
 });
 
-test("command mutation classifier detects nested mutators but ignores quoted output literals", () => {
-  const nestedCases = [
-    {
-      command: "bash -lc 'git push origin main'",
-      expectedMatch: "git push",
-      expectedOffset: "bash -lc '".length,
-      shell: "posix",
-    },
-    {
-      command: "sh -c 'rm -f x'",
-      expectedMatch: "rm",
-      expectedOffset: "sh -c '".length,
-      shell: "posix",
-    },
-    {
-      command: "env bash -lc 'rm -f x'",
-      expectedMatch: "rm",
-      expectedOffset: "env bash -lc '".length,
-      shell: "posix",
-    },
-    {
-      command: "bash -lc 'npm publish'",
-      expectedMatch: "npm publish",
-      expectedOffset: "bash -lc '".length,
-      shell: "posix",
-    },
-    {
-      command: "bash -lc 'sed -i file.txt'",
-      expectedMatch: "sed -i",
-      expectedOffset: "bash -lc '".length,
-      shell: "posix",
-    },
-    {
-      command: "pwsh -Command 'Set-Content out.txt x'",
-      expectedMatch: "Set-Content",
-      expectedOffset: "pwsh -Command '".length,
-      shell: "powershell",
-    },
-  ];
-
-  for (const { command, expectedMatch, expectedOffset, shell } of nestedCases) {
-    const analysis = analyzeEvents(
-      [{ type: "item.completed", item: { type: "command_execution", command } }],
-      { shell },
-    );
-    assert.equal(analysis.mutationAttempts.length, 1, `${shell}: ${command}`);
-    const reason = analysis.mutatingCommands[0].reasons.find(
-      ({ code }) => code === "MUTATING_COMMAND_GRAMMAR",
-    );
-    assert.ok(reason, command);
-    assert.deepEqual(reason.matches, [expectedMatch]);
-    assert.equal(reason.mutators[0].match, expectedMatch);
-    assert.equal(reason.mutators[0].offset, expectedOffset);
-    assert.equal(reason.mutators[0].evaluationDepth, 1);
-    assert.equal(reason.mutators[0].outerQuoteState, "single");
-    assert.equal(reason.mutators[0].shell, shell);
-  }
-
-  const nestedRedirect = "bash -lc 'printf ok > nested.txt'";
-  const redirectAnalysis = analyzeEvents(
-    [{ type: "item.completed", item: { type: "command_execution", command: nestedRedirect } }],
-    { shell: "posix" },
-  );
-  const redirectReason = redirectAnalysis.mutatingCommands[0].reasons.find(
-    ({ code }) => code === "OUTPUT_REDIRECTION_GRAMMAR",
-  );
-  assert.ok(redirectReason);
-  assert.equal(redirectReason.redirections[0].offset, nestedRedirect.indexOf(">"));
-  assert.equal(redirectReason.redirections[0].evaluationDepth, 1);
-  assert.equal(redirectReason.redirections[0].outerQuoteState, "single");
-
-  const benignCases = [
-    {
-      command: String.raw`printf '%s\n' 'Never run git push origin main'`,
-      shell: "posix",
-    },
-    {
-      command: "Write-Output 'Never run git push origin main'",
-      shell: "powershell",
-    },
-    {
-      command: 'Write-Output "Set-Content out.txt x is forbidden"',
-      shell: "powershell",
-    },
-    {
-      command: ["@'", "Never run git push origin main > out.txt", "'@ | Write-Output"].join("\n"),
-      shell: "powershell",
-    },
-    {
-      command: 'node -e "const f = x => x; console.log(\'git push origin main\')"',
-      shell: "posix",
-    },
-    {
-      command: String.raw`printf '%s\n' $((1 << 2))`,
-      shell: "posix",
-    },
-    {
-      command: 'cat <<< "body > data"',
-      shell: "posix",
-    },
-  ];
-  for (const { command, shell } of benignCases) {
-    const analysis = analyzeEvents(
-      [{ type: "item.completed", item: { type: "command_execution", command } }],
-      { shell },
-    );
-    assert.deepEqual(analysis.mutatingCommands, [], `${shell}: ${command}`);
-    assert.deepEqual(analysis.mutationAttempts, [], `${shell}: ${command}`);
-  }
-});
-
-test("command mutation classifier ignores here-document bodies and preserves exact redirects", () => {
-  const pythonHereDocument = [
-    "python - <<'PY'",
-    "print(2 > 1)",
-    "PY",
-  ].join("\n");
-  const nodeHereDocument = [
-    "node <<'NODE'",
-    "const positive = (value) => value > 0;",
-    "console.log(positive(1));",
-    "NODE",
-  ].join("\n");
-  const unquotedPythonHereDocument = [
-    "python - <<PY",
-    "print(3 > 2)",
-    "PY",
-  ].join("\n");
-  for (const command of [pythonHereDocument, nodeHereDocument, unquotedPythonHereDocument]) {
-    const analysis = analyzeEvents(
-      [{ type: "item.completed", item: { type: "command_execution", command } }],
-      { shell: "posix" },
-    );
-    assert.deepEqual(analysis.mutatingCommands, [], command);
-  }
-
-  const outsideRedirect = `${pythonHereDocument}\nprintf done 2>>outside.log`;
-  const outsideAnalysis = analyzeEvents(
-    [{ type: "item.completed", item: { type: "command_execution", command: outsideRedirect } }],
-    { shell: "posix" },
-  );
-  assert.equal(outsideAnalysis.mutatingCommands.length, 1);
-  const outsideReason = outsideAnalysis.mutatingCommands[0].reasons.find(
-    ({ code }) => code === "OUTPUT_REDIRECTION_GRAMMAR",
-  );
-  assert.ok(outsideReason);
-  assert.equal(outsideReason.redirections.length, 1);
-  assert.equal(outsideReason.redirections[0].operator, ">>");
-  assert.equal(outsideReason.redirections[0].fileDescriptor, "2");
-  assert.equal(outsideReason.redirections[0].offset, outsideRedirect.lastIndexOf(">>"));
-
-  const headerRedirect = [
-    "node <<'NODE' >result.txt",
-    "console.log(2 > 1);",
-    "NODE",
-  ].join("\n");
-  const headerAnalysis = analyzeEvents(
-    [{ type: "item.completed", item: { type: "command_execution", command: headerRedirect } }],
-    { shell: "posix" },
-  );
-  const headerReason = headerAnalysis.mutatingCommands[0].reasons.find(
-    ({ code }) => code === "OUTPUT_REDIRECTION_GRAMMAR",
-  );
-  assert.equal(headerReason.redirections.length, 1);
-  assert.equal(headerReason.redirections[0].offset, headerRedirect.indexOf(">result.txt"));
-
-  for (const shell of ["powershell", "posix"]) {
-    for (const command of ["node probe.mjs 2>errors.txt", "node probe.mjs 2>>errors.txt"]) {
-      const analysis = analyzeEvents(
-        [{ type: "item.completed", item: { type: "command_execution", command } }],
-        { shell },
-      );
-      assert.equal(analysis.mutatingCommands.length, 1, `${shell}: ${command}`);
-      assert.equal(analysis.mutatingCommands[0].reasons[0].code, "OUTPUT_REDIRECTION_GRAMMAR");
-    }
-    const duplication = analyzeEvents(
-      [{ type: "item.completed", item: { type: "command_execution", command: "node probe.mjs 2>&1" } }],
-      { shell },
-    );
-    assert.deepEqual(duplication.mutatingCommands, [], shell);
-  }
-});
-
-test("command mutation classifier maps nested diagnostics and fails closed on malformed grammar", () => {
-  const command = "bash -lc 'git push origin main'";
-  const analysis = analyzeEvents(
-    [{ type: "item.completed", item: { type: "command_execution", command } }],
-    { shell: "posix" },
-  );
-  const diagnostic = mutationAttemptDiagnostic({
-    after: { sha256: "a".repeat(64) },
-    analysis,
-    before: { sha256: "a".repeat(64) },
-    statusAfter: "",
-    statusBefore: "",
-  });
-  assert.match(
-    diagnostic,
-    new RegExp(`mutator="git push" offset=${command.indexOf("git push")} shell=posix`),
-  );
-  assert.match(diagnostic, /evaluationDepth=1 outerQuoteState=single/);
-  assert.match(diagnostic, /contextStart=0/);
-  assert.match(diagnostic, /context="bash -lc 'git push origin main'"/);
-  assert.doesNotMatch(diagnostic, / command=/);
-
-  const nestedRedirect = "sh -c 'printf ok 2>>nested.log'";
-  const redirectAnalysis = analyzeEvents(
-    [{ type: "item.completed", item: { type: "command_execution", command: nestedRedirect } }],
-    { shell: "posix" },
-  );
-  const redirectDiagnostic = mutationAttemptDiagnostic({
-    after: { sha256: "b".repeat(64) },
-    analysis: redirectAnalysis,
-    before: { sha256: "b".repeat(64) },
-    statusAfter: "",
-    statusBefore: "",
-  });
-  assert.match(
-    redirectDiagnostic,
-    new RegExp(`operator=">>" offset=${nestedRedirect.indexOf(">>")} shell=posix`),
-  );
-  assert.match(redirectDiagnostic, /evaluationDepth=1 outerQuoteState=single/);
-  assert.match(redirectDiagnostic, /context="sh -c 'printf ok 2>>nested.log'"/);
-  assert.doesNotMatch(redirectDiagnostic, / command=/);
-
-  const malformedCases = [
-    { command: "bash -lc", shell: "posix", issue: "NESTED_SCRIPT_MISSING" },
-    {
-      command: "bash -lc 'printf harmless",
-      shell: "posix",
-      issue: "UNTERMINATED_QUOTE",
-    },
-    {
-      command: 'bash -lc "$script"',
-      shell: "posix",
-      issue: "NESTED_SCRIPT_DYNAMIC_UNSUPPORTED",
-    },
-    { command: "pwsh -Command", shell: "powershell", issue: "NESTED_SCRIPT_MISSING" },
-    {
-      command: ["python - <<'PY'", "print(2 > 1)"].join("\n"),
-      shell: "posix",
-      issue: "HERE_DOCUMENT_UNTERMINATED",
-    },
-  ];
-  for (const { command: malformed, issue, shell } of malformedCases) {
-    const malformedAnalysis = analyzeEvents(
-      [{ type: "item.completed", item: { type: "command_execution", command: malformed } }],
-      { shell },
-    );
-    assert.equal(malformedAnalysis.mutationAttempts.length, 1, malformed);
-    const reason = malformedAnalysis.mutatingCommands[0].reasons.find(
-      ({ code }) => code === "UNSUPPORTED_COMMAND_GRAMMAR",
-    );
-    assert.ok(reason, malformed);
-    assert.ok(reason.issues.some(({ kind }) => kind === issue), `${malformed}: ${issue}`);
-  }
-
-  let depthOverflow = "printf harmless";
-  for (let depth = 0; depth < 6; depth += 1) depthOverflow = `bash -lc ${posixQuote(depthOverflow)}`;
-  const depthAnalysis = analyzeEvents(
-    [{ type: "item.completed", item: { type: "command_execution", command: depthOverflow } }],
-    { shell: "posix" },
-  );
-  const depthReason = depthAnalysis.mutatingCommands[0].reasons.find(
-    ({ code }) => code === "UNSUPPORTED_COMMAND_GRAMMAR",
-  );
-  assert.ok(depthReason);
-  assert.ok(depthReason.issues.some(({ kind }) => kind === "NESTED_SHELL_DEPTH_EXCEEDED"));
-});
-
-test("audit repair command positions distinguish executables from ordinary arguments", () => {
-  const benignCases = [
-    [String.raw`printf '%s\n' git push origin main`, "posix"],
-    [String.raw`printf '%s\n' bash -lc 'git push origin main'`, "posix"],
-    ["Write-Output Set-Content out.txt x", "powershell"],
-    ['Write-Output "pwsh -Command Set-Content out.txt x"', "powershell"],
-    ["'pwsh' -Command 'Set-Content out.txt x'", "powershell"],
-  ];
-  for (const [command, shell] of benignCases) {
-    assert.deepEqual(analyzeCommand(command, shell).mutationAttempts, [], `${shell}: ${command}`);
-  }
-
-  const mutatingCases = [
-    { command: "'rm' -f x", depth: 0, offsetText: "rm", shell: "posix" },
-    { command: "./rm -f x", depth: 0, offsetText: "./rm", shell: "posix" },
-    { command: "/usr/bin/git push origin main", depth: 0, offsetText: "/usr/bin/git", shell: "posix" },
-    { command: "'/bin/bash' -lc 'rm -f x'", depth: 1, offsetText: "rm", shell: "posix" },
-    { command: "bash -lc 'git push origin main'", depth: 1, offsetText: "git push", shell: "posix" },
-    { command: "sh -c 'rm -f x'", depth: 1, offsetText: "rm", shell: "posix" },
-    { command: "printf ok; 'rm' -f x", depth: 0, offsetText: "rm", shell: "posix" },
-    { command: "2>errors 'rm' -f x", depth: 0, offsetText: "rm", shell: "posix" },
-    { command: "printf ok && sh -c 'rm -f x'", depth: 1, offsetText: "rm", shell: "posix" },
-    {
-      command: "printf ok | /usr/bin/git push origin main",
-      depth: 0,
-      offsetText: "/usr/bin/git",
-      shell: "posix",
-    },
-    {
-      command: "& 'pwsh' -Command 'Set-Content out.txt x'",
-      depth: 1,
-      offsetText: "Set-Content",
-      shell: "powershell",
-    },
-    {
-      command: "& 'Set-Content' out.txt x",
-      depth: 0,
-      offsetText: "Set-Content",
-      shell: "powershell",
-    },
-  ];
-  for (const { command, depth, offsetText, shell } of mutatingCases) {
-    const analysis = analyzeCommand(command, shell);
-    const reason = reasonWithCode(analysis, "MUTATING_COMMAND_GRAMMAR");
-    assert.ok(reason, `${shell}: ${command}`);
-    assert.equal(reason.mutators.length, 1, command);
-    assert.equal(reason.mutators[0].offset, command.indexOf(offsetText), command);
-    assert.equal(reason.mutators[0].evaluationDepth, depth, command);
-  }
-});
-
-test("audit repair unsupported launcher grammar fails closed without exposing encoded payloads", () => {
-  const cases = [
-    {
-      command: "pwsh -EncodedCommand sensitive-payload-value",
-      issue: "ENCODED_COMMAND_UNSUPPORTED",
-      offsetText: "-EncodedCommand",
-      shell: "powershell",
-    },
-    {
-      command: "pwsh -enc sensitive-payload-value",
-      issue: "ENCODED_COMMAND_UNSUPPORTED",
-      offsetText: "-enc",
-      shell: "powershell",
-    },
-    {
-      command: "powershell -EncodedCommand sensitive-payload-value",
-      issue: "ENCODED_COMMAND_UNSUPPORTED",
-      offsetText: "-EncodedCommand",
-      shell: "powershell",
-    },
-    {
-      command: "bash -lc 'pwsh -EncodedCommand sensitive-payload-value'",
-      issue: "ENCODED_COMMAND_UNSUPPORTED",
-      offsetText: "-EncodedCommand",
-      shell: "posix",
-    },
-    {
-      command: "bash $flags 'rm -f x'",
-      issue: "LAUNCHER_OPTION_DYNAMIC_UNSUPPORTED",
-      offsetText: "$flags",
-      shell: "posix",
-    },
-    {
-      command: 'sh "$option" \'rm -f x\'',
-      issue: "LAUNCHER_OPTION_DYNAMIC_UNSUPPORTED",
-      offsetText: "$option",
-      shell: "posix",
-    },
-    {
-      command: "pwsh $option 'Set-Content out.txt x'",
-      issue: "LAUNCHER_OPTION_DYNAMIC_UNSUPPORTED",
-      offsetText: "$option",
-      shell: "powershell",
-    },
-  ];
-  for (const { command, issue, offsetText, shell } of cases) {
-    const analysis = analyzeCommand(command, shell);
-    const reason = reasonWithCode(analysis, "UNSUPPORTED_COMMAND_GRAMMAR");
-    assert.ok(reason, `${shell}: ${command}`);
-    const evidence = reason.issues.find(({ kind }) => kind === issue);
-    assert.ok(evidence, `${command}: ${issue}`);
-    assert.equal(evidence.offset, command.indexOf(offsetText));
-    assert.equal(evidence.context, offsetText);
-    assert.equal(evidence.contextStart, evidence.offset);
-  }
-
-  for (const [command, shell] of [
-    ["bash -l -c 'printf ok'", "posix"],
-    ["bash --noprofile script.sh", "posix"],
-    ["pwsh -NoProfile -Command 'Write-Output ok'", "powershell"],
-    ["pwsh -NoProfile script.ps1", "powershell"],
-  ]) {
-    assert.deepEqual(analyzeCommand(command, shell).mutationAttempts, [], `${shell}: ${command}`);
-  }
-
-  const encoded = cases[0].command;
-  const diagnostic = mutationAttemptDiagnostic({
-    after: { sha256: "c".repeat(64) },
-    analysis: analyzeCommand(encoded, "powershell"),
-    before: { sha256: "c".repeat(64) },
-    statusAfter: "",
-    statusBefore: "",
-  });
-  assert.match(diagnostic, /UNSUPPORTED_COMMAND_GRAMMAR/);
-  assert.match(diagnostic, /issue=ENCODED_COMMAND_UNSUPPORTED/);
-  assert.match(diagnostic, /context="-EncodedCommand"/);
-  assert.doesNotMatch(diagnostic, /sensitive-payload-value/);
-});
-
-test("audit repair here-documents distinguish literal bodies from executable expansions", () => {
-  const quoted = [
-    "cat <<'EOF'",
-    "$(rm -f x)",
-    "`git push origin main`",
-    "print(2 > 1)",
-    "EOF",
-  ].join("\n");
-  assert.deepEqual(analyzeCommand(quoted, "posix").mutationAttempts, []);
-
-  const unquotedDollar = ["cat <<EOF", "$(rm -f x)", "EOF"].join("\n");
-  const dollarReason = reasonWithCode(
-    analyzeCommand(unquotedDollar, "posix"),
-    "MUTATING_COMMAND_GRAMMAR",
-  );
-  assert.ok(dollarReason);
-  assert.equal(dollarReason.mutators[0].offset, unquotedDollar.indexOf("rm"));
-  assert.equal(dollarReason.mutators[0].evaluationDepth, 1);
-  assert.equal(dollarReason.mutators[0].outerQuoteState, "here-document");
-
-  const unquotedBacktick = ["cat <<EOF", "`git push origin main`", "EOF"].join("\n");
-  const backtickReason = reasonWithCode(
-    analyzeCommand(unquotedBacktick, "posix"),
-    "MUTATING_COMMAND_GRAMMAR",
-  );
-  assert.ok(backtickReason);
-  assert.equal(backtickReason.mutators[0].offset, unquotedBacktick.indexOf("git push"));
-
-  assert.deepEqual(analyzeCommand("printf ok # <<EOF", "posix").mutationAttempts, []);
-  for (const command of [
-    ["python - <<EOF", "print(2 > 1)", "EOF"].join("\n"),
-    ["node - <<EOF", "const positive = (value) => value > 0;", "EOF"].join("\n"),
-  ]) {
-    assert.deepEqual(analyzeCommand(command, "posix").mutationAttempts, [], command);
-  }
-
-  const headerRedirect = [
-    "python - <<'PY' > out.txt",
-    'print("x")',
-    "PY",
-  ].join("\n");
-  const redirectReason = reasonWithCode(
-    analyzeCommand(headerRedirect, "posix"),
-    "OUTPUT_REDIRECTION_GRAMMAR",
-  );
-  assert.ok(redirectReason);
-  assert.equal(redirectReason.redirections[0].offset, headerRedirect.indexOf("> out.txt"));
-
-  const malformed = ["cat <<EOF", "$(printf ok)"].join("\n");
-  const malformedReason = reasonWithCode(
-    analyzeCommand(malformed, "posix"),
-    "UNSUPPORTED_COMMAND_GRAMMAR",
-  );
-  assert.ok(malformedReason);
-  assert.ok(malformedReason.issues.some(({ kind }) => kind === "HERE_DOCUMENT_UNTERMINATED"));
-});
-
-test("audit repair descriptor boundaries remain observable through event analysis", () => {
-  for (const command of [
-    "node probe.mjs 2>file",
-    "node probe.mjs 2>>file",
-    "node probe.mjs 12>&1",
-    "node probe.mjs 2>&10",
-    "node probe.mjs 2>&1file",
-  ]) {
-    const reason = reasonWithCode(analyzeCommand(command, "posix"), "OUTPUT_REDIRECTION_GRAMMAR");
-    assert.ok(reason, command);
-    assert.equal(reason.redirections[0].offset, command.indexOf(">"), command);
-  }
-  for (const [command, shell] of [
-    ["node probe.mjs 2>&1", "posix"],
-    ["Write-Output '2>&1'", "powershell"],
-    [String.raw`printf '%s\n' fd='2>&1'`, "posix"],
-    ["Write-Output prefix'2>&1'suffix", "powershell"],
-    [String.raw`printf '%s\n' fd=2\>\&1`, "posix"],
-    ["Write-Output fd=2`>`&1", "powershell"],
-  ]) {
-    assert.deepEqual(analyzeCommand(command, shell).mutationAttempts, [], `${shell}: ${command}`);
-  }
-});
-
-test("audit repair long nested diagnostics retain exact original offsets and bounded context", () => {
-  const command = `printf '${"x".repeat(720)}'; '/bin/bash' -lc 'git push origin main'`;
-  const expectedOffset = command.indexOf("git push");
-  const analysis = analyzeCommand(command, "posix");
-  const reason = reasonWithCode(analysis, "MUTATING_COMMAND_GRAMMAR");
-  assert.ok(reason);
-  const mutator = reason.mutators[0];
-  assert.ok(expectedOffset > 600);
-  assert.equal(mutator.offset, expectedOffset);
-  assert.equal(mutator.context, command.slice(mutator.contextStart, mutator.contextStart + mutator.context.length));
-  assert.equal(mutator.context[mutator.offset - mutator.contextStart], "g");
-  assert.ok(mutator.context.length <= 160);
-
-  const diagnostic = mutationAttemptDiagnostic({
-    after: { sha256: "d".repeat(64) },
-    analysis,
-    before: { sha256: "d".repeat(64) },
-    statusAfter: "",
-    statusBefore: "",
-  });
-  assert.match(diagnostic, /MUTATING_COMMAND_GRAMMAR/);
-  assert.match(diagnostic, new RegExp(`mutator="git push" offset=${expectedOffset}`));
-  assert.match(diagnostic, /evaluationDepth=1 outerQuoteState=single/);
-  assert.match(diagnostic, /contextLength=160/);
-  assert.ok(diagnostic.length <= 6000);
-  assert.doesNotMatch(diagnostic, /x{200}/);
-  assert.doesNotMatch(diagnostic, / command=/);
-});
-
-test("output redirection scanner follows PowerShell and POSIX quote and escape rules", () => {
-  const redirectCases = [
-    ["Get-Content README.md > snapshot.txt", ">", null],
-    ["Get-Content README.md >> snapshot.txt", ">>", null],
-    ["Get-Content README.md 1>snapshot.txt", ">", "1"],
-    ["Get-Content README.md 2>errors.txt", ">", "2"],
-    ["Get-Content README.md 2>>errors.txt", ">>", "2"],
-  ];
-  const commonLiterals = [
-    "Write-Output '>'",
-    'Write-Output ">"',
-    'node -e "const f = x => x"',
-    'Write-Output "C:\\temp\\>literal"',
-  ];
-
-  for (const shell of ["powershell", "posix"]) {
-    for (const [command, operator, fileDescriptor] of redirectCases) {
-      const matches = findOutputRedirections(command, { shell });
-      assert.equal(matches.length, 1, `${shell}: ${command}`);
-      assert.equal(matches[0].operator, operator);
-      assert.equal(matches[0].fileDescriptor, fileDescriptor);
-      assert.equal(matches[0].offset, command.indexOf(">"));
-      assert.equal(matches[0].quoteState, "unquoted");
-      assert.equal(matches[0].escaped, false);
-    }
-    for (const command of commonLiterals) {
-      assert.deepEqual(findOutputRedirections(command, { shell }), [], `${shell}: ${command}`);
-    }
-    const harmlessAnalysis = analyzeEvents(
-      [
-        {
-          type: "item.completed",
-          item: { type: "command_execution", command: 'node -e "const f = x => x"' },
-        },
-      ],
-      { shell },
-    );
-    assert.deepEqual(harmlessAnalysis.mutatingCommands, []);
-    const mixed = 'node -e "const f = x => x" 2>>errors.txt';
-    assert.equal(findOutputRedirections(mixed, { shell })[0].offset, mixed.lastIndexOf(">>"));
-    const mixedAnalysis = analyzeEvents(
-      [{ type: "item.completed", item: { type: "command_execution", command: mixed } }],
-      { shell },
-    );
-    assert.equal(mixedAnalysis.mutatingCommands.length, 1);
-    assert.equal(mixedAnalysis.mutatingCommands[0].reasons[0].code, "OUTPUT_REDIRECTION_GRAMMAR");
-  }
-
-  for (const command of [
-    String.raw`printf '%s\n' \>`,
-    String.raw`printf '%s\n' "say \"> literal"`,
-    String.raw`printf '%s\n' 'it'\''s > literal'`,
-    String.raw`printf '%s\n' "value=$((2 > 1))"`,
-    String.raw`printf '%s\n' $((2 > 1))`,
-  ]) {
-    assert.deepEqual(findOutputRedirections(command, { shell: "posix" }), [], command);
-  }
-  for (const command of [
-    "Write-Output `>",
-    'Write-Output "say `"> literal"',
-    "Write-Output 'it''s > literal'",
-  ]) {
-    assert.deepEqual(findOutputRedirections(command, { shell: "powershell" }), [], command);
-  }
-
-  const powershellBackslash = String.raw`Write-Output \>`;
-  assert.equal(findOutputRedirections(powershellBackslash, { shell: "powershell" }).length, 1);
-  assert.deepEqual(findOutputRedirections(powershellBackslash, { shell: "posix" }), []);
-
-  const posixSubstitution = 'echo "$(printf hi > nested.txt)"';
-  const powershellSubexpression = 'Write-Output "$(Get-Content README.md > nested.txt)"';
-  assert.equal(
-    findOutputRedirections(posixSubstitution, { shell: "posix" })[0].offset,
-    posixSubstitution.indexOf(">"),
-  );
-  assert.equal(
-    findOutputRedirections(powershellSubexpression, { shell: "powershell" })[0].offset,
-    powershellSubexpression.indexOf(">"),
-  );
-
-  const posixNestedShell = `bash -lc 'printf "%s" ">" > nested.txt'`;
-  const powershellNestedShell = `powershell.exe -NoProfile -Command 'Write-Output ">" > nested.txt'`;
-  const posixNestedMatch = findOutputRedirections(posixNestedShell, { shell: "posix" })[0];
-  const powershellNestedMatch = findOutputRedirections(powershellNestedShell, { shell: "powershell" })[0];
-  assert.equal(posixNestedMatch.offset, posixNestedShell.lastIndexOf(">"));
-  assert.equal(posixNestedMatch.shell, "posix");
-  assert.equal(posixNestedMatch.evaluationDepth, 1);
-  assert.equal(posixNestedMatch.outerQuoteState, "single");
-  assert.equal(powershellNestedMatch.offset, powershellNestedShell.lastIndexOf(">"));
-  assert.equal(powershellNestedMatch.shell, "powershell");
-  assert.equal(powershellNestedMatch.evaluationDepth, 1);
-  assert.equal(powershellNestedMatch.outerQuoteState, "single");
-  assert.deepEqual(findOutputRedirections(`bash -lc 'printf "%s" ">"'`, { shell: "posix" }), []);
-  assert.deepEqual(
-    findOutputRedirections(`powershell -Command 'Write-Output ">"'`, { shell: "powershell" }),
-    [],
-  );
-  assert.equal(commandShellForPlatform("win32"), "powershell");
-  assert.equal(commandShellForPlatform("linux"), "posix");
-  assert.equal(commandShellForPlatform("darwin"), "posix");
-  assert.throws(() => findOutputRedirections("echo > file", { shell: "cmd" }), /Unsupported command shell/);
-});
-
-test("fd duplication is narrowly allowed and matches the native executor without creating a file", (t) => {
-  for (const shell of ["powershell", "posix"]) {
-    assert.deepEqual(findOutputRedirections("node probe.mjs 2>&1", { shell }), []);
-    assert.equal(findOutputRedirections("node probe.mjs 2>errors.txt", { shell }).length, 1);
-    assert.equal(findOutputRedirections("node probe.mjs 2>>errors.txt", { shell }).length, 1);
-    assert.equal(findOutputRedirections("node probe.mjs 2>&2", { shell }).length, 1);
-    assert.equal(findOutputRedirections("node probe.mjs 1>&2", { shell }).length, 1);
-  }
-
+test("native allowed inspection preserves repository, Git, and protected-state bytes", (t) => {
   const root = temporaryDirectory(t);
-  const script = "process.stderr.write('fd-duplication-probe')";
+  const repository = join(root, "repository");
+  const protectedState = join(root, "protected");
+  mkdirSync(repository);
+  mkdirSync(protectedState);
+  writeFileSync(join(repository, "README.md"), "# Fixture\n");
+  writeFileSync(join(protectedState, "auth.json"), "synthetic protected bytes\n");
+
+  for (const args of [
+    ["init", "--quiet"],
+    ["config", "user.name", "audit-boundary-test"],
+    ["config", "user.email", "audit-boundary@invalid.local"],
+    ["config", "commit.gpgsign", "false"],
+    ["add", "--all"],
+    ["commit", "--quiet", "-m", "fixture"],
+  ]) {
+    const result = spawnSync("git", args, { cwd: repository, encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+  }
+  writeFileSync(join(repository, "user-draft.txt"), "pre-existing user bytes\n");
+
+  const before = snapshotTree(repository);
+  const protectedBefore = snapshotTree(protectedState);
+  const statusBefore = gitStatus(repository);
   const shell = commandShellForPlatform();
   const command =
     shell === "powershell"
-      ? `& ${powershellQuote(process.execPath)} -e "${script}" 2>&1`
-      : `${posixQuote(process.execPath)} -e "${script}" 2>&1`;
-  const result =
+      ? "Get-Content -Raw -LiteralPath 'README.md'"
+      : "cat -- 'README.md'";
+  assert.equal(inspectReadOnlyCommand(command, { shell }).allowed, true);
+  const content =
     shell === "powershell"
-      ? spawnSync("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command], {
-          cwd: root,
-          encoding: "utf8",
-          windowsHide: true,
-        })
-      : spawnSync("/bin/sh", ["-c", command], { cwd: root, encoding: "utf8" });
+      ? spawnSync(
+          "powershell.exe",
+          ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command],
+          { cwd: repository, encoding: "utf8", windowsHide: true },
+        )
+      : spawnSync("/bin/sh", ["-c", command], { cwd: repository, encoding: "utf8" });
+  assert.equal(content.status, 0, content.stderr);
+  assert.match(content.stdout, /Fixture/);
 
-  assert.equal(result.error, undefined);
-  if (shell === "powershell") {
-    assert.ok(
-      new Set([0, 1]).has(result.status),
-      `PowerShell fd-duplication probe exited ${result.status}: ${result.stderr}`,
-    );
-  } else {
-    assert.equal(result.status, 0, result.stderr);
-  }
-  assert.match(`${result.stdout}${result.stderr}`, /fd-duplication-probe/);
-  assert.deepEqual(readdirSync(root), []);
-  const analysis = analyzeEvents(
-    [{ type: "item.completed", item: { type: "command_execution", command } }],
-    { shell },
+  const gitInspection = spawnSync(
+    "git",
+    ["--no-optional-locks", "--no-pager", "status", "--short", "--untracked-files=all"],
+    { cwd: repository, encoding: "utf8", env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" } },
   );
-  assert.deepEqual(analysis.mutatingCommands, []);
+  assert.equal(gitInspection.status, 0, gitInspection.stderr);
+  assert.equal(snapshotTree(repository).sha256, before.sha256);
+  assert.equal(snapshotTree(protectedState).sha256, protectedBefore.sha256);
+  assert.equal(gitStatus(repository), statusBefore);
 });
 
 test("mutation diagnostics retain ordered structural evidence and invariance", () => {
-  const analysis = analyzeEvents([
-    { type: "item.completed", item: { type: "command_execution", command: "Get-Content README.md" } },
-    {
-      type: "item.completed",
-      item: { type: "command_execution", command: "Set-Content src/greeting.mjs 'changed'" },
-    },
-    {
-      type: "item.completed",
-      item: { type: "command_execution", command: "Get-Content README.md > snapshot.txt" },
-    },
-    {
-      type: "item.completed",
-      item: { type: "file_change", changes: [{ path: "src/greeting.mjs", kind: "update" }] },
-    },
-  ]);
+  const analysis = analyzeEvents(
+    [
+      {
+        type: "item.completed",
+        item: {
+          type: "command_execution",
+          command: "Get-Content -Raw -LiteralPath 'README.md'",
+        },
+      },
+      {
+        type: "item.completed",
+        item: { type: "command_execution", command: "Set-Content src/greeting.mjs 'changed'" },
+      },
+      {
+        type: "item.completed",
+        item: {
+          type: "command_execution",
+          command: "Get-Content -Raw -LiteralPath 'README.md' > snapshot.txt",
+        },
+      },
+      {
+        type: "item.completed",
+        item: { type: "file_change", changes: [{ path: "src/greeting.mjs", kind: "update" }] },
+      },
+    ],
+    { shell: "powershell" },
+  );
   const before = { sha256: "a".repeat(64) };
   const after = { sha256: "a".repeat(64) };
   const diagnostic = mutationAttemptDiagnostic({
@@ -893,17 +437,15 @@ test("mutation diagnostics retain ordered structural evidence and invariance", (
   assert.match(diagnostic, /treeInvariant=true/);
   assert.match(diagnostic, /gitStatusInvariant=true/);
   assert.match(diagnostic, /eventIndex=1 eventType=command_execution/);
-  assert.match(diagnostic, /reason=MUTATING_COMMAND_GRAMMAR:/);
-  assert.match(diagnostic, /matched=Set-Content/);
+  assert.match(diagnostic, /reason=READ_ONLY_COMMAND_BOUNDARY:/);
+  assert.match(diagnostic, /issue=COMMAND_NOT_ALLOWED/);
+  assert.match(diagnostic, /context="Set-Content"/);
   assert.match(diagnostic, /eventIndex=2 eventType=command_execution/);
-  assert.match(diagnostic, /reason=OUTPUT_REDIRECTION_GRAMMAR:/);
-  assert.match(diagnostic, /operator=">"/);
-  assert.match(diagnostic, /offset=22/);
-  assert.match(diagnostic, /shell=(?:powershell|posix)/);
-  assert.match(diagnostic, /fileDescriptor=default/);
-  assert.match(diagnostic, /quoteState=unquoted escaped=false/);
-  assert.match(diagnostic, /contextStart=0/);
-  assert.doesNotMatch(diagnostic, /matched=>/);
+  assert.match(diagnostic, /issue=REDIRECTION_UNSUPPORTED/);
+  assert.match(diagnostic, /offset=42/);
+  assert.match(diagnostic, /shell=powershell/);
+  assert.match(diagnostic, /contextStart=42/);
+  assert.match(diagnostic, /context=">"/);
   assert.match(diagnostic, /eventIndex=3 eventType=file_change fileChangeKinds=update/);
   assert.match(diagnostic, /reason=FILE_CHANGE_EVENT:/);
   assert.doesNotMatch(diagnostic, /eventIndex=0/);
@@ -914,15 +456,18 @@ test("mutation diagnostics redact credentials and absolute user paths", () => {
   const posixUserPath = "/home/auditor/.codex/auth.json";
   const temporaryFixture = "D:\\isolated\\audit-fixture";
   const credential = "sk-task0018syntheticcredential";
-  const analysis = analyzeEvents([
-    {
-      type: "item.completed",
-      item: {
-        type: "command_execution",
-        command: `Set-Content '${temporaryFixture}\\out.txt' \"CODEX_API_KEY=${credential}\"`,
+  const analysis = analyzeEvents(
+    [
+      {
+        type: "item.completed",
+        item: {
+          type: "command_execution",
+          command: `Get-Content -Raw -LiteralPath '${temporaryFixture}\\CODEX_API_KEY=${credential}.txt'`,
+        },
       },
-    },
-  ]);
+    ],
+    { shell: "powershell" },
+  );
   const diagnostic = mutationAttemptDiagnostic({
     after: { sha256: "b".repeat(64) },
     analysis,
@@ -946,7 +491,7 @@ test("mutation diagnostics redact credentials and absolute user paths", () => {
   assert.match(directlyRedacted, /Bearer <REDACTED_CREDENTIAL>/);
 });
 
-test("redirection diagnostics retain exact evidence beyond the legacy preview without exposing the command", () => {
+test("boundary diagnostics retain exact late offsets without exposing adjacent command data", () => {
   const temporaryFixture = "D:\\isolated\\audit-fixture";
   const credential = "sk-task0021syntheticcredential";
   const prefix = `BEGIN_OF_COMMAND_SHOULD_NOT_APPEAR ${"x".repeat(680)}`;
@@ -956,7 +501,7 @@ test("redirection diagnostics retain exact evidence beyond the legacy preview wi
     [{ type: "item.completed", item: { type: "command_execution", command } }],
     { shell: "powershell" },
   );
-  const match = analysis.mutatingCommands[0].reasons[0].redirections[0];
+  const match = analysis.mutatingCommands[0].reasons[0].issues[0];
   const diagnostic = mutationAttemptDiagnostic({
     after: { sha256: "a".repeat(64) },
     analysis,
@@ -967,23 +512,18 @@ test("redirection diagnostics retain exact evidence beyond the legacy preview wi
   });
 
   assert.ok(expectedOffset > 600);
-  assert.equal(match.operator, ">>");
+  assert.equal(match.kind, "REDIRECTION_UNSUPPORTED");
   assert.equal(match.offset, expectedOffset);
-  assert.equal(match.fileDescriptor, "2");
   assert.equal(match.quoteState, "unquoted");
-  assert.equal(match.escaped, false);
   assert.ok(match.context.length <= 160);
-  assert.equal(match.context[expectedOffset - match.contextStart], ">");
-  assert.equal(match.context.slice(expectedOffset - match.contextStart, expectedOffset - match.contextStart + 2), ">>");
-  assert.match(diagnostic, new RegExp(`operator=">>" offset=${expectedOffset}`));
-  assert.match(diagnostic, /fileDescriptor=2 quoteState=unquoted escaped=false/);
-  assert.match(diagnostic, /contextLength=160/);
-  assert.match(diagnostic, /<TEMP_PATH>/);
-  assert.match(diagnostic, /<REDACTED_CREDENTIAL>/);
+  assert.equal(match.context, ">");
+  assert.equal(match.contextStart, expectedOffset);
+  assert.match(diagnostic, new RegExp(`issue=REDIRECTION_UNSUPPORTED offset=${expectedOffset}`));
+  assert.match(diagnostic, /contextLength=1 context=">"/);
   assert.doesNotMatch(diagnostic, /BEGIN_OF_COMMAND_SHOULD_NOT_APPEAR/);
   assert.doesNotMatch(diagnostic, new RegExp(credential));
+  assert.doesNotMatch(diagnostic, new RegExp(temporaryFixture.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   assert.doesNotMatch(diagnostic, /command="/);
-  assert.doesNotMatch(diagnostic, /truncated length=/);
 });
 
 test("final verdict parsing accepts inline and heading report forms", () => {
