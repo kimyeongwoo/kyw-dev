@@ -31,6 +31,26 @@ function frontmatterFields(skill) {
   );
 }
 
+function markdownSection(markdown, heading) {
+  const lines = markdown.split(/\r?\n/);
+  const collected = [];
+  let active = false;
+  for (const line of lines) {
+    const match = /^##\s+(.+?)\s*$/.exec(line);
+    if (match) {
+      if (active) {
+        break;
+      }
+      active = match[1] === heading;
+      continue;
+    }
+    if (active) {
+      collected.push(line);
+    }
+  }
+  return collected.join("\n");
+}
+
 async function temporaryDirectory(t) {
   const directory = await mkdtemp(join(tmpdir(), "kyw-dev-task0006-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
@@ -44,7 +64,7 @@ function runAdapter(args) {
   });
 }
 
-test("kyw-task Skill is implemented, explicit-only, and supports create plus numeric resume", async () => {
+test("kyw-task Skill is explicit-only and supports create, exact, next, and continuous dispatch", async () => {
   const skill = await readFile(SKILL_PATH, "utf8");
   const metadata = await readFile(METADATA_PATH, "utf8");
   const frontmatter = frontmatterFields(skill);
@@ -55,7 +75,20 @@ test("kyw-task Skill is implemented, explicit-only, and supports create plus num
   assert.match(frontmatter.description, /do not use for ordinary prompts/);
   assert.doesNotMatch(skill, /is not implemented yet/);
   assert.match(skill, /Use `create\(goal\)`/);
-  assert.match(skill, /Use `resume\(task-id\)`/);
+  assert.match(skill, /Use `exact\(task-id\)`/);
+  assert.match(skill, /task NNNN 실행해줘/);
+  assert.match(skill, /task 진행해줘/);
+  assert.match(skill, /남은 task 계속 실행해줘/);
+  assert.match(skill, /incidental text containing “task” never invokes this workflow/);
+  assert.match(skill, /applies only to the first selected Task/);
+  assert.match(skill, /explicitly says it applies to every remaining Task/);
+  assert.match(skill, /cannot waive acceptance, evidence honesty, safety/);
+  assert.match(skill, /configured model and reasoning effort unchanged/);
+  assert.match(skill, /`STANDARD` is a gate, never action authority by itself/);
+  assert.match(skill, /bounded contract-only edit to explicitly named pre-created nonterminal Task pairs/);
+  assert.match(skill, /Only continuous mode may process multiple Tasks/);
+  assert.match(skill, /--delivery-ledger-json <json>/);
+  assert.match(skill, /future PR, merge, post-merge, or Actions results/);
   assert.match(skill, /four-digit Task ID/);
   assert.match(skill, /\[Task Execution and Resume\]\(references\/execution\.md\)/);
   assert.match(skill, /If the verified pair is still `DRAFT`, resume customization and Phase 5 confirmation/);
@@ -76,8 +109,8 @@ test("kyw-task execution and resume documentation matches the packaged workflow"
   assert.match(readme, /never substitutes an unsupported `DONE`\/`PASSED` claim/);
   assert.doesNotMatch(readme, /Task execution\/resume and audit remain unavailable/);
   assert.match(architecture, /references\/execution\.md/);
-  assert.match(architecture, /semantic state-machine reference for Task execution and resume/);
-  assert.match(architecture, /A `READY` pair enters `IN_PROGRESS`\/`RUNNING`/);
+  assert.match(architecture, /semantic state-machine reference for exact, automatic, and continuous Task execution/);
+  assert.match(architecture, /selecting a current-contract `READY\/READY` pair is implementation confirmation/);
   assert.match(architecture, /An unavailable required check produces recorded `BLOCKED` status/);
 });
 
@@ -162,7 +195,7 @@ test("kyw-task execution routes durable changes and enforces the current-Task bo
   assert.match(execution, /product behavior, requirements, business rules, or acceptance meaning -> `docs\/SPEC\.md`/);
   assert.match(execution, /components, boundaries, dependencies, data flow, storage, or distribution structure -> `docs\/ARCHITECTURE\.md`/);
   assert.match(execution, /setup, installation, commands, configuration, usage, or contributor entry -> `README\.md`/);
-  assert.match(execution, /Do not edit another numbered Task/);
+  assert.match(execution, /Edit another numbered Task only for a bounded contract migration/);
   assert.match(execution, /If it is independently shippable or belongs to a future Task, leave it out of scope/);
 });
 
@@ -302,13 +335,18 @@ test("kyw-task authoring adapter scaffolds one pair and task execution validates
     .replace("- README: <!-- changed meaning or why unaffected -->", "- README: Unchanged; no setup or usage change.")
     .replace("- AGENTS: <!-- changed meaning or why unaffected -->", "- AGENTS: Unchanged; no repository rule change.")
     .replace(
+      "<!-- Use `STANDARD` with the canonical ledger below, or `NONE — <reason>`. Record policy only, never future delivery state. -->",
+      "",
+    )
+    .replace(
       "<!-- List the work still needed to satisfy the Task. -->",
       "- Implement and verify the unlock action.",
     )
     .replace(
       "<!-- Give the next concrete action and the minimum context needed to continue. -->",
       "Implement the unlock action, then run the focused account fixture.",
-    );
+    )
+    .replaceAll("<!-- For DONE, use `- None — repository outcome complete.` -->", "");
   testMarkdown = testMarkdown
     .replace(
       "<!-- Add one row for every acceptance criterion and meaningful discovered behavior. -->",
@@ -350,11 +388,11 @@ test("kyw-task authoring adapter scaffolds one pair and task execution validates
     .replace("## Completed\n\n- None yet.", "## Completed\n\n- Implemented and verified administrator unlock.")
     .replace(
       "## Remaining\n\n- Implement and verify the unlock action.",
-      "## Remaining\n\n- None.",
+      "## Remaining\n\n- None — repository outcome complete.",
     )
     .replace(
       "## Resume Point\n\nImplement the unlock action, then run the focused account fixture.",
-      "## Resume Point\n\nTask complete; no resume action remains.",
+      "## Resume Point\n\n- None — repository outcome complete.",
     );
   const passedTestMarkdown = runningTestMarkdown
     .replace("\nRUNNING\n", "\nPASSED\n")
@@ -364,10 +402,10 @@ test("kyw-task authoring adapter scaffolds one pair and task execution validates
     )
     .replace("- Not run yet.", `- ${executionScenarios.happyPath.command}: exit 0; fixture passed.`)
     .replaceAll("- [ ]", "- [x]");
-  assert.doesNotMatch(doneTaskMarkdown, /<!--/);
-  assert.doesNotMatch(passedTestMarkdown, /<!--/);
-  assert.match(doneTaskMarkdown, /## Remaining\n\n- None\./);
-  assert.match(doneTaskMarkdown, /## Resume Point\n\nTask complete; no resume action remains\./);
+  assert.doesNotMatch(doneTaskMarkdown.replace("<!-- kyw-task-contract: 2 -->", ""), /<!--/);
+  assert.doesNotMatch(passedTestMarkdown.replace("<!-- kyw-task-contract: 2 -->", ""), /<!--/);
+  assert.match(doneTaskMarkdown, /## Remaining\n\n- None — repository outcome complete\./);
+  assert.match(doneTaskMarkdown, /## Resume Point\n\n- None — repository outcome complete\./);
   await writeFile(created.taskPath, doneTaskMarkdown, "utf8");
   await writeFile(created.testPath, passedTestMarkdown, "utf8");
   const doneValidation = runAdapter(["validate", "--task-directory", created.directory]);
@@ -379,6 +417,107 @@ test("kyw-task authoring adapter scaffolds one pair and task execution validates
   ]);
   assert.equal(executionScenarios.happyPath.currentSummaryConfirmed, true);
   assert.equal(executionScenarios.happyPath.exitCode, 0);
+
+  const dispatchRoot = join(root, "dispatch", "docs", "tasks");
+  const dispatchDirectory = join(dispatchRoot, "0002-administrator-account-unlock");
+  await mkdir(dispatchDirectory, { recursive: true });
+  await Promise.all([
+    writeFile(join(dispatchDirectory, "TASK.md"), readyTaskMarkdown, "utf8"),
+    writeFile(join(dispatchDirectory, "TEST.md"), readyTestMarkdown, "utf8"),
+  ]);
+  const dispatchResult = runAdapter([
+    "dispatch",
+    "--tasks-root",
+    dispatchRoot,
+    "--invocation",
+    "$kyw-task 0002",
+    "--managed-routing",
+    "false",
+  ]);
+  assert.equal(dispatchResult.status, 0, dispatchResult.stderr);
+  const dispatch = JSON.parse(dispatchResult.stdout);
+  assert.equal(dispatch.outcome, "SELECTED");
+  assert.equal(dispatch.task.id, "0002");
+  assert.equal(dispatch.confirmation, true);
+
+  await Promise.all([
+    writeFile(join(dispatchDirectory, "TASK.md"), doneTaskMarkdown, "utf8"),
+    writeFile(join(dispatchDirectory, "TEST.md"), passedTestMarkdown, "utf8"),
+  ]);
+  const outcomeSha = "a".repeat(40);
+  const mergeSha = "b".repeat(40);
+  const deliveryLedger = {
+    "0002": {
+      source: "GITHUB",
+      taskId: "0002",
+      repository: "example/adapter-fixture",
+      outcomeSha,
+      pullRequest: {
+        number: 42,
+        headSha: outcomeSha,
+        baseRef: "main",
+        mergeSha,
+        state: "MERGED",
+        checks: "SUCCESS",
+        review: "CLEAR",
+        runId: 1001,
+      },
+      merge: {
+        repository: "example/adapter-fixture",
+        branch: "main",
+        sha: mergeSha,
+        mainRunHeadSha: mergeSha,
+        checks: "SUCCESS",
+        runId: 1002,
+      },
+    },
+  };
+  const deliveryExpectations = {
+    "0002": {
+      source: "LOCAL_GIT",
+      taskId: "0002",
+      repository: "example/adapter-fixture",
+      baseRef: "main",
+      outcomeSha,
+    },
+  };
+  const inlineDeliveryResult = runAdapter([
+    "dispatch",
+    "--tasks-root",
+    dispatchRoot,
+    "--invocation",
+    "task 진행해줘",
+    "--managed-routing",
+    "true",
+    "--delivery-ledger-json",
+    JSON.stringify(deliveryLedger),
+    "--delivery-expectations-json",
+    JSON.stringify(deliveryExpectations),
+  ]);
+  assert.equal(inlineDeliveryResult.status, 0, inlineDeliveryResult.stderr);
+  assert.equal(JSON.parse(inlineDeliveryResult.stdout).outcome, "NO_WORK");
+
+  const ledgerPath = join(root, "delivery-ledger.json");
+  const expectationsPath = join(root, "delivery-expectations.json");
+  await Promise.all([
+    writeFile(ledgerPath, JSON.stringify(deliveryLedger), "utf8"),
+    writeFile(expectationsPath, JSON.stringify(deliveryExpectations), "utf8"),
+  ]);
+  const fileDeliveryResult = runAdapter([
+    "dispatch",
+    "--tasks-root",
+    dispatchRoot,
+    "--invocation",
+    "task 진행해줘",
+    "--managed-routing",
+    "true",
+    "--delivery-ledger",
+    ledgerPath,
+    "--delivery-expectations",
+    expectationsPath,
+  ]);
+  assert.equal(fileDeliveryResult.status, 0, fileDeliveryResult.stderr);
+  assert.equal(JSON.parse(fileDeliveryResult.stdout).outcome, "NO_WORK");
 
   const invalidRoot = join(root, "invalid-attempt", "docs", "tasks");
   const invalidResult = runAdapter(["create", "--tasks-root", invalidRoot]);
@@ -415,7 +554,47 @@ test("kyw-task authoring adapter scaffolds one pair and task execution validates
     },
     {
       args: ["resume", "--task-directory", existingDirectory],
-      pattern: /Expected create or validate/,
+      pattern: /Expected create, validate, or dispatch/,
+    },
+    {
+      args: [
+        "dispatch",
+        "--tasks-root",
+        dispatchRoot,
+        "--invocation",
+        "task 진행해줘",
+        "--managed-routing",
+        "maybe",
+      ],
+      pattern: /--managed-routing must be true or false/,
+    },
+    {
+      args: [
+        "dispatch",
+        "--tasks-root",
+        dispatchRoot,
+        "--invocation",
+        "task 진행해줘",
+        "--managed-routing",
+        "true",
+        "--delivery-ledger-json",
+        "{",
+      ],
+      pattern: /INVALID_DELIVERY_LEDGER/,
+    },
+    {
+      args: [
+        "dispatch",
+        "--tasks-root",
+        dispatchRoot,
+        "--invocation",
+        "task 진행해줘",
+        "--managed-routing",
+        "true",
+        "--delivery-expectations-json",
+        "[]",
+      ],
+      pattern: /INVALID_DELIVERY_EXPECTATIONS/,
     },
   ];
   for (const { args, pattern } of invalidCases) {
@@ -424,4 +603,50 @@ test("kyw-task authoring adapter scaffolds one pair and task execution validates
     assert.match(result.stderr, pattern);
   }
   await assert.rejects(readdir(invalidRoot), (error) => error.code === "ENOENT");
+});
+
+test("current queued artifacts validate without rewriting immutable historical Tasks", async () => {
+  const tasksRoot = join(REPOSITORY_ROOT, "docs", "tasks");
+  const directories = (await readdir(tasksRoot, { withFileTypes: true }))
+    .filter((entry) => entry.isDirectory() && /^\d{4}-/.test(entry.name))
+    .sort((left, right) => left.name.localeCompare(right.name));
+
+  for (const entry of directories) {
+    const id = Number(entry.name.slice(0, 4));
+    const directory = join(tasksRoot, entry.name);
+    const taskMarkdown = await readFile(join(directory, "TASK.md"), "utf8");
+    const testMarkdown = await readFile(join(directory, "TEST.md"), "utf8");
+    const validation = runAdapter(["validate", "--task-directory", directory]);
+    assert.equal(validation.status, 0, `${entry.name}: ${validation.stderr}`);
+
+    if (id <= 29) {
+      assert.doesNotMatch(taskMarkdown, /kyw-task-contract: 2/, entry.name);
+      assert.doesNotMatch(testMarkdown, /kyw-task-contract: 2/, entry.name);
+    } else if (id <= 38) {
+      assert.match(taskMarkdown, /<!-- kyw-task-contract: 2 -->/, entry.name);
+      assert.match(testMarkdown, /<!-- kyw-task-contract: 2 -->/, entry.name);
+      assert.match(taskMarkdown, /- Requirement: STANDARD/, entry.name);
+      assert.match(
+        taskMarkdown,
+        /- Canonical ledger: GitHub PR\/Actions exact-SHA state\./,
+        entry.name,
+      );
+      assert.doesNotMatch(
+        testMarkdown,
+        /Confirm future external delivery evidence is read/,
+        entry.name,
+      );
+      const repositoryHandoff = [
+        markdownSection(taskMarkdown, "Plan"),
+        markdownSection(taskMarkdown, "Remaining"),
+        markdownSection(taskMarkdown, "Resume Point"),
+        markdownSection(testMarkdown, "Final Coverage Review"),
+      ].join("\n");
+      assert.doesNotMatch(
+        repositoryHandoff,
+        /\b(?:open|create|merge)\s+(?:the\s+)?(?:PR|pull request)\b|post-merge delivery|future external delivery|deliver this Task/i,
+        entry.name,
+      );
+    }
+  }
 });

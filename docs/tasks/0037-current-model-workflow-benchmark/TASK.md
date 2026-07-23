@@ -1,4 +1,5 @@
 # TASK 0037 — Current-Configured-Model Workflow Benchmark
+<!-- kyw-task-contract: 2 -->
 
 ## Status
 
@@ -41,7 +42,7 @@ Verify the final kyw-dev workflow on the currently configured Codex model and re
 - [ ] AC-06: Each scenario records all observable context/instruction bytes, turns, tool/command counts, files read, and wall time; unavailable metrics are explicit, and concrete bottlenecks are identified from supported measurements.
 - [ ] AC-07: Current official compatibility is verified separately from actual current-session execution evidence.
 - [ ] AC-08: The final verdict is `USABLE_NO_MATERIAL_BOTTLENECK`, `USABLE_WITH_BOTTLENECKS`, or `BLOCKED`, with exact reasons, preserved failures, and no automatic repair or new Task.
-- [ ] AC-09: With the current queue fully `DONE/PASSED` or `CANCELLED` and externally delivered, the workflow returns the exact no-work message and creates nothing; a current blocked frontier reports the blocker instead.
+- [ ] AC-09: In a controlled fixture whose current queue is fully `DONE/PASSED` or `CANCELLED/BLOCKED` and whose required delivery ledger is satisfied, the workflow returns the exact no-work message and creates nothing; a current blocked frontier reports the blocker instead.
 
 ## Plan
 
@@ -52,7 +53,7 @@ Verify the final kyw-dev workflow on the currently configured Codex model and re
 - [ ] Execute the bounded benchmark once per defined scenario, preserving failures and allowing only explicitly classified infrastructure retries.
 - [ ] Run the deterministic validators and stable/package checks required to establish benchmark integrity; do not modify product behavior to obtain a pass.
 - [ ] Review evidence completeness, protected-state preservation, metric availability, bottlenecks, and every verdict predicate.
-- [ ] Set the evidence-backed repository outcome and usability verdict in this pair without preclaiming future delivery; complete external delivery through the exact GitHub ledger and stop on any blocker.
+- [ ] Set the evidence-backed repository outcome and usability verdict in this pair and stop on any blocker.
 
 ## Decisions
 
@@ -80,6 +81,13 @@ Verify the final kyw-dev workflow on the currently configured Codex model and re
 - README: Update only measured usage guidance that changed in meaning.
 - AGENTS: Unchanged.
 
+## Delivery
+
+- Requirement: STANDARD
+- Canonical ledger: GitHub PR/Actions exact-SHA state.
+
+This artifact records repository outcome only and does not pre-claim delivery.
+
 ## Completed
 
 - Task scope and initial acceptance contract were approved as part of the ordered follow-up queue.
@@ -87,7 +95,7 @@ Verify the final kyw-dev workflow on the currently configured Codex model and re
 
 ## Remaining
 
-- Benchmark execution and repository evidence have not started. External delivery is intentionally not a future fact required inside this artifact.
+- Benchmark execution and repository evidence have not started.
 
 ## Resume Point
 

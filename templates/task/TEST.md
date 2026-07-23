@@ -1,5 +1,7 @@
 # TEST {{TASK_ID}} — {{TASK_TITLE}}
 
+<!-- kyw-task-contract: 2 -->
+
 ## Status
 
 DRAFT

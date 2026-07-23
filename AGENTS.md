@@ -18,6 +18,12 @@ When documents conflict, stop and reconcile them before continuing. Do not silen
 - Do not create a numbered Task for explanations or small, clearly bounded fixes unless the user explicitly asks for one.
 - Keep `AGENTS.md` thin. Put detailed procedures and templates in Skills, references, or Task documents.
 
+## Task routing
+
+- `$kyw-task NNNN` is portable for existing Tasks. With this contract, also route only `task NNNN 실행해줘`, `task 진행해줘`, and `남은 task 계속 실행해줘`; incidental `task` text never triggers.
+- Keep one Task active: exact cannot bypass it; ready selection confirms; otherwise resume the sole active or choose the lowest eligible ready. Continuous mode is serial here.
+- Preserve model/effort unless the user overrides. Task/Test owns repository outcome; GitHub exact-SHA state gates delivery and advancement.
+
 ## Change discipline
 
 - Inspect the existing repository before changing it.

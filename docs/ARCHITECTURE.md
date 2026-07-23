@@ -43,7 +43,7 @@ Each Skill is independently focused. `AGENTS.md` stays thin. Detailed templates 
 
 ### A-03 — Explicit invocation for heavyweight workflows
 
-`kyw-init`, `kyw-task`, `kyw-audit`, and `kyw-grilling` declare `allow_implicit_invocation: false`. Ordinary prompts are governed by project `AGENTS.md`, not automatically escalated into a heavyweight workflow.
+`kyw-init`, `kyw-task`, `kyw-audit`, and `kyw-grilling` declare `allow_implicit_invocation: false`. A managed project `AGENTS.md` may explicitly route only the anchored `task NNNN 실행해줘`, `task 진행해줘`, and `남은 task 계속 실행해줘` forms into `kyw-task`; this repository router does not enable general implicit Skill matching. Ordinary prompts remain ordinary, and a surface without that loaded contract uses `$kyw-task NNNN`.
 
 ### A-04 — Non-destructive by default
 
@@ -55,7 +55,7 @@ Plugin distribution through npm must work when package lifecycle scripts are not
 
 ### A-06 — One Task is the context boundary
 
-A Task directory is the resumable execution packet. Completed Task folders are historical evidence, not mandatory context for later Tasks. Durable knowledge must be promoted to permanent documents.
+A Task directory is the resumable execution packet. Exactly one Task may be active. Continuous dispatch changes the boundary only after the current Task reaches a repository terminal state and its required external delivery gate passes; it never runs Tasks in parallel or outside the current host invocation. Completed Task folders are historical evidence, not mandatory context for later Tasks. Durable knowledge must be promoted to permanent documents.
 
 ## 4. Top-level package structure
 
@@ -152,15 +152,15 @@ The positive npm `files` allowlist also excludes repository Tasks/docs, the remo
 
 The packaged deterministic mechanics are split into three core modules:
 
-- `src/core/template-contracts.mjs` owns the canonical template registry, token rendering, required-section contracts, Task/Test status rules, acceptance-to-test traceability, and evidence validation.
-- `src/core/task-artifacts.mjs` owns Task directory inventory, max-plus-one ID allocation, bounded ASCII slug generation, cross-platform path containment, atomic Task/Test scaffolding, and file-backed Task validation.
+- `src/core/template-contracts.mjs` owns the canonical template registry, token rendering, required-section contracts, current-contract and legacy Task/Test status rules, static delivery-requirement parsing, acceptance-to-test traceability, and evidence validation.
+- `src/core/task-artifacts.mjs` owns Task directory inventory, max-plus-one ID allocation, bounded ASCII slug generation, cross-platform path containment, atomic Task/Test scaffolding, file-backed validation, hard-dependency graph construction, and deterministic exact/automatic queue resolution.
 - `src/core/skill-installation.mjs` owns direct-install source inventory and hashing, user/project scope resolution, ownership metadata, conflict inspection, journaled file transactions and recovery, ownership-safe uninstall, tool detection, and doctor diagnostics.
 
 The artifact module depends on the template-contract module. The installation module inventories the same two core files and canonical templates as direct-install runtime inputs but does not import their Task logic. No core module depends on the CLI, Skills, or development-only validation surfaces.
 
-`skills/kyw-task/scripts/task-artifacts.mjs` is a thin packaged process adapter for the core artifact module's create and validate operations. It parses explicit arguments and reports structured results, but owns no numbering, slug, template, validation, or file-write logic. In a plugin/npm tree it imports the package-root core; in a direct-Skills tree it falls back to `.agents/skills/.kyw-dev/runtime/src/core/`. This keeps deterministic mechanics in the core modules while giving the reasoning Skill a stable invocation surface in both distribution layouts.
+`skills/kyw-task/scripts/task-artifacts.mjs` is a thin packaged process adapter for the core artifact module's create, validate, and read-only resolve operations. It parses explicit arguments and reports structured results, but owns no numbering, slug, template, validation, dependency, selection, or file-write logic. In a plugin/npm tree it imports the package-root core; in a direct-Skills tree it falls back to `.agents/skills/.kyw-dev/runtime/src/core/`. This keeps deterministic mechanics in the core modules while giving the reasoning Skill a stable invocation surface in both distribution layouts.
 
-`skills/kyw-task/references/execution.md` is the packaged semantic state-machine reference for Task execution and resume. `SKILL.md` loads it only after create-mode confirmation or a numeric Task invocation. It owns reasoning gates for repository verification, current-Task scope, documentation impact, live Task/Test evidence, compaction handoff, final diff coverage, and terminal status; it does not duplicate deterministic artifact mechanics.
+`skills/kyw-task/references/execution.md` is the packaged semantic state-machine reference for exact, automatic, and continuous Task execution. `SKILL.md` loads it only after create-mode confirmation or an existing-Task dispatch. It owns reasoning gates for repository and GitHub preflight, current-Task scope, appended override checks, model/effort preservation, documentation impact, live Task/Test evidence, compaction handoff, final diff coverage, terminal repository status, delivery gating, and serial transition; it does not duplicate deterministic artifact mechanics.
 
 `skills/kyw-audit/references/audit.md` is the packaged semantic reference for an independent Task review. `SKILL.md` resolves one explicitly supplied Task ID, locks bare read-only or exact-`--fix` repair mode, and loads the reference before inspection. The reference owns baseline fallback, stable finding classification, acceptance/evidence reproduction, scope and durable-document comparison, the default zero-write boundary, explicit bounded repair, affected-check reruns, and the final audit verdict. It consumes existing Task validators as evidence but adds no deterministic runtime module or production dependency.
 
@@ -252,13 +252,15 @@ It may create `docs/` but does not create implementation code or all numbered Ta
 
 ## 6.4 `kyw-task`
 
-Responsibility: Task authoring, execution, resume, synchronization, and verification.
+Responsibility: Task authoring, exact and automatic dispatch, serial queue progression, synchronization, and verification.
 
 Modes:
 
 ```text
 create(goal)
-resume(task-id)
+exact(task-id)
+automatic-next()
+continuous()
 ```
 
 Mutation boundary includes:
@@ -267,14 +269,44 @@ Mutation boundary includes:
 - Task implementation files;
 - affected permanent documents;
 - tests required by the Task.
+- explicitly named pre-created nonterminal Task pairs only when the selected Task requires a bounded contract migration.
 
-It must not implement future Tasks or silently broaden scope.
+It must not implement future Tasks or silently broaden scope; a contract migration changes their workflow metadata only.
 
 During `create(goal)`, the mutation boundary is narrower: inspection, sizing, and Task-level grilling occur without writes; authoring may then change only the one newly published Task/Test pair. Both files remain `DRAFT` until the user confirms the current shared-understanding summary, then move together to `READY`. Implementation files, permanent documents, existing Tasks, and follow-on Task proposals stay read-only during authoring. Execution and resume expand the boundary only in their later workflow phase.
 
-After confirmation, create mode may continue into execution; `resume(task-id)` resolves exactly one existing four-digit Task and dispatches from its verified Task/Test state. A `READY` pair enters `IN_PROGRESS`/`RUNNING` before implementation, an `IN_PROGRESS` pair continues from verified handoff fields, and a `BLOCKED` pair continues only after its recorded condition clears. `DONE`/`PASSED` and `CANCELLED` are non-implementation terminal states. Contradictory pairs block before implementation.
+The portable existing-Task entry is `$kyw-task NNNN`. A loaded managed `AGENTS.md` may route the anchored aliases as follows:
 
-Execution mutations remain limited to the current pair, implementation/tests required by its acceptance criteria, and permanent documents whose durable meaning changed. Resume verifies Completed work against repository evidence and begins at Resume Point or the first valid Remaining item instead of blindly repeating recorded actions.
+```text
+task NNNN 실행해줘          → exact(NNNN)
+task 진행해줘               → automatic-next()
+남은 task 계속 실행해줘      → continuous()
+```
+
+The router matches only those anchored forms, with any following current-user text retained as an appended override. It does not route incidental prose containing `task`. Because direct Skill installation does not modify project documents, repositories without the managed routing contract and surfaces that do not load it must use the portable form.
+
+After confirmation, create mode may continue into execution. Exact mode resolves one existing four-digit Task; selecting a current-contract `READY/READY` pair is implementation confirmation, while a different active Task blocks selection. Exact DRAFT and BLOCKED pairs may be selected only for authoring or condition recheck. Automatic mode resumes the sole `IN_PROGRESS/RUNNING` pair when its state is safe, otherwise selects the lowest-numbered dependency-satisfied `READY/READY` pair. Continuous mode repeats automatic selection only after the current Task and required delivery transition finish. It creates no Task, keeps at most one active pair, and stops when the host invocation ends.
+
+Queue-aware pairs carry `<!-- kyw-task-contract: 2 -->` in both files. Their valid state pairs are:
+
+```text
+DRAFT / DRAFT
+READY / READY
+IN_PROGRESS / RUNNING
+DONE / PASSED
+BLOCKED / BLOCKED
+CANCELLED / BLOCKED
+```
+
+Any marker mismatch, unsupported pair, or multiple active pair fails closed. Completed historical artifacts without the current marker retain their legacy validation meaning and are not rewritten or recursively reinterpreted as a current queue.
+
+The resolver reads literal `Task NNNN` references only from the Task `Dependencies` section. Those references form directed hard-dependency edges; other prose is an evidence or implementation input. It rejects duplicate Task IDs, missing references, current-graph cycles, and unsatisfied edges. A terminal legacy dependency is evaluated from its recorded repository outcome without importing historical evidence prose as new edges. This boundary keeps unrelated historical blockers outside the current queue while still stopping on a selected Task's active or hard-dependency blocker.
+
+The current queue frontier is the highest-numbered current-contract Task. If no active or ready pair exists, a blocked or inconsistent frontier reports its exact blocker. A `DONE/PASSED` or `CANCELLED/BLOCKED` frontier produces the exact no-work response only after its static delivery requirement is satisfied.
+
+Only text appended by the current user to the dispatch form is an override. It applies to the first selected Task unless that user explicitly scopes it to every remaining Task. The semantic workflow may accept a bounded method, ordering, or check constraint, but reports a conflict rather than allowing an override to waive acceptance, truthful evidence, safety, user-work preservation, or separately gated external mutation. The active session's model and reasoning effort are inherited unchanged unless the current user explicitly overrides them; observable provenance is recorded and unavailable values are never guessed.
+
+Execution mutations remain limited to the current pair, implementation/tests required by its acceptance criteria, and permanent documents whose durable meaning changed. The only other-pair exception is an explicitly scoped, contract-only migration of named pre-created nonterminal Tasks; their outcomes remain unimplemented. Resume verifies Completed work against repository evidence and begins at Resume Point or the first valid Remaining item instead of blindly repeating recorded actions.
 
 Deterministic helper needs:
 
@@ -282,9 +314,20 @@ Deterministic helper needs:
 - allocate next non-reused four-digit ID;
 - create a safe slug;
 - scaffold Task/Test atomically;
-- validate required sections and status values.
+- validate required sections, current-contract markers, delivery declarations, and paired statuses;
+- extract hard dependencies and reject missing references or cycles;
+- resolve exact, active, next-ready, blocked-frontier, and no-work local states.
 
 The packaged `skills/kyw-task/scripts/task-artifacts.mjs` adapter exposes those existing core operations to the Skill without duplicating them.
+
+Every current Task declares one static delivery requirement:
+
+```text
+STANDARD → GitHub PR/Actions exact-SHA state is the canonical external ledger
+NONE     → the Task records a reason
+```
+
+Task/Test owns repository outcome and reproducible behavioral evidence. GitHub owns mutable pull-request head, review, merge, and Actions facts. The resolver receives local repository/base/outcome-SHA expectations separately from the GitHub ledger and requires their exact identity relations. `DONE/PASSED` may therefore precede delivery, but the dispatcher cannot advance while `STANDARD` delivery is unknown, pending, failed, or unbound to local expectations. A fresh local, remote, and GitHub preflight occurs at every serial transition. CI success satisfies delivery only; it cannot replace Task acceptance evidence. `STANDARD` is not mutation authority: commit, push, PR, or merge actions require a current-user instruction or explicit selected-Task scope. Publication, force push, rerun, branch deletion, and other separately authorized actions remain outside dispatch authority.
 
 ## 6.5 `kyw-audit`
 
@@ -368,17 +411,34 @@ DRAFT
       ↓ user confirms shared understanding
 READY
       ↓ implementation starts
-IN_PROGRESS
+IN_PROGRESS / RUNNING
       ├─ discovery → update docs / Task / Test
       ├─ possible compaction → persist handoff fields
       └─ verification + final diff coverage audit
-            ├─ evidence complete → DONE / TEST PASSED
-            └─ unmet condition   → BLOCKED
+            ├─ evidence complete → DONE / PASSED
+            └─ unmet condition   → BLOCKED / BLOCKED
 ```
 
-Task status and Test status are separate because implementation can be complete while verification remains blocked.
+Existing-Task dispatch wraps that lifecycle:
 
-During execution, discoveries update Task intent and Test coverage together; durable meaning is routed to its permanent owner before implementation alignment. Before compaction or interruption, the workflow persists Completed, Remaining, Resume Point, Blockers, current decisions/document impact, repository state, commands, results, row evidence, and unverified risks in the existing pair. Terminal `DONE`/`PASSED` requires mapped acceptance criteria, executed required checks, synchronized durable documents, a complete final diff coverage review, reproducible evidence, and final pair validation. An unavailable required check produces recorded `BLOCKED` status instead of inferred success.
+```text
+exact ID / managed automatic alias
+              ↓
+current-contract inventory + status/dependency validation
+              ├─ one active → resume it
+              ├─ no active  → lowest eligible READY/READY
+              └─ invalid or blocked frontier → stop with reason
+              ↓
+one Task executes to repository terminal state
+              ↓
+Delivery NONE or exact-SHA STANDARD delivery satisfied?
+              ├─ no  → stop; GitHub remains the mutable ledger
+              └─ yes → report, or re-preflight next Task in continuous mode
+```
+
+Task status and Test status remain separate fields but current-contract pairings are closed. Implementation can be blocked while verification is unavailable; cancellation records `CANCELLED/BLOCKED`. A current pair's static delivery requirement does not add a third repository lifecycle state.
+
+During execution, discoveries update Task intent and Test coverage together; durable meaning is routed to its permanent owner before implementation alignment. Before compaction or interruption, the workflow persists Completed, Remaining, Resume Point, Blockers, current decisions/document impact, repository state, commands, results, row evidence, and unverified risks in the existing pair. Terminal `DONE`/`PASSED` requires mapped acceptance criteria, executed required checks, synchronized durable documents, a complete final diff coverage review, reproducible evidence, final pair validation, and no repository work left in Plan, Remaining, or Resume Point. An unavailable required check produces recorded `BLOCKED` status instead of inferred success. Required external delivery is checked afterward from GitHub and never inserted as self-referential future repository work.
 
 Atomic Task creation resolves and rejects a symlinked tasks root, renders and validates both documents before publication, writes them into a unique hidden sibling staging directory, then acquires an exclusive creation lock. While holding the lock it rechecks the allocated ID and target absence before renaming the complete directory into place. Expected failures remove the staging directory, so a final Task directory never exposes only one of the two contract files.
 
@@ -553,17 +613,17 @@ Templates define section contracts, not final project content.
 
 - `SPEC.md`: headings and guidance comments/placeholders;
 - `ARCHITECTURE.md`: headings and guidance comments/placeholders;
-- `AGENTS.md`: compact invariant rules with replaceable command slots;
+- `AGENTS.md`: compact invariant rules, exact repository-local Task routing, and replaceable command slots;
 - `README.md`: project entry sections.
 
 ### Task templates
 
-- `TASK.md`: lifecycle and handoff fields;
-- `TEST.md`: traceability and evidence fields.
+- `TASK.md`: paired current-contract marker, static delivery requirement, repository lifecycle, and handoff fields;
+- `TEST.md`: paired current-contract marker, traceability, and repository evidence fields.
 
 `kyw-init` and `kyw-task` must customize templates from inspected facts and settled decisions. They must not leave unexplained placeholders in completed documents.
 
-The six canonical files are `templates/project/{README,AGENTS,SPEC,ARCHITECTURE}.md` and `templates/task/{TASK,TEST}.md`. Project-name, verification-command, Task-ID, and Task-title tokens are explicit inputs; explanatory HTML comments are authoring guidance and must be removed or resolved when final project-specific content is materialized.
+The six canonical files are `templates/project/{README,AGENTS,SPEC,ARCHITECTURE}.md` and `templates/task/{TASK,TEST}.md`. Project-name, verification-command, Task-ID, and Task-title tokens are explicit inputs. The reserved `<!-- kyw-task-contract: 2 -->` marker is durable machine-readable contract identity rather than authoring guidance; other explanatory HTML comments must be removed or resolved when final project-specific content is materialized.
 
 ## 13. Validation architecture
 
@@ -623,7 +683,9 @@ Task 0023 changes only deterministic audit-classifier evidence and did not run a
 - YAML metadata shape at a pragmatic level;
 - Skill directory and name consistency;
 - required Markdown sections;
-- Task/Test status values;
+- current-contract Task/Test marker identity, paired status values, and static `STANDARD` or reasoned `NONE` delivery declaration;
+- legacy Task/Test readability without applying current queue or delivery rules retroactively;
+- literal hard-dependency references, missing IDs, cycles, active-count, deterministic next-ready selection, and queue-frontier outcomes;
 - relative plugin paths beginning with `./`;
 - version synchronization;
 - package file inclusion.
@@ -637,6 +699,7 @@ Development-only validation scripts use Node built-ins to check JavaScript synta
 
 - task number allocation;
 - slug generation;
+- exact and automatic Task resolution, status-pair consistency, dependency graphs, historical-blocker isolation, and no-work outcomes;
 - repository-root detection;
 - scope path resolution;
 - ownership hashing;
@@ -735,7 +798,7 @@ The following require future Spec and Architecture changes:
 - npm/plugin lifecycle hooks that enforce checks during installation;
 - MCP integrations with issue trackers or repositories;
 - GitHub/Jira/Linear Task synchronization;
-- automatic PR generation;
+- automatic PR generation without explicit current-user or selected-Task scope authority;
 - telemetry or hosted collaboration;
 - non-Codex agent adapters;
 - a schema-driven Markdown AST editor.

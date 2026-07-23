@@ -1,4 +1,5 @@
 # TEST 0037 — Current-Configured-Model Workflow Benchmark
+<!-- kyw-task-contract: 2 -->
 
 ## Status
 
@@ -21,7 +22,7 @@ READY
 | T-03 | AC-02, AC-04 — Automatic resume/next and status/dependency checks | Run active-resume, next-ready, inconsistent-pair, missing-dependency, and cycle fixtures. | Behavioral | TODO | Not run. |
 | T-04 | AC-02, AC-04 — Continuous, blocker, delivery, and session stop | Run serial queue fixtures with current/historical blockers, delivery gates, and a simulated session boundary. | Behavioral | TODO | Not run. |
 | T-05 | AC-03 — Appended overrides and model/effort preservation | Apply first-Task and explicitly global constraints; verify the configured model/effort is unchanged. | Behavioral | TODO | Not run. |
-| T-06 | AC-09 — Completed versus blocked frontier | Return the exact no-work message only for a delivered DONE/CANCELLED frontier; report a current blocked frontier. | Behavioral | TODO | Not run. |
+| T-06 | AC-09 — Completed versus blocked frontier | Return the exact no-work message only for a delivered `DONE/PASSED` or `CANCELLED/BLOCKED` frontier; report a current blocked frontier. | Behavioral | TODO | Not run. |
 | T-07 | AC-05 — Core Skill scenarios | Run bounded init/task/ordinary/audit/grilling fixtures. | Acceptance | TODO | Not run. |
 | T-08 | AC-06 — Observable metrics and bottlenecks | Record required minimum metrics and every additional surface-exposed metric per scenario; mark unsupported metrics explicitly. | Performance | TODO | Not run. |
 | T-09 | AC-07 — Official compatibility | Recheck current primary OpenAI sources and distinguish them from executed evidence. | External read-only | TODO | Not run. |
@@ -56,4 +57,4 @@ READY
 - [ ] Confirm scenario inputs were frozen, retries were classified, and adverse evidence was retained.
 - [ ] Confirm model/effort and unavailable metrics were recorded without inference.
 - [ ] Confirm user/protected state remained unchanged and no product repair occurred.
-- [ ] Confirm future delivery evidence is read from exact GitHub state rather than pre-claimed.
+- [ ] Confirm this pair records repository evidence only and makes no external-delivery claim.

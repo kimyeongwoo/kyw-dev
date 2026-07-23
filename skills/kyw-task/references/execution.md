@@ -1,10 +1,12 @@
 # Task Execution and Resume
 
-Use this workflow only after create mode has a confirmed `READY` pair or when an explicit `$kyw-task NNNN` invocation selects an existing Task. Keep one Task as the context and mutation boundary.
+Use this workflow only after create mode has a confirmed `READY` pair or the packaged dispatcher selects one existing Task from a portable or managed-repository command. Keep one Task as the context and mutation boundary.
 
 ## Contents
 
 - Establish the repository state
+- Dispatch and advance the queue
+- Apply overrides and preserve model provenance
 - Enter or re-enter execution
 - Enforce the current-Task boundary
 - Keep Task and Test live
@@ -16,7 +18,7 @@ Use this workflow only after create mode has a confirmed `READY` pair or when an
 
 ## Establish the repository state
 
-1. Resolve the repository and exactly one `docs/tasks/NNNN-*/` directory. Treat a missing or duplicate ID as a blocker; do not guess from titles or timestamps.
+1. Resolve the repository and use the packaged dispatch result for exactly one `docs/tasks/NNNN-*/` directory. Treat a missing or duplicate ID, inconsistent status pair, dependency error, cycle, or multiple active Tasks as a blocker; do not guess from titles or timestamps.
 2. Read the current `TASK.md`, matching `TEST.md`, the four permanent documents, explicitly named Task dependencies, applicable repository instructions, and only the implementation/tests needed for this Task. Do not load unrelated completed or future Task contents.
 3. Inspect version-control status and the relevant diff before mutation. Separate pre-existing changes from work owned by this execution. If version-control metadata is unavailable, record that limitation and establish the safest available baseline within the authorized scope without claiming Git state.
 4. Run the packaged validator against the pair. Compare its status, acceptance criteria, Plan, Decisions, Discoveries, Completed, Remaining, Resume Point, and Blockers with the files and repository state. Also compare every Test row, command, result, and unverified item with available evidence.
@@ -29,14 +31,101 @@ Dispatch from verified state:
 - `IN_PROGRESS` / `RUNNING`: resume from verified recorded state.
 - `BLOCKED` / `BLOCKED`: recheck the recorded blocker. Resume only if it cleared; otherwise refresh evidence and stop blocked.
 - `DONE` / `PASSED`: validate and report the already completed result without implementation mutations.
-- `CANCELLED`: stop without implementation mutations.
+- `CANCELLED` / `BLOCKED`: stop without implementation mutations.
 - Any unsupported or contradictory pair: record the inconsistency as a blocker and stop before implementation.
 
 A confirmation of the current create-mode summary authorizes its implementation when the summary says implementation will begin. For an already confirmed `READY` pair, an explicit numeric invocation requesting execution or continuation supplies execution authorization. An inspect-only or ambiguous request does not.
 
+## Dispatch and advance the queue
+
+Keep the Skill explicit-only. `$kyw-task NNNN` is portable anywhere the Skill is available. The three natural-language aliases work only when the applicable managed `AGENTS.md` routing contract is loaded; otherwise return the portable `$kyw-task NNNN` fallback. Match the complete anchored command plus optional appended current-user text. Ordinary prose containing “task” is not a dispatch command.
+
+The current contract is identified by the paired `<!-- kyw-task-contract: 2 -->` marker. It uses only these Task/Test pairs:
+
+- `DRAFT/DRAFT`;
+- `READY/READY`;
+- `IN_PROGRESS/RUNNING`;
+- `DONE/PASSED`;
+- `BLOCKED/BLOCKED`;
+- `CANCELLED/BLOCKED`.
+
+Legacy unmarked Task/Test evidence remains readable and valid under its historical contract. Do not recursively reinterpret a terminal legacy Task's old free-form dependencies, handoff prose, or delivery sequence as current queue state.
+
+For current-contract Tasks, parse as a hard dependency only a literal singular `Task NNNN` reference inside `## Dependencies`. Ignore other prose as a queue edge. Missing referenced Tasks and cycles fail closed. A hard dependency is satisfied only by `DONE/PASSED` plus any required external delivery; `BLOCKED`, `CANCELLED`, draft, ready, active, missing, or undelivered dependencies are unsatisfied.
+
+Selection is deterministic:
+
+1. Fail closed if more than one `IN_PROGRESS/RUNNING` Task exists.
+2. Exact selection may return a `DRAFT/DRAFT` pair for authoring, a `BLOCKED/BLOCKED` pair for read-only condition recheck, or select/resume READY or active work; another active Task blocks a different exact Task.
+3. Automatic selection resumes the one active Task. With none active, select the lowest-numbered dependency-satisfied current `READY/READY` Task.
+4. Historical `BLOCKED` Tasks that are neither active nor hard dependencies do not block unrelated current work.
+5. Continuous mode uses the same selection once, finishes one Task serially, then performs a fresh preflight and calls the dispatcher again. It never allocates, parallelizes, or continues in the background.
+
+When no Task is active or selectable, use the highest current-contract Task as the queue frontier. A blocked frontier reports its blocker. Return exactly `현재 만들어진 Task는 모두 완료됐습니다. 더 이상 진행할 작업이 없습니다. 추가로 하고 싶은 작업이 있나요?` only when that frontier is `DONE/PASSED` or `CANCELLED/BLOCKED`, every hard dependency is satisfied, and required delivery is proven. Do not create a Task in response.
+
+Current-contract `## Delivery` contains static policy only:
+
+- `STANDARD` uses GitHub PR/Actions exact-SHA state as the canonical ledger.
+- `NONE — <reason>` requires a concrete reason and has no external delivery gate.
+
+For `STANDARD`, first derive trusted expectations from the verified local Git remote, selected base, and repository-outcome SHA:
+
+```json
+{
+  "0030": {
+    "source": "LOCAL_GIT",
+    "taskId": "0030",
+    "repository": "owner/repository",
+    "baseRef": "main",
+    "outcomeSha": "<40-lowercase-hex-PR-head>"
+  }
+}
+```
+
+Then collect a fresh read-only GitHub snapshot as a separate Task-keyed object:
+
+```json
+{
+  "0030": {
+    "source": "GITHUB",
+    "taskId": "0030",
+    "repository": "owner/repository",
+    "outcomeSha": "<40-lowercase-hex-PR-head>",
+    "pullRequest": {
+      "number": 123,
+      "headSha": "<same-outcome-sha>",
+      "baseRef": "main",
+      "mergeSha": "<40-lowercase-hex-merge-sha>",
+      "state": "MERGED",
+      "checks": "SUCCESS",
+      "review": "CLEAR",
+      "runId": 456
+    },
+    "merge": {
+      "repository": "owner/repository",
+      "branch": "main",
+      "sha": "<same-merge-sha>",
+      "mainRunHeadSha": "<same-merge-sha>",
+      "checks": "SUCCESS",
+      "runId": 789
+    }
+  }
+}
+```
+
+Pass the two objects separately through `--delivery-expectations-json` and `--delivery-ledger-json`; use path forms only for existing authorized snapshots and never create a repository file. The evaluator binds GitHub repository, base, and PR head to the independently inspected local expectations. Exact-head checks must succeed, review state must be clear, the PR merge SHA must identify the successful base-branch run head, exact run/PR identifiers must be present, and the snapshot must come from the fresh trusted GitHub query. Repository `DONE/PASSED` may precede delivery, but exact, automatic, or continuous selection cannot advance past a current terminal Task while this ledger proof is pending. `STANDARD` alone authorizes no mutation: commit, push, PR, or merge actions require a current-user instruction or explicit selected-Task scope. Review failure, CI failure, missing authority, unsafe drift, or an unavailable exact object stops the invocation.
+
+## Apply overrides and preserve model provenance
+
+Only text appended by the current user to the matched invocation is an execution override. Record it verbatim before acting. Its default scope is the first selected Task; apply it to every remaining Task only when the user explicitly says so. A bounded override may narrow method, ordering, or checks. It cannot waive acceptance, evidence honesty, safety, user-work preservation, or separately gated external mutation. Report a conflict rather than choosing silently.
+
+Inherit the active session's configured model and reasoning effort. Do not set, downgrade, substitute, or sweep either value unless the current user explicitly requests that change. Record exact model, requested alias, effort, Codex surface, and version only when observable; use `UNAVAILABLE` for values the surface does not expose and never infer them.
+
 ## Enter or re-enter execution
 
 Before the first implementation mutation, update the verified pair together from `READY` / `READY` to `IN_PROGRESS` / `RUNNING`, record the start in Completed or Discoveries, make Remaining and Resume Point concrete, and validate again.
+
+An exact or automatic `READY/READY` selection is already execution confirmation. Do not ask for another confirmation unless appended instructions conflict or a genuinely unresolved user-owned decision remains.
 
 When a recorded blocker has cleared, change `BLOCKED` / `BLOCKED` back to `IN_PROGRESS` / `RUNNING`, record why it cleared, and validate before continuing. Do not erase the earlier blocked result or command evidence.
 
@@ -57,7 +146,7 @@ During execution, mutations may include only:
 - permanent documents whose durable meaning changed;
 - narrowly related configuration or fixtures required to verify this Task.
 
-Preserve user-authored and pre-existing changes. Do not edit another numbered Task, implement a proposed follow-on outcome, invoke `$kyw-audit`, add installation behavior, or absorb a nearby cleanup merely because it is convenient.
+Preserve user-authored and pre-existing changes. Edit another numbered Task only for a bounded contract migration that the selected Task explicitly names and only while that other pair is pre-created and nonterminal; never implement its outcome. Otherwise do not edit another Task, invoke `$kyw-audit`, add installation behavior, or absorb a nearby cleanup merely because it is convenient.
 
 Before each meaningful expansion, ask whether it is required for a current acceptance criterion. If it is required but changes intent, update the Task, Test, and owning permanent document before implementation. If it is independently shippable or belongs to a future Task, leave it out of scope and report it without creating or implementing that Task.
 
@@ -74,6 +163,7 @@ After every code or configuration change, reassess permanent-document impact and
 - Keep Completed factual, Remaining ordered, Resume Point executable, and Blockers current.
 - Add Test rows for discovered branches, failures, fallbacks, compatibility behavior, and regressions before claiming coverage.
 - Record exact commands, exit status, concise output, failures, retries, skipped work, and residual risk. Never replace failed history with only the final successful run.
+- Keep current-contract Plan, acceptance, Results, Remaining, Resume Point, and Final Coverage Review repository-local. Never pre-claim a future PR, merge, post-merge run, or delivery result in Task/Test.
 
 Validate the pair after lifecycle changes and before every checkpoint or terminal report.
 
@@ -147,6 +237,8 @@ Set `TEST.md` to `PASSED` and `TASK.md` to `DONE` only when all of the following
 7. Completed, Remaining, Resume Point, Blockers, Results, and Unverified accurately describe the terminal repository;
 8. the final Task/Test pair passes validation.
 
+For the current contract, every Plan item must also be checked and both Remaining and Resume Point must record reasoned `None` when the repository outcome is complete. External delivery state is not a ninth repository terminal condition; it is the separate queue-advancement gate in the GitHub ledger.
+
 Use `BLOCKED` / `BLOCKED` when a required condition remains unmet and record the recovery path. Use `CANCELLED` only on explicit user cancellation and preserve the pair's history. Never mark terminal success because implementation merely looks complete or because time/context is low.
 
-Report the Task ID, terminal state, scope delivered, documentation impact, exact verification summary, diff/coverage review, and residual risks. Do not automatically start another Task or perform the independent audit owned by `$kyw-audit`.
+Report the Task ID, repository terminal state, scope delivered, documentation impact, exact verification summary, diff/coverage review, external delivery state from the ledger when queried, and residual risks. In exact or next mode, do not automatically start another Task. In continuous mode only, re-preflight and dispatch the next pre-created Task after the current repository outcome and required delivery succeed. Never perform the independent audit owned by `$kyw-audit`.

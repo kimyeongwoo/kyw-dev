@@ -14,6 +14,16 @@ export const TASK_STATUSES = Object.freeze([
 ]);
 export const TEST_STATUSES = Object.freeze(["DRAFT", "READY", "RUNNING", "PASSED", "BLOCKED"]);
 export const TEST_ROW_STATUSES = Object.freeze(["TODO", "PASS", "FAIL", "BLOCKED", "N/A"]);
+export const CURRENT_TASK_CONTRACT_VERSION = 2;
+export const TASK_CONTRACT_MARKER = `<!-- kyw-task-contract: ${CURRENT_TASK_CONTRACT_VERSION} -->`;
+export const TASK_TEST_STATUS_PAIRS = Object.freeze([
+  Object.freeze(["DRAFT", "DRAFT"]),
+  Object.freeze(["READY", "READY"]),
+  Object.freeze(["IN_PROGRESS", "RUNNING"]),
+  Object.freeze(["DONE", "PASSED"]),
+  Object.freeze(["BLOCKED", "BLOCKED"]),
+  Object.freeze(["CANCELLED", "BLOCKED"]),
+]);
 
 export const DOCUMENT_CONTRACTS = Object.freeze({
   README: Object.freeze({
@@ -106,6 +116,9 @@ export const DOCUMENT_CONTRACTS = Object.freeze({
 
 const matrixHeaders = ["ID", "Intent / acceptance criterion", "Method", "Level", "Status", "Evidence"];
 const unsupportedEvidence = /^(?:-|none|n\/a|not run(?: yet)?|todo|pending)[.!]?$/i;
+const taskContractMarkerPattern = /<!--\s*kyw-task-contract:\s*(\d+)\s*-->/g;
+const taskContractMarkerOccurrencePattern = /<!--[\s\S]*?kyw-task-contract[\s\S]*?-->/gi;
+const standardDeliveryLedger = "- Canonical ledger: GitHub PR/Actions exact-SHA state.";
 
 function normalizeKind(kind) {
   const normalized = String(kind).toUpperCase().replace(/\.MD$/, "");
@@ -143,6 +156,19 @@ function parseSections(markdown) {
   }
 
   return sections;
+}
+
+function sectionHeadingCounts(markdown) {
+  const counts = new Map();
+  for (const line of markdown.split(/\r?\n/)) {
+    const match = /^##\s+(.+?)\s*$/.exec(line);
+    if (!match) {
+      continue;
+    }
+    const heading = normalizeHeading(match[1]);
+    counts.set(heading, (counts.get(heading) ?? 0) + 1);
+  }
+  return counts;
 }
 
 function sectionText(sections, heading) {
@@ -257,6 +283,71 @@ function uncheckedItems(markdown) {
   return checklistItems(markdown).filter((line) => /^\s*-\s+\[\s\]/.test(line));
 }
 
+function contractMarkers(markdown) {
+  return [...markdown.matchAll(taskContractMarkerPattern)].map((match) => Number(match[1]));
+}
+
+function contractMarkerOccurrences(markdown) {
+  return [...markdown.matchAll(taskContractMarkerOccurrencePattern)];
+}
+
+export function getTaskContractVersion(markdown) {
+  if (typeof markdown !== "string") {
+    return undefined;
+  }
+  const markers = contractMarkers(markdown);
+  if (contractMarkerOccurrences(markdown).length !== markers.length) {
+    return undefined;
+  }
+  return markers.length === 1 ? markers[0] : markers.length === 0 ? 1 : undefined;
+}
+
+function validatesTerminalNone(markdown) {
+  const lines = stripComments(markdown)
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  return lines.length === 1 && /^[-*]\s+None\s+[—-]\s+\S.*$/i.test(lines[0]);
+}
+
+function validateDeliverySection(taskSections) {
+  const errors = [];
+  const delivery = sectionText(taskSections, "Delivery");
+  const content = stripComments(delivery).trim();
+  const lines = content
+    .split(/\r?\n/)
+    .map((line) => line.trim());
+  const requirements = lines.filter((line) => line.startsWith("- Requirement:"));
+  const ledgers = lines.filter((line) => line.startsWith("- Canonical ledger:"));
+  if (requirements.length !== 1) {
+    errors.push("TASK.md: current contract requires exactly one Delivery Requirement");
+    return errors;
+  }
+
+  const [requirement] = requirements;
+  if (requirement === "- Requirement: STANDARD") {
+    if (ledgers.length !== 1 || ledgers[0] !== standardDeliveryLedger) {
+      errors.push(`TASK.md: STANDARD delivery requires "${standardDeliveryLedger}"`);
+    }
+  } else if (!/^- Requirement: NONE — \S.+$/.test(requirement)) {
+    errors.push("TASK.md: Delivery Requirement must be STANDARD or NONE — <reason>");
+  } else if (ledgers.length > 0) {
+    errors.push("TASK.md: NONE delivery must not declare an external canonical ledger");
+  }
+
+  if (/^\s*-\s+(?:Status|State|Delivered|PR|Merge|Actions)\s*:/im.test(content)) {
+    errors.push("TASK.md: Delivery records policy only; mutable GitHub delivery state belongs in the external ledger");
+  }
+  if (
+    /\bPR\s*#?\d+\b|\b(?:PR|pull request)\s+(?:is\s+)?(?:open|opened|merged|closed)\b|\bActions?\s+(?:passed|failed|succeeded|pending)\b|\bmerge(?:d)?\s+(?:at|as|SHA|commit)\b|\b[0-9a-f]{40}\b/i.test(
+      content,
+    )
+  ) {
+    errors.push("TASK.md: Delivery must not contain mutable PR, merge, SHA, or Actions results");
+  }
+  return errors;
+}
+
 export function getTemplatePath(kind, templateRoot = TEMPLATE_ROOT) {
   return join(templateRoot, DOCUMENT_CONTRACTS[normalizeKind(kind)].relativePath);
 }
@@ -303,6 +394,12 @@ export function validateCanonicalTemplate(kind, markdown) {
       errors.push(`${normalizedKind}.md: missing required template token {{${token}}}`);
     }
   }
+  if (["TASK", "TEST"].includes(normalizedKind) && !markdown.includes(TASK_CONTRACT_MARKER)) {
+    errors.push(`${normalizedKind}.md: missing current Task contract marker`);
+  }
+  if (normalizedKind === "TASK" && !parseSections(markdown).has(normalizeHeading("Delivery"))) {
+    errors.push('TASK.md: canonical template is missing required section "Delivery"');
+  }
   return errors;
 }
 
@@ -317,14 +414,72 @@ export function validateTaskTestContract({ taskMarkdown, testMarkdown }) {
 
   const taskSections = parseSections(taskMarkdown);
   const testSections = parseSections(testMarkdown);
+  const taskSectionCounts = sectionHeadingCounts(taskMarkdown);
+  const testSectionCounts = sectionHeadingCounts(testMarkdown);
   const taskStatus = firstContentLine(sectionText(taskSections, "Status"));
   const testStatus = firstContentLine(sectionText(testSections, "Status"));
+  const taskMarkers = contractMarkers(taskMarkdown);
+  const testMarkers = contractMarkers(testMarkdown);
+  const taskMarkerOccurrences = contractMarkerOccurrences(taskMarkdown);
+  const testMarkerOccurrences = contractMarkerOccurrences(testMarkdown);
+  const taskContractVersion = getTaskContractVersion(taskMarkdown);
+  const testContractVersion = getTaskContractVersion(testMarkdown);
+
+  if (taskMarkerOccurrences.length !== taskMarkers.length) {
+    errors.push("TASK.md: malformed Task contract marker");
+  }
+  if (testMarkerOccurrences.length !== testMarkers.length) {
+    errors.push("TEST.md: malformed Task contract marker");
+  }
+  if (taskMarkers.length > 1) {
+    errors.push("TASK.md: Task contract marker may appear only once");
+  }
+  if (testMarkers.length > 1) {
+    errors.push("TEST.md: Task contract marker may appear only once");
+  }
+  if (taskContractVersion !== testContractVersion) {
+    errors.push(
+      `TASK.md/TEST.md: contract versions do not match (${taskContractVersion ?? "<invalid>"} != ${testContractVersion ?? "<invalid>"})`,
+    );
+  }
+  if (
+    taskContractVersion !== undefined &&
+    ![1, CURRENT_TASK_CONTRACT_VERSION].includes(taskContractVersion)
+  ) {
+    errors.push(`TASK.md: unsupported Task contract version ${taskContractVersion}`);
+  }
 
   if (!TASK_STATUSES.includes(taskStatus)) {
     errors.push(`TASK.md: invalid Status "${taskStatus ?? "<missing>"}"; allowed: ${TASK_STATUSES.join(", ")}`);
   }
   if (!TEST_STATUSES.includes(testStatus)) {
     errors.push(`TEST.md: invalid Status "${testStatus ?? "<missing>"}"; allowed: ${TEST_STATUSES.join(", ")}`);
+  }
+  if (
+    taskContractVersion === CURRENT_TASK_CONTRACT_VERSION &&
+    TASK_STATUSES.includes(taskStatus) &&
+    TEST_STATUSES.includes(testStatus) &&
+    !TASK_TEST_STATUS_PAIRS.some(([task, test]) => task === taskStatus && test === testStatus)
+  ) {
+    errors.push(`TASK.md/TEST.md: inconsistent status pair ${taskStatus}/${testStatus}`);
+  }
+
+  if (taskContractVersion === CURRENT_TASK_CONTRACT_VERSION) {
+    const taskHeadings = [...DOCUMENT_CONTRACTS.TASK.requiredSections, "Risks", "Delivery"];
+    const testHeadings = DOCUMENT_CONTRACTS.TEST.requiredSections;
+    for (const heading of taskHeadings) {
+      if (taskSectionCounts.get(normalizeHeading(heading)) !== 1) {
+        errors.push(`TASK.md: current contract requires exactly one section "${heading}"`);
+      }
+    }
+    for (const heading of testHeadings) {
+      if (testSectionCounts.get(normalizeHeading(heading)) !== 1) {
+        errors.push(`TEST.md: current contract requires exactly one section "${heading}"`);
+      }
+    }
+    if (taskSectionCounts.get(normalizeHeading("Delivery")) === 1) {
+      errors.push(...validateDeliverySection(taskSections));
+    }
   }
 
   const taskIdentity = /^# TASK (\d{4}) — (.+)$/m.exec(taskMarkdown);
@@ -427,6 +582,17 @@ export function validateTaskTestContract({ taskMarkdown, testMarkdown }) {
     }
     if (acceptanceIds.length === 0) {
       errors.push("TASK.md: DONE requires at least one acceptance criterion");
+    }
+    if (taskContractVersion === CURRENT_TASK_CONTRACT_VERSION) {
+      if (uncheckedItems(sectionText(taskSections, "Plan")).length > 0) {
+        errors.push("TASK.md: current-contract DONE requires every Plan checklist item to be checked");
+      }
+      if (!validatesTerminalNone(sectionText(taskSections, "Remaining"))) {
+        errors.push("TASK.md: current-contract DONE requires Remaining to record reasoned None");
+      }
+      if (!validatesTerminalNone(sectionText(taskSections, "Resume Point"))) {
+        errors.push("TASK.md: current-contract DONE requires Resume Point to record reasoned None");
+      }
     }
   }
 

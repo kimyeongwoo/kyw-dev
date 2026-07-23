@@ -106,8 +106,13 @@ test("atomic task creation publishes TASK.md and TEST.md together", async (t) =>
   assert.equal(created.id, "0001");
   assert.match(created.slug, /^task-[a-f0-9]{8}$/);
   assert.deepEqual(await readdir(tasksRoot), [path.basename(created.directory)]);
-  assert.match(await readFile(created.taskPath, "utf8"), /^# TASK 0001 — 템플릿 계약/m);
-  assert.match(await readFile(created.testPath, "utf8"), /^# TEST 0001 — 템플릿 계약/m);
+  const taskMarkdown = await readFile(created.taskPath, "utf8");
+  const testMarkdown = await readFile(created.testPath, "utf8");
+  assert.match(taskMarkdown, /^# TASK 0001 — 템플릿 계약/m);
+  assert.match(testMarkdown, /^# TEST 0001 — 템플릿 계약/m);
+  assert.match(taskMarkdown, /<!-- kyw-task-contract: 2 -->/);
+  assert.match(testMarkdown, /<!-- kyw-task-contract: 2 -->/);
+  assert.match(taskMarkdown, /^## Delivery$/m);
   assert.deepEqual(await validateTaskDirectory(created.directory), []);
 
   const second = await createTaskArtifacts({ tasksRoot, title: "Second task" });

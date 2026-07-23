@@ -1,4 +1,5 @@
 # TASK 0036 — Installation Surface Guidance and Duplicate Resolution
+<!-- kyw-task-contract: 2 -->
 
 ## Status
 
@@ -45,9 +46,9 @@ Make the supported Codex installation/discovery surfaces understandable, recomme
 - [ ] Treat the explicit or automatic selection of this `READY/READY` Task as execution confirmation; ask only if a real unresolved user-owned decision remains.
 - [ ] Transition this pair to `IN_PROGRESS/RUNNING`, capture an acceptance-specific baseline, and preserve existing failure evidence and user work.
 - [ ] Implement the smallest design that satisfies the acceptance criteria.
-- [ ] Run focused verification, then the required stable/package/hosted checks implied by the final diff.
+- [ ] Run focused verification, then locally reproducible stable/package checks; leave mutable hosted delivery results to the external ledger.
 - [ ] Review every changed path against scope, tests, permanent-document impact, and evidence honesty.
-- [ ] Set an evidence-backed repository outcome in this pair without preclaiming future PR/merge/post-merge facts; complete external delivery through the exact GitHub ledger and stop at the first real blocker.
+- [ ] Set an evidence-backed repository outcome in this pair and stop at the first real blocker.
 
 ## Decisions
 
@@ -72,6 +73,13 @@ Make the supported Codex installation/discovery surfaces understandable, recomme
 - README: Primary output: compatibility matrix and safe resolution guidance.
 - AGENTS: Unchanged unless alias invariants need a pointer.
 
+## Delivery
+
+- Requirement: STANDARD
+- Canonical ledger: GitHub PR/Actions exact-SHA state.
+
+This artifact records repository outcome only and does not pre-claim delivery.
+
 ## Completed
 
 - Task scope and initial acceptance contract were approved as part of the ordered follow-up queue.
@@ -79,7 +87,7 @@ Make the supported Codex installation/discovery surfaces understandable, recomme
 
 ## Remaining
 
-- Repository implementation and verification have not started. External delivery is intentionally not a future fact required inside this artifact.
+- Repository implementation and verification have not started.
 
 ## Resume Point
 
