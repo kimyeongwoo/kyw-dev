@@ -93,17 +93,19 @@ test("instruction rule families have one canonical owner and minimal identified 
 
   const projectionParity = [
     {
-      name: "READY selection confirmation",
+      name: "READY selection lifecycle authority",
       owner: spec,
-      ownerPattern: /Selecting a current-contract `READY\/READY` pair confirms execution/,
+      ownerPattern:
+        /Selecting a current-contract `READY\/READY` pair confirms implementation and, for `STANDARD`, the ordinary delivery lifecycle/,
       projection: readme,
-      projectionPattern: /Exact `READY\/READY` selection confirms execution/,
+      projectionPattern:
+        /Exact `READY\/READY` selection confirms implementation and ordinary `STANDARD` delivery/,
     },
     {
       name: "continuous mode",
       owner: spec,
       ownerPattern:
-        /For `남은 task 계속 실행해줘`, process only pre-created eligible Tasks, serially and within the current invocation/,
+        /For `남은 task 계속 실행해줘`, use the same priority and authority for each selected Task, process only pre-created eligible Tasks serially and within the current invocation/,
       projection: readme,
       projectionPattern: /continuous mode remains serial and current-invocation-only/,
     },
@@ -119,9 +121,9 @@ test("instruction rule families have one canonical owner and minimal identified 
       name: "automatic eligible selection",
       owner: spec,
       ownerPattern:
-        /safely resume the sole active pair; if none exists, select the lowest-numbered dependency-satisfied ready pair/,
+        /safely resume the sole active pair; if none exists, resume the lowest-numbered repository-complete Task whose `STANDARD` delivery is classified `RESUMABLE`; only then select the lowest-numbered dependency-satisfied ready pair/,
       projection: readme,
-      projectionPattern: /automatic selection resumes or chooses one eligible Task/,
+      projectionPattern: /Automatic selection resumes active work, then resumable delivery/,
     },
     {
       name: "invalid state and dependency failure",
@@ -177,11 +179,30 @@ test("instruction rule families have one canonical owner and minimal identified 
         /Task\/Test owns repository outcome; GitHub owns mutable delivery state/,
     },
     {
-      name: "delivery does not grant mutation authority",
+      name: "static delivery declaration has no ambient authority",
       owner: spec,
-      ownerPattern: /`STANDARD` is a gate, not authority to commit, push, open or merge a PR/,
+      ownerPattern:
+        /The static `STANDARD` declaration alone grants no ambient mutation authority/,
       projection: readme,
-      projectionPattern: /The gate authorizes no commit, push, PR, or merge by itself/,
+      projectionPattern: /The static declaration alone grants no ambient authority/,
+    },
+    {
+      name: "recognized selection grants ordinary delivery authority",
+      owner: spec,
+      ownerPattern:
+        /a recognized exact, automatic, or continuous invocation returning `IMPLEMENT`, `RESUME`, or `DELIVER` grants the selected Task's ordinary lifecycle authority without another ceremonial confirmation/,
+      projection: readme,
+      projectionPattern:
+        /`IMPLEMENT`, `RESUME`, or `DELIVER` selection authorizes exact-path commit, non-force push, non-draft PR, exact-head CI, expected-head merge, post-merge base-branch CI, and terminal reporting without ceremonial reconfirmation/,
+    },
+    {
+      name: "separate authority boundary",
+      owner: spec,
+      ownerPattern:
+        /It excludes publication, registry mutation, tags, GitHub Releases, public plugin submission, force push, destructive recovery, branch deletion, workflow rerun, bypass, and unrelated mutation/,
+      projection: readme,
+      projectionPattern:
+        /Publication, registry mutation, tags\/releases, public submission, force\/destructive operations, reruns, bypasses, and unrelated mutations remain separately authorized/,
     },
   ];
   for (const rule of projectionParity) {
@@ -201,7 +222,7 @@ test("instruction rule families have one canonical owner and minimal identified 
 
   assert.match(
     architecture,
-    /Publication, force push, rerun, branch deletion, and other separately authorized actions remain outside dispatch authority/,
+    /Publication, registry mutation, tags, releases, public submission, force push, destructive recovery, branch deletion, rerun, bypass, and unrelated mutation remain separate authority boundaries/,
   );
 });
 

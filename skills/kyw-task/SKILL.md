@@ -10,7 +10,7 @@ description: Create, execute, resume, or serially advance session-sized kyw-dev 
 Accept a natural-language goal or a four-digit Task ID supplied with an explicit `$kyw-task` invocation. In a kyw-managed repository, also accept an exact alias only when the applicable `AGENTS.md` routing contract is loaded:
 
 - `task NNNN 실행해줘` selects that existing Task;
-- `task 진행해줘` resumes the one active Task or selects the lowest dependency-satisfied current `READY/READY` Task;
+- `task 진행해줘` resumes the one active Task, otherwise the lowest current `DONE/PASSED` Task with resumable `STANDARD` delivery, otherwise the lowest dependency-satisfied current `READY/READY` Task;
 - `남은 task 계속 실행해줘` repeats that selection serially for pre-created Tasks during this invocation.
 
 These anchored aliases are repository routing, not implicit Skill matching. Keep `allow_implicit_invocation: false`; incidental text containing “task” never invokes this workflow. If managed routing is unavailable, direct the user to `$kyw-task NNNN` instead of claiming an alias worked. Use the repository containing the current working directory unless the invocation names another target.
@@ -28,10 +28,10 @@ This Skill owns Task authoring and dispatch entry. The execution reference is th
 For any existing-Task form, pass the exact current-user invocation as a separate adapter argument before selecting:
 
 ```text
-node <kyw-task-skill-directory>/scripts/task-artifacts.mjs dispatch --tasks-root <repository>/docs/tasks --invocation <exact invocation text> --managed-routing <true|false> [--delivery-ledger-json <json> | --delivery-ledger <existing-json-path>] [--delivery-expectations-json <json> | --delivery-expectations <existing-json-path>]
+node <kyw-task-skill-directory>/scripts/task-artifacts.mjs dispatch --tasks-root <repository>/docs/tasks --invocation <exact invocation text> --managed-routing <true|false> [--delivery-ledger-json <json>] [--delivery-expectations-json <json>] [--execution-preflight-json <json>]
 ```
 
-Use `true` only when the managed repository routing contract is actually loaded. Prefer separate inline local-expectation and GitHub-ledger JSON so read-only preflight creates no file. Treat `SELECTED` as the sole local selection; its action says whether to author a DRAFT, implement READY work, resume active work, or recheck a recorded blocker. Treat every structured blocker, fallback, or no-work result exactly as returned. A `READY/READY` selection is execution confirmation and must not trigger another ceremonial confirmation. A `DRAFT/DRAFT` Task still requires the existing Phase 5 confirmation.
+Use `true` only with managed routing. Pass verified conflict, unexplained-work, drift, and user-decision findings inline; keep expectation and ledger separate. `SELECTED` action is `AUTHOR`, `IMPLEMENT`, `RESUME`, `DELIVER`, or `RECHECK_BLOCKER`; the three lifecycle actions carry authority and ceremonial-confirmation fields. Honor blockers, fallback, and no-work. Selected READY or resumable DONE work needs no ceremonial confirmation; DRAFT still requires Phase 5.
 
 ## Mutation boundaries
 

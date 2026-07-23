@@ -285,7 +285,7 @@ task 진행해줘               → automatic-next()
 
 The router matches only those anchored forms, with any following current-user text retained as an appended override. It does not route incidental prose containing `task`. Because direct Skill installation does not modify project documents, repositories without the managed routing contract and surfaces that do not load it must use the portable form.
 
-After confirmation, create mode may continue into execution. Exact mode resolves one existing four-digit Task; selecting a current-contract `READY/READY` pair is implementation confirmation, while a different active Task blocks selection. Exact DRAFT and BLOCKED pairs may be selected only for authoring or condition recheck. Automatic mode resumes the sole `IN_PROGRESS/RUNNING` pair when its state is safe, otherwise selects the lowest-numbered dependency-satisfied `READY/READY` pair. Continuous mode repeats automatic selection only after the current Task and required delivery transition finish. It creates no Task, keeps at most one active pair, and stops when the host invocation ends.
+After confirmation, create mode may continue into execution. Exact mode resolves one existing four-digit Task; selecting a current-contract `READY/READY` pair confirms implementation and ordinary `STANDARD` delivery, while a different active Task blocks selection. Exact DRAFT and BLOCKED pairs may be selected only for authoring or condition recheck. Automatic mode resumes the sole `IN_PROGRESS/RUNNING` pair when its state is safe, otherwise selects the lowest-numbered `DONE/PASSED` pair with resumable `STANDARD` delivery before the lowest-numbered dependency-satisfied `READY/READY` pair. Continuous mode repeats that selection and authority only after each selected Task's repository and delivery transitions finish. It creates no Task, keeps at most one active pair, and stops when the host invocation ends.
 
 Queue-aware pairs carry `<!-- kyw-task-contract: 2 -->` in both files. Their valid state pairs are:
 
@@ -302,7 +302,7 @@ Any marker mismatch, unsupported pair, or multiple active pair fails closed. Com
 
 The resolver reads literal `Task NNNN` references only from the Task `Dependencies` section. Those references form directed hard-dependency edges; other prose is an evidence or implementation input. It rejects duplicate Task IDs, missing references, current-graph cycles, and unsatisfied edges. A terminal legacy dependency is evaluated from its recorded repository outcome without importing historical evidence prose as new edges. This boundary keeps unrelated historical blockers outside the current queue while still stopping on a selected Task's active or hard-dependency blocker.
 
-The current queue frontier is the highest-numbered current-contract Task. If no active or ready pair exists, a blocked or inconsistent frontier reports its exact blocker. A `DONE/PASSED` or `CANCELLED/BLOCKED` frontier produces the exact no-work response only after its static delivery requirement is satisfied.
+The current queue frontier is the highest-numbered current-contract Task. If no active, resumable-delivery, or ready pair exists, a blocked or inconsistent frontier reports its exact blocker. A `DONE/PASSED` or `CANCELLED/BLOCKED` frontier produces the exact no-work response only after its static delivery requirement is satisfied.
 
 Only text appended by the current user to the dispatch form is an override. It applies to the first selected Task unless that user explicitly scopes it to every remaining Task. The semantic workflow may accept a bounded method, ordering, or check constraint, but reports a conflict rather than allowing an override to waive acceptance, truthful evidence, safety, user-work preservation, or separately gated external mutation. The active session's model and reasoning effort are inherited unchanged unless the current user explicitly overrides them; observable provenance is recorded and unavailable values are never guessed.
 
@@ -316,7 +316,9 @@ Deterministic helper needs:
 - scaffold Task/Test atomically;
 - validate required sections, current-contract markers, delivery declarations, and paired statuses;
 - extract hard dependencies and reject missing references or cycles;
-- resolve exact, active, next-ready, blocked-frontier, and no-work local states.
+- reject verified conflict, unexplained-work, remote-drift, and user-decision preflight findings;
+- classify required delivery as `RESUMABLE`, `BLOCKED`, or `SATISFIED`;
+- resolve exact, active, delivery-resume, next-ready, blocked-frontier, and no-work local states with an explicit authority scope.
 
 The packaged `skills/kyw-task/scripts/task-artifacts.mjs` adapter exposes those existing core operations to the Skill without duplicating them.
 
@@ -327,7 +329,9 @@ STANDARD → GitHub PR/Actions exact-SHA state is the canonical external ledger
 NONE     → the Task records a reason
 ```
 
-Task/Test owns repository outcome and reproducible behavioral evidence. GitHub owns mutable pull-request head, review, merge, and Actions facts. The resolver receives local repository/base/outcome-SHA expectations separately from the GitHub ledger and requires their exact identity relations. `DONE/PASSED` may therefore precede delivery, but the dispatcher cannot advance while `STANDARD` delivery is unknown, pending, failed, or unbound to local expectations. A fresh local, remote, and GitHub preflight occurs at every serial transition. CI success satisfies delivery only; it cannot replace Task acceptance evidence. `STANDARD` is not mutation authority: commit, push, PR, or merge actions require a current-user instruction or explicit selected-Task scope. Publication, force push, rerun, branch deletion, and other separately authorized actions remain outside dispatch authority.
+Task/Test owns repository outcome and reproducible behavioral evidence. GitHub owns mutable pull-request head, review, merge, and Actions facts. The resolver receives local repository/base/outcome-SHA expectations separately from the GitHub ledger and requires their exact identity relations. It classifies absent or identity-bound pending evidence as resumable, supplied failure or unsafe identity/schema drift as blocked, and fully bound success as satisfied. `DONE/PASSED` may therefore precede delivery, but the dispatcher cannot advance while `STANDARD` delivery is resumable or blocked. A fresh local, remote, and GitHub preflight occurs at every serial transition. CI success satisfies delivery only; it cannot replace Task acceptance evidence.
+
+The static `STANDARD` field is policy, not ambient authority. The recognized current-user exact, automatic, or continuous invocation is the authority bridge when it selects a Task. The resolver returns `IMPLEMENT`, `RESUME`, or `DELIVER` with `STANDARD_LIFECYCLE` authority and no ceremonial reconfirmation. That ordinary scope covers exact-path commit, non-force push, non-draft PR, exact-head CI, review and mergeability inspection, expected-head protected merge, post-merge base CI, and terminal reporting. Publication, registry mutation, tags, releases, public submission, force push, destructive recovery, branch deletion, rerun, bypass, and unrelated mutation remain separate authority boundaries. Unsafe drift, unexplained user work, conflict, CI or review failure, or a new user-owned decision stops the invocation.
 
 ## 6.5 `kyw-audit`
 
@@ -441,14 +445,16 @@ exact ID / managed automatic alias
               ↓
 current-contract inventory + status/dependency validation
               ├─ one active → resume it
-              ├─ no active  → lowest eligible READY/READY
+              ├─ no active, incomplete DONE/PASSED delivery → resume delivery
+              ├─ otherwise  → lowest eligible READY/READY
               └─ invalid or blocked frontier → stop with reason
               ↓
-one Task executes to repository terminal state
+selected Task receives ordinary lifecycle authority
               ↓
-Delivery NONE or exact-SHA STANDARD delivery satisfied?
-              ├─ no  → stop; GitHub remains the mutable ledger
-              └─ yes → report, or re-preflight next Task in continuous mode
+repository outcome, then Delivery NONE or exact-SHA STANDARD state
+              ├─ resumable → execute authorized delivery without reconfirmation
+              ├─ blocked   → stop with exact reason
+              └─ satisfied → report, or re-preflight next Task in continuous mode
 ```
 
 Task status and Test status remain separate fields but current-contract pairings are closed. Implementation can be blocked while verification is unavailable; cancellation records `CANCELLED/BLOCKED`. A current pair's static delivery requirement does not add a third repository lifecycle state.
@@ -815,7 +821,7 @@ The following require future Spec and Architecture changes:
 - npm/plugin lifecycle hooks that enforce checks during installation;
 - MCP integrations with issue trackers or repositories;
 - GitHub/Jira/Linear Task synchronization;
-- automatic PR generation without explicit current-user or selected-Task scope authority;
+- automatic PR generation outside a recognized current-user invocation and selected-Task `STANDARD` scope;
 - telemetry or hosted collaboration;
 - non-Codex agent adapters;
 - a schema-driven Markdown AST editor.

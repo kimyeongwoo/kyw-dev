@@ -153,19 +153,20 @@ Resume behavior:
 
 Existing-Task dispatch behavior:
 
-1. Resolve an exact ID to exactly one existing Task. Selecting a current-contract `READY/READY` pair confirms execution; ask again only for a genuinely unresolved user-owned decision or a conflicting appended instruction. A different active Task blocks exact selection.
+1. Resolve an exact ID to exactly one existing Task. Selecting a current-contract `READY/READY` pair confirms implementation and, for `STANDARD`, the ordinary delivery lifecycle; ask again only for a genuinely unresolved user-owned decision or a conflicting appended instruction. A different active Task blocks exact selection.
 2. Treat `DRAFT/DRAFT` as unconfirmed authoring, `READY/READY` as selectable, `IN_PROGRESS/RUNNING` as active, `DONE/PASSED` as repository-complete, `BLOCKED/BLOCKED` as stopped, and `CANCELLED/BLOCKED` as terminal. Any other pair fails closed.
 3. Treat only literal `Task NNNN` references inside `## Dependencies` as hard queue edges. Evidence and implementation-input prose is not an edge. A missing referenced Task, dependency cycle, or unsatisfied hard dependency fails closed.
-4. For `task 진행해줘`, safely resume the sole active pair; if none exists, select the lowest-numbered dependency-satisfied ready pair. Multiple active pairs fail closed.
-5. For `남은 task 계속 실행해줘`, process only pre-created eligible Tasks, serially and within the current invocation. Recheck repository, remote, and required GitHub delivery state before every transition; never promise background continuation.
+4. For `task 진행해줘`, safely resume the sole active pair; if none exists, resume the lowest-numbered repository-complete Task whose `STANDARD` delivery is classified `RESUMABLE`; only then select the lowest-numbered dependency-satisfied ready pair. Multiple active pairs fail closed.
+5. For `남은 task 계속 실행해줘`, use the same priority and authority for each selected Task, process only pre-created eligible Tasks serially and within the current invocation, and recheck repository, remote, and required GitHub delivery state before every transition. Never promise background continuation.
 6. Stop on an active or hard-dependency blocker, current queue-frontier blocker, unsafe drift, unexplained user work, unresolved product decision, review or CI failure, or separately gated authority. A historical blocker that is neither active nor a hard dependency does not freeze a current queue.
 7. Treat only text appended by the current user to the invocation as an execution override. It applies to the first selected Task unless the user explicitly scopes it to every remaining Task, and it cannot waive acceptance, evidence honesty, safety, user-work preservation, or external-mutation authority.
 8. Preserve the active model and reasoning effort unless the current user explicitly overrides them. For model-dependent evidence, record model identifier, requested model alias, reasoning effort, concrete Codex surface, Codex version, and per-field observability in `TEST.md`. A known absence of an override is observed; a value the active surface does not expose is `UNAVAILABLE`. Never infer, downgrade, substitute, or sweep settings.
-9. Let Task/Test own repository outcome and reproducible evidence. A current-contract pair declares `STANDARD` delivery with GitHub PR/Actions exact-SHA state as its canonical ledger, or `NONE` with a reason. Bind that ledger to separately inspected local repository, base, and outcome-SHA expectations. Mutable delivery results never become future facts required inside the pair. `STANDARD` is a gate, not authority to commit, push, open or merge a PR; those actions require a current-user instruction or explicit selected-Task scope.
-10. Do not advance past a repository-complete Task while required delivery remains unknown, pending, or failed. CI success proves delivery state, not behavioral acceptance.
-11. If no ready or active current Task exists, the frontier is `DONE/PASSED` or `CANCELLED/BLOCKED`, and required delivery is satisfied, create no Task and return exactly: `현재 만들어진 Task는 모두 완료됐습니다. 더 이상 진행할 작업이 없습니다. 추가로 하고 싶은 작업이 있나요?`
-12. If the current frontier is blocked or inconsistent, report the exact blocker instead of returning the no-work message.
-13. Incidental text containing `task` does not match an anchored alias and retains ordinary-prompt behavior.
+9. Let Task/Test own repository outcome and reproducible evidence. A current-contract pair declares `STANDARD` delivery with GitHub PR/Actions exact-SHA state as its canonical ledger, or `NONE` with a reason. Bind that ledger to separately inspected local repository, base, and outcome-SHA expectations. Mutable delivery results never become future facts required inside the pair. The static `STANDARD` declaration alone grants no ambient mutation authority; a recognized exact, automatic, or continuous invocation returning `IMPLEMENT`, `RESUME`, or `DELIVER` grants the selected Task's ordinary lifecycle authority without another ceremonial confirmation.
+10. Ordinary `STANDARD` authority includes implementation, acceptance-specific verification, repository `DONE/PASSED`, exact-path staging and commit, non-force branch push, non-draft PR creation, exact-head PR CI observation, review-blocker and mergeability inspection, expected-head protected merge, exact post-merge base-branch CI observation, and terminal reporting. It excludes publication, registry mutation, tags, GitHub Releases, public plugin submission, force push, destructive recovery, branch deletion, workflow rerun, bypass, and unrelated mutation.
+11. Do not advance past a repository-complete Task while required delivery remains unknown, pending, or failed. Missing or pending final evidence means authorized ordinary delivery must resume; supplied CI failure, review blocker, repository/base/SHA drift, conflict, unexplained user work, or a new user-owned decision fails closed. Fully bound successful evidence is terminal and must not create duplicate delivery mutations. CI success proves delivery state, not behavioral acceptance.
+12. If no ready or active current Task exists, the frontier is `DONE/PASSED` or `CANCELLED/BLOCKED`, and required delivery is satisfied, create no Task and return exactly: `현재 만들어진 Task는 모두 완료됐습니다. 더 이상 진행할 작업이 없습니다. 추가로 하고 싶은 작업이 있나요?`
+13. If the current frontier is blocked or inconsistent, report the exact blocker instead of returning the no-work message.
+14. Incidental text containing `task` does not match an anchored alias and retains ordinary-prompt behavior.
 
 ### `$kyw-audit`
 
@@ -404,7 +405,7 @@ or:
 - Requirement: NONE — <reason>
 ```
 
-`STANDARD` records only the kind and canonical external ledger. Mutable PR, review, merge, and Actions results do not belong in the Task artifact and must not remain as future work in a repository-complete pair.
+`STANDARD` records only the kind and canonical external ledger. Mutable PR, review, merge, and Actions results do not belong in the Task artifact and must not remain as future work in a repository-complete pair. Authority comes from a recognized current existing-Task invocation that selects the Task, not from this static field in isolation.
 
 ### Required `TEST.md` sections
 

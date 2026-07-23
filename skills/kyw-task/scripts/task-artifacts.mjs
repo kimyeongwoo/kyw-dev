@@ -30,7 +30,8 @@ const usage =
   "   or: task-artifacts.mjs validate --task-directory <path>\n" +
   "   or: task-artifacts.mjs dispatch --tasks-root <path> --invocation <text> " +
   "--managed-routing <true|false> [--delivery-ledger <json-path> | --delivery-ledger-json <json>] " +
-  "[--delivery-expectations <json-path> | --delivery-expectations-json <json>]";
+  "[--delivery-expectations <json-path> | --delivery-expectations-json <json>] " +
+  "[--execution-preflight <json-path> | --execution-preflight-json <json>]";
 
 function parseOptions(args, requiredNames, optionalNames = []) {
   const allowed = new Set([...requiredNames, ...optionalNames]);
@@ -94,7 +95,7 @@ async function readJsonObjectOption(options, {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new TaskArtifactError(
       errorCode,
-      `${label} must be a JSON object keyed by four-digit Task ID`,
+      `${label} must be a JSON object`,
     );
   }
   return value;
@@ -134,6 +135,8 @@ export async function runTaskArtifactCommand(argv) {
         "--delivery-ledger-json",
         "--delivery-expectations",
         "--delivery-expectations-json",
+        "--execution-preflight",
+        "--execution-preflight-json",
       ],
     );
     const managedRoutingValue = options.get("--managed-routing");
@@ -156,6 +159,12 @@ export async function runTaskArtifactCommand(argv) {
       label: "delivery expectations",
       errorCode: "INVALID_DELIVERY_EXPECTATIONS",
     });
+    const executionPreflight = await readJsonObjectOption(options, {
+      pathOption: "--execution-preflight",
+      jsonOption: "--execution-preflight-json",
+      label: "execution preflight",
+      errorCode: "INVALID_EXECUTION_PREFLIGHT",
+    });
 
     const result = await resolveTaskDispatch({
       tasksRoot: resolve(options.get("--tasks-root")),
@@ -163,6 +172,7 @@ export async function runTaskArtifactCommand(argv) {
       managedRoutingAvailable: managedRoutingValue === "true",
       deliveryLedger,
       deliveryExpectations,
+      executionPreflight,
     });
     return { command, ...result };
   }

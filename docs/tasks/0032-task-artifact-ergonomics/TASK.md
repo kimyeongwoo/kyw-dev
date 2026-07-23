@@ -12,6 +12,7 @@ Reduce routine Task-document and interview overhead without introducing a second
 ## Dependencies
 
 - Task 0031.
+- Task 0039.
 
 ## In Scope
 
