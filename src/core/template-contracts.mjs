@@ -123,6 +123,9 @@ export const DOCUMENT_CONTRACTS = Object.freeze({
 
 const matrixHeaders = ["ID", "Intent / acceptance criterion", "Method", "Level", "Status", "Evidence"];
 const unsupportedEvidence = /^(?:-|none|n\/a|not run(?: yet)?|todo|pending)[.!]?$/i;
+const bareNoneEntry = /^(?:[-*]\s+)?None[.!]?$/i;
+const notApplicableEntry = /^(?:[-*]\s+)?Not applicable\b/i;
+const reasonedNotApplicableEntry = /^(?:[-*]\s+)?Not applicable\s+—\s+\S.*$/i;
 const taskContractMarkerPattern = /<!--\s*kyw-task-contract:\s*(\d+)\s*-->/g;
 const taskContractMarkerOccurrencePattern = /<!--[\s\S]*?kyw-task-contract[\s\S]*?-->/gi;
 const standardDeliveryLedger = "- Canonical ledger: GitHub PR/Actions exact-SHA state.";
@@ -180,6 +183,52 @@ function sectionHeadingCounts(markdown) {
 
 function sectionText(sections, heading) {
   return (sections.get(normalizeHeading(heading)) ?? []).join("\n");
+}
+
+function sectionContentLines(sections, heading) {
+  return stripComments(sectionText(sections, heading))
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function validateOperationalSectionContent(
+  documentName,
+  sections,
+  headings,
+  { enforceReasonedNotApplicable },
+) {
+  const errors = [];
+
+  for (const heading of headings) {
+    const lines = sectionContentLines(sections, heading);
+    if (lines.length === 0) {
+      errors.push(
+        `${documentName}.md: section "${heading}" requires meaningful content or "Not applicable — <reason>"`,
+      );
+      continue;
+    }
+    if (enforceReasonedNotApplicable && lines.some((line) => bareNoneEntry.test(line))) {
+      errors.push(
+        `${documentName}.md: section "${heading}" cannot use bare None; use "Not applicable — <reason>" when the section does not apply`,
+      );
+      continue;
+    }
+
+    const notApplicableLines = lines.filter((line) => notApplicableEntry.test(line));
+    if (
+      notApplicableLines.length > 0 &&
+      (lines.length !== 1 ||
+        notApplicableLines.length !== 1 ||
+        !reasonedNotApplicableEntry.test(notApplicableLines[0]))
+    ) {
+      errors.push(
+        `${documentName}.md: section "${heading}" must use one standalone "Not applicable — <reason>" entry`,
+      );
+    }
+  }
+
+  return errors;
 }
 
 function firstContentLine(markdown) {
@@ -506,6 +555,9 @@ export function validateTaskTestContract({ taskMarkdown, testMarkdown }) {
   const testMarkerOccurrences = contractMarkerOccurrences(testMarkdown);
   const taskContractVersion = getTaskContractVersion(taskMarkdown);
   const testContractVersion = getTaskContractVersion(testMarkdown);
+  const enforceReasonedNotApplicable = [...taskMarkdown.split(/\r?\n/), ...testMarkdown.split(/\r?\n/)]
+    .map((line) => line.trim())
+    .some((line) => reasonedNotApplicableEntry.test(line));
 
   if (testContractVersion === CURRENT_TASK_CONTRACT_VERSION) {
     errors.push(...validateModelProvenance(testMarkdown));
@@ -565,6 +617,26 @@ export function validateTaskTestContract({ taskMarkdown, testMarkdown }) {
     }
     if (taskSectionCounts.get(normalizeHeading("Delivery")) === 1) {
       errors.push(...validateDeliverySection(taskSections));
+    }
+    if (!["DRAFT", "CANCELLED"].includes(taskStatus)) {
+      errors.push(
+        ...validateOperationalSectionContent(
+          "TASK",
+          taskSections,
+          taskHeadings.filter(
+            (heading) => taskSectionCounts.get(normalizeHeading(heading)) === 1,
+          ),
+          { enforceReasonedNotApplicable },
+        ),
+        ...validateOperationalSectionContent(
+          "TEST",
+          testSections,
+          testHeadings.filter(
+            (heading) => testSectionCounts.get(normalizeHeading(heading)) === 1,
+          ),
+          { enforceReasonedNotApplicable },
+        ),
+      );
     }
   }
 
@@ -635,6 +707,17 @@ export function validateTaskTestContract({ taskMarkdown, testMarkdown }) {
   for (const acceptanceId of acceptanceSet) {
     if (!mappedAcceptance.has(acceptanceId)) {
       errors.push(`TASK.md/TEST.md: acceptance criterion ${acceptanceId} has no matrix reference`);
+    }
+  }
+  if (
+    taskContractVersion === CURRENT_TASK_CONTRACT_VERSION &&
+    !["DRAFT", "CANCELLED"].includes(taskStatus)
+  ) {
+    if (acceptanceIds.length === 0) {
+      errors.push("TASK.md: selectable or active current contract requires at least one acceptance criterion");
+    }
+    if (matrix.rows.length === 0) {
+      errors.push("TEST.md: selectable or active current contract requires at least one matrix row");
     }
   }
 

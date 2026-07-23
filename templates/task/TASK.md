@@ -12,15 +12,15 @@ DRAFT
 
 ## Dependencies
 
-- None
+- Not applicable — no hard dependency is identified in this draft.
 
 ## In Scope
 
-<!-- List the changes required for this outcome. -->
+<!-- List the changes required for this outcome. Use `Not applicable — <reason>` only when this section genuinely does not apply. -->
 
 ## Out of Scope
 
-<!-- Name nearby work that this Task must not absorb. -->
+<!-- Name nearby work that this Task must not absorb, or use `Not applicable — <reason>`. -->
 
 ## Acceptance Criteria
 
@@ -32,15 +32,15 @@ DRAFT
 
 ## Decisions
 
-<!-- Record Task-level choices that affect the implementation. -->
+<!-- Record Task-level choices that affect the implementation, or use `Not applicable — <reason>`. -->
 
 ## Risks
 
-<!-- Record meaningful failure, compatibility, migration, or verification risks. -->
+<!-- Record meaningful failure, compatibility, migration, or verification risks, or use `Not applicable — <reason>`. -->
 
 ## Discoveries and Changes
 
-<!-- Update this section when facts, design, scope, or expected behavior change. -->
+<!-- Update this section when facts, design, scope, or expected behavior change, or use `Not applicable — <reason>`. -->
 
 ## Documentation Impact
 
@@ -58,7 +58,7 @@ DRAFT
 
 ## Completed
 
-- None yet.
+- Not applicable — implementation has not started.
 
 ## Remaining
 
@@ -72,4 +72,4 @@ DRAFT
 
 ## Blockers
 
-- None known.
+- Not applicable — no blocker is known.

@@ -1,0 +1,36 @@
+{
+  "realBlockingDecision": {
+    "repositoryEvidenceExhausted": true,
+    "safeReversibleChoiceAvailable": false,
+    "userOwnedDecision": "Choose whether existing records are migrated eagerly or lazily.",
+    "progressTurn": {
+      "questions": [
+        "Should existing records migrate eagerly during deployment or lazily on first access?"
+      ],
+      "recommendations": [
+        "Use lazy migration because it preserves rollback and bounds deployment risk."
+      ]
+    }
+  },
+  "selectedReadyWithoutBlocker": {
+    "taskStatus": "READY",
+    "testStatus": "READY",
+    "blockingDecision": null,
+    "progressTurn": {
+      "questions": [],
+      "recommendations": []
+    },
+    "nextAction": "Enter IN_PROGRESS/RUNNING and implement from the recorded Resume Point."
+  },
+  "appendedConstraint": {
+    "invocation": "task 0103 실행해줘 기존 오류 메시지는 유지해",
+    "settledConstraints": [
+      "Preserve the existing error message."
+    ],
+    "reaskedConstraints": [],
+    "progressTurn": {
+      "questions": [],
+      "recommendations": []
+    }
+  }
+}

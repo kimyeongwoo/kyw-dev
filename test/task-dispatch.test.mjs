@@ -35,7 +35,7 @@ function taskMarkdown({
   id,
   title = `Task ${id}`,
   status = "READY",
-  dependencies = "- None",
+  dependencies = "- Not applicable — the fixture has no hard Task dependency.",
   delivery = "STANDARD",
   legacy = false,
   blocker = "- None known.",
@@ -89,7 +89,7 @@ ${dependencies}
 
 ## Discoveries and Changes
 
-- None.
+- Not applicable — no discovery changed the fixture.
 
 ## Documentation Impact
 
@@ -158,7 +158,7 @@ ${status}
 
 ## Unverified
 
-- ${passed ? "None." : "Fixture remains open."}
+- ${passed ? "Not applicable — no residual risk remains." : "Fixture remains open."}
 
 ## Final Coverage Review
 

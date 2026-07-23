@@ -19,6 +19,9 @@ const scenarios = JSON.parse(await readFile(join(FIXTURE_ROOT, "scenarios.json")
 const executionScenarios = JSON.parse(
   await readFile(join(FIXTURE_ROOT, "execution-scenarios.json"), "utf8"),
 );
+const ergonomicsScenarios = JSON.parse(
+  await readFile(join(FIXTURE_ROOT, "ergonomics-scenarios.json"), "utf8"),
+);
 
 function frontmatterFields(skill) {
   const block = /^---\n([\s\S]*?)\n---\n/.exec(skill)?.[1];
@@ -139,6 +142,58 @@ test("kyw-task authoring inspects facts and grills only unresolved Task decision
   assert.match(skill, /Apply the installed `\$kyw-grilling` protocol/);
   assert.match(skill, /exactly one decision question per turn/);
   assert.match(skill, /Skip product behavior, architecture, commands, and repository rules already settled/);
+});
+
+test("kyw-task asks only one real blocking question and consumes settled constraints", async () => {
+  const skill = await readFile(SKILL_PATH, "utf8");
+  const execution = await readFile(EXECUTION_REFERENCE_PATH, "utf8");
+  const readme = await readFile(README_PATH, "utf8");
+  const architecture = await readFile(ARCHITECTURE_PATH, "utf8");
+  const agents = await readFile(join(REPOSITORY_ROOT, "AGENTS.md"), "utf8");
+  const blocker = ergonomicsScenarios.realBlockingDecision;
+  const ready = ergonomicsScenarios.selectedReadyWithoutBlocker;
+  const appended = ergonomicsScenarios.appendedConstraint;
+
+  assert.equal(blocker.repositoryEvidenceExhausted, true);
+  assert.equal(blocker.safeReversibleChoiceAvailable, false);
+  assert.equal(blocker.progressTurn.questions.length, 1);
+  assert.equal(blocker.progressTurn.recommendations.length, 1);
+  assert.equal(ready.progressTurn.questions.length, 0);
+  assert.equal(ready.progressTurn.recommendations.length, 0);
+  assert.equal(appended.settledConstraints.length, 1);
+  assert.equal(appended.reaskedConstraints.length, 0);
+  assert.equal(appended.progressTurn.questions.length, 0);
+
+  for (const surface of [skill, execution]) {
+    assert.match(surface, /genuine unresolved user-owned blocker/);
+    assert.match(
+      surface,
+      /one (?:decision )?question[^.]*one recommended answer|one question with one recommendation/,
+    );
+    assert.match(surface, /evidence or a safe reversible choice/);
+  }
+  assert.match(execution, /consume (?:it|appended constraints) without re-asking/i);
+  assert.match(
+    readme,
+    /asks exactly one question with one recommendation only for a genuine user-owned blocking decision/,
+  );
+  assert.match(
+    architecture,
+    /recognized `READY\/READY` selection never receives ceremonial reconfirmation/,
+  );
+  assert.match(agents, /consume appended constraints and proceed/);
+});
+
+test("kyw-task keeps one concise artifact contract without capping release evidence", async () => {
+  const skill = await readFile(SKILL_PATH, "utf8");
+  const execution = await readFile(EXECUTION_REFERENCE_PATH, "utf8");
+
+  assert.match(skill, /standard, documentation-only, and bug-fix Tasks concise/);
+  assert.match(skill, /`Not applicable — <reason>`/);
+  assert.match(skill, /never bare `None`\/empty\/reasonless content/);
+  assert.match(skill, /no global length cap/);
+  assert.match(skill, /one artifact type/);
+  assert.match(execution, /no hard cap on release\/security evidence/);
 });
 
 test("kyw-task authoring size gate splits independent outcomes before allocation or writes", async () => {
@@ -334,8 +389,14 @@ test("kyw-task authoring adapter scaffolds one pair and task execution validates
       "<!-- State one independently testable outcome. -->",
       "An administrator can unlock one currently locked account.",
     )
-    .replace("<!-- List the changes required for this outcome. -->", "- Add the administrator unlock action.")
-    .replace("<!-- Name nearby work that this Task must not absorb. -->", "- Session storage changes.")
+    .replace(
+      "<!-- List the changes required for this outcome. Use `Not applicable — <reason>` only when this section genuinely does not apply. -->",
+      "- Add the administrator unlock action.",
+    )
+    .replace(
+      "<!-- Name nearby work that this Task must not absorb, or use `Not applicable — <reason>`. -->",
+      "- Session storage changes.",
+    )
     .replace(
       "<!-- Add checklist entries such as \"- [ ] AC-01: observable result\". -->",
       "- [ ] AC-01: An administrator can unlock one currently locked account.",
@@ -344,13 +405,16 @@ test("kyw-task authoring adapter scaffolds one pair and task execution validates
       "<!-- Add implementation steps and keep their completion state current. -->",
       "- [ ] Implement and verify the unlock action.",
     )
-    .replace("<!-- Record Task-level choices that affect the implementation. -->", "- Preserve automatic unlock behavior.")
     .replace(
-      "<!-- Record meaningful failure, compatibility, migration, or verification risks. -->",
+      "<!-- Record Task-level choices that affect the implementation, or use `Not applicable — <reason>`. -->",
+      "- Preserve automatic unlock behavior.",
+    )
+    .replace(
+      "<!-- Record meaningful failure, compatibility, migration, or verification risks, or use `Not applicable — <reason>`. -->",
       "- Permission checks require explicit regression coverage.",
     )
     .replace(
-      "<!-- Update this section when facts, design, scope, or expected behavior change. -->",
+      "<!-- Update this section when facts, design, scope, or expected behavior change, or use `Not applicable — <reason>`. -->",
       "- No discoveries yet.",
     )
     .replace("- SPEC: <!-- changed meaning or why unaffected -->", "- SPEC: Unchanged; existing behavior is implemented.")
@@ -379,7 +443,7 @@ test("kyw-task authoring adapter scaffolds one pair and task execution validates
       "| T-01 | AC-01 administrator unlock succeeds | Run the account fixture | Integration | TODO | |",
     )
     .replace(
-      "<!-- List existing behavior that must remain intact. -->",
+      "<!-- List existing behavior that must remain intact, or use `Not applicable — <reason>`. -->",
       "- [ ] Existing automatic unlock behavior remains intact.",
     )
     .replace(
@@ -411,7 +475,10 @@ test("kyw-task authoring adapter scaffolds one pair and task execution validates
     .replace("\nIN_PROGRESS\n", "\nDONE\n")
     .replace("- [ ] AC-01", "- [x] AC-01")
     .replace("- [ ] Implement and verify the unlock action.", "- [x] Implement and verify the unlock action.")
-    .replace("## Completed\n\n- None yet.", "## Completed\n\n- Implemented and verified administrator unlock.")
+    .replace(
+      "## Completed\n\n- Not applicable — implementation has not started.",
+      "## Completed\n\n- Implemented and verified administrator unlock.",
+    )
     .replace(
       "## Remaining\n\n- Implement and verify the unlock action.",
       "## Remaining\n\n- None — repository outcome complete.",
@@ -426,7 +493,10 @@ test("kyw-task authoring adapter scaffolds one pair and task execution validates
       "| T-01 | AC-01 administrator unlock succeeds | Run the account fixture | Integration | TODO | |",
       `| T-01 | AC-01 administrator unlock succeeds | Run the account fixture | Integration | PASS | ${executionScenarios.happyPath.evidence} |`,
     )
-    .replace("- Not run yet.", `- ${executionScenarios.happyPath.command}: exit 0; fixture passed.`)
+    .replace(
+      "- Not applicable — verification has not run.",
+      `- ${executionScenarios.happyPath.command}: exit 0; fixture passed.`,
+    )
     .replaceAll("- [ ]", "- [x]");
   assert.doesNotMatch(doneTaskMarkdown.replace("<!-- kyw-task-contract: 2 -->", ""), /<!--/);
   assert.doesNotMatch(passedTestMarkdown.replace("<!-- kyw-task-contract: 2 -->", ""), /<!--/);
