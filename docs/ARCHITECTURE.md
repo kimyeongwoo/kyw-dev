@@ -131,6 +131,7 @@ kyw-dev/
 │  ├─ grilling-eval.mjs
 │  ├─ release-gate-isolation.mjs
 │  ├─ spec-behavioral-acceptance.mjs
+│  ├─ verification-plan.mjs
 │  ├─ grilling-eval/
 │  └─ development-only validation commands
 ├─ docs/
@@ -634,11 +635,44 @@ pull request / main push / manual dispatch
         │    └─ Node 26 Current × ubuntu compatibility
         │         └─ test + lint + format:check + pack:check
         ├─ packed release: Node 24 LTS × ubuntu
-        │         └─ release:ci → stable suite + real packed-byte inspection
+        │         └─ release:candidate → one real packed-byte inspection
         └─ aggregate required result
 ```
 
 The stable matrix runs native temporary-directory CLI and direct-install tests on each host. Codex marketplace coverage remains isolated and executes only where the CLI exists; its absence cannot skip the preceding packed user/project lifecycles or fail a public contributor for missing authentication. The packed job logs the real archive's file count, size, and SHA-256, rejects development/lifecycle content, and runs the extracted CLI. It cannot publish, create a tag or release, merge, or mutate branch-protection settings. Repository administrators may require only the aggregate credential-free result without making a model-backed job part of public PR admission.
+
+The packed job does not call the local `release:ci` composite because the stable matrix already owns the exact-head Stable proof. `release:candidate` creates and inspects the immutable real tarball once in that job. Local `release:ci` remains the deliberate full regression composite (`check` plus `release:candidate`) for release-sensitive implementation work where there is no separate hosted Stable result yet.
+
+## 11.6 Verification tier planner
+
+`scripts/verification-plan.mjs` is a development-only, dependency-free classifier and command registry. It accepts explicit repository-relative changed paths and returns an ordered local plan without executing commands or inspecting Git implicitly.
+
+```text
+changed paths + optional release-candidate escalation
+        ↓ normalize; reject absolute/traversing/empty input
+        ↓ ignore current Task/Test evidence paths for risk classification
+        ├─ documentation-only → Focused documentation tests + format
+        ├─ packaged Skill/template → Focused owning-Skill tests + format + pack selection
+        ├─ runtime/cross-cutting/unknown → Stable `npm run check`
+        └─ release-sensitive or explicit candidate → Release regression
+        ↓ always report mandatory exact-head PR/main Stable delivery
+```
+
+The classifier is conservative: a mixed class takes the highest tier, an unknown path selects Stable, and candidate intent only escalates. Path classification is a planning aid rather than acceptance evidence; Task-specific behavior or an introduced branch may require additional focused checks.
+
+The command registry assigns one owner tier and trigger to each supported maintainer command. Higher tiers may compose lower-tier evidence, but the same command is not counted twice in one plan. Model-backed audit/grilling commands are Focused only when an acceptance contract explicitly supplies the model, effort, authentication source, and cost gate.
+
+Package identity is retained at boundaries where identity can change:
+
+| Boundary | Owner | Required identity evidence |
+|---|---|---|
+| Working-tree package selection | Stable `pack:check` | Exact allowlisted paths for the checked-out SHA and native npm behavior |
+| Immutable candidate archive | Release `release:candidate` | Real archive size, file list, hygiene/legal checks, CLI smoke, and SHA-256 |
+| Isolated install/marketplace lifecycle | Release isolation gate | Candidate tarball SHA plus direct/plugin lifecycle and protected-state result |
+| Registry dry run | Release `release:check` | Registry-generated dry-run report bound to the intended version/candidate |
+| Published package | Separately approved publication verification | Downloaded registry bytes, license/notice contents, and published identity |
+
+Cross-platform Stable lanes still perform native package and link/junction evidence because those claims differ by OS/runtime. They are not duplicate immutable-candidate proofs.
 
 ## 12. Template architecture
 

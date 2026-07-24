@@ -136,8 +136,12 @@ test("release metadata is public-ready while publication remains an explicit com
     registry: "https://registry.npmjs.org/",
   });
   assert.equal(
+    packageJson.scripts["release:candidate"],
+    "node ./scripts/packed-release-check.mjs",
+  );
+  assert.equal(
     packageJson.scripts["release:ci"],
-    "npm run check && node ./scripts/packed-release-check.mjs",
+    "npm run check && npm run release:candidate",
   );
   assert.equal(
     packageJson.scripts["release:check"],

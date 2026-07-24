@@ -211,6 +211,14 @@ Update the owning permanent document first, then align the current Task/Test and
 
 Discover commands from the repository and current Task rather than assuming one universal test runner. Run acceptance-specific checks and required regressions, then add checks implied by the final diff.
 
+Classify verification proportionally; use the repository planner when present:
+
+- **Focused**: changed behavior, closest regressions, and explicitly required model evidence.
+- **Stable**: runtime, cross-cutting, unknown, or higher-risk work; exact-head PR and post-merge `main` CI stay required.
+- **Release**: release-sensitive work and candidate, registry, or published boundaries only.
+
+Add acceptance branches the planner cannot infer. Do not repeat one command or immutable package proof at the same boundary.
+
 The agent executing the current Task performs risk-proportionate verification directly in the current session by default. Subagents, fresh sessions, and isolated delegates are optional tools: use them only when the user explicitly requests them, acceptance-specific independence or isolation is materially necessary, or the active agent determines that delegation would add meaningful evidence. Do not automatically create nested `codex exec` runs or a subagent cohort to satisfy generic verification, and do not block a Task merely because delegation was not used.
 
 When delegation is used, record its purpose, scope, and result in Test evidence. Whether verification is direct or delegated, record only checks that actually ran and never turn an unexecuted check into `PASS`.

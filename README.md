@@ -25,18 +25,30 @@ Prerequisite: Node.js 22 or newer with npm. Node.js 22 and 24 are the fully test
 ```bash
 node ./bin/kyw-dev.mjs --help
 node ./bin/kyw-dev.mjs --version
+npm run verify:plan -- README.md
 npm test
 npm run lint
 npm run format:check
 npm run pack:check
 npm run check
+npm run release:candidate
 npm run release:ci
 npm run release:check
 node ./scripts/spec-behavioral-acceptance.mjs --validate-fixtures
 node ./scripts/release-gate-isolation.mjs
 ```
 
-`npm run check` runs the four stable verification commands. `npm run release:ci` repeats that suite, creates and extracts a real npm tarball in an isolated temporary directory, checks its exact allowlist and packed-only boundaries, smoke-tests the packed CLI, and cleans up without publishing. `npm run release:check` builds on the same packed gate and then runs `npm publish --dry-run --json`; the dry run reports what npm would publish but does not publish it. `npm pack --dry-run --json` can be used to inspect the package contents directly.
+Use three proportional verification tiers:
+
+| Tier | Trigger | Maintainer entry point |
+|---|---|---|
+| Focused | Documentation, one Skill, or another bounded behavior change | `npm run verify:plan -- <changed-path>...`, then run the ordered commands it prints |
+| Stable | Runtime, cross-cutting, unknown, or higher-risk change; every PR and `main` push | `npm run check`; hosted CI always runs the complete supported Node/OS matrix |
+| Release | Release-sensitive implementation, an immutable candidate, registry dry run, or publication boundary | `npm run release:candidate`, `npm run release:ci`, isolation, and `npm run release:check` as the named boundary requires |
+
+The planner is read-only and requires explicit repository-relative paths. It ignores `docs/tasks/NNNN-*/TASK.md` and `TEST.md` as implementation-risk signals, escalates mixed or unknown paths safely, and never replaces acceptance-specific verification or hosted PR/`main` CI. Use `npm run verify:plan -- --candidate <paths>` to force a Release plan.
+
+`npm run check` runs the four stable verification commands. `npm run release:candidate` creates and extracts one real npm tarball, checks its exact allowlist and packed-only boundaries, smoke-tests the packed CLI, records the archive SHA-256, and cleans up without publishing. `npm run release:ci` deliberately combines the local stable suite with that candidate check; hosted CI runs Stable separately and calls only `release:candidate` in its packed job so the same exact-head Stable suite is not repeated there. `npm run release:check` adds `npm publish --dry-run --json`; the dry run reports what npm would publish but does not publish it. `npm pack --dry-run --json` can be used to inspect package selection directly.
 
 `node ./scripts/spec-behavioral-acceptance.mjs --validate-fixtures` validates the retained S-01 through S-06 direct-acceptance fixtures and deterministic predicates, including the intentionally uncovered S-05 branch. It launches only the fixtures' Node tests. Behavioral use remains current-session direct verification; the cancelled nested Codex, fixed-cohort, capability-probe, and Docker runner is not a supported path.
 
@@ -44,7 +56,7 @@ node ./scripts/release-gate-isolation.mjs
 
 The isolation summary reports exactly `CLEAN`, `ISOLATION_VIOLATION`, or `AMBIENT_STATE_CHANGED`. `CLEAN` is the only success. A violation requires an exact kyw-dev managed path, identifier, packed Skill digest, or runner-owned protected-environment change. An unmarked protected delta is ambient and inconclusive rather than guessed to be caused by the lifecycle. Only a first ambient result receives one immediate unchanged retry with a fresh root and snapshots; a second ambient result remains retryable/inconclusive but exits nonzero. Violations and guard, snapshot, child, package, marketplace, or cleanup failures never retry. Diagnostics contain only bounded protected labels, normalized relative paths/categories, change kinds, entry types, known markers, and digest prefixes. The runner never repairs or deletes normal user files, and a correct `CLEAN` result does not make the package release-approved.
 
-`.github/workflows/ci.yml` runs on public pull requests, pushes to `main`, and manual dispatch. Every Node.js 22/24 Linux, macOS, and Windows lane executes `npm test`, `npm run lint`, `npm run format:check`, and `npm run pack:check`; one Ubuntu Node.js 26 lane checks forward compatibility. A separate Ubuntu Node.js 24 job runs `npm run release:ci`, and one aggregate credential-free result can be selected as the required branch check. The workflow uses read-only repository permission, persists no checkout credential, references no secret, and performs no install, publish, tag, release, or merge action.
+`.github/workflows/ci.yml` runs on public pull requests, pushes to `main`, and manual dispatch. Every Node.js 22/24 Linux, macOS, and Windows lane executes `npm test`, `npm run lint`, `npm run format:check`, and `npm run pack:check`; one Ubuntu Node.js 26 lane checks forward compatibility. A separate Ubuntu Node.js 24 job runs the one real `npm run release:candidate` archive check, and one aggregate credential-free result can be selected as the required branch check. The workflow uses read-only repository permission, persists no checkout credential, references no secret, and performs no install, publish, tag, release, or merge action.
 
 ### Grilling evaluation harness
 

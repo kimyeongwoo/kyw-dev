@@ -487,6 +487,18 @@ Do not split by arbitrary file count or estimated token count alone.
 - Not using a subagent is not by itself a blocker. A Task that genuinely requires a fresh session or independent agent must state that requirement explicitly in its acceptance criteria and Test contract.
 - Never record an unexecuted verification method as `PASS`.
 
+### Verification tiers
+
+Every supported verification command belongs to one of three cumulative tiers with a documented trigger:
+
+1. **Focused** checks the exact changed behavior and its closest regressions. Documentation and Skill changes use targeted deterministic tests plus only the formatting or package-boundary checks their changed bytes require. Model-backed evaluators remain focused, explicit-cost evidence and never run merely because a Task is being delivered.
+2. **Stable** proves the complete repository contract. Runtime, cross-cutting, unknown, or higher-risk changes run the local stable suite; every pull request and `main` push still runs the full supported Node/OS matrix, package selection, and aggregate required status at the exact Git SHA.
+3. **Release** proves an immutable package candidate and later distribution boundaries. Release-sensitive changes and actual candidates retain real-tarball hygiene, licensing, CLI smoke, isolated lifecycle, protected-state, registry dry-run, and separately approved publication checks as applicable.
+
+The deterministic maintainer planner classifies supplied changed paths conservatively, ignores the current Task/Test pair as an implementation-risk signal, and fails closed to Stable for an unknown or mixed runtime path. A release-candidate flag can only escalate the result. It never weakens acceptance-specific checks or the mandatory hosted Stable gate.
+
+Do not repeat a package identity proof against the same immutable candidate bytes at the same boundary. A candidate archive, exact PR head, registry dry-run result, and actually published package are separate evidence boundaries because their bytes or identity can differ; record the SHA and boundary for each claim that is required.
+
 ### After implementation
 
 - Inspect the final diff and enumerate every meaningful new behavior, state transition, error path, and compatibility change.
