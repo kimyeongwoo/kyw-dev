@@ -3,7 +3,7 @@
 
 ## Status
 
-READY
+IN_PROGRESS
 
 ## Goal
 
@@ -48,9 +48,9 @@ Supersede the Task 0029 pre-change candidate with one immutable candidate built 
 
 ## Plan
 
-- [ ] Revalidate current repository, branch, refs, worktree, Task inventory, PRs, Actions, tags, Releases, and registry state before mutation.
-- [ ] Read permanent truth, this Task/Test pair, Task 0029, and the terminal evidence from Tasks 0030–0037.
-- [ ] Treat selection of this `READY/READY` Task as execution confirmation; ask only if a new publication-independent product decision blocks candidate formation.
+- [x] Revalidate current repository, branch, refs, worktree, Task inventory, PRs, Actions, tags, Releases, and registry state before mutation.
+- [x] Read permanent truth, this Task/Test pair, Task 0029, and the terminal evidence from Tasks 0030–0037.
+- [x] Treat selection of this `READY/READY` Task as execution confirmation; ask only if a new publication-independent product decision blocks candidate formation.
 - [ ] Transition this pair to `IN_PROGRESS/RUNNING`, determine Task 0029 supersession, and form one immutable candidate from exact current mainline bytes.
 - [ ] Verify the candidate from isolated detached state through the complete acceptance, package, lifecycle, hosted, official, registry, and protected-state gate.
 - [ ] Preserve the first failure and make no product repair; determine `READY_FOR_APPROVAL` or `BLOCKED` from the frozen criteria.
@@ -74,13 +74,20 @@ Supersede the Task 0029 pre-change candidate with one immutable candidate built 
 
 ## Discoveries and Changes
 
-- None yet.
+- Task 0037 is repository-complete and externally delivered: PR #24 merged exact outcome SHA `21753d2412e680687ce4bc91d3af7f8e552c23d8` to `main` as `cc7a0ef2779df62263f10c4d36a0fece50e4db2c`; PR run `30063998592` and post-merge run `30064124256` are successful with no review blocker.
+- Fresh exact-SHA delivery evidence for Tasks 0030–0037 and Task 0039 satisfied the complete transitive dependency chain. Managed exact dispatch returned `SELECTED/IMPLEMENT`, `STANDARD_LIFECYCLE`, and no ceremonial confirmation.
+- The clean Task branch `task/0038-post-simplification-release-regate` starts from exact delivered `origin/main` SHA `cc7a0ef2779df62263f10c4d36a0fece50e4db2c`, tree `8c2f41a47a2206d6f55450e4771c4d4298cda046`.
+- Before execution there was no Task 0038 remote branch, tag, or GitHub Release. The only open pull request was unrelated historical draft PR #3.
+- The current official Codex manual was already current on 2026-07-24 and retains the required plugin manifest, Skill front matter, optional `agents/openai.yaml` invocation policy, local marketplace, progressive-disclosure, and lifecycle-free npm acquisition contracts.
+- Exact packed/release-relevant comparison from Task 0029 candidate `5fa5a3d2637073580a64a01a7396f4d533d0d5b6` to current `main` found 14 changed packed paths: README, package metadata, Audit/Task Skills and references, the Task adapter, CLI/core modules, and project/Task templates. Task 0029 therefore remains valid only for its historical bytes and is superseded for future publication.
+- Fresh isolated public-registry checks from `2026-07-24T04:02:52.8521489Z` through `2026-07-24T04:02:55.7242356Z` returned PONG, exact `kyw-dev` E404, zero exact-name search matches, and expected unauthenticated `ENEEDAUTH`; no registry or normal npm configuration mutation occurred.
+- README now names Task 0029 as historical/superseded and Task 0038 as the outcome-neutral authoritative current re-gate without pre-claiming a verdict. SPEC, Architecture, and AGENTS remain unchanged in meaning.
 
 ## Documentation Impact
 
 - SPEC: Unchanged unless current execution disproves a product requirement.
 - ARCHITECTURE: Unchanged unless final integrated behavior changes a durable boundary.
-- README: Reconcile current candidate/readiness status and publication boundary.
+- README: Reconciled Task 0029 historical/superseded status, Task 0038 authority, and the unchanged publication boundary before candidate freeze.
 - AGENTS: Unchanged.
 
 ## Delivery
@@ -93,15 +100,21 @@ This artifact records repository outcome only and does not pre-claim delivery.
 ## Completed
 
 - Task scope and initial acceptance contract were approved as the final step of the ordered follow-up queue.
-- No candidate or verification has run.
+- Revalidated the clean local repository, exact local/direct remote refs, Task inventory, open PRs, tags, Releases, and Task 0038 branch absence.
+- Read the Task Skill and execution reference, four permanent documents, this pair, Task 0029 historical candidate evidence, and terminal/dependency evidence from Tasks 0030–0037 and 0039.
+- Validated this pair and every current transitive dependency pair.
+- Queried fresh PR, review, exact-head Actions, merge, and post-merge `main` Actions evidence for the complete dependency chain and obtained a deterministic `SELECTED/IMPLEMENT` dispatch result.
+- Created the Task 0038 branch from exact delivered `origin/main` and entered `IN_PROGRESS/RUNNING` without changing the configured model or reasoning effort.
 
 ## Remaining
 
-- Candidate formation and the complete pre-publication gate have not started.
+- Compare Task 0029 and current packed/release-relevant bytes, reconcile the outcome-safe README authority statement, and form the immutable candidate commit.
+- Verify the exact candidate through the complete frozen local, package, lifecycle, official, registry, protected-state, and fresh hosted gates.
+- Record the evidence-only terminal verdict and complete the authorized external delivery ledger.
 
 ## Resume Point
 
-When selected after Task 0037 is repository-complete and externally delivered, revalidate all time-sensitive state, transition to `IN_PROGRESS/RUNNING`, freeze the candidate criteria, and begin at the first unchecked Plan item.
+Compare Task 0029 candidate `5fa5a3d2637073580a64a01a7396f4d533d0d5b6` with exact current `main` package/release inputs, update only the outcome-safe README authority wording required before candidate freeze, then create and record immutable candidate Commit A.
 
 ## Blockers
 

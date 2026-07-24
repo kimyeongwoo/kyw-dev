@@ -3,7 +3,7 @@
 
 ## Status
 
-READY
+RUNNING
 
 ## Test Basis
 
@@ -13,6 +13,24 @@ READY
 - Historical comparison: Task 0029 exact candidate/evidence.
 - Current inputs: terminal Tasks 0030 through 0037 and exact integrated `main`.
 - Verification policy: exact immutable candidate, current configured model/effort, current-session direct where needed, fresh hosted CI, and no publication.
+
+## Model Provenance
+
+- Model identifier: `UNAVAILABLE` (`UNAVAILABLE`: the active API surface does not expose an exact configured model identifier)
+- Requested model alias: `NOT_REQUESTED` (`OBSERVED`: the current user supplied no model override)
+- Reasoning effort: `UNAVAILABLE` (`UNAVAILABLE`: the active API surface does not expose the configured reasoning effort)
+- Codex surface: `API` (`OBSERVED`: the active system identifies access through an API)
+- Codex version: `UNAVAILABLE` (`UNAVAILABLE`: the active API surface does not expose a Codex version)
+
+## Frozen Candidate Inputs
+
+- Delivered base and required parent: `origin/main@cc7a0ef2779df62263f10c4d36a0fece50e4db2c`, tree `8c2f41a47a2206d6f55450e4771c4d4298cda046`.
+- Candidate Commit A may change only the outcome-safe README authority paragraph and this Task/Test lifecycle pair from that exact base. `docs/tasks/` is excluded from the npm package; README is intentionally part of the candidate.
+- After Commit A is recorded, no amend, rebase, squash, force movement, or candidate-byte repair is permitted. A product or gate defect produces `BLOCKED`.
+- Task 0029 comparison: 14 packed paths changed by Tasks 0030–0037—`README.md`, `package.json`, two Audit Skill paths, four Task Skill/adapter paths, four CLI/core paths, and three project/Task templates—so Task 0029 cannot authorize the new bytes.
+- Local exact-candidate checks: stable `npm run check`; one persistent real `npm pack --json` archive with exact inventory, safe-entry, source-byte, metadata, legal, CLI/plugin/Skill, shasum/integrity/SHA-256 checks; direct SPEC fixture validation; isolated release lifecycle/protected-state gate; exact relevant-byte carry-forward review; and final package identity comparison.
+- Hosted exact-candidate check: one new `workflow_dispatch` attempt 1 at immutable Commit A, with every Stable and packed job inspected. PR-head and post-merge `main` CI are later external-ledger boundaries at the evidence head.
+- External read-only checks: the current official Codex manual and public npm name/authentication state. Publication, publication dry-run, `release:check`, registry mutation, tag, Release, public submission, rollback, rerun, model/effort change, and Task 0039 creation remain forbidden.
 
 ## Intent-to-Test Matrix
 
@@ -41,14 +59,21 @@ READY
 - Freeze exact candidate and command set before execution.
 - Do not execute `npm publish`, publication dry-run, `release:check`, tag, GitHub Release, or rollback commands.
 - Do not change the configured model or reasoning effort.
+- Canonical validators for Tasks 0030–0038 and 0039 — PASS before lifecycle transition.
+- Fresh local/remote/GitHub preflight and managed exact dispatch — PASS; Task 0038 selected with `IMPLEMENT` and `STANDARD_LIFECYCLE` authority.
+- `git fetch --prune origin` and `git switch -c task/0038-post-simplification-release-regate origin/main` — PASS; exact base `cc7a0ef2779df62263f10c4d36a0fece50e4db2c`.
+- `git diff --name-status 5fa5a3d2637073580a64a01a7396f4d533d0d5b6 cc7a0ef2779df62263f10c4d36a0fece50e4db2c -- <packed roots>` — PASS; 14 packed paths changed, so Task 0029 is superseded.
+- Current official manual helper and targeted plugin/Skill reads — PASS; local manual already current on 2026-07-24.
+- Isolated npm registry queries — PASS: PONG, exact view E404, zero exact-name search matches, and expected unauthenticated ENEEDAUTH. Initial Task-root `New-Item -LiteralPath` setup emitted a PowerShell parameter error; npm still used the explicit isolated paths and the query results were not retried.
 
 ## Results
 
-- Not run yet.
+- Execution preflight, dependency delivery, current official manual freshness, pair validation, exact dispatch, and clean branch formation passed.
+- Candidate formation and release-gate rows remain unexecuted.
 
 ## Unverified
 
-- All rows remain unverified until this Task is executed.
+- T-01 through T-10 remain unverified until candidate formation and the frozen gate execute.
 
 ## Final Coverage Review
 
