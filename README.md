@@ -2,7 +2,7 @@
 
 `kyw-dev` is a lightweight, spec-driven development workflow plugin for Codex.
 
-It turns an idea into a shared understanding, records the durable product and architecture decisions, splits implementation into session-sized numbered Tasks, and makes test intent traceable so completed-looking work is not accepted without verification.
+It turns an idea into a shared understanding, records durable product and architecture decisions, decomposes implementation into the smallest dependency-aware set of session-sized numbered Tasks, and makes test intent traceable so completed-looking work is not accepted without verification.
 
 > Product, plugin, CLI, and preferred npm package name: `kyw-dev`
 
@@ -10,11 +10,11 @@ It turns an idea into a shared understanding, records the durable product and ar
 
 Tasks 0001 through 0015 implemented the initial `0.1.0` pre-publication package/plugin surfaces. Work through Task 0028 now provides six canonical project/Task/Test templates, dependency-free deterministic Task helpers, four workflow Skills, safe direct-Skills installation, isolated marketplace verification, credential-free cross-platform CI, development-only evaluation/audit harnesses with interrupt-safe owned-state cleanup, marker-based release-isolation attribution, filesystem hardening, package metadata/hygiene checks, directly verified current behavioral evidence from Task 0027, and deterministic Windows evaluator-cleanup evidence from Task 0028. The CLI supports user/project install, conflict-aware update, ownership-safe uninstall, read-only diagnostics, help, and version output. These are implemented capabilities and evidence inputs, not by themselves an acceptance or release verdict.
 
-Task 0020 remains immutable historical `BLOCKED` evidence for its old candidate. Task 0029 remains immutable historical `READY_FOR_APPROVAL` evidence for its exact pre-simplification candidate, but Tasks 0030 through 0037 changed packed and release behavior, so that candidate is superseded for any future publication. Task 0038 is the authoritative current full release-readiness re-gate: its terminal `READY_FOR_APPROVAL` or `BLOCKED` verdict controls whether the exact post-simplification candidate has satisfied the authorized pre-publication gate. No version tag, GitHub Release, npm publication, or public plugin-directory submission has occurred. Even a successful pre-publication verdict is not final [SPEC §15](docs/SPEC.md#15-mvp-acceptance-criteria) MVP acceptance; the required MIT and third-party licensing and package identity must still be verified in the actually published tarball.
+Task 0020 remains immutable historical `BLOCKED` evidence for its old candidate. Tasks 0029 and 0038 remain immutable historical `READY_FOR_APPROVAL` evidence for their exact pre-simplification and post-simplification candidates. Task 0040 changes packed Task authoring behavior after the Task 0038 gate, so both candidates are superseded for any future publication and no current full release re-gate covers the new bytes. No follow-on Task is created automatically. No version tag, GitHub Release, npm publication, or public plugin-directory submission has occurred. Even a later successful pre-publication verdict is not final [SPEC §15](docs/SPEC.md#15-mvp-acceptance-criteria) MVP acceptance; the required MIT and third-party licensing and package identity must still be verified in the actually published tarball.
 
 Source: [kimyeongwoo/kyw-dev](https://github.com/kimyeongwoo/kyw-dev) · Issues: [GitHub issue tracker](https://github.com/kimyeongwoo/kyw-dev/issues)
 
-`$kyw-grilling` is implemented as an explicit-invocation-only, read-only interview Skill. `$kyw-init` is implemented as its explicit-only initialization wrapper: it inspects first, waits for confirmation, and then creates or minimally updates only the four permanent documents. `$kyw-task` sizes and clarifies one outcome, authors one atomic DRAFT Task/Test pair, executes an exact existing Task, or advances a pre-created dependency-aware queue one Task at a time. It keeps scope, documents, handoff state, tests, final diff coverage, and repository-versus-delivery evidence honest until completion or a recorded blocker. `$kyw-audit` independently treats those completion records as claims, reproduces available evidence, detects scope and documentation drift, and returns `PASS` or `BLOCKED` without modifying the repository by default. Only the exact `--fix` form authorizes bounded in-scope repair.
+`$kyw-grilling` is implemented as an explicit-invocation-only, read-only interview Skill. `$kyw-init` is implemented as its explicit-only initialization wrapper: it inspects first, waits for confirmation, and then creates or minimally updates only the four permanent documents. `$kyw-task` adaptively authors one outcome or the smallest dependency-aware Task/Test pair set as one atomic `READY/READY` batch, optionally starts only its first eligible Task, executes an exact existing Task, or advances a pre-created queue one Task at a time. It keeps scope, documents, handoff state, tests, final diff coverage, and repository-versus-delivery evidence honest until completion or a recorded blocker. `$kyw-audit` independently treats those completion records as claims, reproduces available evidence, detects scope and documentation drift, and returns `PASS` or `BLOCKED` without modifying the repository by default. Only the exact `--fix` form authorizes bounded in-scope repair.
 
 The authoritative product requirements are in `docs/SPEC.md`; the system structure is in `docs/ARCHITECTURE.md`; implementation is divided under `docs/tasks/`.
 
@@ -107,9 +107,9 @@ One-question-at-a-time grilling
         ↓
 README.md + AGENTS.md + docs/SPEC.md + docs/ARCHITECTURE.md
         ↓
-$kyw-task "one testable outcome"
+$kyw-task "one outcome or a dependency-aware set"
         ↓
-docs/tasks/NNNN-slug/TASK.md + TEST.md
+one or more atomic READY/READY Task/Test pairs
         ↓
 Implement → synchronize docs → verify → audit
 ```
@@ -122,7 +122,7 @@ Small questions and narrowly scoped changes do not require a Task folder. They s
 |---|---|---|
 | `$kyw-grilling` | Implemented | Internal/advanced interview primitive: resolve dependent decisions one at a time, with a recommended answer. |
 | `$kyw-init` | Implemented | Discover, adopt, or intentionally re-baseline a project, grill unresolved durable decisions, then create or minimally update the four permanent documents after confirmation. |
-| `$kyw-task` | Implemented | Create one confirmed Task/Test pair, execute an exact Task, or advance a pre-created queue serially through evidence-backed completion or a recorded blocker. |
+| `$kyw-task` | Implemented | Atomically create one or the smallest dependency-aware ready pair set, optionally execute its first eligible Task, execute an exact Task, or advance a pre-created queue serially. |
 | `$kyw-audit` | Implemented | Independently compare one Task's intent, code/diff, test evidence, scope, and permanent documents without writes; repair only through the exact `--fix` form. |
 
 All four packaged Skills keep implicit invocation disabled. Use their explicit `$skill-name` forms on every supported surface; a kyw-managed repository may additionally route only the exact Task aliases documented below through its loaded `AGENTS.md`.
@@ -141,13 +141,15 @@ $kyw-init "adopt this repository without replacing existing contributor guidance
 
 The Skill inspects code and documentation, classifies the run as `new`, `adopt`, or intentional `rebaseline`, and uses the grilling protocol only for unresolved durable decisions. It makes no change until the user confirms the final shared-understanding summary and four-file write plan. After confirmation it may create or minimally update only `README.md`, `AGENTS.md`, `docs/SPEC.md`, and `docs/ARCHITECTURE.md`; it preserves unrelated sections, reports conflicts and remaining unknowns, and recommends ordered Tasks without creating them or implementing application code.
 
-To create and execute one new Task:
+To create and execute new work:
 
 ```text
 $kyw-task "add account lockout"
 ```
 
-The Skill inspects permanent truth and relevant code, proposes a split without writing when the request contains independent outcomes, and asks only unresolved Task-level decisions. For one confirmed outcome it allocates the next ID, creates `TASK.md` and `TEST.md` together in `DRAFT`, maps stable acceptance and test IDs, and waits for confirmation. Confirmation promotes the pair to `READY`, then execution records `IN_PROGRESS`/`RUNNING`, implementation and documentation impact, exact test evidence, compaction-ready handoff state, and final diff coverage before terminal status.
+The Skill inspects permanent truth and relevant code, asks only genuinely blocking Task-level decisions, and keeps one pair for one independently verifiable outcome. Independent outcomes, separate acceptance sets, dependency ordering, or excess single-Task scope produce the smallest justified dependency-aware set rather than a split proposal that creates only one item. Explicit current-prompt count, boundaries, order, titles, dependencies, and create mode are preserved when safe.
+
+All IDs and final paths are assigned before publication; every complete Task/Test pair and the combined dependency graph are validated before one creation lock publishes the whole `READY/READY` set. Failure leaves no dispatchable partial queue. A create-only request stops after reporting those paths. A create-and-execute request starts only the first dependency-satisfied new Task; use `남은 task 계속 실행해줘` separately to execute a pre-created queue serially.
 
 To resume one existing Task:
 

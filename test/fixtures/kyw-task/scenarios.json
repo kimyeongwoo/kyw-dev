@@ -21,11 +21,50 @@
       "session storage migration",
       "audit dashboard"
     ],
-    "writesBeforeSelection": 0
+    "createdPairCount": 3,
+    "selectionQuestionAsked": false,
+    "publishedStatuses": [
+      "READY/READY",
+      "READY/READY",
+      "READY/READY"
+    ]
   },
-  "confirmation": {
-    "beforeExplicitConfirmation": "DRAFT",
-    "afterExplicitConfirmation": "READY",
-    "implementationStarts": false
+  "adaptiveCreate": {
+    "beforePublicationPairCount": 0,
+    "publishedStatus": "READY/READY",
+    "postPublicationConfirmationRequired": false,
+    "createOnlyImplementationStarts": false,
+    "createAndExecuteActiveTaskCount": 1,
+    "createAndExecuteSelectedPairIndex": 0,
+    "unselectedPairStatus": "READY/READY",
+    "continuousInvocationRequiredForRemainder": true
+  },
+  "explicitStructure": {
+    "requestedCount": 2,
+    "requestedTitles": [
+      "Authentication foundation",
+      "Administrative unlock"
+    ],
+    "requestedOrder": [
+      "Authentication foundation",
+      "Administrative unlock"
+    ],
+    "requestedDependency": "Administrative unlock depends on Authentication foundation",
+    "requestedMode": "CREATE_ONLY",
+    "preservedExactlyWhenSafe": true,
+    "silentRewriteAllowed": false
+  },
+  "conflictingStructure": {
+    "requestedCount": 1,
+    "independentOutcomeCount": 2,
+    "conflict": "one Task cannot preserve independent verification and truthful acceptance boundaries",
+    "minimumSafeAlternativePairCount": 2,
+    "userDecisionRequired": false,
+    "questionCount": 0
+  },
+  "compatibleDraftResume": {
+    "initialStatus": "DRAFT/DRAFT",
+    "explicitConfirmationRequired": true,
+    "promotedStatus": "READY/READY"
   }
 }

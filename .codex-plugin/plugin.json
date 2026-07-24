@@ -18,7 +18,7 @@
   "interface": {
     "displayName": "kyw-dev",
     "shortDescription": "Plan, execute, and audit spec-driven work.",
-    "longDescription": "Provides explicit workflows to initialize durable project truth, execute one verified Task at a time, and independently audit the resulting evidence.",
+    "longDescription": "Provides explicit workflows to initialize durable project truth, atomically author dependency-aware Task sets, execute one verified Task at a time, and independently audit the resulting evidence.",
     "developerName": "Kim Yeongwoo",
     "category": "Productivity",
     "capabilities": [
@@ -28,7 +28,7 @@
     "websiteURL": "https://github.com/kimyeongwoo/kyw-dev",
     "defaultPrompt": [
       "Use $kyw-init to initialize this repository's durable documents.",
-      "Use $kyw-task to create and execute one verified Task.",
+      "Use $kyw-task to create the smallest ready Task set and execute its first eligible Task.",
       "Use $kyw-audit 0001 to audit Task 0001 without modifying the repository."
     ]
   }

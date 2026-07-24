@@ -166,7 +166,11 @@ function validateSkill(root, skillName, errors) {
     expect(/^description: .{40,}$/m.test(frontmatter), `${skillName} needs a descriptive trigger boundary`, errors);
   }
 
-  expect(!skill.includes("TODO"), `${skillName} contains a TODO placeholder`, errors);
+  const placeholderScan =
+    skillName === "kyw-task"
+      ? skill.replace("`TODO` `T-01`, `T-02` identifiers", "")
+      : skill;
+  expect(!placeholderScan.includes("TODO"), `${skillName} contains a TODO placeholder`, errors);
   expect(skill.includes(`$${skillName}`), `${skillName} must name its explicit invocation`, errors);
   expect(skill.includes("## Inputs") || skill.includes("## Input"), `${skillName} must define its inputs`, errors);
   expect(skill.includes("mutation") || skill.includes("mutations"), `${skillName} must define a mutation boundary`, errors);
@@ -183,8 +187,22 @@ function validateSkill(root, skillName, errors) {
     if (skillName === "kyw-task") {
       const adapterPath = join(root, "skills", skillName, "scripts", "task-artifacts.mjs");
       const executionReferencePath = join(root, "skills", skillName, "references", "execution.md");
-      expect(skill.includes("Do not allocate an ID, run the adapter, create a directory, or write any file"), `${skillName} must apply its size gate before writes`, errors);
-      expect(skill.includes("Until confirmation, keep both files `DRAFT`"), `${skillName} must retain its pre-confirmation DRAFT boundary`, errors);
+      expect(
+        skill.includes("Stay read-only until target, facts, boundaries, mode, and Task decisions are settled"),
+        `${skillName} must settle adaptive boundaries before writes`,
+        errors,
+      );
+      expect(
+        skill.includes("set both statuses to `READY`") &&
+          skill.includes("require explicit confirmation before promoting both statuses to `READY`"),
+        `${skillName} must distinguish adaptive READY publication from compatible DRAFT confirmation`,
+        errors,
+      );
+      expect(
+        skill.includes("Expected failure rolls every batch-owned final directory back"),
+        `${skillName} must require atomic batch publication`,
+        errors,
+      );
       expect(skill.includes("exact(task-id)"), `${skillName} must route exact existing Tasks`, errors);
       expect(skill.includes("[Task Execution and Resume](references/execution.md)"), `${skillName} must link its execution reference`, errors);
       expect(existsSync(executionReferencePath), `${skillName} is missing its execution reference`, errors);

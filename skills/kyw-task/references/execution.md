@@ -1,6 +1,6 @@
 # Task Execution and Resume
 
-Use this workflow only after create mode has a confirmed `READY` pair or the packaged dispatcher selects one existing Task from a portable or managed-repository command. Keep one Task as the context and mutation boundary.
+Use this workflow only after create-and-execute mode atomically publishes a `READY/READY` pair set and selects its first dependency-satisfied Task, compatible DRAFT authoring promotes one confirmed pair, or the packaged dispatcher selects one existing Task from a portable or managed-repository command. Keep one Task as the execution context and mutation boundary.
 
 ## Authority
 
@@ -32,14 +32,14 @@ This reference is the canonical detailed execution procedure. `AGENTS.md` owns r
 Dispatch from verified state:
 
 - `DRAFT` / `DRAFT`: resume existing-pair customization and current-summary confirmation without allocating another ID; do not implement.
-- `READY` / `READY`: start when the current summary has been confirmed and the recognized invocation authorizes implementation plus ordinary declared delivery.
+- `READY` / `READY`: start when compatible DRAFT authoring was confirmed, adaptive create-and-execute selected this first eligible new Task, or a recognized existing-Task invocation authorizes implementation plus ordinary declared delivery.
 - `IN_PROGRESS` / `RUNNING`: resume from verified recorded state.
 - `BLOCKED` / `BLOCKED`: recheck the recorded blocker. Resume only if it cleared; otherwise refresh evidence and stop blocked.
 - `DONE` / `PASSED`: validate the repository result; resume authorized ordinary `STANDARD` delivery when final evidence is absent, stop on supplied failing or unsafe evidence, or report terminal completion when delivery is satisfied.
 - `CANCELLED` / `BLOCKED`: stop without implementation mutations.
 - Any unsupported or contradictory pair: record the inconsistency as a blocker and stop before implementation.
 
-A confirmation of the current create-mode summary authorizes its implementation when the summary says implementation will begin. For an already confirmed existing Task, a recognized exact, automatic, or continuous invocation that selects it authorizes implementation and its ordinary declared `STANDARD` lifecycle. An inspect-only, ambiguous, or non-matching request does not.
+Explicit create-and-execute intent authorizes only the first dependency-satisfied Task in the atomically published set; create-only intent authorizes none. Confirmation of a compatible existing DRAFT summary authorizes that pair after promotion. A recognized exact, automatic, or continuous invocation that selects existing work authorizes implementation and its ordinary declared `STANDARD` lifecycle. An inspect-only, ambiguous, create-only, or non-matching request does not.
 
 ## Dispatch and advance the queue
 
@@ -154,7 +154,7 @@ Use the exact exposed value with `OBSERVED`. Use `UNAVAILABLE` as both value and
 
 Before the first implementation mutation, update the verified pair together from `READY` / `READY` to `IN_PROGRESS` / `RUNNING`, record the start in Completed or Discoveries, make Remaining and Resume Point concrete, and validate again.
 
-Exact, automatic, or continuous `READY/READY` selection confirms implementation and ordinary delivery; selected resumable `DONE/PASSED` confirms delivery. Never reconfirm. Only a genuine unresolved user-owned blocker permits one question with one recommendation; otherwise use evidence or a safe reversible choice.
+Adaptive create-and-execute selection of the first eligible new `READY/READY` pair, or exact, automatic, or continuous selection of an existing `READY/READY` pair, confirms implementation and ordinary delivery; selected resumable `DONE/PASSED` confirms delivery. Never reconfirm. Only a genuine unresolved user-owned blocker permits one question with one recommendation; otherwise use evidence or a safe reversible choice.
 
 When a recorded blocker has cleared, change `BLOCKED` / `BLOCKED` back to `IN_PROGRESS` / `RUNNING`, record why it cleared, and validate before continuing. Do not erase the earlier blocked result or command evidence.
 

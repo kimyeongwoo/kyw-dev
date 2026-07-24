@@ -20,6 +20,7 @@ if (!existsSync(fileURLToPath(coreUrl))) {
 
 const {
   TaskArtifactError,
+  createTaskArtifactBatch,
   createTaskArtifacts,
   resolveTaskDispatch,
   validateTaskDirectory,
@@ -27,6 +28,8 @@ const {
 
 const usage =
   "Usage: task-artifacts.mjs create --tasks-root <path> --title <title>\n" +
+  "   or: task-artifacts.mjs create-batch --tasks-root <path> " +
+  "(--batch-json <json> | --batch-file <path>)\n" +
   "   or: task-artifacts.mjs validate --task-directory <path>\n" +
   "   or: task-artifacts.mjs dispatch --tasks-root <path> --invocation <text> " +
   "--managed-routing <true|false> [--delivery-ledger <json-path> | --delivery-ledger-json <json>] " +
@@ -113,6 +116,38 @@ export async function runTaskArtifactCommand(argv) {
     return { command, ...created };
   }
 
+  if (command === "create-batch") {
+    const options = parseOptions(
+      args,
+      ["--tasks-root"],
+      ["--batch-json", "--batch-file"],
+    );
+    const batchSpec = await readJsonObjectOption(options, {
+      pathOption: "--batch-file",
+      jsonOption: "--batch-json",
+      label: "Task batch specification",
+      errorCode: "INVALID_TASK_BATCH",
+    });
+    const batchKeys = Object.keys(batchSpec).sort();
+    if (
+      batchKeys.length !== 2 ||
+      batchKeys[0] !== "schemaVersion" ||
+      batchKeys[1] !== "tasks" ||
+      batchSpec.schemaVersion !== 1 ||
+      !Array.isArray(batchSpec.tasks)
+    ) {
+      throw new TaskArtifactError(
+        "INVALID_TASK_BATCH",
+        "Task batch specification must contain exactly schemaVersion: 1 and a tasks array",
+      );
+    }
+    const created = await createTaskArtifactBatch({
+      tasksRoot: resolve(options.get("--tasks-root")),
+      tasks: batchSpec.tasks,
+    });
+    return { command, schemaVersion: 1, ...created };
+  }
+
   if (command === "validate") {
     const options = parseOptions(args, ["--task-directory"]);
     const directory = resolve(options.get("--task-directory"));
@@ -179,7 +214,7 @@ export async function runTaskArtifactCommand(argv) {
 
   throw new TaskArtifactError(
     "INVALID_TASK_ADAPTER_ARGUMENTS",
-    `Expected create, validate, or dispatch, received ${command ?? "<missing>"}\n${usage}`,
+    `Expected create, create-batch, validate, or dispatch, received ${command ?? "<missing>"}\n${usage}`,
   );
 }
 

@@ -67,6 +67,31 @@ function writeJson(filePath, value) {
   writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
 }
 
+function readyBatchSpecification(key = "installed-ready", title = "Installed ready batch") {
+  const fixtureRoot = join(
+    PACKAGE_ROOT,
+    "test",
+    "fixtures",
+    "task-repositories",
+    "ergonomics",
+    "0101-standard-task",
+  );
+  const taskMarkdown = readFileSync(join(fixtureRoot, "TASK.md"), "utf8")
+    .replace("# TASK 0101 — Concise Standard Task", "# TASK {{TASK_ID}} — {{TASK_TITLE}}")
+    .replace(
+      "- Not applicable — the fixture has no hard Task dependency.",
+      "{{TASK_DEPENDENCIES}}",
+    );
+  const testMarkdown = readFileSync(join(fixtureRoot, "TEST.md"), "utf8").replace(
+    "# TEST 0101 — Concise Standard Task",
+    "# TEST {{TASK_ID}} — {{TASK_TITLE}}",
+  );
+  return {
+    schemaVersion: 1,
+    tasks: [{ key, title, taskMarkdown, testMarkdown, dependencies: [] }],
+  };
+}
+
 function installPluginCacheFixture(
   home,
   {
@@ -419,6 +444,26 @@ test("user install writes complete hashed Skills and a runnable direct-install T
   assert.equal(dispatchOutput.outcome, "SELECTED");
   assert.equal(dispatchOutput.action, "AUTHOR");
   assert.equal(dispatchOutput.confirmation, false);
+
+  const batchResult = spawnSync(
+    process.execPath,
+    [
+      adapter,
+      "create-batch",
+      "--tasks-root",
+      join(targetRepository, "docs", "tasks"),
+      "--batch-json",
+      JSON.stringify(readyBatchSpecification()),
+    ],
+    { encoding: "utf8" },
+  );
+  assert.equal(batchResult.status, 0, batchResult.stderr);
+  const batchOutput = JSON.parse(batchResult.stdout);
+  assert.equal(batchOutput.firstId, "0002");
+  assert.equal(batchOutput.lastId, "0002");
+  assert.equal(batchOutput.tasks.length, 1);
+  assert.match(readFileSync(batchOutput.tasks[0].taskPath, "utf8"), /## Status\n\nREADY/);
+  assert.match(readFileSync(batchOutput.tasks[0].testPath, "utf8"), /## Status\n\nREADY/);
 
   const uninstall = uninstallManagedSkills({ scope: "user", home });
   assert.equal(uninstall.removedFileCount, 19);
@@ -1388,14 +1433,22 @@ test("actual npm tarball installs, diagnoses, runs its installed adapter, and un
   const adapter = join(home, ".agents", "skills", "kyw-task", "scripts", "task-artifacts.mjs");
   const adapterResult = spawnSync(
     process.execPath,
-    [adapter, "create", "--tasks-root", join(target, "docs", "tasks"), "--title", "Packed smoke"],
+    [
+      adapter,
+      "create-batch",
+      "--tasks-root",
+      join(target, "docs", "tasks"),
+      "--batch-json",
+      JSON.stringify(readyBatchSpecification("packed-ready", "Packed ready batch")),
+    ],
     { encoding: "utf8" },
   );
   assert.equal(adapterResult.status, 0, adapterResult.stderr);
   const created = JSON.parse(adapterResult.stdout);
-  assert.equal(created.id, "0001");
-  assert.ok(existsSync(join(created.directory, "TASK.md")));
-  assert.ok(existsSync(join(created.directory, "TEST.md")));
+  assert.equal(created.firstId, "0001");
+  assert.equal(created.lastId, "0001");
+  assert.ok(existsSync(created.tasks[0].taskPath));
+  assert.ok(existsSync(created.tasks[0].testPath));
   const dispatchResult = spawnSync(
     process.execPath,
     [

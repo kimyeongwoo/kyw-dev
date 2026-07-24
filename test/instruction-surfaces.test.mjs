@@ -73,8 +73,8 @@ test("instruction rule families have one canonical owner and minimal identified 
   );
   assert.match(readme, /These commands are a concise user projection/);
   assert.match(agentsTemplate, /minimal derived projection required for loaded repository routing/);
-  assert.equal(sectionBullets(agentsTemplate, "Task Routing").length, 3);
-  assert.equal(sectionBullets(agents, "Task routing").length, 3);
+  assert.equal(sectionBullets(agentsTemplate, "Task Routing").length, 4);
+  assert.equal(sectionBullets(agents, "Task routing").length, 4);
   assert.deepEqual(
     sectionBullets(agentsTemplate, "Task Routing"),
     sectionBullets(agents, "Task routing"),
@@ -92,6 +92,24 @@ test("instruction rule families have one canonical owner and minimal identified 
   assert.doesNotMatch(prompts, /여러 Task는 연속 모드에서만 직렬로 진행한다/);
 
   const projectionParity = [
+    {
+      name: "adaptive atomic create",
+      owner: spec,
+      ownerPattern:
+        /derive the smallest dependency-aware Task\/Test pair set and create the complete set instead of stopping at a split proposal/,
+      projection: readme,
+      projectionPattern:
+        /Independent outcomes, separate acceptance sets, dependency ordering, or excess single-Task scope produce the smallest justified dependency-aware set/,
+    },
+    {
+      name: "create-only versus first eligible execution",
+      owner: spec,
+      ownerPattern:
+        /For create-only intent, report the created pair set and stop without implementation[\s\S]*For create-and-execute intent, begin only the first dependency-satisfied new Task/,
+      projection: readme,
+      projectionPattern:
+        /A create-only request stops after reporting those paths[\s\S]*A create-and-execute request starts only the first dependency-satisfied new Task/,
+    },
     {
       name: "READY selection lifecycle authority",
       owner: spec,
