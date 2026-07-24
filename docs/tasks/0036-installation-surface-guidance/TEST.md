@@ -30,9 +30,9 @@ PASSED
 | T-03 | AC-02, AC-05 — User direct install | Install/discover/doctor/uninstall exact packed Skills in isolation. | E2E | PASS | Real-tarball distribution lifecycle installed, diagnosed, updated, and uninstalled exactly four user Skills under isolated state. |
 | T-04 | AC-02, AC-05 — Project direct install | Prove project-only visibility and preservation. | E2E | PASS | Same real-tarball lifecycle proved isolated project install/update/doctor/uninstall and protected-state preservation. |
 | T-05 | AC-02, AC-05 — Local plugin lifecycle | Add/install/list/remove exact packed plugin in isolated Codex state. | E2E | PASS | Current Codex local marketplace add/discover/install/list/remove passed; cached files matched all four packed Skills. |
-| T-06 | AC-03 — Duplicate doctor | Create controlled duplicates; verify diagnosis and non-destructive guidance. | Integration | PASS | Pre-fix fixture reproduced no finding; corrected user/project/plugin fixture reports every source/name with exit 4, rejects an unsafe cache component, and preserves metadata/content snapshots. |
+| T-06 | AC-03 — Duplicate doctor | Create controlled duplicates; verify diagnosis and non-destructive guidance. | Integration | PASS | The preserved first-PR macOS failure drove native alias coverage: user/project/plugin duplicates report exit 4, an ancestor symlink/junction is accepted, a linked Codex-home leaf/cache component is rejected without traversal, and all snapshots remain unchanged. |
 | T-07 | AC-04 — Task aliases by surface | Verify explicit and supported natural invocation forms. | Behavioral | PASS | Documentation assertion plus focused Skill/dispatcher suite passed 30/30 explicit, anchored alias, fallback, and incidental-text cases. |
-| T-08 | AC-06 — Stable/package regression | Run focused/full/pack checks. | Regression | PASS | Terminal `npm run check` passed 255/255 tests, lint, format, and exact 29-file/82,308-byte package selection; isolated protected-state lifecycle also passed. |
+| T-08 | AC-06 — Stable/package regression | Run focused/full/pack checks. | Regression | PASS | Corrected terminal `npm run check` passed 257/257 tests, lint, format, and exact 29-file/82,480-byte package selection; isolated protected-state lifecycle also passed. |
 
 ## Regression Coverage
 
@@ -63,6 +63,11 @@ PASSED
 - Corrected focused retry (`node --test test/skill-installation.test.mjs test/instruction-surfaces.test.mjs`) — PASS, 45/45 after limiting non-mutation evidence to the product-owned direct/plugin/repository roots.
 - Terminal `npm run check` — PASS: 255/255 tests, lint over 59 JavaScript modules and foundation metadata, format over 256 UTF-8/LF files, and exact 29-file/82,308-byte package selection.
 - Final canonical Task validation, `git diff --check`, exact nine-path inventory, and acceptance/branch/document/package review — PASS.
+- PR #23 exact-head Actions run `30061987281` — FAIL: packed release plus Ubuntu/Windows Stable passed; macOS Node 22/24 each failed the same three plugin-cache tests with actual exit 7 instead of expected 4/0/5.
+- `gh-fix-ci` inspection, exact job logs, GitHub PR metadata, and patch context — PASS; the failing paths are confined to the Task 0036 scanner/tests, and the native macOS `/var` → `/private/var` ancestor alias explains the false unsafe-cache finding.
+- Corrected `node --test test/skill-installation.test.mjs` — PASS, 42/42 including a native ancestor symlink/junction acceptance fixture and linked Codex-home leaf rejection fixture.
+- Corrected terminal `npm run check` — PASS: 257/257 tests, lint over 59 JavaScript modules and foundation metadata, format over 256 UTF-8/LF files, and exact 29-file/82,480-byte package selection.
+- Final corrected Task validation, `git diff --check`, nine-path inventory, and acceptance/branch/document/package review — PASS.
 - Do not record an unexecuted method as `PASS`.
 - Do not change the configured model or reasoning effort unless the user explicitly directs it.
 
@@ -71,12 +76,14 @@ PASSED
 - Repository/dependency preflight, pair validation, exact dispatch, and clean Task branch creation passed.
 - Dated official-source review, README assertions, direct/plugin lifecycle, duplicate reporting/preservation, and alias behavior now pass.
 - The reproduced runtime defect, host-snapshot assertion failure, corrected retry, and terminal Stable evidence remain recorded.
-- Every acceptance criterion maps to passing evidence; final diff review found no uncovered meaningful branch, unsafe scope drift, normal-state mutation, or stale permanent document.
+- The first exact-head hosted matrix uncovered one cross-platform ancestor-alias branch not represented by the local suite; native alias/leaf-link coverage now closes that branch without weakening the fail-closed cache boundary.
+- Every acceptance criterion maps to passing evidence; corrected final diff review found no uncovered meaningful branch, unsafe scope drift, normal-state mutation, or stale permanent document.
 
 ## Unverified
 
 - Exact-head pull-request and post-merge `main` Actions remain mutable external delivery-ledger evidence and are not pre-claimed here.
 - Interactive desktop UI was not manually opened; desktop availability and restart/new-chat guidance are supported by the dated official Codex sources, while the exact packed plugin lifecycle was exercised through the current CLI under isolated state.
+- The replacement exact-head PR run and post-merge `main` run remain external delivery evidence.
 
 ## Final Coverage Review
 

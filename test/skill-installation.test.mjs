@@ -861,6 +861,53 @@ test("doctor reports one plugin-cache source without inventing a duplicate", (t)
   assert.deepEqual(metadataSnapshot(home), before);
 });
 
+test("doctor accepts a real Codex home reached through an ancestor path alias", (t) => {
+  const physicalParent = temporaryDirectory(t);
+  const aliasContainer = temporaryDirectory(t);
+  const aliasParent = join(aliasContainer, "profile-alias");
+  const fixtureType = createRequiredDirectoryLink(
+    physicalParent,
+    aliasParent,
+    "Codex-home ancestor alias acceptance",
+  );
+  const codexHome = join(aliasParent, "codex-home");
+  const pluginSkillsRoot = installPluginCacheFixture(aliasParent, { codexHome });
+  const before = metadataSnapshot(physicalParent);
+
+  const report = diagnoseInstallations({ home: physicalParent, codexHome, commandRunner });
+  assert.equal(report.exitCode, EXIT_CODES.OK, `${fixtureType}: ${formatDoctorReport(report)}`);
+  assert.equal(report.pluginCache.codexHome, path.resolve(codexHome));
+  assert.equal(report.pluginCache.sources.length, 1);
+  assert.equal(report.pluginCache.sources[0].skillsRoot, pluginSkillsRoot);
+  assert.equal(report.findings.some((finding) => finding.code === "UNSAFE_PLUGIN_CACHE"), false);
+  assert.deepEqual(metadataSnapshot(physicalParent), before);
+});
+
+test("doctor rejects a linked Codex-home leaf without inspecting its target", (t) => {
+  const physicalParent = temporaryDirectory(t);
+  const aliasContainer = temporaryDirectory(t);
+  const physicalCodexHome = join(physicalParent, "codex-home");
+  installPluginCacheFixture(physicalParent, { codexHome: physicalCodexHome });
+  const linkedCodexHome = join(aliasContainer, "linked-codex-home");
+  const fixtureType = createRequiredDirectoryLink(
+    physicalCodexHome,
+    linkedCodexHome,
+    "Codex-home leaf link rejection",
+  );
+  const before = metadataSnapshot(physicalParent);
+
+  const report = diagnoseInstallations({
+    home: physicalParent,
+    codexHome: linkedCodexHome,
+    commandRunner,
+  });
+  assert.equal(report.exitCode, EXIT_CODES.RECOVERY_REQUIRED, fixtureType);
+  assert.equal(report.pluginCache.available, false);
+  assert.equal(report.pluginCache.sources.length, 0);
+  assert.ok(report.findings.some((finding) => finding.code === "UNSAFE_PLUGIN_CACHE"));
+  assert.deepEqual(metadataSnapshot(physicalParent), before);
+});
+
 test("doctor reports a malformed cached Skill entry without following it", (t) => {
   const home = temporaryDirectory(t);
   const codexHome = join(home, ".codex");

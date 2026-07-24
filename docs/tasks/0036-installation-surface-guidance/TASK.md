@@ -78,11 +78,14 @@ Make the supported Codex installation/discovery surfaces understandable, recomme
 - Coverage review added plugin-only healthy reporting, malformed cached-Skill handling, and actual CLI `CODEX_HOME` propagation. The first expanded run passed 44/45 but its whole-home snapshot included temporary command shims created by the test host; narrowing the assertion to the product-owned direct/plugin/repository roots preserved the intended non-mutation contract, and the unchanged product implementation passed 45/45.
 - Terminal `npm run check` passed 255/255 tests, lint over 59 JavaScript modules and foundation metadata, format over 256 UTF-8/LF files, and the exact 29-file/82,308-byte package selection.
 - Final nine-path review mapped every surface assertion, cache state/error branch, duplicate source, invocation boundary, package effect, and durable-document change to the Test matrix. No dependency, unrelated Task, publication action, normal profile mutation, or out-of-scope path was introduced.
+- PR #23 exact-head run `30061987281` passed the packed gate plus Ubuntu and Windows Stable lanes but failed both macOS lanes in the three new plugin-cache tests. macOS resolves its `/var` temporary-root prefix through `/private/var`; the scanner incorrectly treated that ancestor alias as if the selected Codex-home leaf or a cache component were a link and returned recovery-required exit 7.
+- The correction now proves the selected Codex-home leaf is a stable real directory, scans from its physical root, and maps reported source paths back to the configured spelling. A native symlink/junction ancestor is accepted while a linked Codex-home leaf remains untraversed and recovery-required.
+- Corrected focused installation coverage passed 42/42, and terminal `npm run check` passed 257/257 tests, lint, format, and the exact 29-file/82,480-byte package selection.
 
 ## Documentation Impact
 
 - SPEC: Updated supported Skill/plugin surfaces and required plugin-cache duplicate reporting.
-- ARCHITECTURE: Updated doctor discovery boundaries, cache semantics, and ownership-safe duplicate handling.
+- ARCHITECTURE: Updated doctor discovery boundaries, physical-root/ancestor-alias semantics, cache semantics, and ownership-safe duplicate handling.
 - README: Added the dated compatibility matrix, invocation boundaries, and safe duplicate-resolution guidance.
 - AGENTS: Unchanged — its existing managed alias and change-discipline invariants remain correct.
 
@@ -106,6 +109,8 @@ This artifact records repository outcome only and does not pre-claim delivery.
 - Added focused installation and instruction-surface coverage; passed corrected duplicate reproduction, 43 focused documentation/runtime tests, 30 Task alias/dispatch tests, lint, format, and the two-test real-tarball distribution lifecycle.
 - Added final plugin-only, malformed-cache, and CLI environment branches; preserved the one host-snapshot assertion failure and passed the corrected 45-test focused retry.
 - Passed the terminal 255-test Stable suite, lint, format, exact package selection, Task validator, whitespace check, and complete nine-path scope/coverage review.
+- Committed and pushed the exact nine-path outcome as `cffee2fc83a4c60cb83beaa9e5b754afb42932c6`, opened non-draft PR #23, and preserved the exact-head macOS failure as correction evidence.
+- Corrected the macOS ancestor-alias defect without weakening linked-leaf/cache rejection, added native acceptance and rejection fixtures, passed 42 focused installation tests and the 257-test Stable gate, and resynchronized Architecture.
 
 ## Remaining
 

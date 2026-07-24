@@ -2500,33 +2500,63 @@ function doctorPluginDirectories(directory, label, trustedRoot, findings) {
   return directories;
 }
 
+function doctorInspectionRoot(directory) {
+  const resolved = path.resolve(directory);
+  let before;
+  try {
+    before = pathState(resolved);
+  } catch {
+    return resolved;
+  }
+  if (!before?.isDirectory() || before.isSymbolicLink()) {
+    return resolved;
+  }
+  try {
+    const canonical = realpathSync(resolved);
+    const after = pathState(resolved);
+    if (
+      !after?.isDirectory() ||
+      after.isSymbolicLink() ||
+      before.dev !== after.dev ||
+      before.ino !== after.ino
+    ) {
+      return resolved;
+    }
+    return canonical;
+  } catch {
+    return resolved;
+  }
+}
+
 function inspectDoctorPluginCache(codexHome) {
   const findings = [];
   const sources = [];
   const resolvedCodexHome = path.resolve(codexHome);
+  const inspectionCodexHome = doctorInspectionRoot(resolvedCodexHome);
   const cacheRoot = path.join(resolvedCodexHome, "plugins", "cache");
-  const codexEntries = listDoctorDirectory(resolvedCodexHome, "Codex home", undefined, findings);
+  const inspectionCacheRoot = path.join(inspectionCodexHome, "plugins", "cache");
+  const codexEntries = listDoctorDirectory(inspectionCodexHome, "Codex home", undefined, findings);
   if (codexEntries) {
-    const pluginsRoot = path.join(resolvedCodexHome, "plugins");
-    if (listDoctorDirectory(pluginsRoot, "Codex plugins directory", resolvedCodexHome, findings)) {
+    const pluginsRoot = path.join(inspectionCodexHome, "plugins");
+    if (listDoctorDirectory(pluginsRoot, "Codex plugins directory", inspectionCodexHome, findings)) {
       const marketplaces = doctorPluginDirectories(
-        cacheRoot,
+        inspectionCacheRoot,
         "Codex plugin cache",
-        resolvedCodexHome,
+        inspectionCodexHome,
         findings,
       );
       for (const marketplace of marketplaces) {
         const plugins = doctorPluginDirectories(
           marketplace.path,
           `plugin marketplace ${JSON.stringify(marketplace.name)}`,
-          resolvedCodexHome,
+          inspectionCodexHome,
           findings,
         );
         for (const plugin of plugins) {
           const versions = doctorPluginDirectories(
             plugin.path,
             `plugin ${JSON.stringify(`${marketplace.name}/${plugin.name}`)}`,
-            resolvedCodexHome,
+            inspectionCodexHome,
             findings,
           );
           for (const version of versions) {
@@ -2534,7 +2564,7 @@ function inspectDoctorPluginCache(codexHome) {
             const skillEntries = listDoctorDirectory(
               skillsRoot,
               `plugin Skills ${JSON.stringify(`${marketplace.name}/${plugin.name}@${version.name}`)}`,
-              resolvedCodexHome,
+              inspectionCodexHome,
               findings,
             );
             if (!skillEntries) {
@@ -2563,7 +2593,10 @@ function inspectDoctorPluginCache(codexHome) {
                   marketplace: marketplace.name,
                   plugin: plugin.name,
                   version: version.name,
-                  skillsRoot,
+                  skillsRoot: path.join(
+                    resolvedCodexHome,
+                    path.relative(inspectionCodexHome, skillsRoot),
+                  ),
                   skillNames: Object.freeze(skillNames.sort()),
                 }),
               );
@@ -2575,8 +2608,8 @@ function inspectDoctorPluginCache(codexHome) {
   }
   let available = false;
   try {
-    const cacheState = pathState(cacheRoot);
-    available = Boolean(cacheState?.isDirectory() && !cacheState.isSymbolicLink());
+    const cacheState = pathState(inspectionCacheRoot);
+    available = Boolean(codexEntries && cacheState?.isDirectory() && !cacheState.isSymbolicLink());
   } catch {
     // The preceding guarded inspection already records an unreadable cache.
   }
