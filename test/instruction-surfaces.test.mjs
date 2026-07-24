@@ -290,3 +290,47 @@ test("Task runtime has no model or reasoning-effort mutation path", async () => 
   assert.match(execution, /unless the current user explicitly requests that change/);
   assert.match(execution, /Use `UNAVAILABLE` as both value and observability/);
 });
+
+test("installation guidance distinguishes supported surfaces, scopes, aliases, and duplicate resolution", async () => {
+  const [readme, spec, architecture] = await Promise.all([
+    read("README.md"),
+    read("docs/SPEC.md"),
+    read("docs/ARCHITECTURE.md"),
+  ]);
+
+  assert.match(readme, /Official surface behavior was checked on \*\*2026-07-24\*\*/);
+  for (const officialSource of [
+    "https://learn.chatgpt.com/docs/build-skills",
+    "https://learn.chatgpt.com/docs/plugins",
+    "https://learn.chatgpt.com/docs/build-plugins",
+    "https://learn.chatgpt.com/docs/agent-configuration/agents-md",
+  ]) {
+    assert.ok(readme.includes(officialSource), `missing dated official source ${officialSource}`);
+  }
+  for (const row of [
+    "| Codex CLI |",
+    "| Desktop Codex in the ChatGPT desktop app |",
+    "| Codex IDE extension |",
+    "| Repository scope |",
+    "| User scope |",
+  ]) {
+    assert.ok(readme.includes(row), `missing compatibility row ${row}`);
+  }
+  assert.match(readme, /Plugins are not available in the IDE extension/);
+  assert.match(readme, /`install --scope project`/);
+  assert.match(readme, /`install --scope user`/);
+  assert.match(readme, /The portable `\$kyw-grilling`, `\$kyw-init`, `\$kyw-task NNNN`, and `\$kyw-audit NNNN` forms/);
+  assert.match(readme, /If that contract is absent, not loaded, or outside the current instruction chain, use `\$kyw-task NNNN`/);
+  assert.match(readme, /Remove a plugin through the desktop Plugins Directory or the CLI `\/plugins` browser/);
+  assert.match(readme, /do not manually delete the broad plugin cache/);
+  assert.match(readme, /`--force` can remove only modified files already named by valid kyw-dev ownership metadata/);
+
+  assert.match(
+    spec,
+    /duplicate `kyw-\*` Skill names across direct user, direct repository, and installed plugin-cache sources/,
+  );
+  assert.match(spec, /Plugin-cache discovery reports installed bytes and their source; it does not infer/);
+  assert.match(architecture, /plugins\/cache\/<marketplace>\/<plugin>\/<version>\/skills\//);
+  assert.match(architecture, /Cache presence proves installed bytes, not enabled state/);
+  assert.match(architecture, /never follows a linked or unsupported cache component/);
+});

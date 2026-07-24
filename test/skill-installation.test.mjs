@@ -30,11 +30,13 @@ import {
   buildManagedSourceInventory,
   diagnoseInstallations,
   findRepositoryRoot,
+  formatDoctorReport,
   inspectManagedInstallation,
   installManagedSkills,
   readInstallMetadata,
   recoverInterruptedInstallation,
   repositorySearchPath,
+  resolveCodexHome,
   resolveManagedPath,
   resolveInstallLocation,
   resolveScopeLayout,
@@ -63,6 +65,22 @@ function temporaryDirectory(t, prefix = "kyw-dev-install-") {
 function writeJson(filePath, value) {
   mkdirSync(path.dirname(filePath), { recursive: true });
   writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+}
+
+function installPluginCacheFixture(
+  home,
+  {
+    codexHome = join(home, ".codex"),
+    marketplace = "kyw-dev-local",
+    plugin = "kyw-dev",
+    version = "local",
+  } = {},
+) {
+  const skillsRoot = join(codexHome, "plugins", "cache", marketplace, plugin, version, "skills");
+  for (const skillName of MANAGED_SKILL_NAMES) {
+    cpSync(join(PACKAGE_ROOT, "skills", skillName), join(skillsRoot, skillName), { recursive: true });
+  }
+  return skillsRoot;
 }
 
 function hashFile(filePath) {
@@ -216,6 +234,13 @@ test("scope paths and repository walks are stable for POSIX and Windows dialects
   assert.deepEqual(repositorySearchPath("/work/app/src", posix), ["/work/app/src", "/work/app", "/work", "/"]);
 });
 
+test("Codex home resolution uses an explicit profile before the home default", (t) => {
+  const home = temporaryDirectory(t);
+  const configured = join(home, "isolated-codex");
+  assert.equal(resolveCodexHome({ home, env: {} }), path.resolve(home, ".codex"));
+  assert.equal(resolveCodexHome({ home, env: { CODEX_HOME: configured } }), path.resolve(configured));
+});
+
 test("managed paths reject portable absolute, traversal, mixed-separator, and malformed forms", () => {
   const invalidPaths = [
     "",
@@ -306,7 +331,7 @@ test("project install and doctor reject a linked Git marker", (t) => {
 test("CLI entrypoint installs and uninstalls against an isolated HOME", (t) => {
   const home = temporaryDirectory(t);
   const workingDirectory = temporaryDirectory(t);
-  const env = { ...process.env, HOME: home, USERPROFILE: home };
+  const env = { ...process.env, HOME: home, USERPROFILE: home, CODEX_HOME: join(home, ".codex") };
   const install = spawnSync(process.execPath, [cliExecutable, "install", "--scope", "user"], {
     cwd: workingDirectory,
     env,
@@ -415,7 +440,7 @@ test("project install resolves the Git root and never creates or replaces projec
 
   const installed = spawnSync(process.execPath, [cliExecutable, "install", "--scope", "project"], {
     cwd: nested,
-    env: { ...process.env, HOME: home, USERPROFILE: home },
+    env: { ...process.env, HOME: home, USERPROFILE: home, CODEX_HOME: join(home, ".codex") },
     encoding: "utf8",
   });
   assert.equal(installed.status, 0, installed.stderr);
@@ -764,6 +789,105 @@ test("doctor reports duplicate, malformed, permission, and partial installs with
   assert.ok(report.findings.some((finding) => finding.code === "CODEX_NOT_DETECTED"));
   assert.deepEqual(fileSnapshot(home), beforeHome);
   assert.deepEqual(fileSnapshot(repository), beforeRepository);
+});
+
+test("doctor reports direct and plugin-cache duplicate Skill sources without mutation", (t) => {
+  const home = temporaryDirectory(t);
+  const repository = createRepository(join(temporaryDirectory(t), "repository"));
+  const codexHome = join(home, "isolated-codex");
+  installManagedSkills({ scope: "user", home });
+  installManagedSkills({ scope: "project", cwd: repository, home });
+  const pluginSkillsRoot = installPluginCacheFixture(home, { codexHome });
+  const beforeHome = metadataSnapshot(home);
+  const beforeRepository = metadataSnapshot(repository);
+
+  const report = diagnoseInstallations({
+    cwd: repository,
+    home,
+    codexHome,
+    commandRunner,
+  });
+  assert.equal(report.exitCode, EXIT_CODES.CONFLICT);
+  assert.equal(report.pluginCache.codexHome, path.resolve(codexHome));
+  assert.equal(report.pluginCache.sources.length, 1);
+  assert.equal(report.pluginCache.sources[0].skillsRoot, pluginSkillsRoot);
+  assert.deepEqual(report.pluginCache.sources[0].skillNames, [...MANAGED_SKILL_NAMES].sort());
+  const duplicate = report.findings.find((finding) => finding.code === "DUPLICATE_INSTALLATION");
+  assert.ok(duplicate);
+  assert.match(duplicate.message, /user/);
+  assert.match(duplicate.message, /project/);
+  assert.match(duplicate.message, /plugin "kyw-dev-local\/kyw-dev@local"/);
+  for (const skillName of MANAGED_SKILL_NAMES) {
+    assert.match(duplicate.message, new RegExp(skillName));
+  }
+  const formatted = formatDoctorReport(report);
+  assert.match(formatted, /Plugin Skills:/);
+  assert.match(formatted, /kyw-dev-local\/kyw-dev@local/);
+  assert.match(formatted, /issues found \(exit 4\)/);
+  assert.deepEqual(metadataSnapshot(home), beforeHome);
+  assert.deepEqual(metadataSnapshot(repository), beforeRepository);
+  const beforeDirectRoot = metadataSnapshot(join(home, ".agents"));
+  const beforePluginRoot = metadataSnapshot(pluginSkillsRoot);
+  const cliDoctor = spawnSync(process.execPath, [cliExecutable, "doctor"], {
+    cwd: repository,
+    env: {
+      ...process.env,
+      HOME: home,
+      USERPROFILE: home,
+      CODEX_HOME: codexHome,
+    },
+    encoding: "utf8",
+  });
+  assert.equal(cliDoctor.status, EXIT_CODES.CONFLICT, cliDoctor.stderr);
+  assert.match(cliDoctor.stdout, /plugin "kyw-dev-local\/kyw-dev@local"/);
+  assert.deepEqual(metadataSnapshot(join(home, ".agents")), beforeDirectRoot);
+  assert.deepEqual(metadataSnapshot(pluginSkillsRoot), beforePluginRoot);
+  assert.deepEqual(metadataSnapshot(repository), beforeRepository);
+});
+
+test("doctor reports one plugin-cache source without inventing a duplicate", (t) => {
+  const home = temporaryDirectory(t);
+  const codexHome = join(home, ".codex");
+  const pluginSkillsRoot = installPluginCacheFixture(home, { codexHome });
+  const before = metadataSnapshot(home);
+
+  const report = diagnoseInstallations({ home, codexHome, commandRunner });
+  assert.equal(report.exitCode, EXIT_CODES.OK);
+  assert.equal(report.pluginCache.available, true);
+  assert.equal(report.pluginCache.sources.length, 1);
+  assert.equal(report.pluginCache.sources[0].skillsRoot, pluginSkillsRoot);
+  assert.equal(report.findings.some((finding) => finding.code === "DUPLICATE_INSTALLATION"), false);
+  assert.match(formatDoctorReport(report), /Result: healthy/);
+  assert.deepEqual(metadataSnapshot(home), before);
+});
+
+test("doctor reports a malformed cached Skill entry without following it", (t) => {
+  const home = temporaryDirectory(t);
+  const codexHome = join(home, ".codex");
+  const skillsRoot = join(codexHome, "plugins", "cache", "local", "broken-plugin", "local", "skills");
+  mkdirSync(skillsRoot, { recursive: true });
+  writeFileSync(join(skillsRoot, "kyw-broken"), "not a directory\n", "utf8");
+  const before = metadataSnapshot(home);
+
+  const report = diagnoseInstallations({ home, codexHome, commandRunner });
+  assert.equal(report.exitCode, EXIT_CODES.INVALID_STATE);
+  assert.ok(report.findings.some((finding) => finding.code === "MALFORMED_PLUGIN_SKILL"));
+  assert.deepEqual(report.pluginCache.sources[0].skillNames, ["kyw-broken"]);
+  assert.deepEqual(metadataSnapshot(home), before);
+});
+
+test("doctor fails closed on an unsupported plugin-cache component without mutation", (t) => {
+  const home = temporaryDirectory(t);
+  const codexHome = join(home, ".codex");
+  const pluginsRoot = join(codexHome, "plugins");
+  mkdirSync(pluginsRoot, { recursive: true });
+  writeFileSync(join(pluginsRoot, "cache"), "not a directory\n", "utf8");
+  const before = metadataSnapshot(home);
+
+  const report = diagnoseInstallations({ home, codexHome, commandRunner });
+  assert.equal(report.exitCode, EXIT_CODES.RECOVERY_REQUIRED);
+  assert.ok(report.findings.some((finding) => finding.code === "UNSAFE_PLUGIN_CACHE"));
+  assert.deepEqual(metadataSnapshot(home), before);
 });
 
 test("doctor reports malformed packaged plugin metadata", (t) => {
@@ -1200,7 +1324,7 @@ test("actual npm tarball installs, diagnoses, runs its installed adapter, and un
   mkdirSync(home);
   mkdirSync(work);
   mkdirSync(target);
-  const env = { ...process.env, HOME: home, USERPROFILE: home };
+  const env = { ...process.env, HOME: home, USERPROFILE: home, CODEX_HOME: join(home, ".codex") };
   const cli = join(extractRoot, "package", "bin", "kyw-dev.mjs");
   const install = spawnSync(process.execPath, [cli, "install", "--scope", "user"], {
     cwd: work,

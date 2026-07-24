@@ -189,6 +189,20 @@ Only the literal `--fix` token immediately after the Task ID selects repair mode
 
 ## Installation surfaces
 
+### Compatibility matrix
+
+Official surface behavior was checked on **2026-07-24** against [Build skills](https://learn.chatgpt.com/docs/build-skills), [Plugins](https://learn.chatgpt.com/docs/plugins), [Build plugins](https://learn.chatgpt.com/docs/build-plugins), and [custom instructions with `AGENTS.md`](https://learn.chatgpt.com/docs/agent-configuration/agents-md). Skills are available in the ChatGPT desktop app, Codex CLI, and IDE extension. Plugins are available in the desktop app and CLI, but not in the IDE extension. Until kyw-dev is actually published or listed in a trusted marketplace, the checkout and local-marketplace commands below remain the usable sources.
+
+| Surface or scope | Primary recommendation now | Supported fallback or limit |
+|---|---|---|
+| Codex CLI | Install direct Skills from this checkout at exactly one scope: project for one repository, user for all repositories. | A configured marketplace plugin can be installed through `/plugins`; start a new CLI session afterward and remove the direct copy first. |
+| Desktop Codex in the ChatGPT desktop app | Install the packed plugin from a repository or personal local marketplace. | Direct repository or user Skills are discoverable, but do not keep the same names installed through both paths. Restart the app or start a new chat after installation changes. |
+| Codex IDE extension | Install direct Skills at project scope by default; use user scope only when the workflow should apply everywhere. | Plugins are not available in the IDE extension. The fallback is the other direct-Skill scope, not a plugin install. |
+| Repository scope | Run `install --scope project`; Codex discovers `<repo>/.agents/skills/` from that repository context. | A repository marketplace is an alternative for plugin-capable CLI/desktop use. Direct installation does not add `AGENTS.md`, so repository aliases require the managed contract to already exist. |
+| User scope | Run `install --scope user`; Codex discovers `~/.agents/skills/` across repositories. | A personal marketplace plugin is an alternative for plugin-capable CLI/desktop use. A same-named project copy creates another discoverable source. |
+
+Choose one source for the four `kyw-*` names. The portable `$kyw-grilling`, `$kyw-init`, `$kyw-task NNNN`, and `$kyw-audit NNNN` forms work wherever the corresponding Skills are loaded. The shorter `task NNNN 실행해줘`, `task 진행해줘`, and `남은 task 계속 실행해줘` forms are repository routing supplied by this project's loaded `AGENTS.md`, not implicit Skill aliases. If that contract is absent, not loaded, or outside the current instruction chain, use `$kyw-task NNNN`.
+
 ### Direct Skills installation with npm CLI
 
 Until the first explicitly approved npm publication, use the checkout entrypoint. After `kyw-dev@0.1.0` is actually present on npm, the same arguments apply to `npx --yes kyw-dev@0.1.0 ...`; do not treat the prepared package as already published.
@@ -216,6 +230,16 @@ node ./bin/kyw-dev.mjs doctor
 - Mutating commands automatically recover a valid interrupted transaction before continuing. Recovery recursively cleans only UUID-named journal-owned stage/backup directories whose present contents all match the journal; unknown or unsafe transaction content remains for inspection. `doctor` is byte-and-metadata read-only and reports unsafe roots, links/types, collisions, or partial transactions without changing them.
 
 `doctor` checks Node support, detectable npm/Codex commands, packaged plugin and Skill metadata, user/project locations, version drift, duplicate Skill names, ownership hashes, partial transactions, and permissions. A project location is informationally unavailable when the command is not run inside a Git repository.
+
+It also inspects the documented Codex plugin cache below configured `CODEX_HOME` or default `~/.codex` and reports any cache source that contains `kyw-*` Skills. A cache entry proves installed plugin bytes, not that the plugin is enabled. If the same Skill name appears in more than one direct or plugin source, `doctor` exits with the conflict category and names the sources; it never deletes or disables any of them.
+
+To resolve a duplicate:
+
+1. Choose the one source recommended by the matrix for the surface you use.
+2. Remove an unchanged managed direct copy with `uninstall --scope user` or `uninstall --scope project`.
+3. Remove a plugin through the desktop Plugins Directory or the CLI `/plugins` browser; do not manually delete the broad plugin cache.
+4. Preserve and inspect unmanaged, modified, linked, or unknown files. `--force` can remove only modified files already named by valid kyw-dev ownership metadata; it still does not delete unknown content.
+5. Restart the affected Codex surface or start a new session, then rerun `doctor` from the target repository.
 
 CLI exit codes are stable:
 

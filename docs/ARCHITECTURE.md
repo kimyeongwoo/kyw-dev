@@ -574,7 +574,7 @@ Node's path-based standard-library API cannot provide a portable directory-handl
 
 ## 10.6 Doctor and error flow
 
-`doctor` builds and validates the packaged source inventory, checks Node and detectable npm/Codex versions, inspects user scope and the enclosing project scope when available, validates the physical scope chain, ownership metadata, portable path identities, filesystem types/links, and Skill front matter/UI policy, compares installed hashes and unknown paths, detects reserved transaction artifacts and duplicate Skill names, and probes the nearest existing scope directory for read/write access. It performs no directory creation, recovery, cleanup, chmod, write, rename, or deletion; tests compare content plus type/mode/size/mtime/ctime snapshots before and after healthy and hostile diagnostics.
+`doctor` builds and validates the packaged source inventory, checks Node and detectable npm/Codex versions, inspects user scope and the enclosing project scope when available, validates the physical scope chain, ownership metadata, portable path identities, filesystem types/links, and Skill front matter/UI policy, compares installed hashes and unknown paths, detects reserved transaction artifacts, and probes the nearest existing scope directory for read/write access. It also scans only the documented real-directory Codex plugin cache shape under configured `CODEX_HOME` or `<home>/.codex`: `plugins/cache/<marketplace>/<plugin>/<version>/skills/`. It reports each cache source containing `kyw-*` Skill names and detects duplicate names across direct user, direct project, and plugin-cache sources. Cache presence proves installed bytes, not enabled state; `doctor` never parses that as active-session proof or mutates plugin state. It performs no directory creation, recovery, cleanup, chmod, write, rename, deletion, enablement, or disablement; tests compare content plus type/mode/size/mtime/ctime snapshots before and after healthy and hostile diagnostics.
 
 The CLI uses stable numeric categories: 0 success, 1 usage, 2 unsupported runtime, 3 scope resolution, 4 conflict, 5 malformed package/install state, 6 filesystem/permission, and 7 recovery required. Doctor returns the highest applicable error category; warnings such as an undetected optional command or version drift do not alone make diagnostics fail.
 
@@ -608,12 +608,13 @@ Before publication, `test/fixtures/distribution/marketplace-root/.agents/plugins
 
 ## 11.3 Duplicate-install policy
 
-`doctor` reports a conflict when the same `kyw-*` Skill names exist in both active direct-install scopes:
+`doctor` reports a conflict when the same `kyw-*` Skill name exists in more than one discovered installation source:
 
 - project `.agents/skills`;
-- user `~/.agents/skills`.
+- user `~/.agents/skills`;
+- installed plugin bytes under `$CODEX_HOME/plugins/cache/<marketplace>/<plugin>/<version>/skills` or the default `~/.codex` equivalent.
 
-An installed plugin surface remains reportable when future tooling exposes a trustworthy location. The tool does not automatically remove another installation source. Duplicate diagnosis is read-only.
+Plugin-cache traversal never follows a linked or unsupported cache component; an uninspectable component is reported instead of guessed. The cache source is reported as installed bytes without claiming that its plugin is enabled. The tool does not automatically remove, disable, or repair another installation source. Duplicate diagnosis is read-only; users remove a direct managed copy through the kyw-dev CLI or a plugin through the supported Codex plugin browser rather than deleting broad Skill or cache directories.
 
 ## 11.4 Release gate
 
