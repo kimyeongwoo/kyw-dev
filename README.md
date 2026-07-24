@@ -32,10 +32,13 @@ npm run pack:check
 npm run check
 npm run release:ci
 npm run release:check
+node ./scripts/spec-behavioral-acceptance.mjs --validate-fixtures
 node ./scripts/release-gate-isolation.mjs
 ```
 
 `npm run check` runs the four stable verification commands. `npm run release:ci` repeats that suite, creates and extracts a real npm tarball in an isolated temporary directory, checks its exact allowlist and packed-only boundaries, smoke-tests the packed CLI, and cleans up without publishing. `npm run release:check` builds on the same packed gate and then runs `npm publish --dry-run --json`; the dry run reports what npm would publish but does not publish it. `npm pack --dry-run --json` can be used to inspect the package contents directly.
+
+`node ./scripts/spec-behavioral-acceptance.mjs --validate-fixtures` validates the retained S-01 through S-06 direct-acceptance fixtures and deterministic predicates, including the intentionally uncovered S-05 branch. It launches only the fixtures' Node tests. Behavioral use remains current-session direct verification; the cancelled nested Codex, fixed-cohort, capability-probe, and Docker runner is not a supported path.
 
 `node ./scripts/release-gate-isolation.mjs` is the development-only, fail-closed real-tarball lifecycle gate. Before starting a child process it resolves every writable target, proves each is a real strict descendant of one approved temporary root, and rejects normal user `.agents`, `.codex`, configured Codex, or npm userconfig aliases including Windows case/separator variants. It passes isolated user/Codex/npm/temp state only to children, compares read-only protected state before/after, runs user/project install-update-doctor-uninstall plus force-preservation and local marketplace add-install-remove, and cleans only its exact identity-checked root. The standalone command protects the actual normal-state locations resolved from its inherited environment and requires a working Codex CLI so marketplace evidence cannot be skipped. `node --test test/distribution.test.mjs` passes a temporary synthetic protected-state fixture through that same boundary and permits only the marketplace portion to be unavailable in credential-free public environments; the real-tarball direct lifecycle and every isolation guard remain required.
 

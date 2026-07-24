@@ -130,6 +130,7 @@ kyw-dev/
 │  ├─ evaluator-process.mjs
 │  ├─ grilling-eval.mjs
 │  ├─ release-gate-isolation.mjs
+│  ├─ spec-behavioral-acceptance.mjs
 │  ├─ grilling-eval/
 │  └─ development-only validation commands
 ├─ docs/
@@ -712,6 +713,14 @@ Read-only mode runs `codex exec` with the OS-enforced read-only sandbox and fail
 The audit runner uses the same run-scoped lifecycle, supported signals, exit codes, exact child-group/tree ownership, two 1.5-second termination bounds, first-cause rule, listener removal, and safe cleanup diagnostics as the grilling evaluator. Its idempotent finalizer removes only its single evaluator-owned `mkdtemp` root, including the temporary repository, isolated HOME/`CODEX_HOME`, copied authentication, control files, and last-message scratch file. The smoke has no result-publication path. Ctrl+Break/SIGBREAK, `SIGKILL` directed at the evaluator, OS crash, and power loss remain outside the guarantee. The harness never enters the npm package.
 
 Task 0023 changes only deterministic audit-classifier evidence and did not run a model-backed smoke or replace Task 0020's `BLOCKED` release gate. Task 0024 resolves the supported evaluator-interruption cleanup risk with deterministic fake-child tests plus actual POSIX signal and Windows console Ctrl+C evidence, without running a model. Task 0025 resolves the development-only release-isolation ambiguity with deterministic marker attribution and bounded ambient retry evidence; it does not rerun Task 0020 or change that `BLOCKED` verdict.
+
+### Direct SPEC behavioral acceptance fixtures
+
+`test/fixtures/spec-behavioral-e2e/` retains the exact 33-file S-01 through S-06 fixture set used by historical Tasks 0026 and 0027. The historical directory name and evidence remain unchanged, but the cancelled nested execution method is not a current component.
+
+`scripts/spec-behavioral-acceptance.mjs` is the development-only current-session support surface. It validates the exact fixture inventory, S-02 preservation marker, thin generated-agent inputs, passing generic suites, the independently proven S-05 casual-branch gap, direct mutation attribution, and per-scenario `CURRENT_SESSION_DIRECT` evidence contracts. Its only child executable is the current Node runtime running fixture tests. It has no Codex/model launch, Docker boundary, fixed-session cohort, capability probe, authentication copy, retained-report writer, or model/capability/cohort flag.
+
+`test/spec-behavioral-acceptance.test.mjs` covers each scenario contract independently, package-byte evidence requirements, confirmation and resume failures, gap/document routing, exact mutations, and the absence of the retired runner/test paths. The root `scripts/`, `test/`, and fixture tree remain development-only and outside the npm package; normal package validation continues to own packed-byte allowlist identity.
 
 ### Static validation
 
