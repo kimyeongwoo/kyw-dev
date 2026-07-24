@@ -53,9 +53,9 @@ Existing project documents and installed files are inspected before modification
 
 Plugin distribution through npm must work when package lifecycle scripts are not executed. The package is complete as packed; direct CLI execution occurs only when the user explicitly runs `npx`/`npm exec` or an installed binary.
 
-### A-06 — One Task is the context boundary
+### A-06 — One Task is the execution context boundary
 
-A Task directory is the resumable execution packet. Exactly one Task may be active. Continuous dispatch changes the boundary only after the current Task reaches a repository terminal state and its required external delivery gate passes; it never runs Tasks in parallel or outside the current host invocation. Completed Task folders are historical evidence, not mandatory context for later Tasks. Durable knowledge must be promoted to permanent documents.
+A Task directory is the resumable execution packet. Adaptive authoring may atomically materialize several dependency-aware ready packets, but exactly one Task may be active. Create-and-execute enters only the first eligible new packet; continuous dispatch changes the boundary only after the current Task reaches a repository terminal state and its required external delivery gate passes. It never runs Tasks in parallel or outside the current host invocation. Completed Task folders are historical evidence, not mandatory context for later Tasks. Durable knowledge must be promoted to permanent documents.
 
 ## 4. Top-level package structure
 
@@ -156,14 +156,14 @@ The positive npm `files` allowlist also excludes repository Tasks/docs, the remo
 The packaged deterministic mechanics are split into three core modules:
 
 - `src/core/template-contracts.mjs` implements the canonical template registry and enforces token rendering, required-section contracts, lifecycle-aware meaningful-content or reasoned-N/A rules, current-contract and legacy Task/Test status rules, static delivery-requirement parsing, acceptance-to-test traceability, and evidence validation. It applies no global Task length cap.
-- `src/core/task-artifacts.mjs` owns Task directory inventory, max-plus-one ID allocation, bounded ASCII slug generation, cross-platform path containment, atomic Task/Test scaffolding, file-backed validation, hard-dependency graph construction, and deterministic exact/automatic queue resolution.
+- `src/core/task-artifacts.mjs` owns Task directory inventory, contiguous max-plus-one ID allocation, bounded ASCII slug generation, cross-platform path containment, compatible one-pair scaffolding, atomic fully authored batch publication, file-backed validation, hard-dependency graph construction, and deterministic exact/automatic queue resolution.
 - `src/core/skill-installation.mjs` owns direct-install source inventory and hashing, user/project scope resolution, ownership metadata, conflict inspection, journaled file transactions and recovery, ownership-safe uninstall, tool detection, and doctor diagnostics.
 
 The artifact module depends on the template-contract module. The installation module inventories the same two core files and canonical templates as direct-install runtime inputs but does not import their Task logic. No core module depends on the CLI, Skills, or development-only validation surfaces.
 
-`skills/kyw-task/scripts/task-artifacts.mjs` is a thin packaged process adapter for the core artifact module's create, validate, and read-only resolve operations. It parses explicit arguments and reports structured results, but owns no numbering, slug, template, validation, dependency, selection, or file-write logic. In a plugin/npm tree it imports the package-root core; in a direct-Skills tree it falls back to `.agents/skills/.kyw-dev/runtime/src/core/`. This keeps deterministic mechanics in the core modules while giving the reasoning Skill a stable invocation surface in both distribution layouts.
+`skills/kyw-task/scripts/task-artifacts.mjs` is a thin packaged process adapter for the core artifact module's compatible one-pair scaffold, fully authored batch create, validate, and read-only resolve operations. It parses explicit arguments and reports structured results, but owns no numbering, slug, template, validation, dependency, selection, or file-write logic. Batch input carries complete model-authored Task/Test Markdown with deterministic placeholders and explicit existing/intra-batch dependency references; the core resolves those values and validates the result. In a plugin/npm tree the adapter imports the package-root core; in a direct-Skills tree it falls back to `.agents/skills/.kyw-dev/runtime/src/core/`. This keeps deterministic mechanics in the core modules while giving the reasoning Skill a stable invocation surface in both distribution layouts.
 
-`skills/kyw-task/references/execution.md` is the packaged semantic state-machine reference for exact, automatic, and continuous Task execution. `SKILL.md` loads it only after create-mode confirmation or an existing-Task dispatch. It owns reasoning gates for repository and GitHub preflight, current-Task scope, appended override checks, model/effort preservation, documentation impact, live Task/Test evidence, compaction handoff, final diff coverage, terminal repository status, delivery gating, and serial transition; it does not duplicate deterministic artifact mechanics.
+`skills/kyw-task/references/execution.md` is the packaged semantic state-machine reference for exact, automatic, and continuous Task execution. `SKILL.md` loads it only after adaptive create-and-execute selects the first eligible published pair, compatible DRAFT authoring is confirmed, or an existing-Task dispatch selects work. It owns reasoning gates for repository and GitHub preflight, current-Task scope, appended override checks, model/effort preservation, documentation impact, live Task/Test evidence, compaction handoff, final diff coverage, terminal repository status, delivery gating, and serial transition; it does not duplicate deterministic artifact mechanics.
 
 `skills/kyw-audit/references/audit.md` is the packaged semantic reference for an independent Task review. `SKILL.md` resolves one explicitly supplied Task ID, locks bare read-only or exact-`--fix` repair mode, and loads the reference before inspection. The reference owns baseline fallback, stable finding classification, acceptance/evidence reproduction, scope and durable-document comparison, the default zero-write boundary, explicit bounded repair, affected-check reruns, and the final audit verdict. It consumes existing Task validators as evidence but adds no deterministic runtime module or production dependency.
 
@@ -260,7 +260,7 @@ Responsibility: Task authoring, exact and automatic dispatch, serial queue progr
 Modes:
 
 ```text
-create(goal)
+create(goal, create-only | create-and-execute)
 exact(task-id)
 automatic-next()
 continuous()
@@ -276,7 +276,7 @@ Mutation boundary includes:
 
 It must not implement future Tasks or silently broaden scope; a contract migration changes their workflow metadata only.
 
-During `create(goal)`, the mutation boundary is narrower: inspection, sizing, and Task-level grilling occur without writes; authoring may then change only the one newly published Task/Test pair. Both files remain `DRAFT` until the user confirms the current shared-understanding summary, then move together to `READY`. Implementation files, permanent documents, existing Tasks, and follow-on Task proposals stay read-only during authoring. Execution and resume expand the boundary only in their later workflow phase.
+During `create(goal, mode)`, the mutation boundary is narrower: inspection, adaptive sizing, and Task-level grilling occur without writes. Once intent is settled, authoring may atomically publish only the smallest justified set of new Task/Test pairs. Every complete pair is prevalidated and becomes `READY/READY` together; no placeholder pair is exposed for post-publication customization. Create-only stops at that boundary. Create-and-execute expands the mutation boundary only for the first dependency-satisfied new Task through the existing execution reference. Implementation files, permanent documents, and existing Tasks stay read-only during authoring, except for an explicitly scoped safe contract migration named by the selected Task.
 
 The portable existing-Task entry is `$kyw-task NNNN`. A loaded managed `AGENTS.md` may route the anchored aliases as follows:
 
@@ -288,7 +288,7 @@ task 진행해줘               → automatic-next()
 
 The router matches only those anchored forms, with any following current-user text retained as an appended override. It does not route incidental prose containing `task`. Because direct Skill installation does not modify project documents, repositories without the managed routing contract and surfaces that do not load it must use the portable form.
 
-After confirmation, create mode may continue into execution. Exact mode resolves one existing four-digit Task; selecting a current-contract `READY/READY` pair confirms implementation and ordinary `STANDARD` delivery, while a different active Task blocks selection. Exact DRAFT and BLOCKED pairs may be selected only for authoring or condition recheck. Automatic mode resumes the sole `IN_PROGRESS/RUNNING` pair when its state is safe, otherwise selects the lowest-numbered `DONE/PASSED` pair with resumable `STANDARD` delivery before the lowest-numbered dependency-satisfied `READY/READY` pair. Continuous mode repeats that selection and authority only after each selected Task's repository and delivery transitions finish. It creates no Task, keeps at most one active pair, and stops when the host invocation ends.
+Create-and-execute may continue into execution only for the first dependency-satisfied pair in the newly published set. Exact mode resolves one existing four-digit Task; selecting a current-contract `READY/READY` pair confirms implementation and ordinary `STANDARD` delivery, while a different active Task blocks selection. Exact DRAFT and BLOCKED pairs may be selected only for compatible authoring resume or condition recheck. Automatic mode resumes the sole `IN_PROGRESS/RUNNING` pair when its state is safe, otherwise selects the lowest-numbered `DONE/PASSED` pair with resumable `STANDARD` delivery before the lowest-numbered dependency-satisfied `READY/READY` pair. Continuous mode repeats that selection and authority only after each selected Task's repository and delivery transitions finish. It creates no Task, keeps at most one active pair, and stops when the host invocation ends.
 
 Queue-aware pairs carry `<!-- kyw-task-contract: 2 -->` in both files. Their valid state pairs are:
 
@@ -316,9 +316,13 @@ Execution mutations remain limited to the current pair, implementation/tests req
 Deterministic helper needs:
 
 - list valid Task directories;
-- allocate next non-reused four-digit ID;
+- allocate one or a complete contiguous set of non-reused four-digit IDs and final paths;
 - create a safe slug;
-- scaffold Task/Test atomically;
+- preserve the compatible atomic one-pair DRAFT scaffold;
+- resolve full batch placeholders and explicit existing/intra-batch dependencies;
+- prevalidate every complete `READY/READY` pair plus missing-edge and cycle errors before publication;
+- publish the whole batch under one creation lock and roll back every owned final directory on failure;
+- make canonical queue inspection fail closed while the creation lock exists, so an in-flight prefix is never dispatchable;
 - validate required sections, current-contract markers, delivery declarations, and paired statuses;
 - extract hard dependencies and reject missing references or cycles;
 - reject verified conflict, unexplained-work, remote-drift, and user-decision preflight findings;
@@ -423,20 +427,23 @@ Each normative rule family has one owner. A surface that cannot load that owner 
 ## 8. Task lifecycle architecture
 
 ```text
-requested outcome
+requested outcome + create mode
       ↓
 inspect permanent docs + relevant code
       ↓
-grill unresolved Task decisions
+grill only a genuine unresolved Task decision
       ↓
-size check ── too large ──> propose multiple Tasks and stop
+adaptive decomposition → one outcome or smallest dependency-aware set
       ↓
-allocate ID + create TASK/TEST atomically
+preallocate all IDs/paths + render all complete pairs
       ↓
-DRAFT
-      ↓ user confirms shared understanding
-READY
-      ↓ implementation starts
+canonical pair validation + missing/cycle validation
+      ↓ one lock + whole-set publication
+READY / READY pair set
+      ├─ create-only → report and stop
+      └─ create-and-execute → first dependency-satisfied pair only
+                                  ↓
+                         IN_PROGRESS / RUNNING
 IN_PROGRESS / RUNNING
       ├─ discovery → update docs / Task / Test
       ├─ possible compaction → persist handoff fields
@@ -472,7 +479,9 @@ Current-contract `DRAFT/DRAFT` scaffolds may retain authoring guidance, and `CAN
 
 For byte-preserving compatibility, pre-rule contract-v2 pairs without any reasoned-N/A entry retain their historical negative placeholders. Empty required content and missing AC/matrix graph nodes still fail. The updated canonical template includes reasoned N/A, so adopting any such entry activates strict bare-None and N/A-shape validation for the complete pair without creating another Task type or rewriting old evidence.
 
-Atomic Task creation resolves and rejects a symlinked tasks root, renders and validates both documents before publication, writes them into a unique hidden sibling staging directory, then acquires an exclusive creation lock. While holding the lock it rechecks the allocated ID and target absence before renaming the complete directory into place. Expected failures remove the staging directory, so a final Task directory never exposes only one of the two contract files.
+Compatible one-pair scaffold creation retains its DRAFT two-file atomicity. Adaptive batch creation first resolves and rejects a symlinked tasks root, inspects a valid queue, preallocates every contiguous ID and direct-child path, resolves complete model-authored Markdown plus explicit dependency references, and validates every `READY/READY` pair and the combined dependency graph before writing. It then acquires the exclusive creation lock, rechecks inventory and target absence, writes the complete set beneath one unique hidden staging root, validates the staged directories again, and publishes every owned directory while canonical queue inspection remains locked.
+
+The filesystem has no portable multi-directory rename transaction, so publication is serialized under the lock and canonical readers reject the in-flight state. An expected failure renames every already-published owned directory back into staging in reverse order, removes the exact staging root, and releases the lock only after the pre-batch visible state is restored. If even rollback cannot be proven, the lock remains as a fail-closed recovery marker so no partial prefix is dispatchable or mistaken for a valid queue.
 
 ## 9. Test contract architecture
 
@@ -755,7 +764,7 @@ Task 0023 changes only deterministic audit-classifier evidence and did not run a
 
 `scripts/spec-behavioral-acceptance.mjs` is the development-only current-session support surface. It validates the exact fixture inventory, S-02 preservation marker, thin generated-agent inputs, passing generic suites, the independently proven S-05 casual-branch gap, direct mutation attribution, and per-scenario `CURRENT_SESSION_DIRECT` evidence contracts. Its only child executable is the current Node runtime running fixture tests. It has no Codex/model launch, Docker boundary, fixed-session cohort, capability probe, authentication copy, retained-report writer, or model/capability/cohort flag.
 
-`test/spec-behavioral-acceptance.test.mjs` covers each scenario contract independently, package-byte evidence requirements, confirmation and resume failures, gap/document routing, exact mutations, and the absence of the retired runner/test paths. The root `scripts/`, `test/`, and fixture tree remain development-only and outside the npm package; normal package validation continues to own packed-byte allowlist identity.
+`test/spec-behavioral-acceptance.test.mjs` covers each scenario contract independently, package-byte evidence requirements, init confirmation, adaptive create-only READY/stop and resume failures, gap/document routing, exact mutations, and the absence of the retired runner/test paths. The root `scripts/`, `test/`, and fixture tree remain development-only and outside the npm package; normal package validation continues to own packed-byte allowlist identity.
 
 ### Static validation
 

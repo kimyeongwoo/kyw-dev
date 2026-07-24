@@ -10,7 +10,7 @@ This document defines what `kyw-dev` must do from a user's perspective. Implemen
 
 1. clarify what should be built before implementation;
 2. materialize durable project truth into a minimal document set;
-3. split large work into session-sized, independently verifiable Tasks;
+3. decompose work into the smallest dependency-aware set of session-sized, independently verifiable Tasks;
 4. build a test contract before code and retain execution evidence after code;
 5. keep durable documents synchronized even when work is performed through an ordinary prompt rather than a Task command.
 
@@ -110,7 +110,7 @@ Output:
 
 ### `$kyw-task`
 
-Purpose: create one numbered Task, execute an exact existing Task, or advance a pre-created Task queue serially through implementation and verification.
+Purpose: create the smallest safe set of numbered Tasks for one request, execute an exact existing Task, or advance a pre-created Task queue serially through implementation and verification.
 
 Invocation examples:
 
@@ -127,16 +127,18 @@ The `$kyw-task NNNN` form is portable. The three natural-language forms are anch
 New-Task behavior:
 
 1. Read permanent documents and inspect relevant code.
-2. Identify unresolved Task-level decisions; grill only those decisions.
-3. Reject or split work that contains multiple independently shippable outcomes or is unlikely to fit the session budget.
-4. Allocate the next four-digit Task number.
-5. Create `docs/tasks/NNNN-kebab-slug/TASK.md` and `TEST.md` together.
-6. Build initial acceptance criteria and an intent-to-test matrix before implementation.
-7. Summarize the shared Task understanding and require confirmation before implementation begins.
+2. Identify unresolved Task-level decisions; reuse the grilling protocol only for intent discovery or one genuine blocking decision.
+3. Keep one pair when the request has one independently verifiable outcome and one coherent acceptance set. When independent outcomes, separate acceptance sets, dependency ordering, or session scope require decomposition, derive the smallest dependency-aware Task/Test pair set and create the complete set instead of stopping at a split proposal.
+4. Honor Task count, boundaries, order, titles, dependencies, and create-only versus create-and-execute behavior explicitly supplied in the current prompt when they satisfy independent verification, truthful evidence, permanent truth, and safety. When they do not, state the conflict and minimum safe alternative and ask only the one user decision genuinely required to proceed.
+5. Keep decomposition, number/path allocation, dependency materialization, and Task/Test authoring inside `kyw-task`; do not transfer those responsibilities or file writes to `kyw-grilling`.
+6. Preallocate every ID and final path, render every complete pair with acceptance criteria and an intent-to-test matrix, canonically validate all pairs and the full dependency graph, then publish the whole set through one creation lock.
+7. Fail before publication on a missing dependency or cycle. A validation, race, lock, write, or publication failure leaves no usable partial queue; canonical readers fail closed while publication is locked.
+8. Publish every successfully authored pair as `READY/READY`. Existing DRAFT pairs and the legacy one-pair scaffold helper remain resumable for compatibility, but adaptive create does not publish a placeholder DRAFT for later customization.
+9. For create-only intent, report the created pair set and stop without implementation. For create-and-execute intent, begin only the first dependency-satisfied new Task through the ordinary single-Task execution lifecycle. Executing every remaining pair still requires the existing `남은 task 계속 실행해줘` dispatcher contract.
 
 Execution behavior:
 
-1. Implement only the current Task scope.
+1. Implement only the current Task scope; adaptive authoring may create several ready pairs, but at most one enters execution.
 2. Update Task and Test when discoveries, design, scope, risk, or expected behavior changes.
 3. Synchronize permanent documents whenever durable truth changes.
 4. Run the planned tests and any additional tests implied by the final diff.
@@ -458,7 +460,7 @@ A Task is correctly sized when it has:
 - a repository state that remains valid if later Tasks never run;
 - no hidden dependency on rereading all completed Tasks.
 
-Split before implementation when:
+Create a dependency-aware pair boundary when:
 
 - two outcomes can be released or reverted independently;
 - separate subsystems require separate design decisions;
@@ -466,7 +468,7 @@ Split before implementation when:
 - the work is likely to require more than one compaction;
 - the Task cannot be summarized with a single Goal sentence.
 
-Do not split by arbitrary file count or estimated token count alone.
+Do not split by arbitrary file count or estimated token count alone. Adaptive create materializes the complete smallest justified set atomically. A user-specified decomposition is preserved when valid and safe; it is never silently changed to satisfy convenience.
 
 ## 9. Test lifecycle
 
@@ -474,7 +476,8 @@ Do not split by arbitrary file count or estimated token count alone.
 
 - Create `TEST.md` immediately with the Task.
 - Derive initial cases from Goal, scope, acceptance criteria, known failure paths, and required regressions.
-- Mark it `DRAFT` until the user confirms the Task understanding.
+- Adaptive create publishes only complete canonically validated `READY/READY` pairs after intent and any real blocker are settled. Create-only authority ends there; create-and-execute authority begins only the first dependency-satisfied pair.
+- Preserve existing `DRAFT/DRAFT` pairs and the compatible one-pair scaffold helper as resumable historical/low-level authoring paths; never reinterpret them as confirmed.
 
 ### During development
 
@@ -523,6 +526,7 @@ When the user asks a question or small, bounded change without invoking a Skill:
 - Never expose secrets found while inspecting repositories.
 - Never overwrite unknown user files silently.
 - Use atomic writes for CLI-managed installation files.
+- Use one fail-closed creation lock and whole-set rollback for adaptive Task batches; canonical queue readers must not consume an in-flight or failed partial publication.
 - Installation and update operations must be recoverable after interruption.
 - The CLI must identify files it manages; uninstall must not use broad directory deletion without ownership verification, and force must never broaden the removal set to unknown or unsafe entries.
 - Fail closed whenever managed-path containment, portable identity, filesystem type, link-free ancestry, transaction ownership, or expected content hash cannot be proved.
@@ -579,8 +583,8 @@ The MVP is accepted when all of the following are demonstrated:
 2. A user-scope direct installation makes the four Skills discoverable.
 3. A project-scope direct installation makes the four Skills discoverable only in that project context.
 4. `$kyw-init` can initialize an empty fixture and adopt an existing fixture without destructive replacement.
-5. `$kyw-task` creates the next numbered folder with both Task and Test documents and can resume it.
-6. The Task workflow refuses implementation until shared understanding is confirmed.
+5. `$kyw-task` creates one pair for one outcome or the smallest dependency-aware pair set for multiple outcomes, with every Task and Test document present and canonically valid.
+6. Create-only stops with all new pairs `READY/READY`; create-and-execute begins only the first dependency-satisfied pair after intent is settled, and no invocation activates more than one Task.
 7. The Test workflow catches at least one intentionally untested implementation branch in a fixture.
 8. Ordinary small-change instructions enforce permanent-document impact review without creating a Task.
 9. `$kyw-audit` detects stale permanent documentation and unsupported pass claims.

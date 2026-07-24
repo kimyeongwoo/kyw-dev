@@ -47,7 +47,7 @@ export const SCENARIO_CONTRACTS = Object.freeze([
     id: "S-03",
     acceptance: "SPEC AC-05 / AC-06",
     fixture: "s03-task",
-    intent: "Allocate the exact next Task/Test pair and refuse implementation before confirmation.",
+    intent: "Atomically allocate the exact next READY Task/Test pair and stop for create-only intent.",
     expectedMutations: Object.freeze([
       "docs/tasks/0004-<allocated-slug>/TASK.md",
       "docs/tasks/0004-<allocated-slug>/TEST.md",
@@ -57,7 +57,7 @@ export const SCENARIO_CONTRACTS = Object.freeze([
     id: "S-04",
     acceptance: "SPEC AC-05",
     fixture: "S-03 resulting-state copy",
-    intent: "Resume from repository state without reallocating, recreating, or repeating work.",
+    intent: "Recover the existing create-only READY pair without reallocating or recreating it.",
     expectedMutations: Object.freeze([]),
   }),
   Object.freeze({
@@ -409,7 +409,8 @@ export function validateDirectScenarioEvidence(record) {
       "singleTaskCreated",
       "pairComplete",
       "traceability",
-      "confirmationRequired",
+      "readyPair",
+      "createOnlyStop",
       "applicationUnchanged",
     ]) {
       requireCheck(name);
@@ -423,7 +424,8 @@ export function validateDirectScenarioEvidence(record) {
       "taskPairRead",
       "gitStateRead",
       "handoffFieldsRead",
-      "confirmationRequired",
+      "readyPair",
+      "createOnlyStop",
     ]) {
       requireCheck(name);
     }

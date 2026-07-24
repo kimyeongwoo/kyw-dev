@@ -65,7 +65,8 @@ function checksFor(id) {
       singleTaskCreated: true,
       pairComplete: true,
       traceability: true,
-      confirmationRequired: true,
+      readyPair: true,
+      createOnlyStop: true,
       applicationUnchanged: true,
     };
   }
@@ -78,7 +79,8 @@ function checksFor(id) {
       taskPairRead: true,
       gitStateRead: true,
       handoffFieldsRead: true,
-      confirmationRequired: true,
+      readyPair: true,
+      createOnlyStop: true,
     };
   }
   if (id === "S-05") {
@@ -225,7 +227,7 @@ test("permanent documents written before confirmation fail", () => {
   expectFailure(record, "preConfirmationDurableWrites");
 });
 
-test("application source changed before Task confirmation fails", () => {
+test("application source changed during create-only Task authoring fails", () => {
   const record = validRecord("S-03");
   record.checks.applicationUnchanged = false;
   expectFailure(record, "applicationUnchanged");
@@ -241,6 +243,16 @@ test("a missing Task/Test pair member fails", () => {
   const record = validRecord("S-03");
   record.checks.pairComplete = false;
   expectFailure(record, "pairComplete");
+});
+
+test("a non-READY adaptive pair or create-only implementation fails", () => {
+  const notReady = validRecord("S-03");
+  notReady.checks.readyPair = false;
+  expectFailure(notReady, "readyPair");
+
+  const implemented = validRecord("S-03");
+  implemented.checks.createOnlyStop = false;
+  expectFailure(implemented, "createOnlyStop");
 });
 
 test("resume that allocates another Task fails", () => {

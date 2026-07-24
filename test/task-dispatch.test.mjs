@@ -963,7 +963,7 @@ test("cancelled frontiers require standard delivery and unrelated historical blo
   assert.equal(frontier.message, ALL_TASKS_COMPLETE_MESSAGE);
 });
 
-test("queue dispatch rejects header identity drift and a symbolic-link tasks root", async (t) => {
+test("queue dispatch rejects identity drift, an in-flight creation lock, and a symbolic-link root", async (t) => {
   const mismatchedRoot = await createQueue(t, [{ id: "0002", status: "READY" }]);
   const mismatchedDirectory = path.join(mismatchedRoot, "0002-task-0002");
   await Promise.all([
@@ -997,6 +997,15 @@ test("queue dispatch rejects header identity drift and a symbolic-link tasks roo
   });
   assert.equal(duplicate.code, "INVALID_TASK_QUEUE");
   assert.match(duplicate.message, /requires exactly one section "Status"/);
+
+  const lockedRoot = await createQueue(t, [{ id: "0001", status: "READY" }]);
+  await writeFile(path.join(lockedRoot, ".kyw-dev-task-create.lock"), "in flight", "utf8");
+  const locked = await resolveTaskDispatch({
+    tasksRoot: lockedRoot,
+    invocation: "$kyw-task 0001",
+  });
+  assert.equal(locked.code, "INVALID_TASK_QUEUE");
+  assert.match(locked.message, /Task queue creation is locked/);
 
   const targetRoot = await createQueue(t, [{ id: "0001", status: "READY" }]);
   const linkParent = await mkdtemp(path.join(tmpdir(), "kyw-task-dispatch-link-"));

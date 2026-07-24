@@ -67,6 +67,149 @@ function runAdapter(args) {
   });
 }
 
+function batchTaskMarkdown() {
+  return `# TASK {{TASK_ID}} — {{TASK_TITLE}}
+
+<!-- kyw-task-contract: 2 -->
+
+## Status
+
+READY
+
+## Goal
+
+Deliver one independently verifiable outcome.
+
+## Dependencies
+
+{{TASK_DEPENDENCIES}}
+
+## In Scope
+
+- Implement the named outcome.
+
+## Out of Scope
+
+- Do not implement another Task.
+
+## Acceptance Criteria
+
+- [ ] AC-01: The outcome is independently verified.
+
+## Plan
+
+- [ ] Implement and verify the outcome.
+
+## Decisions
+
+- Preserve the declared Task boundary.
+
+## Risks
+
+- Compatibility requires regression coverage.
+
+## Discoveries and Changes
+
+- Not applicable — implementation has not started.
+
+## Documentation Impact
+
+- SPEC: Review after implementation.
+- ARCHITECTURE: Review after implementation.
+- README: Review after implementation.
+- AGENTS: Review after implementation.
+
+## Delivery
+
+- Requirement: STANDARD
+- Canonical ledger: GitHub PR/Actions exact-SHA state.
+
+## Completed
+
+- Not applicable — implementation has not started.
+
+## Remaining
+
+- Implement and verify the outcome.
+
+## Resume Point
+
+- Begin with the scoped implementation.
+
+## Blockers
+
+- Not applicable — no blocker is known.
+`;
+}
+
+function batchTestMarkdown() {
+  return `# TEST {{TASK_ID}} — {{TASK_TITLE}}
+
+<!-- kyw-task-contract: 2 -->
+
+## Status
+
+READY
+
+## Test Basis
+
+- Task: \`./TASK.md\`
+- Product requirements: \`../../SPEC.md\`
+- Architecture constraints: \`../../ARCHITECTURE.md\`
+
+## Model Provenance
+
+- Model identifier: \`UNAVAILABLE\` (\`UNAVAILABLE\`: not observed yet)
+- Requested model alias: \`NOT_REQUESTED\` (\`OBSERVED\`: no override was requested)
+- Reasoning effort: \`UNAVAILABLE\` (\`UNAVAILABLE\`: not observed yet)
+- Codex surface: \`UNAVAILABLE\` (\`UNAVAILABLE\`: not observed yet)
+- Codex version: \`UNAVAILABLE\` (\`UNAVAILABLE\`: not observed yet)
+
+## Intent-to-Test Matrix
+
+| ID | Intent / acceptance criterion | Method | Level | Status | Evidence |
+|---|---|---|---|---|---|
+| T-01 | AC-01 — Independent outcome | Run the focused check. | Integration | TODO | Not run — newly authored pair. |
+
+## Regression Coverage
+
+- Preserve the surrounding behavior.
+
+## Commands
+
+- Planned: focused acceptance and required regressions.
+
+## Results
+
+- Not applicable — verification has not run.
+
+## Unverified
+
+- Not applicable — no residual risk is recorded yet.
+
+## Final Coverage Review
+
+- [ ] Compare the final diff to the matrix.
+- [ ] Map every acceptance criterion to one or more test rows.
+- [ ] Add coverage for introduced branches, failures, and compatibility behavior.
+- [ ] Confirm PASS evidence is reproducible.
+- [ ] Confirm required regressions ran.
+`;
+}
+
+function batchSpec(tasks) {
+  return {
+    schemaVersion: 1,
+    tasks: tasks.map(({ key, title, dependencies = [] }) => ({
+      key,
+      title,
+      taskMarkdown: batchTaskMarkdown(),
+      testMarkdown: batchTestMarkdown(),
+      dependencies,
+    })),
+  };
+}
+
 test("kyw-task Skill is explicit-only and supports create, exact, next, and continuous dispatch", async () => {
   const skill = await readFile(SKILL_PATH, "utf8");
   const execution = await readFile(EXECUTION_REFERENCE_PATH, "utf8");
@@ -78,13 +221,14 @@ test("kyw-task Skill is explicit-only and supports create, exact, next, and cont
   assert.match(frontmatter.description, /explicitly invokes \$kyw-task/);
   assert.match(frontmatter.description, /do not use for ordinary prompts/);
   assert.doesNotMatch(skill, /is not implemented yet/);
-  assert.match(skill, /Use `create\(goal\)`/);
+  assert.match(skill, /Use `create\(goal, mode\)`/);
   assert.match(skill, /Use `exact\(task-id\)`/);
   assert.match(skill, /task NNNN 실행해줘/);
   assert.match(skill, /task 진행해줘/);
   assert.match(skill, /남은 task 계속 실행해줘/);
   assert.match(skill, /incidental text containing “task” never invokes this workflow/);
-  assert.match(skill, /Only continuous mode may process multiple Tasks/);
+  assert.match(skill, /Create mode may author several Tasks but never executes them concurrently/);
+  assert.match(skill, /create-batch --tasks-root/);
   assert.match(skill, /--delivery-ledger-json <json>/);
   assert.match(skill, /--execution-preflight-json <json>/);
   assert.match(skill, /four-digit Task ID/);
@@ -103,7 +247,7 @@ test("kyw-task Skill is explicit-only and supports create, exact, next, and cont
   assert.match(execution, /## Model Provenance/);
   assert.doesNotMatch(skill, /supports only `create\(goal\)`/);
   assert.match(metadata, /default_prompt: "Use \$kyw-task /);
-  assert.match(metadata, /Create, execute, or resume one verified Task/);
+  assert.match(metadata, /Create adaptive Task batches or execute one Task/);
   assert.match(metadata, /policy:\n  allow_implicit_invocation: false\n/);
   assert.doesNotMatch(metadata, /^dependencies:/m);
 });
@@ -138,10 +282,10 @@ test("kyw-task authoring inspects facts and grills only unresolved Task decision
   assert.match(specification, /Five failed sign-in attempts within fifteen minutes/);
   assert.match(architecture, /`src\/auth` owns/);
   assert.match(source, /failureLimit: 5/);
-  assert.match(skill, /Do not ask the user to repeat facts that inspection can establish/);
-  assert.match(skill, /Apply the installed `\$kyw-grilling` protocol/);
-  assert.match(skill, /exactly one decision question per turn/);
-  assert.match(skill, /Skip product behavior, architecture, commands, and repository rules already settled/);
+  assert.match(skill, /Do not ask the user to repeat inspectable facts/);
+  assert.match(skill, /Reuse the installed `\$kyw-grilling` protocol/);
+  assert.match(skill, /exactly one question and one recommendation/);
+  assert.match(skill, /Skip settled product behavior, architecture, commands, and repository rules/);
 });
 
 test("kyw-task asks only one real blocking question and consumes settled constraints", async () => {
@@ -188,64 +332,78 @@ test("kyw-task keeps one concise artifact contract without capping release evide
   const skill = await readFile(SKILL_PATH, "utf8");
   const execution = await readFile(EXECUTION_REFERENCE_PATH, "utf8");
 
-  assert.match(skill, /standard, documentation-only, and bug-fix Tasks concise/);
+  assert.match(skill, /keep routine work concise/);
   assert.match(skill, /`Not applicable — <reason>`/);
-  assert.match(skill, /never bare `None`\/empty\/reasonless content/);
-  assert.match(skill, /no global length cap/);
-  assert.match(skill, /one artifact type/);
+  assert.match(skill, /no bare None\/empty\/reasonless content/);
+  assert.match(skill, /without a global cap/);
   assert.match(execution, /no hard cap on release\/security evidence/);
 });
 
-test("kyw-task authoring size gate splits independent outcomes before allocation or writes", async () => {
+test("kyw-task adaptive authoring materializes the smallest dependency-aware set", async () => {
   const skill = await readFile(SKILL_PATH, "utf8");
 
   assert.equal(scenarios.oversized.independentOutcomes.length, 3);
-  assert.equal(scenarios.oversized.writesBeforeSelection, 0);
+  assert.equal(scenarios.oversized.createdPairCount, 3);
+  assert.equal(scenarios.oversized.selectionQuestionAsked, false);
+  assert.deepEqual(scenarios.oversized.publishedStatuses, [
+    "READY/READY",
+    "READY/READY",
+    "READY/READY",
+  ]);
+  assert.equal(scenarios.explicitStructure.requestedCount, 2);
+  assert.deepEqual(
+    scenarios.explicitStructure.requestedOrder,
+    scenarios.explicitStructure.requestedTitles,
+  );
+  assert.equal(scenarios.explicitStructure.requestedMode, "CREATE_ONLY");
+  assert.equal(scenarios.explicitStructure.preservedExactlyWhenSafe, true);
+  assert.equal(scenarios.conflictingStructure.requestedCount, 1);
+  assert.equal(scenarios.conflictingStructure.independentOutcomeCount, 2);
+  assert.equal(scenarios.conflictingStructure.minimumSafeAlternativePairCount, 2);
+  assert.equal(scenarios.conflictingStructure.userDecisionRequired, false);
+  assert.equal(scenarios.conflictingStructure.questionCount, 0);
   assert.match(skill, /outcomes can ship or revert independently/);
-  assert.match(skill, /Propose a small ordered set of independently testable Task outcomes/);
-  assert.match(skill, /Ask exactly one selection question and wait/);
-  assert.match(skill, /Do not allocate an ID, run the adapter, create a directory, or write any file/);
-  assert.match(skill, /Never create the other proposed Tasks automatically/);
+  assert.match(skill, /Derive the smallest dependency-aware set/);
+  assert.match(skill, /Do not stop at a decomposition proposal or ask the user to choose one outcome/);
+  assert.match(skill, /The create result is the complete set/);
+  assert.match(skill, /Preserve explicit current-prompt Task count, boundaries, order, titles/);
 });
 
-test("kyw-task authoring preserves traceability and the confirmation state boundary", async () => {
+test("kyw-task adaptive authoring publishes traced READY pairs and preserves DRAFT resume", async () => {
   const skill = await readFile(SKILL_PATH, "utf8");
 
-  assert.equal(scenarios.confirmation.beforeExplicitConfirmation, "DRAFT");
-  assert.equal(scenarios.confirmation.afterExplicitConfirmation, "READY");
-  assert.equal(scenarios.confirmation.implementationStarts, false);
-  assert.match(skill, /stable IDs `AC-01`, `AC-02`/);
-  assert.match(skill, /stable IDs `T-01`, `T-02`/);
-  assert.match(skill, /Map every acceptance criterion to at least one initial test row/);
-  assert.match(skill, /Until confirmation, keep both files `DRAFT`/);
-  assert.match(skill, /Change Task Status and Test Status from `DRAFT` to `READY`/);
-  assert.match(skill, /Never report `READY` unless both files contain `READY` and validation succeeds/);
-  assert.match(skill, /confirmation will authorize this current Task to enter execution/);
-  assert.match(skill, /use the current-summary confirmation as execution authorization/);
+  assert.equal(scenarios.adaptiveCreate.beforePublicationPairCount, 0);
+  assert.equal(scenarios.adaptiveCreate.publishedStatus, "READY/READY");
+  assert.equal(scenarios.adaptiveCreate.postPublicationConfirmationRequired, false);
+  assert.equal(scenarios.adaptiveCreate.createOnlyImplementationStarts, false);
+  assert.equal(scenarios.adaptiveCreate.createAndExecuteActiveTaskCount, 1);
+  assert.equal(scenarios.adaptiveCreate.createAndExecuteSelectedPairIndex, 0);
+  assert.equal(scenarios.adaptiveCreate.unselectedPairStatus, "READY/READY");
+  assert.equal(scenarios.adaptiveCreate.continuousInvocationRequiredForRemainder, true);
+  assert.equal(scenarios.compatibleDraftResume.initialStatus, "DRAFT/DRAFT");
+  assert.equal(scenarios.compatibleDraftResume.explicitConfirmationRequired, true);
+  assert.equal(scenarios.compatibleDraftResume.promotedStatus, "READY/READY");
+  assert.match(skill, /stable unchecked `AC-01`, `AC-02`/);
+  assert.match(skill, /`TODO` `T-01`, `T-02` identifiers/);
+  assert.match(skill, /complete AC-to-test mapping/);
+  assert.match(skill, /set both statuses to `READY`/);
+  assert.match(skill, /Create-only authority ends after atomic `READY\/READY` publication/);
+  assert.match(skill, /Compatible existing DRAFT authoring/);
+  assert.match(skill, /require explicit confirmation before promoting both statuses to `READY`/);
 });
 
-test("kyw-task authoring mutation boundary excludes implementation and existing artifacts", async () => {
+test("kyw-task authoring mutation boundary permits only the atomic new set", async () => {
   const skill = await readFile(SKILL_PATH, "utf8");
   const execution = await readFile(EXECUTION_REFERENCE_PATH, "utf8");
 
   assert.deepEqual(scenarios.normal.allowedAuthoringFiles, ["TASK.md", "TEST.md"]);
-  assert.match(skill, /limit mutations to the returned new `TASK\.md` and `TEST\.md` paths/);
-  assert.match(skill, /Do not modify permanent documents, implementation files/);
-  assert.match(skill, /Do not create multiple Task directories/);
-  assert.match(skill, /or touch implementation files/);
-  assert.match(
-    skill,
-    /If the user cancels or required facts remain inaccessible before publication, stop with no artifact/,
-  );
-  assert.match(skill, /rely on its atomic rollback and report that no final pair was created/);
-  assert.match(
-    skill,
-    /Cancellation or authoring failure after publication leaves the same pair and number in `DRAFT`/,
-  );
-  assert.match(
-    skill,
-    /resume Phase 4 customization of the same `DRAFT\/DRAFT` pair, validate it, and then continue to Phase 5/,
-  );
+  assert.match(skill, /Create authoring may publish only the returned new Task\/Test pair set/);
+  assert.match(skill, /Do not edit permanent documents, implementation, tests, configuration/);
+  assert.match(skill, /Create-only authority ends after atomic `READY\/READY` publication/);
+  assert.match(skill, /Do not implement another new pair or invoke continuous mode implicitly/);
+  assert.match(skill, /Cancellation or inaccessible required facts stop with no new artifact/);
+  assert.match(skill, /Expected failure rolls every batch-owned final directory back/);
+  assert.match(skill, /do not retry, reuse an ID, hand-create a replacement/);
   assert.match(execution, /mutations may include only/);
   assert.match(execution, /do not edit another Task/);
   assert.match(execution, /never implement its outcome/);
@@ -760,7 +918,7 @@ test("kyw-task authoring adapter scaffolds one pair and task execution validates
     },
     {
       args: ["resume", "--task-directory", existingDirectory],
-      pattern: /Expected create, validate, or dispatch/,
+      pattern: /Expected create, create-batch, validate, or dispatch/,
     },
     {
       args: [
@@ -823,6 +981,112 @@ test("kyw-task authoring adapter scaffolds one pair and task execution validates
     assert.match(result.stderr, pattern);
   }
   await assert.rejects(readdir(invalidRoot), (error) => error.code === "ENOENT");
+});
+
+test("kyw-task adapter publishes complete READY batches from file or inline JSON", async (t) => {
+  const root = await temporaryDirectory(t);
+  const fileRoot = join(root, "file", "docs", "tasks");
+  const specification = batchSpec([
+    { key: "foundation", title: "Foundation" },
+    {
+      key: "dependent",
+      title: "Dependent",
+      dependencies: [{ taskKey: "foundation" }],
+    },
+  ]);
+  const specificationPath = join(root, "batch.json");
+  await writeFile(specificationPath, JSON.stringify(specification), "utf8");
+
+  const fileResult = runAdapter([
+    "create-batch",
+    "--tasks-root",
+    fileRoot,
+    "--batch-file",
+    specificationPath,
+  ]);
+  assert.equal(fileResult.status, 0, fileResult.stderr);
+  const fileBatch = JSON.parse(fileResult.stdout);
+  assert.equal(fileBatch.command, "create-batch");
+  assert.equal(fileBatch.schemaVersion, 1);
+  assert.equal(fileBatch.firstId, "0001");
+  assert.equal(fileBatch.lastId, "0002");
+  assert.deepEqual(
+    fileBatch.tasks.map(({ id, dependencies }) => ({ id, dependencies })),
+    [
+      { id: "0001", dependencies: [] },
+      { id: "0002", dependencies: ["0001"] },
+    ],
+  );
+  for (const task of fileBatch.tasks) {
+    const validation = runAdapter(["validate", "--task-directory", task.directory]);
+    assert.equal(validation.status, 0, validation.stderr);
+    assert.match(await readFile(task.taskPath, "utf8"), /## Status\n\nREADY/);
+    assert.match(await readFile(task.testPath, "utf8"), /## Status\n\nREADY/);
+  }
+
+  const inlineRoot = join(root, "inline", "docs", "tasks");
+  const inlineResult = runAdapter([
+    "create-batch",
+    "--tasks-root",
+    inlineRoot,
+    "--batch-json",
+    JSON.stringify(batchSpec([{ key: "single", title: "Single" }])),
+  ]);
+  assert.equal(inlineResult.status, 0, inlineResult.stderr);
+  const inlineBatch = JSON.parse(inlineResult.stdout);
+  assert.equal(inlineBatch.firstId, "0001");
+  assert.equal(inlineBatch.lastId, "0001");
+  assert.equal(inlineBatch.tasks.length, 1);
+
+  const invalidRoot = join(root, "invalid", "docs", "tasks");
+  const invalidPair = batchSpec([{ key: "invalid", title: "Invalid" }]);
+  invalidPair.tasks[0].testMarkdown = invalidPair.tasks[0].testMarkdown.replace(
+    "\nREADY\n",
+    "\nDRAFT\n",
+  );
+  const invalidResult = runAdapter([
+    "create-batch",
+    "--tasks-root",
+    invalidRoot,
+    "--batch-json",
+    JSON.stringify(invalidPair),
+  ]);
+  assert.equal(invalidResult.status, 1);
+  assert.match(invalidResult.stderr, /INVALID_TASK_BATCH_PAIR/);
+  assert.deepEqual(await readdir(invalidRoot), []);
+
+  for (const [args, expectedError] of [
+    [
+      ["create-batch", "--tasks-root", invalidRoot],
+      /INVALID_TASK_BATCH/,
+    ],
+    [
+      [
+        "create-batch",
+        "--tasks-root",
+        invalidRoot,
+        "--batch-json",
+        JSON.stringify(specification),
+        "--batch-file",
+        specificationPath,
+      ],
+      /INVALID_TASK_ADAPTER_ARGUMENTS/,
+    ],
+    [
+      [
+        "create-batch",
+        "--tasks-root",
+        invalidRoot,
+        "--batch-json",
+        JSON.stringify({ schemaVersion: 2, tasks: [] }),
+      ],
+      /INVALID_TASK_BATCH/,
+    ],
+  ]) {
+    const result = runAdapter(args);
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, expectedError);
+  }
 });
 
 test("current queued artifacts validate without rewriting immutable historical Tasks", async () => {
