@@ -75,8 +75,10 @@ const requiredScripts = {
   lint: "node ./scripts/lint.mjs",
   "format:check": "node ./scripts/format-check.mjs",
   "pack:check": "node ./scripts/pack-check.mjs",
+  "verify:plan": "node ./scripts/verification-plan.mjs",
   check: "npm test && npm run lint && npm run format:check && npm run pack:check",
-  "release:ci": "npm run check && node ./scripts/packed-release-check.mjs",
+  "release:candidate": "node ./scripts/packed-release-check.mjs",
+  "release:ci": "npm run check && npm run release:candidate",
   "release:check": "npm run release:ci && npm publish --dry-run --json",
 };
 

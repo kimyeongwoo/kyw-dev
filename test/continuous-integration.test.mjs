@@ -73,13 +73,18 @@ test("packed release and aggregate gates are credential-free and agree with pack
   assert.match(packed, /runs-on: ubuntu-latest/);
   assert.match(packed, /node-version: 24\.x/);
   assert.match(packed, /timeout-minutes: 25/);
-  assert.match(packed, /run: npm run release:ci/);
+  assert.match(packed, /run: npm run release:candidate/);
+  assert.doesNotMatch(packed, /run: npm run (?:check|release:ci)/);
   assert.match(required, /if: \$\{\{ always\(\) \}\}/);
   assert.match(required, /- stable\n      - packed-release/);
   assert.match(required, /timeout-minutes: 5/);
   assert.equal(
+    packageJson.scripts["release:candidate"],
+    "node ./scripts/packed-release-check.mjs",
+  );
+  assert.equal(
     packageJson.scripts["release:ci"],
-    "npm run check && node ./scripts/packed-release-check.mjs",
+    "npm run check && npm run release:candidate",
   );
   assert.equal(
     packageJson.scripts["release:check"],

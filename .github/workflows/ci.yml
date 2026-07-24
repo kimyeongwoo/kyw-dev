@@ -95,7 +95,7 @@ jobs:
           node --version
           npm --version
       - name: Run credential-free packed release gate
-        run: npm run release:ci
+        run: npm run release:candidate
 
   required:
     name: Required / credential-free CI

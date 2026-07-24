@@ -37,13 +37,15 @@
     "lint": "node ./scripts/lint.mjs",
     "format:check": "node ./scripts/format-check.mjs",
     "pack:check": "node ./scripts/pack-check.mjs",
+    "verify:plan": "node ./scripts/verification-plan.mjs",
     "check": "npm test && npm run lint && npm run format:check && npm run pack:check",
     "eval:audit:smoke": "node ./scripts/audit-smoke.mjs",
     "eval:grilling:unit": "node --test test/grilling-eval.test.mjs",
     "eval:grilling:smoke": "node ./scripts/grilling-eval.mjs smoke",
     "eval:grilling:compare": "node ./scripts/grilling-eval.mjs compare",
     "eval:grilling:report": "node ./scripts/grilling-eval.mjs report",
-    "release:ci": "npm run check && node ./scripts/packed-release-check.mjs",
+    "release:candidate": "node ./scripts/packed-release-check.mjs",
+    "release:ci": "npm run check && npm run release:candidate",
     "release:check": "npm run release:ci && npm publish --dry-run --json"
   },
   "engines": {
