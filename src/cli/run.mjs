@@ -5,6 +5,7 @@ import {
   diagnoseInstallations,
   formatDoctorReport,
   installManagedSkills,
+  resolveCodexHome,
   resolveUserHome,
   uninstallManagedSkills,
   updateManagedSkills,
@@ -104,6 +105,7 @@ export function runCli(
     stderr = process.stderr,
     cwd = process.cwd(),
     home,
+    codexHome,
     sourceRoot,
     now,
     hooks,
@@ -160,9 +162,16 @@ export function runCli(
       return writeUsageError("doctor does not accept options", stderr);
     }
     try {
+      const resolvedHome = home ?? resolveUserHome();
       const report = diagnoseInstallations({
         cwd,
-        home: home ?? resolveUserHome(),
+        home: resolvedHome,
+        codexHome:
+          codexHome ??
+          resolveCodexHome({
+            home: resolvedHome,
+            env: home === undefined ? process.env : {},
+          }),
         sourceRoot,
         nodeVersion,
         commandRunner,

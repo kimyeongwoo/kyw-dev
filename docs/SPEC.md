@@ -258,12 +258,13 @@ Report:
 - Node/npm availability and supported version;
 - Codex availability when detectable;
 - active user and repository Skill locations;
-- duplicate `kyw-*` Skills across scopes;
+- known Codex plugin-cache Skill sources under the configured/default Codex home;
+- duplicate `kyw-*` Skill names across direct user, direct repository, and installed plugin-cache sources;
 - installation version drift;
 - malformed plugin or Skill metadata;
 - missing permissions, unsafe path/link/type state, or partial transactions.
 
-`doctor` is byte-and-metadata read-only: it performs no directory creation, recovery, cleanup, rename, chmod, write, or deletion. It returns the most severe applicable CLI exit category when it finds an error; an unavailable project scope outside a Git repository and undetected optional tools are informational/warning results rather than automatic failures.
+Plugin-cache discovery reports installed bytes and their source; it does not infer that a cached plugin is enabled. `doctor` is byte-and-metadata read-only: it performs no directory creation, recovery, cleanup, rename, chmod, write, deletion, plugin enablement, or plugin disablement. It returns the most severe applicable CLI exit category when it finds an error; an unavailable project scope outside a Git repository and undetected optional tools are informational/warning results rather than automatic failures.
 
 ### `kyw-dev --help` and `kyw-dev --version`
 
@@ -532,6 +533,7 @@ When the user asks a question or small, bounded change without invoking a Skill:
 ## 12. Compatibility requirements
 
 - Primary target: current Codex CLI, IDE extension, and ChatGPT desktop Codex surfaces that support Skills.
+- Direct Skills are supported on the ChatGPT desktop app, Codex CLI, and IDE extension. Plugins are supported on the ChatGPT desktop app and Codex CLI but not in the IDE extension; IDE users use direct repository or user Skills.
 - Skill directories must contain `SKILL.md` with `name` and `description`.
 - User-visible Skills must provide `agents/openai.yaml` with UI metadata and explicit-invocation policy.
 - Plugin root must contain `.codex-plugin/plugin.json` and keep Skill paths relative to the plugin root.

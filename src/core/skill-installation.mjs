@@ -341,6 +341,14 @@ export function resolveUserHome({ env = process.env, platform = process.platform
   return path.resolve(value);
 }
 
+export function resolveCodexHome({ home = resolveUserHome(), env = process.env } = {}) {
+  const value = env.CODEX_HOME || path.join(home, ".codex");
+  if (typeof value !== "string" || !value.trim()) {
+    throw installationError("SCOPE_RESOLUTION_FAILED", "Cannot resolve the current Codex home directory");
+  }
+  return path.resolve(value);
+}
+
 export function repositorySearchPath(startDirectory, pathApi = path) {
   const directories = [];
   let current = pathApi.resolve(startDirectory);
@@ -2427,6 +2435,230 @@ function doctorFinding(severity, code, message, exitCode = 0) {
   return Object.freeze({ severity, code, message, exitCode });
 }
 
+function listDoctorDirectory(directory, label, trustedRoot, findings) {
+  let state;
+  try {
+    state = pathState(directory);
+  } catch (error) {
+    findings.push(
+      doctorFinding(
+        "error",
+        "PLUGIN_CACHE_UNREADABLE",
+        `Cannot inspect ${label} at ${directory}: ${error.message}`,
+        EXIT_CODES.FILESYSTEM,
+      ),
+    );
+    return undefined;
+  }
+  if (!state) {
+    return undefined;
+  }
+  if (!state.isDirectory() || state.isSymbolicLink()) {
+    findings.push(
+      doctorFinding(
+        "error",
+        "UNSAFE_PLUGIN_CACHE",
+        `${label} must be a real directory: ${directory}`,
+        EXIT_CODES.RECOVERY_REQUIRED,
+      ),
+    );
+    return undefined;
+  }
+  try {
+    assertCanonicalRealPath(directory, label, "RECOVERY_REQUIRED", trustedRoot);
+    return readdirSync(directory, { withFileTypes: true }).sort((left, right) =>
+      left.name.localeCompare(right.name),
+    );
+  } catch (error) {
+    findings.push(
+      doctorFinding(
+        "error",
+        error.code === "RECOVERY_REQUIRED" ? "UNSAFE_PLUGIN_CACHE" : "PLUGIN_CACHE_UNREADABLE",
+        `Cannot inspect ${label} at ${directory}: ${error.message}`,
+        error.code === "RECOVERY_REQUIRED" ? EXIT_CODES.RECOVERY_REQUIRED : EXIT_CODES.FILESYSTEM,
+      ),
+    );
+    return undefined;
+  }
+}
+
+function doctorPluginDirectories(directory, label, trustedRoot, findings) {
+  const entries = listDoctorDirectory(directory, label, trustedRoot, findings);
+  if (!entries) {
+    return [];
+  }
+  const directories = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory() && !entry.isSymbolicLink()) {
+      continue;
+    }
+    const child = path.join(directory, entry.name);
+    if (listDoctorDirectory(child, `${label} entry ${JSON.stringify(entry.name)}`, trustedRoot, findings)) {
+      directories.push(Object.freeze({ name: entry.name, path: child }));
+    }
+  }
+  return directories;
+}
+
+function doctorInspectionRoot(directory) {
+  const resolved = path.resolve(directory);
+  let before;
+  try {
+    before = pathState(resolved);
+  } catch {
+    return resolved;
+  }
+  if (!before?.isDirectory() || before.isSymbolicLink()) {
+    return resolved;
+  }
+  try {
+    const canonical = realpathSync(resolved);
+    const after = pathState(resolved);
+    if (
+      !after?.isDirectory() ||
+      after.isSymbolicLink() ||
+      before.dev !== after.dev ||
+      before.ino !== after.ino
+    ) {
+      return resolved;
+    }
+    return canonical;
+  } catch {
+    return resolved;
+  }
+}
+
+function inspectDoctorPluginCache(codexHome) {
+  const findings = [];
+  const sources = [];
+  const resolvedCodexHome = path.resolve(codexHome);
+  const inspectionCodexHome = doctorInspectionRoot(resolvedCodexHome);
+  const cacheRoot = path.join(resolvedCodexHome, "plugins", "cache");
+  const inspectionCacheRoot = path.join(inspectionCodexHome, "plugins", "cache");
+  const codexEntries = listDoctorDirectory(inspectionCodexHome, "Codex home", undefined, findings);
+  if (codexEntries) {
+    const pluginsRoot = path.join(inspectionCodexHome, "plugins");
+    if (listDoctorDirectory(pluginsRoot, "Codex plugins directory", inspectionCodexHome, findings)) {
+      const marketplaces = doctorPluginDirectories(
+        inspectionCacheRoot,
+        "Codex plugin cache",
+        inspectionCodexHome,
+        findings,
+      );
+      for (const marketplace of marketplaces) {
+        const plugins = doctorPluginDirectories(
+          marketplace.path,
+          `plugin marketplace ${JSON.stringify(marketplace.name)}`,
+          inspectionCodexHome,
+          findings,
+        );
+        for (const plugin of plugins) {
+          const versions = doctorPluginDirectories(
+            plugin.path,
+            `plugin ${JSON.stringify(`${marketplace.name}/${plugin.name}`)}`,
+            inspectionCodexHome,
+            findings,
+          );
+          for (const version of versions) {
+            const skillsRoot = path.join(version.path, "skills");
+            const skillEntries = listDoctorDirectory(
+              skillsRoot,
+              `plugin Skills ${JSON.stringify(`${marketplace.name}/${plugin.name}@${version.name}`)}`,
+              inspectionCodexHome,
+              findings,
+            );
+            if (!skillEntries) {
+              continue;
+            }
+            const skillNames = [];
+            for (const entry of skillEntries) {
+              if (!entry.name.startsWith("kyw-")) {
+                continue;
+              }
+              skillNames.push(entry.name);
+              if (!entry.isDirectory() || entry.isSymbolicLink()) {
+                findings.push(
+                  doctorFinding(
+                    "error",
+                    "MALFORMED_PLUGIN_SKILL",
+                    `Plugin Skill ${JSON.stringify(entry.name)} is not a real directory at ${skillsRoot}`,
+                    EXIT_CODES.INVALID_STATE,
+                  ),
+                );
+              }
+            }
+            if (skillNames.length > 0) {
+              sources.push(
+                Object.freeze({
+                  marketplace: marketplace.name,
+                  plugin: plugin.name,
+                  version: version.name,
+                  skillsRoot: path.join(
+                    resolvedCodexHome,
+                    path.relative(inspectionCodexHome, skillsRoot),
+                  ),
+                  skillNames: Object.freeze(skillNames.sort()),
+                }),
+              );
+            }
+          }
+        }
+      }
+    }
+  }
+  let available = false;
+  try {
+    const cacheState = pathState(inspectionCacheRoot);
+    available = Boolean(codexEntries && cacheState?.isDirectory() && !cacheState.isSymbolicLink());
+  } catch {
+    // The preceding guarded inspection already records an unreadable cache.
+  }
+  return Object.freeze({
+    codexHome: resolvedCodexHome,
+    cacheRoot,
+    available,
+    sources: Object.freeze(sources),
+    findings: Object.freeze(findings),
+  });
+}
+
+function duplicateSkillFinding(scopes, pluginCache) {
+  const sourcesBySkill = new Map();
+  const addSource = (skillName, source) => {
+    const sources = sourcesBySkill.get(skillName) ?? [];
+    sources.push(source);
+    sourcesBySkill.set(skillName, sources);
+  };
+  for (const scope of scopes) {
+    if (!scope.available) {
+      continue;
+    }
+    for (const skillName of scope.skillNames) {
+      addSource(skillName, scope.scope);
+    }
+  }
+  for (const source of pluginCache.sources) {
+    const label = `plugin ${JSON.stringify(`${source.marketplace}/${source.plugin}@${source.version}`)}`;
+    for (const skillName of source.skillNames) {
+      addSource(skillName, label);
+    }
+  }
+  const duplicates = [...sourcesBySkill.entries()]
+    .filter(([, sources]) => sources.length > 1)
+    .sort(([left], [right]) => left.localeCompare(right));
+  if (duplicates.length === 0) {
+    return undefined;
+  }
+  return doctorFinding(
+    "error",
+    "DUPLICATE_INSTALLATION",
+    `Duplicate Skill sources: ${duplicates
+      .map(([skillName, sources]) => `${skillName} (${sources.join(", ")})`)
+      .join("; ")}`,
+    EXIT_CODES.CONFLICT,
+  );
+}
+
 function nearestExistingDirectory(directory) {
   let current = path.resolve(directory);
   while (!pathState(current)) {
@@ -2616,6 +2848,7 @@ function detectCommand(command, commandRunner) {
 export function diagnoseInstallations({
   cwd = process.cwd(),
   home = resolveUserHome(),
+  codexHome = path.join(home, ".codex"),
   sourceRoot = PACKAGE_ROOT,
   nodeVersion = process.versions.node,
   commandRunner = defaultCommandRunner,
@@ -2718,20 +2951,11 @@ export function diagnoseInstallations({
     findings.push(...scopeResult.findings);
   }
 
-  const userScope = scopes.find((entry) => entry.scope === "user");
-  const projectScope = scopes.find((entry) => entry.scope === "project" && entry.available);
-  if (projectScope && normalizedComparable(userScope.skillsRoot) !== normalizedComparable(projectScope.skillsRoot)) {
-    const duplicates = userScope.skillNames.filter((name) => projectScope.skillNames.includes(name));
-    if (duplicates.length > 0) {
-      findings.push(
-        doctorFinding(
-          "error",
-          "DUPLICATE_INSTALLATION",
-          `Duplicate user/project Skills: ${duplicates.join(", ")}`,
-          EXIT_CODES.CONFLICT,
-        ),
-      );
-    }
+  const pluginCache = inspectDoctorPluginCache(codexHome);
+  findings.push(...pluginCache.findings);
+  const duplicate = duplicateSkillFinding(scopes, pluginCache);
+  if (duplicate) {
+    findings.push(duplicate);
   }
 
   const exitCode = findings.reduce((highest, finding) => Math.max(highest, finding.exitCode ?? 0), 0);
@@ -2740,6 +2964,7 @@ export function diagnoseInstallations({
     runtime: Object.freeze({ node: nodeVersion, npm, codex }),
     projectRoot,
     scopes: Object.freeze(scopes),
+    pluginCache,
     findings: Object.freeze(findings),
     exitCode,
   });
@@ -2762,6 +2987,16 @@ export function formatDoctorReport(report) {
       lines.push(`  ${scope.scope}: ${scope.skillsRoot} (installed ${scope.version})`);
     } else {
       lines.push(`  ${scope.scope}: ${scope.skillsRoot} (not managed)`);
+    }
+  }
+  lines.push("Plugin Skills:");
+  if (report.pluginCache.sources.length === 0) {
+    lines.push(`  none (${report.pluginCache.cacheRoot})`);
+  } else {
+    for (const source of report.pluginCache.sources) {
+      lines.push(
+        `  ${source.marketplace}/${source.plugin}@${source.version}: ${source.skillNames.join(", ")} (${source.skillsRoot})`,
+      );
     }
   }
   lines.push("Findings:");
