@@ -21,6 +21,7 @@ import test from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { runCli } from "../src/cli/run.mjs";
+import * as skillInstallationFacade from "../src/core/skill-installation.mjs";
 import {
   EXIT_CODES,
   INSTALL_METADATA_NAME,
@@ -46,10 +47,112 @@ import {
   validateInstallMetadata,
 } from "../src/core/skill-installation.mjs";
 
+const coreRoot = fileURLToPath(new URL("../src/core/", import.meta.url));
 const installationModuleUrl = pathToFileURL(
   fileURLToPath(new URL("../src/core/skill-installation.mjs", import.meta.url)),
 ).href;
 const cliExecutable = fileURLToPath(new URL("../bin/kyw-dev.mjs", import.meta.url));
+
+test("skill installation facade preserves its public export inventory", () => {
+  assert.deepEqual(Object.keys(skillInstallationFacade), [
+    "EXIT_CODES",
+    "INSTALL_METADATA_NAME",
+    "INSTALL_SCHEMA_VERSION",
+    "MANAGED_SKILL_NAMES",
+    "PACKAGE_ROOT",
+    "SkillInstallationError",
+    "TRANSACTION_COMPLETE_NAME",
+    "TRANSACTION_NAME",
+    "assertSupportedRuntime",
+    "buildManagedSourceInventory",
+    "createInstallMetadata",
+    "diagnoseInstallations",
+    "findRepositoryRoot",
+    "formatDoctorReport",
+    "inspectManagedInstallation",
+    "installManagedSkills",
+    "normalizeManagedPath",
+    "readInstallMetadata",
+    "recoverInterruptedInstallation",
+    "repositorySearchPath",
+    "resolveCodexHome",
+    "resolveInstallLocation",
+    "resolveManagedPath",
+    "resolveScopeLayout",
+    "resolveUserHome",
+    "uninstallManagedSkills",
+    "updateManagedSkills",
+    "validateInstallMetadata",
+  ]);
+});
+
+test("skill installation modules keep the intended acyclic dependency graph", () => {
+  const expectedGraph = new Map([
+    [
+      "skill-installation-doctor.mjs",
+      [
+        "skill-installation-inventory.mjs",
+        "skill-installation-shared.mjs",
+        "skill-installation-state.mjs",
+      ],
+    ],
+    ["skill-installation-inventory.mjs", ["skill-installation-shared.mjs"]],
+    ["skill-installation-shared.mjs", []],
+    [
+      "skill-installation-state.mjs",
+      ["skill-installation-inventory.mjs", "skill-installation-shared.mjs"],
+    ],
+    [
+      "skill-installation-transaction.mjs",
+      [
+        "skill-installation-inventory.mjs",
+        "skill-installation-shared.mjs",
+        "skill-installation-state.mjs",
+      ],
+    ],
+    [
+      "skill-installation.mjs",
+      [
+        "skill-installation-doctor.mjs",
+        "skill-installation-inventory.mjs",
+        "skill-installation-shared.mjs",
+        "skill-installation-state.mjs",
+        "skill-installation-transaction.mjs",
+      ],
+    ],
+  ]);
+  const actualGraph = new Map();
+
+  for (const [fileName, expectedDependencies] of expectedGraph) {
+    const source = readFileSync(join(coreRoot, fileName), "utf8");
+    const actualDependencies = [
+      ...source.matchAll(/\bfrom\s+"\.\/(skill-installation(?:-[a-z]+)?\.mjs)"/g),
+    ]
+      .map((match) => match[1])
+      .sort();
+    actualGraph.set(fileName, actualDependencies);
+    assert.deepEqual(actualDependencies, [...expectedDependencies].sort(), fileName);
+  }
+
+  const visiting = new Set();
+  const visited = new Set();
+  function visit(fileName) {
+    assert.ok(!visiting.has(fileName), `skill installation dependency cycle reaches ${fileName}`);
+    if (visited.has(fileName)) {
+      return;
+    }
+    visiting.add(fileName);
+    for (const dependency of actualGraph.get(fileName)) {
+      visit(dependency);
+    }
+    visiting.delete(fileName);
+    visited.add(fileName);
+  }
+
+  for (const fileName of actualGraph.keys()) {
+    visit(fileName);
+  }
+});
 
 function temporaryDirectory(t, prefix = "kyw-dev-install-") {
   const directory = mkdtempSync(join(tmpdir(), prefix));
@@ -1422,7 +1525,7 @@ test("actual npm tarball installs, diagnoses, runs its installed adapter, and un
   }
   assert.equal(packed.status, 0, packed.stderr);
   const report = JSON.parse(packed.stdout)[0];
-  assert.equal(report.entryCount, 34);
+  assert.equal(report.entryCount, 39);
   const extractRoot = join(root, "extract");
   mkdirSync(extractRoot);
   const extracted = spawnSync("tar", ["-xf", join(root, report.filename), "-C", extractRoot], {
