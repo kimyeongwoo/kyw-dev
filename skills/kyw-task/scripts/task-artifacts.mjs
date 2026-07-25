@@ -22,6 +22,8 @@ const {
   TaskArtifactError,
   createTaskArtifactBatch,
   createTaskArtifacts,
+  inspectTaskBatchTransaction,
+  recoverTaskBatchTransaction,
   resolveTaskDispatch,
   validateTaskDirectory,
 } = await import(coreUrl);
@@ -30,6 +32,8 @@ const usage =
   "Usage: task-artifacts.mjs create --tasks-root <path> --title <title>\n" +
   "   or: task-artifacts.mjs create-batch --tasks-root <path> " +
   "(--batch-json <json> | --batch-file <path>)\n" +
+  "   or: task-artifacts.mjs inspect-transaction --tasks-root <path>\n" +
+  "   or: task-artifacts.mjs recover-transaction --tasks-root <path>\n" +
   "   or: task-artifacts.mjs validate --task-directory <path>\n" +
   "   or: task-artifacts.mjs dispatch --tasks-root <path> --invocation <text> " +
   "--managed-routing <true|false> [--delivery-ledger <json-path> | --delivery-ledger-json <json>] " +
@@ -148,6 +152,22 @@ export async function runTaskArtifactCommand(argv) {
     return { command, schemaVersion: 1, ...created };
   }
 
+  if (command === "inspect-transaction") {
+    const options = parseOptions(args, ["--tasks-root"]);
+    const diagnostic = await inspectTaskBatchTransaction({
+      tasksRoot: resolve(options.get("--tasks-root")),
+    });
+    return { command, ...diagnostic };
+  }
+
+  if (command === "recover-transaction") {
+    const options = parseOptions(args, ["--tasks-root"]);
+    const recovery = await recoverTaskBatchTransaction({
+      tasksRoot: resolve(options.get("--tasks-root")),
+    });
+    return { command, ...recovery };
+  }
+
   if (command === "validate") {
     const options = parseOptions(args, ["--task-directory"]);
     const directory = resolve(options.get("--task-directory"));
@@ -214,7 +234,7 @@ export async function runTaskArtifactCommand(argv) {
 
   throw new TaskArtifactError(
     "INVALID_TASK_ADAPTER_ARGUMENTS",
-    `Expected create, create-batch, validate, or dispatch, received ${command ?? "<missing>"}\n${usage}`,
+    `Expected create, create-batch, inspect-transaction, recover-transaction, validate, or dispatch, received ${command ?? "<missing>"}\n${usage}`,
   );
 }
 

@@ -1,5 +1,15 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  lstat,
+  mkdtemp,
+  readFile,
+  readdir,
+  rename,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -11,9 +21,11 @@ import {
   buildTaskDirectoryName,
   createTaskArtifactBatch,
   createTaskArtifacts,
+  inspectTaskBatchTransaction,
   inspectTaskDirectories,
   inspectTaskQueue,
   normalizeTaskTitle,
+  recoverTaskBatchTransaction,
   resolveTaskDirectory,
   slugifyTaskTitle,
   validateTaskDirectory,
@@ -576,4 +588,565 @@ test("batch allocation race preserves the competing directory and publishes no b
   );
   assert.deepEqual(await readdir(tasksRoot), ["0001-first"]);
   assert.deepEqual(await readdir(path.join(tasksRoot, "0001-first")), []);
+});
+
+test("batch transaction lock identity is versioned and a replacement lock is never unlinked", async (t) => {
+  const tasksRoot = path.join(await temporaryDirectory(t), "docs", "tasks");
+  const lockPath = path.join(tasksRoot, ".kyw-dev-task-create.lock");
+  const displacedPath = path.join(tasksRoot, "displaced-owned-lock");
+  const replacement = "foreign replacement lock\n";
+
+  await assert.rejects(
+    createTaskArtifactBatch({
+      tasksRoot,
+      tasks: [batchDefinition("owned", "Owned")],
+      hooks: {
+        async afterLock() {
+          await rename(lockPath, displacedPath);
+          await writeFile(lockPath, replacement, "utf8");
+        },
+      },
+    }),
+    (error) => error.code === "TASK_BATCH_ROLLBACK_FAILED",
+  );
+
+  assert.equal(await readFile(lockPath, "utf8"), replacement);
+  const initialRecord = JSON.parse(
+    (await readFile(displacedPath, "utf8")).trim().split("\n")[0],
+  );
+  assert.equal(initialRecord.schemaVersion, 1);
+  assert.equal(initialRecord.kind, "kyw-task-batch-transaction");
+  assert.match(initialRecord.token, /^[a-f0-9]{32}$/);
+  assert.deepEqual(await readdir(tasksRoot), [
+    ".kyw-dev-task-create.lock",
+    "displaced-owned-lock",
+  ]);
+  const diagnostic = await inspectTaskBatchTransaction({ tasksRoot });
+  assert.equal(diagnostic.state, "BLOCKED");
+  assert.equal(diagnostic.category, "TASK_BATCH_MANIFEST_INVALID");
+});
+
+test("batch transaction revalidates dependency bytes and final targets under the held lock", async (t) => {
+  const dependencyRoot = path.join(
+    await temporaryDirectory(t),
+    "dependency",
+    "docs",
+    "tasks",
+  );
+  const dependency = await createTaskArtifacts({
+    tasksRoot: dependencyRoot,
+    title: "Dependency",
+  });
+  const dependencyTask = await readFile(dependency.taskPath, "utf8");
+  await assert.rejects(
+    createTaskArtifactBatch({
+      tasksRoot: dependencyRoot,
+      tasks: [
+        batchDefinition("dependent", "Dependent", [{ taskId: dependency.id }]),
+      ],
+      hooks: {
+        async afterLock() {
+          await writeFile(
+            dependency.taskPath,
+            `${dependencyTask}\n<!-- post-lock drift -->\n`,
+            "utf8",
+          );
+        },
+      },
+    }),
+    (error) => error.code === "TASK_CREATION_CONFLICT",
+  );
+  assert.deepEqual(await readdir(dependencyRoot), ["0001-dependency"]);
+  assert.match(await readFile(dependency.taskPath, "utf8"), /post-lock drift/);
+
+  const targetRoot = path.join(
+    await temporaryDirectory(t),
+    "target",
+    "docs",
+    "tasks",
+  );
+  let foreignTarget;
+  await assert.rejects(
+    createTaskArtifactBatch({
+      tasksRoot: targetRoot,
+      tasks: [batchDefinition("target", "Target")],
+      hooks: {
+        async beforePublish({ tasks }) {
+          foreignTarget = tasks[0].directory;
+          await mkdir(foreignTarget);
+        },
+      },
+    }),
+    (error) => error.code === "TASK_CREATION_CONFLICT",
+  );
+  assert.deepEqual(await readdir(targetRoot), ["0001-target"]);
+  assert.deepEqual(await readdir(foreignTarget), []);
+
+  const immediateRoot = path.join(
+    await temporaryDirectory(t),
+    "immediate-target",
+    "docs",
+    "tasks",
+  );
+  let immediateTarget;
+  await assert.rejects(
+    createTaskArtifactBatch({
+      tasksRoot: immediateRoot,
+      tasks: [batchDefinition("immediate", "Immediate")],
+      hooks: {
+        async beforeDirectoryPublish({ task }) {
+          immediateTarget = task.directory;
+          await mkdir(immediateTarget);
+          await writeFile(
+            path.join(immediateTarget, "foreign-user-file.txt"),
+            "never overwrite\n",
+            "utf8",
+          );
+        },
+      },
+    }),
+    (error) => error.code === "TASK_CREATION_CONFLICT",
+  );
+  assert.deepEqual(await readdir(immediateRoot), ["0001-immediate"]);
+  assert.equal(
+    await readFile(path.join(immediateTarget, "foreign-user-file.txt"), "utf8"),
+    "never overwrite\n",
+  );
+});
+
+test("unproven rollback content remains byte-preserved and diagnostics stay bounded and relative", async (t) => {
+  const tasksRoot = path.join(await temporaryDirectory(t), "docs", "tasks");
+  let extraPath;
+  await assert.rejects(
+    createTaskArtifactBatch({
+      tasksRoot,
+      tasks: [
+        batchDefinition("first", "First"),
+        batchDefinition("second", "Second"),
+      ],
+      hooks: {
+        async afterDirectoryPublish({ task, index }) {
+          if (index === 0) {
+            extraPath = path.join(task.directory, "unknown-user-file.txt");
+            await writeFile(extraPath, "preserve me\n", "utf8");
+            throw new Error("stop after foreign content injection");
+          }
+        },
+      },
+    }),
+    (error) => error.code === "TASK_BATCH_ROLLBACK_FAILED",
+  );
+
+  const rootEntries = await readdir(tasksRoot);
+  const stageName = rootEntries.find((name) =>
+    name.startsWith(".kyw-dev-task-batch-"),
+  );
+  const lockPath = path.join(tasksRoot, ".kyw-dev-task-create.lock");
+  const journalBefore = await readFile(lockPath);
+  const extraBefore = await readFile(extraPath);
+  const stageTaskBefore = await readFile(
+    path.join(tasksRoot, stageName, "0002-second", "TASK.md"),
+  );
+  const initial = JSON.parse(journalBefore.toString("utf8").split("\n")[0]);
+
+  const diagnostic = await inspectTaskBatchTransaction({ tasksRoot });
+  const serializedDiagnostic = JSON.stringify(diagnostic);
+  assert.equal(diagnostic.state, "RECOVERY_REQUIRED");
+  assert.equal(diagnostic.phase, "PUBLISHING");
+  assert.ok(
+    diagnostic.observations.some(
+      (observation) => observation.category === "UNPROVEN_CONTENT",
+    ),
+  );
+  assert.equal(serializedDiagnostic.includes(tasksRoot), false);
+  assert.equal(serializedDiagnostic.includes(initial.token), false);
+  assert.equal(diagnostic.tokenPrefix, initial.token.slice(0, 8));
+  assert.ok(diagnostic.observations.length <= 64);
+
+  await assert.rejects(
+    recoverTaskBatchTransaction({ tasksRoot }),
+    (error) => error.code === "TASK_BATCH_RECOVERY_BLOCKED",
+  );
+  assert.deepEqual(await readFile(lockPath), journalBefore);
+  assert.deepEqual(await readFile(extraPath), extraBefore);
+  assert.deepEqual(
+    await readFile(path.join(tasksRoot, stageName, "0002-second", "TASK.md")),
+    stageTaskBefore,
+  );
+});
+
+test("rollback preserves changed pair bytes and linked extras instead of recursively cleaning them", async (t) => {
+  const changedRoot = path.join(
+    await temporaryDirectory(t),
+    "changed",
+    "docs",
+    "tasks",
+  );
+  let changedTaskPath;
+  await assert.rejects(
+    createTaskArtifactBatch({
+      tasksRoot: changedRoot,
+      tasks: [batchDefinition("changed", "Changed")],
+      hooks: {
+        async afterPairWrite({ stagedTaskDirectory }) {
+          changedTaskPath = path.join(stagedTaskDirectory, "TASK.md");
+          await writeFile(changedTaskPath, "foreign changed bytes\n", "utf8");
+          throw new Error("stop after pair replacement");
+        },
+      },
+    }),
+    (error) => error.code === "TASK_BATCH_ROLLBACK_FAILED",
+  );
+  assert.equal(await readFile(changedTaskPath, "utf8"), "foreign changed bytes\n");
+  await assert.rejects(
+    recoverTaskBatchTransaction({ tasksRoot: changedRoot }),
+    (error) => error.code === "TASK_BATCH_RECOVERY_BLOCKED",
+  );
+  assert.equal(await readFile(changedTaskPath, "utf8"), "foreign changed bytes\n");
+
+  const linkFixture = await temporaryDirectory(t);
+  const linkIsJunction = process.platform === "win32";
+  const linkSource = path.join(
+    linkFixture,
+    linkIsJunction ? "source-directory" : "source.txt",
+  );
+  const linkProbe = path.join(
+    linkFixture,
+    linkIsJunction ? "probe-directory" : "probe.txt",
+  );
+  if (linkIsJunction) {
+    await mkdir(linkSource);
+    await writeFile(
+      path.join(linkSource, "user-bytes.txt"),
+      "linked user bytes\n",
+      "utf8",
+    );
+  } else {
+    await writeFile(linkSource, "linked user bytes\n", "utf8");
+  }
+  try {
+    await symlink(linkSource, linkProbe, linkIsJunction ? "junction" : "file");
+    await rm(linkProbe);
+  } catch (error) {
+    if (["EPERM", "EACCES", "ENOSYS"].includes(error.code)) {
+      t.diagnostic(`symlink rollback fixture is unavailable: ${error.code}`);
+      return;
+    }
+    throw error;
+  }
+
+  const linkedRoot = path.join(
+    await temporaryDirectory(t),
+    "linked",
+    "docs",
+    "tasks",
+  );
+  let linkedPath;
+  await assert.rejects(
+    createTaskArtifactBatch({
+      tasksRoot: linkedRoot,
+      tasks: [batchDefinition("linked", "Linked")],
+      hooks: {
+        async afterPairWrite({ stagedTaskDirectory }) {
+          linkedPath = path.join(
+            stagedTaskDirectory,
+            linkIsJunction ? "linked-user-directory" : "linked-user-file.txt",
+          );
+          await symlink(
+            linkSource,
+            linkedPath,
+            linkIsJunction ? "junction" : "file",
+          );
+          throw new Error("stop after linked extra");
+        },
+      },
+    }),
+    (error) => error.code === "TASK_BATCH_ROLLBACK_FAILED",
+  );
+  assert.equal((await lstat(linkedPath)).isSymbolicLink(), true);
+  assert.equal(
+    await readFile(
+      linkIsJunction ? path.join(linkedPath, "user-bytes.txt") : linkedPath,
+      "utf8",
+    ),
+    "linked user bytes\n",
+  );
+  await assert.rejects(
+    recoverTaskBatchTransaction({ tasksRoot: linkedRoot }),
+    (error) => error.code === "TASK_BATCH_RECOVERY_BLOCKED",
+  );
+  assert.equal((await lstat(linkedPath)).isSymbolicLink(), true);
+});
+
+test("explicit recovery rolls back a fully proven interrupted publication and is idempotent", async (t) => {
+  const tasksRoot = path.join(await temporaryDirectory(t), "docs", "tasks");
+  await assert.rejects(
+    createTaskArtifactBatch({
+      tasksRoot,
+      tasks: [
+        batchDefinition("first", "First"),
+        batchDefinition("second", "Second"),
+      ],
+      hooks: {
+        afterDirectoryPublish({ index }) {
+          if (index === 0) {
+            throw new Error("interrupt publication");
+          }
+        },
+        beforeRollback() {
+          throw new Error("interrupt automatic rollback");
+        },
+      },
+    }),
+    (error) => error.code === "TASK_BATCH_ROLLBACK_FAILED",
+  );
+  assert.equal(
+    (await inspectTaskBatchTransaction({ tasksRoot })).state,
+    "RECOVERY_REQUIRED",
+  );
+
+  const recovered = await recoverTaskBatchTransaction({ tasksRoot });
+  assert.equal(recovered.recovered, true);
+  assert.equal(recovered.action, "rolled-back");
+  assert.deepEqual(await readdir(tasksRoot), []);
+
+  const repeated = await recoverTaskBatchTransaction({ tasksRoot });
+  assert.equal(repeated.recovered, false);
+  assert.equal(repeated.state, "NONE");
+});
+
+test("explicit recovery handles proven pre-publish and rolled-back cleanup phases", async (t) => {
+  const prepublishRoot = path.join(
+    await temporaryDirectory(t),
+    "prepublish",
+    "docs",
+    "tasks",
+  );
+  await assert.rejects(
+    createTaskArtifactBatch({
+      tasksRoot: prepublishRoot,
+      tasks: [batchDefinition("prepublish", "Prepublish")],
+      hooks: {
+        afterStageDirectoryCreate() {
+          throw new Error("interrupt before pair staging");
+        },
+        beforeRollback() {
+          throw new Error("retain pre-publish transaction");
+        },
+      },
+    }),
+    (error) => error.code === "TASK_BATCH_ROLLBACK_FAILED",
+  );
+  assert.equal(
+    (await inspectTaskBatchTransaction({ tasksRoot: prepublishRoot })).phase,
+    "ROLLING_BACK",
+  );
+  assert.equal(
+    (await recoverTaskBatchTransaction({ tasksRoot: prepublishRoot })).action,
+    "rolled-back",
+  );
+  assert.deepEqual(await readdir(prepublishRoot), []);
+
+  const rolledBackRoot = path.join(
+    await temporaryDirectory(t),
+    "rolled-back",
+    "docs",
+    "tasks",
+  );
+  await assert.rejects(
+    createTaskArtifactBatch({
+      tasksRoot: rolledBackRoot,
+      tasks: [batchDefinition("rolled-back", "Rolled back")],
+      hooks: {
+        afterPairWrite() {
+          throw new Error("trigger automatic rollback");
+        },
+        beforeLockReleaseRename() {
+          throw new Error("retain rolled-back marker");
+        },
+      },
+    }),
+    (error) => error.code === "TASK_BATCH_ROLLBACK_FAILED",
+  );
+  assert.equal(
+    (await inspectTaskBatchTransaction({ tasksRoot: rolledBackRoot })).phase,
+    "ROLLED_BACK",
+  );
+  assert.equal(
+    (await recoverTaskBatchTransaction({ tasksRoot: rolledBackRoot })).action,
+    "rolled-back-cleanup",
+  );
+  assert.deepEqual(await readdir(rolledBackRoot), []);
+  assert.equal(
+    (await recoverTaskBatchTransaction({ tasksRoot: rolledBackRoot })).state,
+    "NONE",
+  );
+});
+
+test("explicit recovery completes proven committed cleanup without removing published Tasks", async (t) => {
+  const tasksRoot = path.join(await temporaryDirectory(t), "docs", "tasks");
+  await assert.rejects(
+    createTaskArtifactBatch({
+      tasksRoot,
+      tasks: [
+        batchDefinition("first", "First"),
+        batchDefinition("second", "Second"),
+      ],
+      hooks: {
+        beforeLockReleaseRename() {
+          throw new Error("interrupt final lock release");
+        },
+      },
+    }),
+    (error) => error.code === "TASK_BATCH_FINALIZATION_FAILED",
+  );
+  const diagnostic = await inspectTaskBatchTransaction({ tasksRoot });
+  assert.equal(diagnostic.phase, "COMMITTED");
+
+  const recovered = await recoverTaskBatchTransaction({ tasksRoot });
+  assert.equal(recovered.action, "completed-cleanup");
+  assert.deepEqual(await readdir(tasksRoot), [
+    "0001-first",
+    "0002-second",
+  ]);
+  for (const directory of await readdir(tasksRoot)) {
+    assert.deepEqual(
+      await validateTaskDirectory(path.join(tasksRoot, directory)),
+      [],
+    );
+  }
+  assert.equal(
+    (await recoverTaskBatchTransaction({ tasksRoot })).state,
+    "NONE",
+  );
+});
+
+test("batch failure boundaries either restore the prior queue or retain explicit recovery evidence", async (t) => {
+  const cleanBoundaries = [
+    "afterStageDirectoryCreate",
+    "afterPairWrite",
+    "beforePublish",
+    "beforeDirectoryPublish",
+    "afterFinalDirectoryCreate",
+    "afterFinalFileCreate",
+    "afterDirectoryPublish",
+  ];
+  for (const boundary of cleanBoundaries) {
+    const tasksRoot = path.join(
+      await temporaryDirectory(t),
+      boundary,
+      "docs",
+      "tasks",
+    );
+    let injected = false;
+    await assert.rejects(
+      createTaskArtifactBatch({
+        tasksRoot,
+        tasks: [batchDefinition("boundary", "Boundary")],
+        hooks: {
+          [boundary]() {
+            if (!injected) {
+              injected = true;
+              throw new Error(`injected ${boundary}`);
+            }
+          },
+        },
+      }),
+      (error) =>
+        error.code === "TASK_BATCH_CREATION_FAILED" &&
+        error.message.includes(boundary),
+    );
+    assert.deepEqual(await readdir(tasksRoot), []);
+  }
+
+  const releaseRoot = path.join(
+    await temporaryDirectory(t),
+    "release",
+    "docs",
+    "tasks",
+  );
+  await assert.rejects(
+    createTaskArtifactBatch({
+      tasksRoot: releaseRoot,
+      tasks: [batchDefinition("release", "Release")],
+      hooks: {
+        beforeReleaseMarkerUnlink() {
+          throw new Error("injected release unlink");
+        },
+      },
+    }),
+    (error) => error.code === "TASK_BATCH_FINALIZATION_FAILED",
+  );
+  const releaseDiagnostic = await inspectTaskBatchTransaction({
+    tasksRoot: releaseRoot,
+  });
+  assert.equal(releaseDiagnostic.phase, "COMMITTED");
+  assert.match(releaseDiagnostic.marker.path, /\.kyw-dev-task-release-/);
+  assert.equal(
+    (await recoverTaskBatchTransaction({ tasksRoot: releaseRoot })).action,
+    "completed-cleanup",
+  );
+
+  const manifestRoot = path.join(
+    await temporaryDirectory(t),
+    "manifest",
+    "docs",
+    "tasks",
+  );
+  let manifestInterrupted = false;
+  await assert.rejects(
+    createTaskArtifactBatch({
+      tasksRoot: manifestRoot,
+      tasks: [batchDefinition("manifest", "Manifest")],
+      hooks: {
+        afterJournalAppend({ event }) {
+          if (event === "STAGE_CREATED" && !manifestInterrupted) {
+            manifestInterrupted = true;
+            throw new Error("interrupt after durable manifest record");
+          }
+        },
+      },
+    }),
+    (error) => error.code === "TASK_BATCH_ROLLBACK_FAILED",
+  );
+  assert.equal(
+    (await inspectTaskBatchTransaction({ tasksRoot: manifestRoot })).phase,
+    "POST_LOCK_VALIDATED",
+  );
+  assert.equal(
+    (await recoverTaskBatchTransaction({ tasksRoot: manifestRoot })).action,
+    "rolled-back",
+  );
+  assert.deepEqual(await readdir(manifestRoot), []);
+
+  const rollbackRoot = path.join(
+    await temporaryDirectory(t),
+    "rollback-boundary",
+    "docs",
+    "tasks",
+  );
+  let unlinkInterrupted = false;
+  await assert.rejects(
+    createTaskArtifactBatch({
+      tasksRoot: rollbackRoot,
+      tasks: [batchDefinition("rollback-boundary", "Rollback boundary")],
+      hooks: {
+        afterDirectoryPublish() {
+          throw new Error("trigger rollback boundary");
+        },
+        beforeRollbackFileUnlink() {
+          if (!unlinkInterrupted) {
+            unlinkInterrupted = true;
+            throw new Error("interrupt proven file unlink");
+          }
+        },
+      },
+    }),
+    (error) => error.code === "TASK_BATCH_ROLLBACK_FAILED",
+  );
+  assert.equal(
+    (await recoverTaskBatchTransaction({ tasksRoot: rollbackRoot })).action,
+    "rolled-back",
+  );
+  assert.deepEqual(await readdir(rollbackRoot), []);
 });

@@ -464,6 +464,18 @@ test("user install writes complete hashed Skills and a runnable direct-install T
   assert.equal(batchOutput.tasks.length, 1);
   assert.match(readFileSync(batchOutput.tasks[0].taskPath, "utf8"), /## Status\n\nREADY/);
   assert.match(readFileSync(batchOutput.tasks[0].testPath, "utf8"), /## Status\n\nREADY/);
+  const transactionInspection = spawnSync(
+    process.execPath,
+    [
+      adapter,
+      "inspect-transaction",
+      "--tasks-root",
+      join(targetRepository, "docs", "tasks"),
+    ],
+    { encoding: "utf8" },
+  );
+  assert.equal(transactionInspection.status, 0, transactionInspection.stderr);
+  assert.equal(JSON.parse(transactionInspection.stdout).state, "NONE");
 
   const uninstall = uninstallManagedSkills({ scope: "user", home });
   assert.equal(uninstall.removedFileCount, 19);
@@ -1449,6 +1461,18 @@ test("actual npm tarball installs, diagnoses, runs its installed adapter, and un
   assert.equal(created.lastId, "0001");
   assert.ok(existsSync(created.tasks[0].taskPath));
   assert.ok(existsSync(created.tasks[0].testPath));
+  const transactionInspection = spawnSync(
+    process.execPath,
+    [
+      adapter,
+      "inspect-transaction",
+      "--tasks-root",
+      join(target, "docs", "tasks"),
+    ],
+    { encoding: "utf8" },
+  );
+  assert.equal(transactionInspection.status, 0, transactionInspection.stderr);
+  assert.equal(JSON.parse(transactionInspection.stdout).state, "NONE");
   const dispatchResult = spawnSync(
     process.execPath,
     [
