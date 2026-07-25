@@ -15,6 +15,7 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
+import * as taskArtifactsFacade from "../src/core/task-artifacts.mjs";
 import {
   MAX_TASK_SLUG_LENGTH,
   allocateNextTaskId,
@@ -32,6 +33,96 @@ import {
 } from "../src/core/task-artifacts.mjs";
 
 const fixturesRoot = fileURLToPath(new URL("./fixtures/task-repositories/", import.meta.url));
+const coreRoot = fileURLToPath(new URL("../src/core/", import.meta.url));
+
+test("task artifact facade preserves its public export inventory", () => {
+  assert.deepEqual(Object.keys(taskArtifactsFacade), [
+    "ALL_TASKS_COMPLETE_MESSAGE",
+    "MAX_TASK_NUMBER",
+    "MAX_TASK_SLUG_LENGTH",
+    "TaskArtifactError",
+    "allocateNextTaskId",
+    "allocateNextTaskNumber",
+    "buildTaskDirectoryName",
+    "classifyDeliveryEvidence",
+    "createTaskArtifactBatch",
+    "createTaskArtifacts",
+    "createTaskSlug",
+    "evaluateDeliveryEvidence",
+    "evaluateTaskExecutionPreflight",
+    "formatTaskId",
+    "inspectTaskBatchTransaction",
+    "inspectTaskDirectories",
+    "inspectTaskQueue",
+    "normalizeTaskTitle",
+    "parseTaskDirectoryName",
+    "parseTaskInvocation",
+    "recoverTaskBatchTransaction",
+    "resolveTaskDirectory",
+    "resolveTaskDispatch",
+    "slugifyTaskTitle",
+    "validateTaskDirectory",
+  ]);
+});
+
+test("task artifact modules keep the intended acyclic dependency graph", async () => {
+  const expectedGraph = new Map([
+    ["task-artifact-contract.mjs", ["task-artifact-shared.mjs"]],
+    [
+      "task-artifact-creation.mjs",
+      ["task-artifact-contract.mjs", "task-artifact-queue.mjs", "task-artifact-shared.mjs"],
+    ],
+    ["task-artifact-delivery.mjs", []],
+    [
+      "task-artifact-queue.mjs",
+      ["task-artifact-contract.mjs", "task-artifact-delivery.mjs", "task-artifact-shared.mjs"],
+    ],
+    ["task-artifact-shared.mjs", []],
+    [
+      "task-artifacts.mjs",
+      [
+        "task-artifact-contract.mjs",
+        "task-artifact-creation.mjs",
+        "task-artifact-delivery.mjs",
+        "task-artifact-queue.mjs",
+        "task-artifact-shared.mjs",
+      ],
+    ],
+  ]);
+  const actualGraph = new Map();
+
+  await Promise.all(
+    [...expectedGraph].map(async ([fileName, expectedDependencies]) => {
+      const source = await readFile(path.join(coreRoot, fileName), "utf8");
+      const actualDependencies = [
+        ...source.matchAll(/\bfrom\s+"\.\/(task-artifact(?:s|-[a-z]+)\.mjs)"/g),
+      ]
+        .map((match) => match[1])
+        .sort();
+      actualGraph.set(fileName, actualDependencies);
+      assert.deepEqual(actualDependencies, [...expectedDependencies].sort(), fileName);
+    }),
+  );
+
+  const visiting = new Set();
+  const visited = new Set();
+  function visit(fileName) {
+    assert.ok(!visiting.has(fileName), `task artifact dependency cycle reaches ${fileName}`);
+    if (visited.has(fileName)) {
+      return;
+    }
+    visiting.add(fileName);
+    for (const dependency of actualGraph.get(fileName)) {
+      visit(dependency);
+    }
+    visiting.delete(fileName);
+    visited.add(fileName);
+  }
+
+  for (const fileName of actualGraph.keys()) {
+    visit(fileName);
+  }
+});
 
 async function temporaryDirectory(t) {
   const directory = await mkdtemp(path.join(tmpdir(), "kyw-dev-task0002-"));

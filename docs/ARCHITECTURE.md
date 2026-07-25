@@ -153,13 +153,18 @@ This boundary uses no daemon, watcher, filesystem/process/OS tracing, ambient pr
 
 The positive npm `files` allowlist also excludes repository Tasks/docs, the removed `DOCUMENT_BUNDLE.txt` bootstrap inventory, local marketplace fixtures, generated archives, credential/config files, and machine-local paths. Release validation compares an exact dry-run inventory, extracts a real tarball created in an isolated temporary directory, scans packed text for credential-shaped values and absolute local paths, and verifies the project and Matt Pocock legal notices by content and SHA-256.
 
-The packaged deterministic mechanics are split into three core modules:
+The packaged deterministic mechanics use these cohesive core boundaries:
 
 - `src/core/template-contracts.mjs` implements the canonical template registry and enforces token rendering, required-section contracts, lifecycle-aware meaningful-content or reasoned-N/A rules, current-contract and legacy Task/Test status rules, static delivery-requirement parsing, acceptance-to-test traceability, and evidence validation. It applies no global Task length cap.
-- `src/core/task-artifacts.mjs` owns Task directory inventory, contiguous max-plus-one ID allocation, bounded ASCII slug generation, cross-platform path containment, compatible one-pair scaffolding, ownership-safe fully authored batch transactions and recovery, bounded transaction diagnostics, file-backed validation, hard-dependency graph construction, and deterministic exact/automatic queue resolution.
+- `src/core/task-artifact-shared.mjs` owns Task-specific filesystem identity, hashing, lock/transaction constants, and bounded ownership-proof primitives.
+- `src/core/task-artifact-contract.mjs` owns Task Markdown/status/dependency parsing, directory naming and containment, inventory, and file-backed pair validation.
+- `src/core/task-artifact-delivery.mjs` owns invocation parsing, repository execution-preflight classification, and exact-SHA delivery-evidence classification.
+- `src/core/task-artifact-queue.mjs` owns dependency graph validation, queue inspection, allocation, and deterministic exact/automatic/continuous dispatch.
+- `src/core/task-artifact-creation.mjs` owns compatible one-pair creation plus ownership-safe fully authored batch transactions, rollback, inspection, recovery, and bounded diagnostics.
+- `src/core/task-artifacts.mjs` is the stable public re-export facade for all existing Task artifact imports and exports.
 - `src/core/skill-installation.mjs` owns direct-install source inventory and hashing, user/project scope resolution, ownership metadata, conflict inspection, journaled file transactions and recovery, ownership-safe uninstall, tool detection, and doctor diagnostics.
 
-The artifact module depends on the template-contract module. The installation module inventories the same two core files and canonical templates as direct-install runtime inputs but does not import their Task logic. No core module depends on the CLI, Skills, or development-only validation surfaces.
+The Task artifact graph is acyclic: shared and delivery are leaves; contract depends on template contracts and shared primitives; queue depends on contract, delivery, and shared primitives; creation depends on template contracts, contract, queue, and shared primitives; and the facade only re-exports the public surface. The installation module inventories that complete runtime graph and the canonical templates as direct-install inputs but does not import their Task logic. No core module depends on the CLI, Skills, or development-only validation surfaces.
 
 `skills/kyw-task/scripts/task-artifacts.mjs` is a thin packaged process adapter for the core artifact module's compatible one-pair scaffold, fully authored batch create, read-only transaction inspection, explicit proof-based recovery, validate, and read-only resolve operations. It parses explicit arguments and reports structured results, but owns no numbering, slug, template, validation, dependency, transaction, selection, or file-write logic. Batch input carries complete model-authored Task/Test Markdown with deterministic placeholders and explicit existing/intra-batch dependency references; the core resolves those values and validates the result. In a plugin/npm tree the adapter imports the package-root core; in a direct-Skills tree it falls back to `.agents/skills/.kyw-dev/runtime/src/core/`. This keeps deterministic mechanics in the core modules while giving the reasoning Skill a stable invocation surface in both distribution layouts.
 
@@ -606,7 +611,7 @@ kyw-dev CLI
 user or repository .agents/skills
 ```
 
-This path is intended for Codex CLI/IDE users who want direct Skill discovery. The four visible `kyw-*` directories are copied byte-for-byte. The CLI also maps the two canonical Task core modules and six templates into `.agents/skills/.kyw-dev/runtime/`. That hidden namespace is ownership-managed support, not a fifth Skill. The `kyw-task` adapter prefers its package-root import and falls back to this runtime only after direct installation.
+This path is intended for Codex CLI/IDE users who want direct Skill discovery. The four visible `kyw-*` directories are copied byte-for-byte. The CLI also maps the seven canonical Task runtime modules—the public facade, its five cohesive internals, and the template contract—and six templates into `.agents/skills/.kyw-dev/runtime/`. That hidden namespace is ownership-managed support, not a fifth Skill. The `kyw-task` adapter prefers its package-root import and falls back to this runtime only after direct installation.
 
 ## 11.2 Plugin marketplace path
 
