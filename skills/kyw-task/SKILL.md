@@ -87,23 +87,21 @@ Each dependency object contains exactly one field. Omit dependencies or use an e
 
 ## Phase 5 - Publish the batch atomically
 
-Run the packaged adapter exactly once for the complete set, including a one-item set:
+Run the packaged adapter once for the complete set:
 
 ```text
 node <kyw-task-skill-directory>/scripts/task-artifacts.mjs create-batch --tasks-root <repository>/docs/tasks (--batch-json <json> | --batch-file <existing scratch path>)
 ```
 
-Pass JSON as one argument, or use a caller-owned temporary file outside the repository. Never interpolate user text into source or a shell expression, or store the specification in the repository.
+Use external `--batch-file` by default for every multi-pair batch or payload that may be large; keep `--batch-json` for one small pair. Never put input in the repository or code/shell syntax.
 
-The core must preallocate all contiguous IDs/paths, resolve dependencies, canonically validate every pair and the combined missing-edge/cycle graph, acquire one creation lock, recheck targets, stage and revalidate the full set, then publish it. Queue readers fail closed under the lock. Expected failure rolls every batch-owned final directory back and leaves no partial queue.
+The core prevalidates the set/graph, uses one versioned identity manifest/lock, rechecks queue/dependency/content/targets twice, and proves staged identities/hashes. Readers fail closed on transaction evidence. Expected failure rolls every batch-owned final directory back only after complete ownership proof; a gap preserves evidence and blocks.
 
-On success:
+On success, validate returned paths, confirm no residue, and never post-edit.
 
-1. Use only returned IDs, paths, and dependencies; validate every directory once.
-2. Confirm `READY/READY`, exact path creation, and no remaining lock/staging path.
-3. Do not post-edit placeholders; complete content was validated before publication.
+On failure, do not retry, reuse an ID, hand-create a replacement, or implement. Report no-partial-queue only when ownership-safe rollback actually completed. `TASK_BATCH_ROLLBACK_FAILED` and `TASK_BATCH_FINALIZATION_FAILED` preserve evidence and block.
 
-If publication fails, do not retry, reuse an ID, hand-create a replacement, or implement anything. Report that no batch-owned pair remains. `TASK_BATCH_ROLLBACK_FAILED` is a fail-closed blocker: preserve the creation lock and exact owned paths for recovery instead of claiming rollback.
+Read-only diagnosis is `node <adapter> inspect-transaction --tasks-root <repository>/docs/tasks`; authorized explicit recovery is `node <adapter> recover-transaction --tasks-root <repository>/docs/tasks`, using the packaged script above. Output is bounded/relative. Recovery is proof-only and idempotent, never uses age, PID liveness, or hostname as authority, and preserves unproven bytes.
 
 ## Phase 6 - Stop or execute one Task
 

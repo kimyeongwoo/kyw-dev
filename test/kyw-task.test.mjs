@@ -6,6 +6,8 @@ import { spawnSync } from "node:child_process";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { createTaskArtifactBatch } from "../src/core/task-artifacts.mjs";
+
 const REPOSITORY_ROOT = fileURLToPath(new URL("../", import.meta.url));
 const README_PATH = join(REPOSITORY_ROOT, "README.md");
 const ARCHITECTURE_PATH = join(REPOSITORY_ROOT, "docs", "ARCHITECTURE.md");
@@ -229,6 +231,10 @@ test("kyw-task Skill is explicit-only and supports create, exact, next, and cont
   assert.match(skill, /incidental text containing “task” never invokes this workflow/);
   assert.match(skill, /Create mode may author several Tasks but never executes them concurrently/);
   assert.match(skill, /create-batch --tasks-root/);
+  assert.match(skill, /--batch-file.*by default for every multi-pair batch or payload that may be large/);
+  assert.match(skill, /inspect-transaction --tasks-root/);
+  assert.match(skill, /recover-transaction --tasks-root/);
+  assert.match(skill, /never uses age, PID liveness, or hostname as authority/);
   assert.match(skill, /--delivery-ledger-json <json>/);
   assert.match(skill, /--execution-preflight-json <json>/);
   assert.match(skill, /four-digit Task ID/);
@@ -402,8 +408,9 @@ test("kyw-task authoring mutation boundary permits only the atomic new set", asy
   assert.match(skill, /Create-only authority ends after atomic `READY\/READY` publication/);
   assert.match(skill, /Do not implement another new pair or invoke continuous mode implicitly/);
   assert.match(skill, /Cancellation or inaccessible required facts stop with no new artifact/);
-  assert.match(skill, /Expected failure rolls every batch-owned final directory back/);
+  assert.match(skill, /Expected failure rolls every batch-owned final directory back only after complete ownership proof/);
   assert.match(skill, /do not retry, reuse an ID, hand-create a replacement/);
+  assert.match(skill, /Report no-partial-queue only when ownership-safe rollback actually completed/);
   assert.match(execution, /mutations may include only/);
   assert.match(execution, /do not edit another Task/);
   assert.match(execution, /never implement its outcome/);
@@ -949,7 +956,8 @@ test("kyw-task authoring adapter scaffolds one pair and task execution validates
     },
     {
       args: ["resume", "--task-directory", existingDirectory],
-      pattern: /Expected create, create-batch, validate, or dispatch/,
+      pattern:
+        /Expected create, create-batch, inspect-transaction, recover-transaction, validate, or dispatch/,
     },
     {
       args: [
@@ -1055,6 +1063,43 @@ test("kyw-task adapter publishes complete READY batches from file or inline JSON
     assert.match(await readFile(task.testPath, "utf8"), /## Status\n\nREADY/);
   }
 
+  const largeRoot = join(root, "large", "docs", "tasks");
+  const largeSpecification = batchSpec([
+    { key: "large-foundation", title: "Large foundation" },
+    {
+      key: "large-dependent",
+      title: "Large dependent",
+      dependencies: [{ taskKey: "large-foundation" }],
+    },
+  ]);
+  largeSpecification.tasks[0].taskMarkdown =
+    largeSpecification.tasks[0].taskMarkdown.replace(
+      "Deliver one independently verifiable outcome.",
+      `Deliver one independently verifiable outcome.\n\n${"Windows-valid-file-backed-payload ".repeat(320)}`,
+    );
+  const largeSpecificationPath = join(root, "large-batch.json");
+  await writeFile(
+    largeSpecificationPath,
+    JSON.stringify(largeSpecification),
+    "utf8",
+  );
+  assert.ok((await readFile(largeSpecificationPath)).byteLength > 8192);
+  const largeResult = runAdapter([
+    "create-batch",
+    "--tasks-root",
+    largeRoot,
+    "--batch-file",
+    largeSpecificationPath,
+  ]);
+  assert.equal(largeResult.status, 0, largeResult.stderr);
+  const largeBatch = JSON.parse(largeResult.stdout);
+  assert.equal(largeBatch.firstId, "0001");
+  assert.equal(largeBatch.lastId, "0002");
+  assert.deepEqual(await readdir(largeRoot), [
+    "0001-large-foundation",
+    "0002-large-dependent",
+  ]);
+
   const inlineRoot = join(root, "inline", "docs", "tasks");
   const inlineResult = runAdapter([
     "create-batch",
@@ -1068,6 +1113,51 @@ test("kyw-task adapter publishes complete READY batches from file or inline JSON
   assert.equal(inlineBatch.firstId, "0001");
   assert.equal(inlineBatch.lastId, "0001");
   assert.equal(inlineBatch.tasks.length, 1);
+
+  const noTransaction = runAdapter([
+    "inspect-transaction",
+    "--tasks-root",
+    inlineRoot,
+  ]);
+  assert.equal(noTransaction.status, 0, noTransaction.stderr);
+  assert.equal(JSON.parse(noTransaction.stdout).state, "NONE");
+
+  const recoverRoot = join(root, "recover", "docs", "tasks");
+  await assert.rejects(
+    createTaskArtifactBatch({
+      tasksRoot: recoverRoot,
+      tasks: batchSpec([{ key: "recoverable", title: "Recoverable" }]).tasks,
+      hooks: {
+        beforeLockReleaseRename() {
+          throw new Error("retain committed transaction");
+        },
+      },
+    }),
+    (error) => error.code === "TASK_BATCH_FINALIZATION_FAILED",
+  );
+  const transactionInspection = runAdapter([
+    "inspect-transaction",
+    "--tasks-root",
+    recoverRoot,
+  ]);
+  assert.equal(transactionInspection.status, 0, transactionInspection.stderr);
+  const transactionDiagnostic = JSON.parse(transactionInspection.stdout);
+  assert.equal(transactionDiagnostic.state, "RECOVERY_REQUIRED");
+  assert.equal(transactionDiagnostic.phase, "COMMITTED");
+  const transactionRecovery = runAdapter([
+    "recover-transaction",
+    "--tasks-root",
+    recoverRoot,
+  ]);
+  assert.equal(transactionRecovery.status, 0, transactionRecovery.stderr);
+  assert.equal(JSON.parse(transactionRecovery.stdout).action, "completed-cleanup");
+  const repeatedRecovery = runAdapter([
+    "recover-transaction",
+    "--tasks-root",
+    recoverRoot,
+  ]);
+  assert.equal(repeatedRecovery.status, 0, repeatedRecovery.stderr);
+  assert.equal(JSON.parse(repeatedRecovery.stdout).state, "NONE");
 
   const invalidRoot = join(root, "invalid", "docs", "tasks");
   const invalidPair = batchSpec([{ key: "invalid", title: "Invalid" }]);
