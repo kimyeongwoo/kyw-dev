@@ -1,26 +1,154 @@
 # kyw-dev
 
-`kyw-dev` is a lightweight, spec-driven development workflow plugin for Codex.
-
-It turns an idea into a shared understanding, records durable product and architecture decisions, decomposes implementation into the smallest dependency-aware set of session-sized numbered Tasks, and makes test intent traceable so completed-looking work is not accepted without verification.
+`kyw-dev` is a lightweight, spec-driven development workflow for Codex. It turns an idea into shared product and architecture truth, dependency-aware numbered Tasks, and test evidence that stays aligned with the final diff.
 
 > Product, plugin, CLI, and preferred npm package name: `kyw-dev`
 
-## Status
+## Start here
 
-Tasks 0001 through 0015 implemented the initial `0.1.0` pre-publication package/plugin surfaces. Work through Task 0028 now provides six canonical project/Task/Test templates, dependency-free deterministic Task helpers, four workflow Skills, safe direct-Skills installation, isolated marketplace verification, credential-free cross-platform CI, development-only evaluation/audit harnesses with interrupt-safe owned-state cleanup, marker-based release-isolation attribution, filesystem hardening, package metadata/hygiene checks, directly verified current behavioral evidence from Task 0027, and deterministic Windows evaluator-cleanup evidence from Task 0028. The CLI supports user/project install, conflict-aware update, ownership-safe uninstall, read-only diagnostics, help, and version output. These are implemented capabilities and evidence inputs, not by themselves an acceptance or release verdict.
+### Choose one installation surface
 
-Task 0020 remains immutable historical `BLOCKED` evidence for its old candidate. Tasks 0029 and 0038 remain immutable historical `READY_FOR_APPROVAL` evidence for their exact pre-simplification and post-simplification candidates. Task 0040 changes packed Task authoring behavior after the Task 0038 gate, so both candidates are superseded for any future publication and no current full release re-gate covers the new bytes. No follow-on Task is created automatically. No version tag, GitHub Release, npm publication, or public plugin-directory submission has occurred. Even a later successful pre-publication verdict is not final [SPEC §15](docs/SPEC.md#15-mvp-acceptance-criteria) MVP acceptance; the required MIT and third-party licensing and package identity must still be verified in the actually published tarball.
+The current usable source is this checkout; `kyw-dev` has not yet been published to npm or a public plugin directory.
+
+| Use case | Choose | Result |
+|---|---|---|
+| Codex CLI or IDE extension; one repository or all repositories | [Direct Skills installation](#direct-skills-installation) | Installs the four managed `kyw-*` Skills at project or user scope. |
+| ChatGPT desktop Codex or Codex CLI with plugin support | [Codex plugin installation](#codex-plugin-installation) | Installs the same four Skills from a local/personal marketplace package. |
+
+Use exactly one source for the four Skill names. Keeping direct and plugin copies together creates duplicate discovery; `doctor` reports the sources without deleting either one.
+
+### Invoke a Skill explicitly
+
+| Skill | First invocation | Outcome |
+|---|---|---|
+| `$kyw-init` | `$kyw-init "adopt this repository without replacing existing contributor guidance"` | Inspect, resolve durable decisions, then create or minimally update the four permanent documents only after confirmation. |
+| `$kyw-task` | `$kyw-task "add account lockout"` | Create one outcome or the smallest dependency-aware Task/Test set; optionally execute only its first eligible Task. |
+| `$kyw-audit` | `$kyw-audit 0007` | Independently verify one Task without writes; the exact `$kyw-audit 0007 --fix` form authorizes bounded in-scope repair. |
+| `$kyw-grilling` | `$kyw-grilling "stress-test this account lockout design"` | Run the read-only one-question-at-a-time decision interview without materializing files. |
+
+All four packaged Skills disable implicit invocation. Use the explicit `$skill-name` form on every surface; only a loaded kyw-managed `AGENTS.md` may additionally route the anchored Task aliases in [Task routing and evidence](#task-routing-and-evidence).
+
+### First workflow
+
+```text
+Idea or major redesign
+        ↓
+$kyw-init
+        ↓
+README.md + AGENTS.md + docs/SPEC.md + docs/ARCHITECTURE.md
+        ↓
+$kyw-task "one outcome or a dependency-aware set"
+        ↓
+Implement → synchronize docs → verify
+        ↓
+$kyw-audit NNNN
+```
+
+Small questions and narrowly scoped changes do not require a Task folder. They still follow the documentation-sync and verification rules in `AGENTS.md`.
+
+## Release status
+
+Version `0.1.0` has implemented package, plugin, four-Skill, CLI, CI, installer, and development-only validation surfaces, but the current repository bytes are not release-approved or published. Historical release evidence remains immutable: Task 0020 is `BLOCKED`, while the exact candidates from Tasks 0029 and 0038 reached `READY_FOR_APPROVAL` and were later superseded by repository changes. A fresh full release re-gate is required before any publication decision.
+
+No version tag, GitHub Release, npm publication, or public plugin-directory submission has occurred. Preparing metadata, packing a tarball, passing CI, or running a dry run does not authorize those actions. Even a later pre-publication verdict does not by itself satisfy the published-tarball licensing requirement in [SPEC §15](docs/SPEC.md#15-mvp-acceptance-criteria).
 
 Source: [kimyeongwoo/kyw-dev](https://github.com/kimyeongwoo/kyw-dev) · Issues: [GitHub issue tracker](https://github.com/kimyeongwoo/kyw-dev/issues)
 
-`$kyw-grilling` is implemented as an explicit-invocation-only, read-only interview Skill. `$kyw-init` is implemented as its explicit-only initialization wrapper: it inspects first, waits for confirmation, and then creates or minimally updates only the four permanent documents. `$kyw-task` adaptively authors one outcome or the smallest dependency-aware Task/Test pair set as one atomic `READY/READY` batch, optionally starts only its first eligible Task, executes an exact existing Task, or advances a pre-created queue one Task at a time. It keeps scope, documents, handoff state, tests, final diff coverage, and repository-versus-delivery evidence honest until completion or a recorded blocker. `$kyw-audit` independently treats those completion records as claims, reproduces available evidence, detects scope and documentation drift, and returns `PASS` or `BLOCKED` without modifying the repository by default. Only the exact `--fix` form authorizes bounded in-scope repair.
+## Task routing and evidence
 
-The authoritative product requirements are in `docs/SPEC.md`; the system structure is in `docs/ARCHITECTURE.md`; implementation is divided under `docs/tasks/`.
+The portable existing-Task form is:
+
+```text
+$kyw-task 0006
+```
+
+A repository with the managed routing contract loaded also supports exactly:
+
+```text
+task 0006 실행해줘
+task 진행해줘
+남은 task 계속 실행해줘
+```
+
+These commands are a concise user projection. [SPEC §6.1](docs/SPEC.md#61-codex-skills) owns product behavior, `AGENTS.md` owns repository invariants, and the packaged [`kyw-task` execution reference](skills/kyw-task/references/execution.md) owns the detailed procedure.
+
+- Independent outcomes, separate acceptance sets, dependency ordering, or excess single-Task scope produce the smallest justified dependency-aware set. A create-only request stops after reporting those paths. A create-and-execute request starts only the first dependency-satisfied new Task.
+- Existing execution continues at the verified `Resume Point` without repeating Completed work. Exact `READY/READY` selection confirms implementation and ordinary `STANDARD` delivery. Automatic selection resumes active work, then resumable delivery, then the lowest eligible ready Task; continuous mode remains serial and current-invocation-only. Invalid states or dependencies fail closed, incidental “task” prose does not route, and a surface without the managed contract uses `$kyw-task NNNN`.
+- Appended user text may constrain the first selected Task but cannot waive safety or evidence. The configured model and reasoning effort stay unchanged unless that user explicitly overrides them. `TEST.md` records model identifier, requested alias, reasoning effort, Codex surface, version, and per-field observability; hidden values remain `UNAVAILABLE`, never guessed.
+- Task/Test owns repository outcome; GitHub owns mutable delivery state. The static declaration alone grants no ambient authority, while `IMPLEMENT`, `RESUME`, or `DELIVER` selection authorizes exact-path commit, non-force push, non-draft PR, exact-head CI, expected-head merge, post-merge base-branch CI, and terminal reporting without ceremonial reconfirmation. Publication, registry mutation, tags/releases, public submission, force/destructive operations, reruns, bypasses, and unrelated mutations remain separately authorized.
+
+## Installation details
+
+### Compatibility matrix
+
+Official surface behavior was checked on **2026-07-24** against [Build skills](https://learn.chatgpt.com/docs/build-skills), [Plugins](https://learn.chatgpt.com/docs/plugins), [Build plugins](https://learn.chatgpt.com/docs/build-plugins), and [custom instructions with `AGENTS.md`](https://learn.chatgpt.com/docs/agent-configuration/agents-md). Skills are available in the ChatGPT desktop app, Codex CLI, and IDE extension. Plugins are available in the desktop app and CLI, but not in the IDE extension. Until kyw-dev is actually published or listed in a trusted marketplace, the checkout and local-marketplace commands below remain the usable sources.
+
+| Surface or scope | Primary recommendation now | Supported fallback or limit |
+|---|---|---|
+| Codex CLI | Install direct Skills from this checkout at exactly one scope: project for one repository, user for all repositories. | A configured marketplace plugin can be installed through `/plugins`; start a new CLI session afterward and remove the direct copy first. |
+| Desktop Codex in the ChatGPT desktop app | Install the packed plugin from a repository or personal local marketplace. | Direct repository or user Skills are discoverable, but do not keep the same names installed through both paths. Restart the app or start a new chat after installation changes. |
+| Codex IDE extension | Install direct Skills at project scope by default; use user scope only when the workflow should apply everywhere. | Plugins are not available in the IDE extension. The fallback is the other direct-Skill scope, not a plugin install. |
+| Repository scope | Run `install --scope project`; Codex discovers `<repo>/.agents/skills/` from that repository context. | A repository marketplace is an alternative for plugin-capable CLI/desktop use. Direct installation does not add `AGENTS.md`, so repository aliases require the managed contract to already exist. |
+| User scope | Run `install --scope user`; Codex discovers `~/.agents/skills/` across repositories. | A personal marketplace plugin is an alternative for plugin-capable CLI/desktop use. A same-named project copy creates another discoverable source. |
+
+The portable `$kyw-grilling`, `$kyw-init`, `$kyw-task NNNN`, and `$kyw-audit NNNN` forms work wherever the corresponding Skills are loaded. The shorter Task forms are repository routing, not implicit Skill aliases. If that contract is absent, not loaded, or outside the current instruction chain, use `$kyw-task NNNN`.
+
+### Direct Skills installation
+
+Until the first explicitly approved npm publication, use the checkout entrypoint. After `kyw-dev@0.1.0` is actually present on npm, the same arguments apply to `npx --yes kyw-dev@0.1.0 ...`; do not treat the prepared package as already published.
+
+```bash
+git clone https://github.com/kimyeongwoo/kyw-dev.git
+cd kyw-dev
+node ./bin/kyw-dev.mjs install --scope user
+node ./bin/kyw-dev.mjs install --scope project
+node ./bin/kyw-dev.mjs update --scope user
+node ./bin/kyw-dev.mjs uninstall --scope user
+node ./bin/kyw-dev.mjs doctor
+```
+
+- `user` installs managed Skills under `~/.agents/skills/`; `project` finds the enclosing Git root and installs under `<repo>/.agents/skills/`.
+- The CLI installs workflow Skills only. It does not create project documents or Tasks; `$kyw-init` owns confirmed permanent-document materialization.
+- Ownership is recorded in `.agents/skills/.kyw-dev-install.json`, with deterministic Task runtime support under `.agents/skills/.kyw-dev/runtime/`. The runtime directory is not a fifth discoverable Skill.
+- Install refuses unmanaged collisions, unsafe roots, links, unsupported types, and non-portable managed paths. Use `update` only for an owned installation.
+- Update requires every owned file, parent, and package source to remain confined, link-free, and hash-matching, and refuses unknown managed-container content.
+- Normal uninstall removes only unchanged metadata-owned files. `--force` can remove only modified files already named by valid kyw-dev ownership metadata; it still preserves unknown files, unrelated Skills, links/junctions, and unsupported types.
+- Mutating commands recover only ownership-proven interrupted transactions. `doctor` is byte-and-metadata read-only and reports unsafe state, version drift, partial transactions, permissions, and duplicate direct/plugin sources.
+
+To resolve a duplicate:
+
+1. Choose the one source recommended by the matrix for the surface you use.
+2. Remove an unchanged direct copy with `uninstall --scope user` or `uninstall --scope project`.
+3. Remove a plugin through the desktop Plugins Directory or the CLI `/plugins` browser; do not manually delete the broad plugin cache.
+4. Preserve and inspect unmanaged, modified, linked, or unknown files. `--force` can remove only modified files already named by valid kyw-dev ownership metadata.
+5. Restart the affected Codex surface or start a new session, then rerun `doctor` from the target repository.
+
+CLI exit codes are stable:
+
+| Code | Meaning |
+|---|---|
+| `0` | Command succeeded, or doctor found no error. |
+| `1` | Command usage error. |
+| `2` | Unsupported Node runtime. |
+| `3` | User/project scope could not be resolved. |
+| `4` | Unsafe overwrite, local modification, or duplicate-install conflict. |
+| `5` | Malformed package or installation metadata/state. |
+| `6` | Filesystem or permission failure. |
+| `7` | A partial transaction needs recovery or manual inspection. |
+
+If a command returns 4 through 7, run `doctor`, inspect the named paths, and preserve unknown files and links. Do not delete the broad `.agents/skills` directory or point `--force` at an unsafe link. Retry a mutating command only when its ownership-proven journal is valid; otherwise reconcile the reported state manually.
+
+The preferred pre-publication npm name is the unscoped `kyw-dev`, but it is not reserved by repository configuration or prior checks. Recheck it only at a separately approved publication boundary. If unavailable, stop and choose a real owner scope rather than inventing one.
+
+### Codex plugin installation
+
+The npm package contains `.codex-plugin/plugin.json` and all four `skills/` directories. Pre-publication verification extracts the real package into an isolated local marketplace and installs `kyw-dev@kyw-dev-local`; the fixture and runner are development-only and excluded from the tarball.
+
+An npm marketplace entry can replace the local source only after publication. Plugin and direct-Skills installation are alternatives. See [Architecture §11](docs/ARCHITECTURE.md#11-installation-and-distribution-architecture) for package, marketplace, cache, duplicate, and release-gate boundaries.
 
 ## Development
 
-Prerequisite: Node.js 22 or newer with npm. Node.js 22 and 24 are the fully tested LTS lines on Linux, macOS, and Windows; Node.js 26 Current has a bounded Ubuntu compatibility lane. The repository has no production or development package dependencies and no lockfile, so no install step is required before running the checks. Root `.gitattributes` materializes repository text as LF on every host to match the format and package contracts. The release marketplace E2E also uses a current `codex` CLI when it is available, but CI does not require Codex or its authentication.
+Prerequisite: Node.js 22 or newer with npm. Node.js 22 and 24 are fully tested on Linux, macOS, and Windows; Node.js 26 Current has one bounded Ubuntu compatibility lane. The repository has no package dependencies or lockfile, so no install step is required before checks.
 
 ```bash
 node ./bin/kyw-dev.mjs --help
@@ -38,293 +166,48 @@ node ./scripts/spec-behavioral-acceptance.mjs --validate-fixtures
 node ./scripts/release-gate-isolation.mjs
 ```
 
-Use three proportional verification tiers:
+Use the read-only planner with explicit repository-relative paths:
 
 | Tier | Trigger | Maintainer entry point |
 |---|---|---|
 | Focused | Documentation, one Skill, or another bounded behavior change | `npm run verify:plan -- <changed-path>...`, then run the ordered commands it prints |
-| Stable | Runtime, cross-cutting, unknown, or higher-risk change; every PR and `main` push | `npm run check`; hosted CI always runs the complete supported Node/OS matrix |
+| Stable | Runtime, cross-cutting, unknown, or higher-risk change; every PR and `main` push | `npm run check`; hosted CI runs the complete supported Node/OS matrix |
 | Release | Release-sensitive implementation, an immutable candidate, registry dry run, or publication boundary | `npm run release:candidate`, `npm run release:ci`, isolation, and `npm run release:check` as the named boundary requires |
 
-The planner is read-only and requires explicit repository-relative paths. It ignores `docs/tasks/NNNN-*/TASK.md` and `TEST.md` as implementation-risk signals, escalates mixed or unknown paths safely, and never replaces acceptance-specific verification or hosted PR/`main` CI. Use `npm run verify:plan -- --candidate <paths>` to force a Release plan.
+`npm run check` runs test, lint, format, and package-selection checks. `npm run release:candidate` creates and inspects one real tarball without publishing; `npm run release:ci` combines Stable with that candidate gate. `npm run release:check` additionally runs `npm publish --dry-run --json`, which does not publish but remains a distinct registry evidence boundary. The planner never replaces acceptance-specific verification or exact-head PR/`main` CI. See [Architecture §11.5–11.6](docs/ARCHITECTURE.md#115-credential-free-continuous-integration) for the immutable-Action CI and tier design.
 
-`npm run check` runs the four stable verification commands. `npm run release:candidate` creates and extracts one real npm tarball, checks its exact allowlist and packed-only boundaries, smoke-tests the packed CLI, records the archive SHA-256, and cleans up without publishing. `npm run release:ci` deliberately combines the local stable suite with that candidate check; hosted CI runs Stable separately and calls only `release:candidate` in its packed job so the same exact-head Stable suite is not repeated there. `npm run release:check` adds `npm publish --dry-run --json`; the dry run reports what npm would publish but does not publish it. `npm pack --dry-run --json` can be used to inspect package selection directly.
+### Development-only evaluators
 
-`node ./scripts/spec-behavioral-acceptance.mjs --validate-fixtures` validates the retained S-01 through S-06 direct-acceptance fixtures and deterministic predicates, including the intentionally uncovered S-05 branch. It launches only the fixtures' Node tests. Behavioral use remains current-session direct verification; the cancelled nested Codex, fixed-cohort, capability-probe, and Docker runner is not a supported path.
-
-`node ./scripts/release-gate-isolation.mjs` is the development-only, fail-closed real-tarball lifecycle gate. Before starting a child process it resolves every writable target, proves each is a real strict descendant of one approved temporary root, and rejects normal user `.agents`, `.codex`, configured Codex, or npm userconfig aliases including Windows case/separator variants. It passes isolated user/Codex/npm/temp state only to children, compares read-only protected state before/after, runs user/project install-update-doctor-uninstall plus force-preservation and local marketplace add-install-remove, and cleans only its exact identity-checked root. The standalone command protects the actual normal-state locations resolved from its inherited environment and requires a working Codex CLI so marketplace evidence cannot be skipped. `node --test test/distribution.test.mjs` passes a temporary synthetic protected-state fixture through that same boundary and permits only the marketplace portion to be unavailable in credential-free public environments; the real-tarball direct lifecycle and every isolation guard remain required.
-
-The isolation summary reports exactly `CLEAN`, `ISOLATION_VIOLATION`, or `AMBIENT_STATE_CHANGED`. `CLEAN` is the only success. A violation requires an exact kyw-dev managed path, identifier, packed Skill digest, or runner-owned protected-environment change. An unmarked protected delta is ambient and inconclusive rather than guessed to be caused by the lifecycle. Only a first ambient result receives one immediate unchanged retry with a fresh root and snapshots; a second ambient result remains retryable/inconclusive but exits nonzero. Violations and guard, snapshot, child, package, marketplace, or cleanup failures never retry. Diagnostics contain only bounded protected labels, normalized relative paths/categories, change kinds, entry types, known markers, and digest prefixes. The runner never repairs or deletes normal user files, and a correct `CLEAN` result does not make the package release-approved.
-
-`.github/workflows/ci.yml` runs on public pull requests, pushes to `main`, and manual dispatch. Superseded runs may be cancelled only within one pull request; each `main` push keeps a non-cancelling commit-SHA-specific run, and manual runs use an unrelated run identity. Every Node.js 22/24 Linux, macOS, and Windows lane executes `npm test`, `npm run lint`, `npm run format:check`, and `npm run pack:check`; one Ubuntu Node.js 26 lane checks forward compatibility. A separate Ubuntu Node.js 24 job runs the one real `npm run release:candidate` archive check, and one aggregate credential-free result can be selected as the required branch check. The workflow uses upstream-verified immutable Action commits, read-only repository permission, persists no checkout credential, references no secret, and performs no install, publish, tag, release, or merge action.
-
-### Grilling evaluation harness
-
-The evaluation sources under `eval/grilling/`, their runner under `scripts/`, and their tests are development-only. Deterministic validation is part of `npm test` and can also be run directly without Codex authentication or network access:
+Deterministic evaluator tests are part of `npm test`. Model-backed commands are never required by public CI and require an explicit cost gate, exact model, reasoning effort, and authentication source:
 
 ```bash
 npm run eval:grilling:unit
-```
-
-Model-backed commands are separate and require the explicit `--allow-model` cost gate, an exact model, an explicit reasoning effort, and one explicit authentication source. The runner passes that effort through strict Codex config on the initial and every resumed turn and records it in result schema v2. `--auth-file` copies the named file into a temporary `CODEX_HOME`, checks that the source did not change, and deletes the copy with the temporary workspace. `--use-env-api-key` instead passes an already-set `CODEX_API_KEY` only to each `codex exec` process. The harness never discovers or copies normal authentication implicitly.
-
-```bash
 npm run eval:grilling:smoke -- --allow-model --variant kyw --scenario existing-code-facts --model MODEL_ID --reasoning-effort EFFORT --auth-file PATH_TO_AUTH_JSON
-npm run eval:grilling:smoke -- --allow-model --variant upstream --scenario existing-code-facts --model MODEL_ID --reasoning-effort EFFORT --auth-file PATH_TO_AUTH_JSON
 npm run eval:grilling:compare -- --allow-model --scenario existing-code-facts --model MODEL_ID --reasoning-effort EFFORT --runs 3 --auth-file PATH_TO_AUTH_JSON
 npm run eval:grilling:report -- --comparison PATH_TO_COMPARISON_DIRECTORY
-```
-
-Replace the uppercase placeholders before running a command; quote values as required by the active shell. Start with one smoke per variant. A smoke currently uses four model turns. A comparison uses `2 × scenarios × runs × 4` turns, so `--scenario all --runs 3` consumes 192 model turns and should be deliberate. `--runs` is required for comparison and is capped at 10.
-
-Each successful run writes redacted JSONL events, one final-message file per turn, and `run.json` under `eval/grilling/results/<run-id>/`. The evaluated variant is installed alone under the temporary repository's `.agents/skills/`; the first turn must read that exact `SKILL.md`, or the run fails before publication. A completed comparison adds a descriptive `comparison.json`; it does not make a parity claim. For a frozen all-scenario comparison, the report command independently reparses JSONL, regrades the retained transcripts, verifies identical execution conditions and artifact trees, and writes deterministic medians, thresholds, and checksums to `report.json`. Result schema v1 remains supported for historical results; effort-controlled results use v2, and source-read-proven results use v3. Generated results are Git-ignored and excluded from the npm package, but should still be reviewed before sharing. Capability, authentication, missing Skill-read proof, or incomplete-comparison failure publishes no failed-run result.
-
-While a grilling run owns temporary state, it installs run-scoped handlers for POSIX `SIGINT`/`SIGTERM` and Windows console Ctrl+C. The first terminal cause wins: interruption exits with code `130` for `SIGINT`/Ctrl+C or `143` for `SIGTERM`, terminates only the evaluator-created child process group/tree with a 1.5-second graceful bound followed by a 1.5-second forced bound, and then performs idempotent cleanup. Cleanup removes the evaluator-owned temporary repository, HOME, `CODEX_HOME`, copied `auth.json`, last-message scratch files, and unpublished JSONL/result staging; the named auth source remains unchanged, and a completed atomically published result directory remains for review. Recursive owned-state removal is awaited before the evaluator promise becomes terminal and uses Node's bounded retry for retryable filesystem errors: at most five retries with a 100-millisecond linear delay, or 1.5 seconds of scheduled delay. Cleanup failures after that bound keep the non-zero primary result and report only a safe operation, owned path label, and reason code. Handlers are removed on every completed or handled failure path. Windows Ctrl+Break/SIGBREAK is not claimed; `SIGKILL`, OS crash, and power loss remain outside the cleanup guarantee.
-
-### Audit behavior smoke
-
-The development-only fresh-session audit smoke copies a synthetic completed Task into a temporary Git repository, installs only the repository's current `kyw-audit` Skill, and requires an explicit model, reasoning effort, authentication source, and cost gate. The complete model process runs inside an evaluator-owned native Codex sandbox so it does not depend on machine-local command rules. Read-only mode gives that outer sandbox read-only repository access and requires identical before/after fixture SHA-256 plus identical Git status with no mutating command attempt. Fix mode gives the outer sandbox write access only to the fixture and isolated control state, requires a visible bounded plan before the first mutation, restricts changed paths to the audited Task's known repair set, preserves unrelated tracked and untracked bytes, and reruns the fixture test.
-
-```bash
 npm run eval:audit:smoke -- --allow-model --mode readonly --model MODEL_ID --reasoning-effort EFFORT --auth-file PATH_TO_AUTH_JSON
 npm run eval:audit:smoke -- --allow-model --mode fix --model MODEL_ID --reasoning-effort EFFORT --auth-file PATH_TO_AUTH_JSON
 ```
 
-The smoke publishes no repository result artifact. A successful run prints a compact summary containing the Codex version, requested model/effort, source-read proof, before/after fixture hashes and Git status, mutation/plan ordering, changed paths, test result, and final verdict. Bare-audit inspection now uses a strict literal boundary instead of a general shell classifier: one command and one allowlisted argument shape for repository-relative PowerShell/POSIX file reads, `rg`, guarded read-only Git inspection, or the packaged Task validator. Shell wrappers, multi-command strings, pipes, redirects including `2>&1`, variables, substitutions, encoded/dynamic launchers, absolute/traversing paths, unlisted options, and malformed grammar are rejected without decoding or recursive interpretation. Single-quoted pattern text is opaque data, so mutator names, arrows, comparisons, and redirect characters inside a permitted search pattern do not need whole-shell parsing. Boundary failures retain a bounded redacted issue, original zero-based offset, shell, and match-local context; full commands, credentials, and absolute user/temporary paths are omitted. Repair mode uses the same boundary until its visible finding-specific plan, after which existing bounded path, preservation, and rerun gates remain unchanged.
+Replace every uppercase placeholder. Start with one smoke per grilling variant: a smoke uses four model turns, while a comparison uses `2 × scenarios × runs × 4` turns and caps `--runs` at 10. Generated grilling results are ignored and excluded from the package; the audit smoke publishes no repository result artifact.
 
-The audit smoke uses the same run-scoped POSIX `SIGINT`/`SIGTERM` and Windows console Ctrl+C lifecycle, exit codes, two-phase child-tree termination bounds, awaited bounded owned-state removal, idempotent cleanup, and safe cleanup-failure diagnostics as the grilling evaluator. Cleanup owns only its single temporary root, including the repository, isolated HOME/`CODEX_HOME`, copied `auth.json`, control files, and last-message scratch file; it publishes no repository result artifact and leaves the auth source unchanged. Windows Ctrl+Break/SIGBREAK is not claimed, and `SIGKILL`, OS crash, and power loss remain outside the cleanup guarantee.
+The release-isolation command is also development-only. `CLEAN` is its only success; `ISOLATION_VIOLATION` and `AMBIENT_STATE_CHANGED` are nonzero, and no result is itself release approval. Evaluator ownership, authentication, redaction, interruption/cleanup, sandbox, protected-state, retry, and result-publication constraints are authoritative in [Architecture §13](docs/ARCHITECTURE.md#13-validation-architecture).
 
-The canonical section contracts live under `templates/project/` and `templates/task/`. Runtime consumers can use `src/core/template-contracts.mjs` to render and validate them and the stable `src/core/task-artifacts.mjs` facade to inspect, create, validate, and resolve Task directories and queues. The stable `src/core/skill-installation.mjs` facade exposes direct-install scope resolution, file ownership, transactions, recovery, and diagnostics. `kyw-grilling` provides the standalone conversational interview primitive, `kyw-init` wraps it with confirmed, non-destructive permanent-document materialization, `kyw-task` combines a thin packaged artifact/dispatch adapter with a packaged execution and queue reference, and `kyw-audit` packages independent read-only inspection plus an exact-flag repair workflow without adding a runtime dependency.
+## Repository map and contributing
 
-## Target workflow
+- `skills/`: four packaged reasoning workflows and their focused references.
+- `src/` and `bin/`: dependency-free CLI and deterministic core modules.
+- `templates/`: canonical four-document and Task/Test section contracts.
+- `docs/SPEC.md`: product behavior and requirements.
+- `docs/ARCHITECTURE.md`: components, boundaries, flows, validation, and security constraints.
+- `docs/tasks/`: numbered work contracts and retained repository evidence.
+- `test/`, `scripts/`, and `eval/`: development-only verification surfaces, excluded from the npm package.
 
-```text
-Idea or major redesign
-        ↓
-$kyw-init
-        ↓
-One-question-at-a-time grilling
-        ↓
-README.md + AGENTS.md + docs/SPEC.md + docs/ARCHITECTURE.md
-        ↓
-$kyw-task "one outcome or a dependency-aware set"
-        ↓
-one or more atomic READY/READY Task/Test pairs
-        ↓
-Implement → synchronize docs → verify → audit
-```
+The exact package tree and dependency directions are in [Architecture §4](docs/ARCHITECTURE.md#4-top-level-package-structure). Use the active numbered Task rather than an old chronological list to determine current scope. Recommended maintainer invocations are in `CODEX_PROMPTS.md`.
 
-Small questions and narrowly scoped changes do not require a Task folder. They still follow the documentation-sync and verification rules in `AGENTS.md`.
-
-## User-facing Skills
-
-| Skill | Status | Purpose |
-|---|---|---|
-| `$kyw-grilling` | Implemented | Internal/advanced interview primitive: resolve dependent decisions one at a time, with a recommended answer. |
-| `$kyw-init` | Implemented | Discover, adopt, or intentionally re-baseline a project, grill unresolved durable decisions, then create or minimally update the four permanent documents after confirmation. |
-| `$kyw-task` | Implemented | Atomically create one or the smallest dependency-aware ready pair set, optionally execute its first eligible Task, execute an exact Task, or advance a pre-created queue serially. |
-| `$kyw-audit` | Implemented | Independently compare one Task's intent, code/diff, test evidence, scope, and permanent documents without writes; repair only through the exact `--fix` form. |
-
-All four packaged Skills keep implicit invocation disabled. Use their explicit `$skill-name` forms on every supported surface; a kyw-managed repository may additionally route only the exact Task aliases documented below through its loaded `AGENTS.md`.
-
-```text
-$kyw-grilling "stress-test this account lockout design"
-```
-
-The Skill inspects targeted user-authored facts once with read-only operations rather than broad repository or version-control reads, revisiting only a specific path made newly relevant by an answer. It surfaces incompatible product requirements and asks which is authoritative first, but routes scope-only conflicts directly to one primary first-release outcome and does not misclassify implementation pressure as a product conflict. It asks exactly one dependent decision question with exactly one recommendation on every interview-progress turn, prioritizes the highest-impact unresolved product or domain dependency over lower-impact supporting-material checks, treats implementation layers as dependencies, and requires an explicit ownership verb when the user delegates a decision back to the recommendation. Across turns it tracks decisions by semantic meaning and does not repeat an equivalent question without new or conflicting evidence; an omitted answer becomes an explicit safe, reversible provisional assumption when possible so the interview can advance, while unsafe assumptions remain unknown or blocking. It summarizes settled decisions and remaining unknowns, then waits for shared-understanding confirmation. A clear unbundled cancellation or stop is terminal until a new invocation. Before confirmation, stop wording bundled with a prohibited implementation, edit, file-output, or mutation request is instead implementation pressure: the action is refused and the next single unresolved decision continues. Once terminal cancellation is established, later implementation pressure cannot reopen the interview. A standalone invocation never writes files or implements the result.
-
-To initialize or adopt the current repository:
-
-```text
-$kyw-init "adopt this repository without replacing existing contributor guidance"
-```
-
-The Skill inspects code and documentation, classifies the run as `new`, `adopt`, or intentional `rebaseline`, and uses the grilling protocol only for unresolved durable decisions. It makes no change until the user confirms the final shared-understanding summary and four-file write plan. After confirmation it may create or minimally update only `README.md`, `AGENTS.md`, `docs/SPEC.md`, and `docs/ARCHITECTURE.md`; it preserves unrelated sections, reports conflicts and remaining unknowns, and recommends ordered Tasks without creating them or implementing application code.
-
-To create and execute new work:
-
-```text
-$kyw-task "add account lockout"
-```
-
-The Skill inspects permanent truth and relevant code, asks only genuinely blocking Task-level decisions, and keeps one pair for one independently verifiable outcome. Independent outcomes, separate acceptance sets, dependency ordering, or excess single-Task scope produce the smallest justified dependency-aware set rather than a split proposal that creates only one item. Explicit current-prompt count, boundaries, order, titles, dependencies, and create mode are preserved when safe.
-
-All IDs and final paths are assigned before publication; every complete Task/Test pair and the combined dependency graph are validated before one versioned ownership manifest/lock publishes the whole `READY/READY` set. The queue, dependency sources, target paths, and prepared hashes are revalidated while the lock is held and immediately before publication. Rollback removes only identity- and hash-proven transaction content; an unknown file, link, replacement, or changed byte preserves the evidence and keeps queue readers fail-closed instead of producing an unsafe no-partial claim. A create-only request stops after reporting those paths. A create-and-execute request starts only the first dependency-satisfied new Task; use `남은 task 계속 실행해줘` separately to execute a pre-created queue serially.
-
-The packaged adapter uses a caller-owned `--batch-file` outside the repository by default for multi-pair or large payloads; small one-pair `--batch-json` remains compatible. If an interrupted transaction is retained, `inspect-transaction --tasks-root <path>` reports a bounded read-only diagnosis using relative paths and identity prefixes. `recover-transaction --tasks-root <path>` is a separate explicit operation that is idempotent and mutates only fully proven transaction-owned content; an unprovable state remains untouched and blocked.
-
-To resume one existing Task:
-
-```text
-$kyw-task 0006
-```
-
-Existing-Task execution verifies the recorded pair and repository evidence, continues at the verified `Resume Point` without repeating Completed work, and never substitutes an unsupported `DONE`/`PASSED` claim. `$kyw-task NNNN` is the portable exact form. A repository whose managed `AGENTS.md` contract is loaded also supports:
-
-```text
-task 0006 실행해줘
-task 진행해줘
-남은 task 계속 실행해줘
-```
-
-These commands are a concise user projection; [SPEC §6.1](docs/SPEC.md#61-codex-skills) owns product behavior, `AGENTS.md` owns repository invariants, and the packaged Task execution reference owns the detailed procedure. Exact `READY/READY` selection confirms implementation and ordinary `STANDARD` delivery. Automatic selection resumes active work, then resumable delivery, then one eligible ready Task; continuous mode remains serial and current-invocation-only. A non-complete current Task uses either the exact no-dependency sentinel or distinct `- Task NNNN.` dependency bullets; ambiguous prose is rejected. Invalid states or dependencies fail closed. The exact all-complete message appears only when every current Task is `DONE/PASSED` with satisfied dependency and delivery gates, while cancellation remains a distinct terminal result; incidental “task” prose does not route, and a surface without the managed contract uses `$kyw-task NNNN`.
-
-Appended user text may constrain the first selected Task but cannot waive safety or evidence. The configured model and reasoning effort stay unchanged unless that user explicitly overrides them. `TEST.md` records model identifier, requested alias, reasoning effort, Codex surface, version, and per-field observability; hidden values remain `UNAVAILABLE`, never guessed.
-
-Routine Tasks should keep required sections concise. When a section truly has no applicable content, use `Not applicable — <reason>`; an empty section, bare `None`, or reasonless N/A is not a valid shortcut once an updated Task is ready to run. Pre-rule contract-v2 pairs remain readable without historical rewrites. Acceptance criteria and test mappings remain mandatory. Release and security Tasks use the same artifact type and may retain longer evidence when needed. During authoring or execution, Codex asks exactly one question with one recommendation only for a genuine user-owned blocking decision; otherwise it proceeds and consumes appended constraints without asking them back.
-
-Current pairs declare `STANDARD` delivery through the GitHub PR/Actions exact-SHA ledger or reasoned `NONE`. Task/Test owns repository outcome; GitHub owns mutable delivery state. The static declaration alone grants no ambient authority, but `IMPLEMENT`, `RESUME`, or `DELIVER` selection authorizes exact-path commit, non-force push, non-draft PR, exact-head CI, expected-head merge, post-merge base-branch CI, and terminal reporting without ceremonial reconfirmation. Publication, registry mutation, tags/releases, public submission, force/destructive operations, reruns, bypasses, and unrelated mutations remain separately authorized.
-
-To independently audit one Task:
-
-```text
-$kyw-audit 0007
-```
-
-The bare invocation is strictly read-only for its entire run. It resolves exactly one Task by four-digit ID and compares acceptance mappings, meaningful branches and error paths, implementation scope, permanent documents, package effects, Task/Test handoff state, and claimed results with reproducible repository evidence. Findings use stable IDs and scope, behavior, architecture, docs, or test-evidence categories. The Skill does not update Task/Test status, permanent documents, generated files, or an audit report in the repository. The no-attempt boundary includes temporary and isolated-copy state: a potentially writing rerun uses retained evidence or is skipped with an explicit limitation, and the audit does not prepare or clean a disposable copy itself. Inspection commands are limited to the literal repository-relative file/search, guarded Git, and Task-validator shapes in the packaged audit reference; wrappers, pipes, redirects, expansion, or ambiguous grammar are skipped rather than interpreted. The response records findings, exact evidence inspected or safely rerun, scope and document drift, residual risks, and one final `PASS` or `BLOCKED` verdict.
-
-To authorize bounded repair, use the exact form:
-
-```text
-$kyw-audit 0007 --fix
-```
-
-Only the literal `--fix` token immediately after the Task ID selects repair mode; natural-language requests to fix findings do not. Repair mode establishes the baseline and records findings read-only, then presents a bounded plan naming finding IDs, intended paths, and verification before its first mutation. A clear repair already required by the audited Task may update only that Task/Test pair, its required implementation/tests/configuration, and affected permanent documents, followed by the narrow affected check and required regressions. Pre-existing user changes are preserved. Ambiguous or out-of-scope work remains a report-only proposal without allocating an ID or creating a follow-on Task. Unavailable required evidence cannot be reported as a pass.
-
-## Installation surfaces
-
-### Compatibility matrix
-
-Official surface behavior was checked on **2026-07-24** against [Build skills](https://learn.chatgpt.com/docs/build-skills), [Plugins](https://learn.chatgpt.com/docs/plugins), [Build plugins](https://learn.chatgpt.com/docs/build-plugins), and [custom instructions with `AGENTS.md`](https://learn.chatgpt.com/docs/agent-configuration/agents-md). Skills are available in the ChatGPT desktop app, Codex CLI, and IDE extension. Plugins are available in the desktop app and CLI, but not in the IDE extension. Until kyw-dev is actually published or listed in a trusted marketplace, the checkout and local-marketplace commands below remain the usable sources.
-
-| Surface or scope | Primary recommendation now | Supported fallback or limit |
-|---|---|---|
-| Codex CLI | Install direct Skills from this checkout at exactly one scope: project for one repository, user for all repositories. | A configured marketplace plugin can be installed through `/plugins`; start a new CLI session afterward and remove the direct copy first. |
-| Desktop Codex in the ChatGPT desktop app | Install the packed plugin from a repository or personal local marketplace. | Direct repository or user Skills are discoverable, but do not keep the same names installed through both paths. Restart the app or start a new chat after installation changes. |
-| Codex IDE extension | Install direct Skills at project scope by default; use user scope only when the workflow should apply everywhere. | Plugins are not available in the IDE extension. The fallback is the other direct-Skill scope, not a plugin install. |
-| Repository scope | Run `install --scope project`; Codex discovers `<repo>/.agents/skills/` from that repository context. | A repository marketplace is an alternative for plugin-capable CLI/desktop use. Direct installation does not add `AGENTS.md`, so repository aliases require the managed contract to already exist. |
-| User scope | Run `install --scope user`; Codex discovers `~/.agents/skills/` across repositories. | A personal marketplace plugin is an alternative for plugin-capable CLI/desktop use. A same-named project copy creates another discoverable source. |
-
-Choose one source for the four `kyw-*` names. The portable `$kyw-grilling`, `$kyw-init`, `$kyw-task NNNN`, and `$kyw-audit NNNN` forms work wherever the corresponding Skills are loaded. The shorter `task NNNN 실행해줘`, `task 진행해줘`, and `남은 task 계속 실행해줘` forms are repository routing supplied by this project's loaded `AGENTS.md`, not implicit Skill aliases. If that contract is absent, not loaded, or outside the current instruction chain, use `$kyw-task NNNN`.
-
-### Direct Skills installation with npm CLI
-
-Until the first explicitly approved npm publication, use the checkout entrypoint. After `kyw-dev@0.1.0` is actually present on npm, the same arguments apply to `npx --yes kyw-dev@0.1.0 ...`; do not treat the prepared package as already published.
-
-```bash
-git clone https://github.com/kimyeongwoo/kyw-dev.git
-cd kyw-dev
-```
-
-```bash
-node ./bin/kyw-dev.mjs install --scope user
-node ./bin/kyw-dev.mjs install --scope project
-node ./bin/kyw-dev.mjs update --scope user
-node ./bin/kyw-dev.mjs uninstall --scope user
-node ./bin/kyw-dev.mjs doctor
-```
-
-- `user`: install managed Skill directories under `~/.agents/skills/`.
-- `project`: find the enclosing Git root from the current directory and install under `<repo>/.agents/skills/`.
-- The CLI installs workflow Skills only. It does not create a project's Spec, Architecture, README, AGENTS, or Task files; `$kyw-init` does that after interviewing the user and inspecting the repository.
-- The CLI records ownership in `.agents/skills/.kyw-dev-install.json`. It also installs Task-helper runtime support under `.agents/skills/.kyw-dev/runtime/`; both are private implementation paths, not additional discoverable Skills.
-- The selected home/Git root is resolved physically. Install refuses an existing unmanaged or managed copy, a linked `.agents`/`skills` component, or any absolute, traversal, mixed-separator, case-colliding, linked, or unsupported managed path. Use `update` for an owned installation.
-- Update proceeds only when every recorded regular file still matches its installed SHA-256, every managed parent and package source remains link-free and confined, and no unknown file is present inside a managed directory. It rechecks ownership/type/hash immediately before each rename.
-- Uninstall removes only metadata-owned regular files. It refuses missing, modified, unknown, or unsafe state by default. `uninstall --scope <scope> --force` permits removal of modified owned regular files and can tolerate missing owned or preserved unknown entries; it still never deletes an unknown file, unrelated Skill, symlink/junction, or unsupported type.
-- Mutating commands automatically recover a valid interrupted transaction before continuing. Recovery recursively cleans only UUID-named journal-owned stage/backup directories whose present contents all match the journal; unknown or unsafe transaction content remains for inspection. `doctor` is byte-and-metadata read-only and reports unsafe roots, links/types, collisions, or partial transactions without changing them.
-
-`doctor` checks Node support, detectable npm/Codex commands, packaged plugin and Skill metadata, user/project locations, version drift, duplicate Skill names, ownership hashes, partial transactions, and permissions. A project location is informationally unavailable when the command is not run inside a Git repository.
-
-It also inspects the documented Codex plugin cache below configured `CODEX_HOME` or default `~/.codex` and reports any cache source that contains `kyw-*` Skills. A cache entry proves installed plugin bytes, not that the plugin is enabled. If the same Skill name appears in more than one direct or plugin source, `doctor` exits with the conflict category and names the sources; it never deletes or disables any of them.
-
-To resolve a duplicate:
-
-1. Choose the one source recommended by the matrix for the surface you use.
-2. Remove an unchanged managed direct copy with `uninstall --scope user` or `uninstall --scope project`.
-3. Remove a plugin through the desktop Plugins Directory or the CLI `/plugins` browser; do not manually delete the broad plugin cache.
-4. Preserve and inspect unmanaged, modified, linked, or unknown files. `--force` can remove only modified files already named by valid kyw-dev ownership metadata; it still does not delete unknown content.
-5. Restart the affected Codex surface or start a new session, then rerun `doctor` from the target repository.
-
-CLI exit codes are stable:
-
-| Code | Meaning |
-|---|---|
-| `0` | Command succeeded, or doctor found no error. |
-| `1` | Command usage error. |
-| `2` | Unsupported Node runtime. |
-| `3` | User/project scope could not be resolved. |
-| `4` | Unsafe overwrite, local modification, or duplicate-install conflict. |
-| `5` | Malformed package or installation metadata/state. |
-| `6` | Filesystem or permission failure. |
-| `7` | A partial transaction needs recovery or manual inspection. |
-
-If a command returns 4 through 7, run `doctor`, inspect the named paths, and preserve unknown files and links. Do not delete the broad `.agents/skills` directory and do not point `--force` at an unsafe link. A valid, ownership-proven journal is recovered by retrying the intended mutating command; an unsafe/colliding path, unknown transaction entry, or orphaned path without a trustworthy journal requires manual reconciliation.
-
-The preferred pre-publication npm name is the unscoped `kyw-dev`, but it is not reserved by repository configuration or prior checks. Recheck it immediately before any separately approved publish. If it is unavailable, stop and select a real owner scope rather than inventing one, while keeping the CLI command and plugin name `kyw-dev`.
-
-### Codex plugin distribution
-
-The npm package contains `.codex-plugin/plugin.json` and all four `skills/` directories. Pre-publication local verification copies extracted package bytes to `./plugins/kyw-dev` beneath an isolated marketplace, adds that marketplace with `codex plugin marketplace add`, installs `kyw-dev@kyw-dev-local`, and inspects the cached Skill files. The repository fixture is development-only and is not included in the npm tarball.
-
-An npm marketplace entry can replace the local source after the package is published. No GitHub source URL or public-directory entry is advertised until a real repository and an explicit submission decision exist. Plugin and direct-Skills installation are alternative paths; avoid installing both copies at once because duplicate Skill names can appear separately.
-
-## Target repository layout
-
-```text
-kyw-dev/
-├─ .gitattributes
-├─ .gitignore
-├─ .github/
-│  └─ workflows/ci.yml
-├─ .codex-plugin/
-│  └─ plugin.json
-├─ skills/
-│  ├─ kyw-grilling/
-│  ├─ kyw-init/
-│  ├─ kyw-task/
-│  └─ kyw-audit/
-├─ templates/
-│  ├─ project/
-│  └─ task/
-├─ src/
-│  ├─ cli/
-│  └─ core/
-├─ test/
-│  └─ fixtures/
-├─ eval/
-│  └─ grilling/
-├─ scripts/
-│  └─ development-only validation commands
-├─ docs/
-│  ├─ SPEC.md
-│  ├─ ARCHITECTURE.md
-│  └─ tasks/
-├─ AGENTS.md
-├─ CODEX_PROMPTS.md
-├─ package.json
-├─ README.md
-├─ LICENSE
-└─ THIRD_PARTY_NOTICES.md
-```
-
-The exact implementation may evolve, but changes to this structure must be reflected in `docs/ARCHITECTURE.md`.
-
-## Contributor guidance
-
-Numbered work contracts and retained evidence live under `docs/tasks/`; use the active Task rather than an old chronological list to determine current scope. Recommended Codex prompts are in `CODEX_PROMPTS.md`.
-
-## Design principles
-
-- **Durable truth is small:** Spec, Architecture, README, and AGENTS hold only information that should survive individual Tasks.
-- **Task context is disposable:** each Task is one independently verifiable outcome and should normally fit in one Codex session, with at most one compaction.
-- **Testing starts before code:** `TEST.md` is created with `TASK.md`, evolves during development, and stores final execution evidence.
-- **Facts are inspected; decisions are asked:** Codex should inspect code and files for facts, while product or trade-off decisions remain with the user.
-- **No silent documentation drift:** even ordinary small changes must update durable documents when their truth changed.
-- **No document proliferation:** do not create Plan, Progress, Status, Handoff, or Verification documents when their content belongs in Task or Test.
+The four permanent documents are README, AGENTS, SPEC, and ARCHITECTURE. Do not add Plan, Progress, Status, Handoff, Verification, or Test Plan documents when their content belongs in the current Task/Test pair.
 
 ## Reference standards
-
-The implementation should follow the current Codex plugin and Skill formats:
 
 - Codex plugin authoring: https://learn.chatgpt.com/docs/build-plugins
 - Codex Skill authoring: https://learn.chatgpt.com/docs/build-skills
@@ -333,6 +216,6 @@ The implementation should follow the current Codex plugin and Skill formats:
 
 ## Licensing
 
-The `kyw-dev` project is licensed under MIT with `Copyright (c) 2026 Kim Yeongwoo`.
+`kyw-dev` is licensed under MIT with `Copyright (c) 2026 Kim Yeongwoo`.
 
-The `kyw-grilling` interview method is adapted from Matt Pocock's `mattpocock/skills` project, which is also MIT-licensed. Preserve the upstream copyright and license notice in the distributed package. See `THIRD_PARTY_NOTICES.md` and `licenses/mattpocock-skills-MIT.txt`.
+The `$kyw-grilling` interview method is adapted from Matt Pocock's `mattpocock/skills` project under MIT. Preserve the upstream notice in the distributed package; see `THIRD_PARTY_NOTICES.md` and `licenses/mattpocock-skills-MIT.txt`.

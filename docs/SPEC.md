@@ -51,9 +51,11 @@ The workflow must be distributable from GitHub and npm, usable as a Codex plugin
 
 - Replacing GitHub Issues, Jira, Linear, or a product backlog.
 - Automatically creating a Task for every prompt.
-- Running unattended background work.
+- Running unattended background work, a daemon, a watcher, or background repair.
 - Guaranteeing completion by token counting alone.
 - Adding MCP servers, external connectors, or lifecycle hooks.
+- Supporting installation/discovery paths beyond managed direct user/project Skills and Codex plugin marketplace/cache bytes, or abstracting the two paths behind a generic provider/install-backend API.
+- Supporting a current-contract `STANDARD` delivery ledger other than GitHub PR/Actions exact-SHA evidence.
 - Automatically committing, pushing, or opening pull requests without a current-user instruction or explicit selected-Task scope.
 - Supporting other coding agents as a first-class target in v0.1.
 - Maintaining separate Plan, Progress, Status, Handoff, Verification, or Test Plan documents.

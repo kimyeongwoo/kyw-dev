@@ -10,6 +10,7 @@ import { createTaskArtifactBatch } from "../src/core/task-artifacts.mjs";
 
 const REPOSITORY_ROOT = fileURLToPath(new URL("../", import.meta.url));
 const README_PATH = join(REPOSITORY_ROOT, "README.md");
+const SPECIFICATION_PATH = join(REPOSITORY_ROOT, "docs", "SPEC.md");
 const ARCHITECTURE_PATH = join(REPOSITORY_ROOT, "docs", "ARCHITECTURE.md");
 const SKILL_PATH = join(REPOSITORY_ROOT, "skills", "kyw-task", "SKILL.md");
 const METADATA_PATH = join(REPOSITORY_ROOT, "skills", "kyw-task", "agents", "openai.yaml");
@@ -261,11 +262,15 @@ test("kyw-task Skill is explicit-only and supports create, exact, next, and cont
 test("kyw-task execution and resume documentation matches the packaged workflow", async () => {
   const readme = await readFile(README_PATH, "utf8");
   const architecture = await readFile(ARCHITECTURE_PATH, "utf8");
+  const execution = await readFile(EXECUTION_REFERENCE_PATH, "utf8");
 
-  assert.match(readme, /Tasks 0001 through 0015/);
+  assert.match(readme, /## Release status/);
+  assert.match(readme, /Tasks 0029 and 0038 reached `READY_FOR_APPROVAL` and were later superseded/);
+  assert.doesNotMatch(readme, /Tasks 0001 through 0015/);
   assert.match(readme, /\$kyw-task 0006/);
   assert.match(readme, /continues at the verified `Resume Point` without repeating Completed work/);
-  assert.match(readme, /never substitutes an unsupported `DONE`\/`PASSED` claim/);
+  assert.match(readme, /\[`kyw-task` execution reference\]\(skills\/kyw-task\/references\/execution\.md\)/);
+  assert.match(execution, /Treat `Completed` as a claim to verify, not a command to repeat or trust blindly/);
   assert.doesNotMatch(readme, /Task execution\/resume and audit remain unavailable/);
   assert.match(architecture, /references\/execution\.md/);
   assert.match(architecture, /semantic state-machine reference for exact, automatic, and continuous Task execution/);
@@ -298,6 +303,7 @@ test("kyw-task asks only one real blocking question and consumes settled constra
   const skill = await readFile(SKILL_PATH, "utf8");
   const execution = await readFile(EXECUTION_REFERENCE_PATH, "utf8");
   const readme = await readFile(README_PATH, "utf8");
+  const specification = await readFile(SPECIFICATION_PATH, "utf8");
   const architecture = await readFile(ARCHITECTURE_PATH, "utf8");
   const agents = await readFile(join(REPOSITORY_ROOT, "AGENTS.md"), "utf8");
   const blocker = ergonomicsScenarios.realBlockingDecision;
@@ -324,9 +330,10 @@ test("kyw-task asks only one real blocking question and consumes settled constra
   }
   assert.match(execution, /consume (?:it|appended constraints) without re-asking/i);
   assert.match(
-    readme,
-    /asks exactly one question with one recommendation only for a genuine user-owned blocking decision/,
+    specification,
+    /Ask a user question only when a genuinely unresolved user-owned decision blocks progress; that progress turn contains exactly one question and exactly one recommended answer/,
   );
+  assert.match(readme, /Appended user text may constrain the first selected Task but cannot waive safety or evidence/);
   assert.match(
     architecture,
     /recognized `READY\/READY` selection never receives ceremonial reconfirmation/,

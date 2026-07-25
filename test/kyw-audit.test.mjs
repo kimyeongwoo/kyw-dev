@@ -261,8 +261,8 @@ test("kyw-audit gives a clean Task PASS without churn and documents the verdict 
   assert.match(skill, /Do not.*write a separate audit report file/);
   assert.match(readme, /\$kyw-audit 0007/);
   assert.match(readme, /\$kyw-audit 0007 --fix/);
-  assert.match(readme, /bare invocation is strictly read-only/);
-  assert.match(readme, /strict literal boundary instead of a general shell classifier/);
+  assert.match(readme, /Independently verify one Task without writes/);
+  assert.doesNotMatch(readme, /strict literal boundary instead of a general shell classifier/);
   assert.match(spec, /Treat bare `\$kyw-audit <ID>` as strictly read-only/);
   assert.match(spec, /documented literal, single-process read-only shapes/);
   assert.match(spec, /literal `--fix` token immediately follows the Task ID/);
@@ -272,7 +272,7 @@ test("kyw-audit gives a clean Task PASS without churn and documents the verdict 
     plugin.interface.defaultPrompt[2],
     /\$kyw-audit 0001.*without modifying the repository/,
   );
-  assert.match(readme, /final `PASS` or `BLOCKED`/);
+  assert.match(spec, /End with evidence-based `PASS` or `BLOCKED`/);
   assert.match(architecture, /references\/audit\.md/);
   assert.match(architecture, /Findings receive stable `F-NN` IDs/);
   assert.match(architecture, /bare invocation remains read-only through the final response/);
