@@ -210,7 +210,15 @@ function createSourceCopy(t, version, mutate) {
     cpSync(join(PACKAGE_ROOT, relativePath), join(source, relativePath), { recursive: true });
   }
   mkdirSync(join(source, "src", "core"), { recursive: true });
-  for (const name of ["task-artifacts.mjs", "template-contracts.mjs"]) {
+  for (const name of [
+    "task-artifact-contract.mjs",
+    "task-artifact-creation.mjs",
+    "task-artifact-delivery.mjs",
+    "task-artifact-queue.mjs",
+    "task-artifact-shared.mjs",
+    "task-artifacts.mjs",
+    "template-contracts.mjs",
+  ]) {
     cpSync(join(PACKAGE_ROOT, "src", "core", name), join(source, "src", "core", name));
   }
   const packageJson = JSON.parse(readFileSync(join(PACKAGE_ROOT, "package.json"), "utf8"));
@@ -397,14 +405,14 @@ test("user install writes complete hashed Skills and a runnable direct-install T
     now: () => new Date("2026-07-17T00:00:00.000Z"),
   });
   assert.equal(result.skillCount, 4);
-  assert.equal(result.fileCount, 19);
+  assert.equal(result.fileCount, 24);
   assert.equal(readFileSync(unrelated, "utf8"), "unrelated\n");
 
   const location = resolveInstallLocation({ scope: "user", home });
   const metadata = readInstallMetadata(location, { required: true });
   assert.deepEqual(validateInstallMetadata(metadata, { expectedScope: "user" }), []);
   assert.equal(metadata.version, "0.1.0");
-  assert.equal(metadata.files.length, 19);
+  assert.equal(metadata.files.length, 24);
   assert.ok(metadata.files.some((file) => file.path === ".kyw-dev/runtime/templates/task/TASK.md"));
   for (const file of metadata.files) {
     assert.equal(hashFile(join(location.skillsRoot, ...file.path.split("/"))), file.sha256);
@@ -478,7 +486,7 @@ test("user install writes complete hashed Skills and a runnable direct-install T
   assert.equal(JSON.parse(transactionInspection.stdout).state, "NONE");
 
   const uninstall = uninstallManagedSkills({ scope: "user", home });
-  assert.equal(uninstall.removedFileCount, 19);
+  assert.equal(uninstall.removedFileCount, 24);
   assert.equal(readFileSync(unrelated, "utf8"), "unrelated\n");
   assert.equal(existsSync(location.metadataPath), false);
   for (const skillName of MANAGED_SKILL_NAMES) {
@@ -1382,7 +1390,7 @@ test("CLI grammar and documented exit categories are deterministic", (t) => {
 test("packaged managed source inventory is stable and fully hashed", () => {
   const inventory = buildManagedSourceInventory();
   assert.equal(inventory.version, "0.1.0");
-  assert.equal(inventory.files.length, 19);
+  assert.equal(inventory.files.length, 24);
   assert.deepEqual(
     inventory.files.map((file) => file.path),
     [...inventory.files].map((file) => file.path).sort((left, right) => left.localeCompare(right)),
@@ -1414,7 +1422,7 @@ test("actual npm tarball installs, diagnoses, runs its installed adapter, and un
   }
   assert.equal(packed.status, 0, packed.stderr);
   const report = JSON.parse(packed.stdout)[0];
-  assert.equal(report.entryCount, 29);
+  assert.equal(report.entryCount, 34);
   const extractRoot = join(root, "extract");
   mkdirSync(extractRoot);
   const extracted = spawnSync("tar", ["-xf", join(root, report.filename), "-C", extractRoot], {
