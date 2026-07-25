@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { access, readFile, readdir } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
@@ -242,6 +242,99 @@ test("instruction rule families have one canonical owner and minimal identified 
     architecture,
     /Publication, registry mutation, tags, releases, public submission, force push, destructive recovery, branch deletion, rerun, bypass, and unrelated mutation remain separate authority boundaries/,
   );
+});
+
+test("README puts installation, explicit Skills, first use, and current status before maintainer detail", async () => {
+  const readme = await read("README.md");
+  const orderedMarkers = [
+    "## Start here",
+    "### Choose one installation surface",
+    "### Invoke a Skill explicitly",
+    "### First workflow",
+    "## Release status",
+    "## Task routing and evidence",
+    "## Installation details",
+    "## Development",
+  ];
+  let previous = -1;
+  for (const marker of orderedMarkers) {
+    const index = readme.indexOf(marker);
+    assert.ok(index > previous, `${marker} must appear in the first-use order`);
+    previous = index;
+  }
+
+  const firstUse = readme.slice(0, readme.indexOf("## Release status"));
+  for (const invocation of ["$kyw-init", "$kyw-task", "$kyw-audit", "$kyw-grilling"]) {
+    assert.ok(firstUse.includes(invocation), `${invocation} must be visible before release detail`);
+  }
+  assert.match(readme, /Task 0020 is `BLOCKED`/);
+  assert.match(readme, /Tasks 0029 and 0038 reached `READY_FOR_APPROVAL` and were later superseded/);
+  assert.match(readme, /No version tag, GitHub Release, npm publication, or public plugin-directory submission has occurred/);
+  assert.doesNotMatch(readme, /Tasks 0001 through 0015/);
+  assert.doesNotMatch(readme, /^### Grilling evaluation harness$/m);
+  assert.doesNotMatch(readme, /^### Audit behavior smoke$/m);
+  assert.doesNotMatch(readme, /^## Target repository layout$/m);
+  assert.doesNotMatch(
+    firstUse,
+    /result schema|SIGINT|process group|protected snapshots|native sandbox/i,
+  );
+  assert.ok(Buffer.byteLength(readme) < 24_000, "README must remain a concise user entry point");
+});
+
+test("permanent-document inventory and deliberate scope boundaries stay explicit", async () => {
+  const [readme, specification, architecture] = await Promise.all([
+    read("README.md"),
+    read("docs/SPEC.md"),
+    read("docs/ARCHITECTURE.md"),
+  ]);
+  const projectTemplates = (await readdir(join(REPOSITORY_ROOT, "templates", "project")))
+    .filter((name) => name.endsWith(".md"))
+    .sort();
+
+  assert.deepEqual(projectTemplates, ["AGENTS.md", "ARCHITECTURE.md", "README.md", "SPEC.md"]);
+  assert.match(readme, /The four permanent documents are README, AGENTS, SPEC, and ARCHITECTURE/);
+  assert.match(specification, /A managed project uses four permanent documents/);
+  assert.match(
+    specification,
+    /Supporting installation\/discovery paths beyond managed direct user\/project Skills and Codex plugin marketplace\/cache bytes/,
+  );
+  assert.match(
+    specification,
+    /Supporting a current-contract `STANDARD` delivery ledger other than GitHub PR\/Actions exact-SHA evidence/,
+  );
+  assert.match(architecture, /## 17\. Deliberate scope boundaries/);
+  for (const boundary of [
+    "Delivery-provider interface",
+    "Generic provider or install-backend framework",
+    "Shared generic transaction/filesystem framework",
+    "daemon, watcher, filesystem/process/OS tracing",
+    "Full Node.js 22/24 LTS matrix",
+    "Separately approved registry identity check",
+  ]) {
+    assert.ok(architecture.includes(boundary), `missing deliberate boundary: ${boundary}`);
+  }
+  assert.match(architecture, /### Release-isolation lifecycle/);
+  assert.match(
+    architecture,
+    /Historical run-specific evidence and verdicts remain in their immutable Task\/Test pairs/,
+  );
+});
+
+test("permanent-document local Markdown references resolve to repository files", async () => {
+  for (const relativePath of ["README.md", "AGENTS.md", "docs/SPEC.md", "docs/ARCHITECTURE.md"]) {
+    const markdown = await read(relativePath);
+    for (const match of markdown.matchAll(/\]\(([^)]+)\)/g)) {
+      const reference = match[1];
+      if (/^(?:https?:|#)/.test(reference)) {
+        continue;
+      }
+      const target = decodeURIComponent(reference.split("#", 1)[0]);
+      await assert.doesNotReject(
+        access(join(REPOSITORY_ROOT, dirname(relativePath), target)),
+        `${relativePath} contains a missing local reference: ${reference}`,
+      );
+    }
+  }
 });
 
 test("the same representative instruction bundle shrinks without a new reference path", async () => {
