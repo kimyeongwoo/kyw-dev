@@ -642,7 +642,7 @@ The first-release notes, approval checklist, exact commands, and rollback/deprec
 
 ## 11.5 Credential-free continuous integration
 
-`.github/workflows/ci.yml` is the only required CI workflow. It runs for pull requests, pushes to `main`, and optional manual dispatch with workflow-level `contents: read`, ref-scoped cancellation, explicit job timeouts, disabled checkout credential persistence, and no secret reference. Root `.gitattributes` forces text checkout materialization to LF on every runner because foundation parsing, deterministic packing, and the repository format contract operate on LF bytes. The repository intentionally has no dependencies or lockfile, so jobs do not run `npm ci` or enable a package-manager cache.
+`.github/workflows/ci.yml` is the only required CI workflow. It runs for pull requests, pushes to `main`, and optional manual dispatch with workflow-level `contents: read`, explicit job timeouts, disabled checkout credential persistence, and no secret reference. Its event-specific concurrency identity cancels only superseded runs for the same pull-request number, gives every `main` push a non-cancelling commit-SHA group, and isolates manual dispatch by run ID so neither can erase an unrelated exact-SHA `main` result. Every external Action use is pinned to an upstream-verified full commit SHA with a readable release comment. Root `.gitattributes` forces text checkout materialization to LF on every runner because foundation parsing, deterministic packing, and the repository format contract operate on LF bytes. The repository intentionally has no dependencies or lockfile, so jobs do not run `npm ci` or enable a package-manager cache.
 
 ```text
 pull request / main push / manual dispatch
