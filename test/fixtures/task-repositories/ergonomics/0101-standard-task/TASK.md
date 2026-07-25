@@ -12,7 +12,7 @@ Return a normalized display label for one existing record.
 
 ## Dependencies
 
-- Not applicable — the fixture has no hard Task dependency.
+- Not applicable — no hard dependency is required for this outcome.
 
 ## In Scope
 

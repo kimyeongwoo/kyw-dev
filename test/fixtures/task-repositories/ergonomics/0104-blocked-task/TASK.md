@@ -12,7 +12,7 @@ Verify the migration against the required legacy database engine.
 
 ## Dependencies
 
-- Not applicable — no numbered Task blocks this fixture.
+- Not applicable — no hard dependency is required for this outcome.
 
 ## In Scope
 

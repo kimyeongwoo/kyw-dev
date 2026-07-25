@@ -15,6 +15,7 @@ import path from "node:path";
 
 import {
   CURRENT_TASK_CONTRACT_VERSION,
+  TASK_TEST_STATUS_PAIRS,
   getTaskContractVersion,
   readCanonicalTemplate,
   renderTemplate,
@@ -40,6 +41,28 @@ const managedNextAliasPattern = /^task\s+진행해줘(?:\s+([\s\S]*\S))?\s*$/iu;
 const managedContinuousAliasPattern =
   /^남은\s+task\s+계속\s+실행해줘(?:\s+([\s\S]*\S))?\s*$/iu;
 const gitShaPattern = /^[0-9a-f]{40}$/;
+const canonicalNoDependency =
+  "- Not applicable — no hard dependency is required for this outcome.";
+const canonicalDependencyPattern = /^- Task (\d{4})\.$/;
+const currentTaskStateByPair = new Map(
+  [
+    ["DRAFT/DRAFT", "DRAFT"],
+    ["READY/READY", "READY"],
+    ["IN_PROGRESS/RUNNING", "ACTIVE"],
+    ["DONE/PASSED", "COMPLETE"],
+    ["BLOCKED/BLOCKED", "BLOCKED"],
+    ["CANCELLED/BLOCKED", "CANCELLED"],
+  ].map((entry) => Object.freeze(entry)),
+);
+
+if (
+  currentTaskStateByPair.size !== TASK_TEST_STATUS_PAIRS.length ||
+  TASK_TEST_STATUS_PAIRS.some(
+    ([taskStatus, testStatus]) => !currentTaskStateByPair.has(`${taskStatus}/${testStatus}`),
+  )
+) {
+  throw new Error("Current Task state classification must cover every valid status pair");
+}
 
 export class TaskArtifactError extends Error {
   constructor(code, message, options = {}) {
@@ -96,10 +119,7 @@ function parseDeliveryRequirement(taskMarkdown, contractVersion) {
   return Object.freeze({ kind: "INVALID" });
 }
 
-function parseHardDependencies(taskMarkdown, contractVersion) {
-  if (contractVersion !== CURRENT_TASK_CONTRACT_VERSION) {
-    return Object.freeze([]);
-  }
+function literalHardDependencies(taskMarkdown) {
   const dependencies = [];
   const section = stripMarkdownComments(markdownSection(taskMarkdown, "Dependencies"));
   for (const match of section.matchAll(/\bTask\s+(\d{4})\b/g)) {
@@ -110,28 +130,92 @@ function parseHardDependencies(taskMarkdown, contractVersion) {
   return Object.freeze(dependencies);
 }
 
+function parseCanonicalHardDependencies(taskMarkdown) {
+  const section = stripMarkdownComments(markdownSection(taskMarkdown, "Dependencies")).trim();
+  if (section === canonicalNoDependency) {
+    return Object.freeze({
+      dependencies: Object.freeze([]),
+      errors: Object.freeze([]),
+    });
+  }
+
+  const dependencies = [];
+  const errors = [];
+  if (!section) {
+    return Object.freeze({
+      dependencies: Object.freeze([]),
+      errors: Object.freeze(["Dependencies must not be empty"]),
+    });
+  }
+  const lines = section.split(/\r?\n/);
+  lines.forEach((line, index) => {
+    const match = canonicalDependencyPattern.exec(line);
+    if (!match) {
+      errors.push(
+        `Dependencies line ${index + 1} must be exactly "- Task NNNN." or the section must be exactly "${canonicalNoDependency}"`,
+      );
+      return;
+    }
+    if (dependencies.includes(match[1])) {
+      errors.push(`Dependencies repeats Task ${match[1]}`);
+      return;
+    }
+    dependencies.push(match[1]);
+  });
+  return Object.freeze({
+    dependencies: Object.freeze(dependencies),
+    errors: Object.freeze(errors),
+  });
+}
+
+function parseHardDependencies(taskMarkdown, contractVersion, { completedCompatibility = false } = {}) {
+  if (contractVersion !== CURRENT_TASK_CONTRACT_VERSION) {
+    return Object.freeze({
+      dependencies: Object.freeze([]),
+      errors: Object.freeze([]),
+      grammar: "LEGACY",
+    });
+  }
+  const canonical = parseCanonicalHardDependencies(taskMarkdown);
+  if (canonical.errors.length === 0) {
+    return Object.freeze({ ...canonical, grammar: "CANONICAL" });
+  }
+  if (completedCompatibility) {
+    return Object.freeze({
+      dependencies: literalHardDependencies(taskMarkdown),
+      errors: Object.freeze([]),
+      grammar: "COMPLETED_COMPATIBILITY",
+    });
+  }
+  return Object.freeze({ ...canonical, grammar: "INVALID" });
+}
+
+function taskLifecycleState(task) {
+  return currentTaskStateByPair.get(`${task.taskStatus}/${task.testStatus}`) ?? "INVALID";
+}
+
 function activeTask(task) {
-  return task.taskStatus === "IN_PROGRESS" && task.testStatus === "RUNNING";
+  return taskLifecycleState(task) === "ACTIVE";
 }
 
 function completeTask(task) {
-  return task.taskStatus === "DONE" && task.testStatus === "PASSED";
+  return taskLifecycleState(task) === "COMPLETE";
 }
 
 function blockedTask(task) {
-  return task.taskStatus === "BLOCKED" && task.testStatus === "BLOCKED";
+  return taskLifecycleState(task) === "BLOCKED";
 }
 
 function cancelledTask(task) {
-  return task.taskStatus === "CANCELLED" && task.testStatus === "BLOCKED";
+  return taskLifecycleState(task) === "CANCELLED";
 }
 
 function readyTask(task) {
-  return task.taskStatus === "READY" && task.testStatus === "READY";
+  return taskLifecycleState(task) === "READY";
 }
 
 function draftTask(task) {
-  return task.taskStatus === "DRAFT" && task.testStatus === "DRAFT";
+  return taskLifecycleState(task) === "DRAFT";
 }
 
 function taskSummary(task) {
@@ -767,6 +851,7 @@ async function readTaskQueueEntry(tasksRoot, entry) {
   return {
     entry,
     errors,
+    taskMarkdown,
     task: Object.freeze({
       id: entry.id,
       number: entry.number,
@@ -778,7 +863,7 @@ async function readTaskQueueEntry(tasksRoot, entry) {
       taskStatus,
       testStatus,
       contractVersion,
-      dependencies: parseHardDependencies(taskMarkdown, contractVersion),
+      dependencies: Object.freeze([]),
       deliveryRequirement,
       blocker: firstSectionLine(taskMarkdown, "Blockers") ?? "No blocker reason recorded.",
     }),
@@ -881,7 +966,22 @@ export async function inspectTaskQueue(tasksRoot) {
   for (const record of records) {
     errors.push(...record.errors);
     if (record.task) {
-      tasks.push(record.task);
+      const dependencyParse = parseHardDependencies(
+        record.taskMarkdown,
+        record.task.contractVersion,
+        { completedCompatibility: completeTask(record.task) },
+      );
+      errors.push(
+        ...dependencyParse.errors.map(
+          (message) => `${record.entry.name}: TASK.md: ${message}`,
+        ),
+      );
+      tasks.push(
+        Object.freeze({
+          ...record.task,
+          dependencies: dependencyParse.dependencies,
+        }),
+      );
     }
   }
   const byId = new Map(tasks.map((task) => [task.id, task]));
@@ -1121,6 +1221,56 @@ function terminalTaskResult(task, byId, deliveryState, parsedInvocation) {
   );
 }
 
+function automaticTerminalResult(currentTasks, byId, deliveryState, parsedInvocation) {
+  const frontier = currentTasks.at(-1);
+  const incomplete = currentTasks.find((task) => !completeTask(task));
+  if (incomplete) {
+    if (blockedTask(incomplete)) {
+      const frontierBlocked = incomplete.id === frontier.id;
+      return blockedResult(
+        frontierBlocked ? "QUEUE_FRONTIER_BLOCKED" : "QUEUE_TRANSITION_BLOCKED",
+        frontierBlocked
+          ? `Task ${incomplete.id} is the current queue frontier and is BLOCKED: ${incomplete.blocker}`
+          : `Task ${incomplete.id} is BLOCKED and the current queue is not complete: ${incomplete.blocker}`,
+        { task: taskSummary(incomplete) },
+      );
+    }
+    if (cancelledTask(incomplete)) {
+      return terminalTaskResult(incomplete, byId, deliveryState, parsedInvocation);
+    }
+    return blockedResult(
+      "NO_SELECTABLE_TASK",
+      `No READY or active Task exists; current Task ${incomplete.id} is ${incomplete.taskStatus}/${incomplete.testStatus}.`,
+      { task: taskSummary(incomplete) },
+    );
+  }
+
+  for (const task of currentTasks) {
+    const dependencyBlockers = selectionBlockers(task, byId, deliveryState);
+    if (dependencyBlockers.length > 0) {
+      return blockedResult("UNSATISFIED_DEPENDENCY", dependencyBlockers.join("; "), {
+        task: taskSummary(task),
+      });
+    }
+    const classification = deliveryClassification(task, deliveryState);
+    if (classification.disposition === "RESUMABLE") {
+      return selectedResult(task, parsedInvocation, "DELIVER");
+    }
+    if (classification.disposition === "BLOCKED") {
+      return deliveryEvidenceBlockedResult(task, classification);
+    }
+  }
+
+  return Object.freeze({
+    outcome: "NO_WORK",
+    code: "ALL_TASKS_COMPLETE",
+    message: ALL_TASKS_COMPLETE_MESSAGE,
+    task: taskSummary(frontier),
+    deliveryDisposition: "SATISFIED",
+    mutationRequired: false,
+  });
+}
+
 export async function resolveTaskDispatch({
   tasksRoot,
   invocation,
@@ -1302,85 +1452,11 @@ export async function resolveTaskDispatch({
     });
   }
 
-  const frontier = [...queue.currentTasks].sort((left, right) => left.number - right.number).at(-1);
-  if (blockedTask(frontier)) {
-    return blockedResult(
-      "QUEUE_FRONTIER_BLOCKED",
-      `Task ${frontier.id} is the current queue frontier and is BLOCKED: ${frontier.blocker}`,
-      { task: taskSummary(frontier) },
-    );
-  }
-  if (completeTask(frontier)) {
-    const transitionBlockers = priorTransitionBlockers(
-      frontier,
-      queue.currentTasks,
-      byId,
-      deliveryState,
-    );
-    if (transitionBlockers.length > 0) {
-      return blockedResult("QUEUE_TRANSITION_BLOCKED", transitionBlockers.join("; "), {
-        task: taskSummary(frontier),
-      });
-    }
-    const dependencyBlockers = selectionBlockers(frontier, byId, deliveryState);
-    if (dependencyBlockers.length > 0) {
-      return blockedResult("UNSATISFIED_DEPENDENCY", dependencyBlockers.join("; "), {
-        task: taskSummary(frontier),
-      });
-    }
-    const classification = deliveryClassification(frontier, deliveryState);
-    if (classification.disposition === "RESUMABLE") {
-      return selectedResult(frontier, parsedInvocation, "DELIVER");
-    }
-    if (classification.disposition === "BLOCKED") {
-      return deliveryEvidenceBlockedResult(frontier, classification);
-    }
-    return Object.freeze({
-      outcome: "NO_WORK",
-      code: "ALL_TASKS_COMPLETE",
-      message: ALL_TASKS_COMPLETE_MESSAGE,
-      task: taskSummary(frontier),
-      deliveryDisposition: "SATISFIED",
-      mutationRequired: false,
-    });
-  }
-  if (cancelledTask(frontier)) {
-    const transitionBlockers = priorTransitionBlockers(
-      frontier,
-      queue.currentTasks,
-      byId,
-      deliveryState,
-    );
-    if (transitionBlockers.length > 0) {
-      return blockedResult("QUEUE_TRANSITION_BLOCKED", transitionBlockers.join("; "), {
-        task: taskSummary(frontier),
-      });
-    }
-    const dependencyBlockers = selectionBlockers(frontier, byId, deliveryState);
-    if (dependencyBlockers.length > 0) {
-      return blockedResult("UNSATISFIED_DEPENDENCY", dependencyBlockers.join("; "), {
-        task: taskSummary(frontier),
-      });
-    }
-    const delivery = deliveryBlockers(frontier, deliveryState);
-    if (delivery.length > 0) {
-      return blockedResult("DELIVERY_EVIDENCE_REQUIRED", delivery.join("; "), {
-        task: taskSummary(frontier),
-      });
-    }
-    return Object.freeze({
-      outcome: "NO_WORK",
-      code: "ALL_TASKS_COMPLETE",
-      message: ALL_TASKS_COMPLETE_MESSAGE,
-      task: taskSummary(frontier),
-      deliveryDisposition: "SATISFIED",
-      mutationRequired: false,
-    });
-  }
-  return blockedResult(
-    "NO_SELECTABLE_TASK",
-    `No READY or active Task exists; current queue frontier Task ${frontier.id} is ${frontier.taskStatus}/${frontier.testStatus}.`,
-    { task: taskSummary(frontier) },
+  return automaticTerminalResult(
+    queue.currentTasks,
+    byId,
+    deliveryState,
+    parsedInvocation,
   );
 }
 
@@ -1689,7 +1765,10 @@ function renderBatchTasks(preallocated, existingTasks) {
       taskMarkdown,
       getTaskContractVersion(taskMarkdown),
     );
-    if (!sameOrderedValues(parsedDependencies, resolvedDependencies)) {
+    if (
+      parsedDependencies.errors.length > 0 ||
+      !sameOrderedValues(parsedDependencies.dependencies, resolvedDependencies)
+    ) {
       throw invalidBatch(
         `Task batch key ${task.key} Dependencies must match its declared dependency references`,
         "INVALID_TASK_BATCH_PAIR",
@@ -2063,6 +2142,14 @@ export async function validateTaskDirectory(taskDirectory) {
   }
 
   errors.push(...validateTaskTestContract({ taskMarkdown, testMarkdown }));
+  const contractVersion = getTaskContractVersion(taskMarkdown);
+  const repositoryComplete =
+    firstSectionLine(taskMarkdown, "Status") === "DONE" &&
+    firstSectionLine(testMarkdown, "Status") === "PASSED";
+  const dependencyParse = parseHardDependencies(taskMarkdown, contractVersion, {
+    completedCompatibility: repositoryComplete,
+  });
+  errors.push(...dependencyParse.errors.map((message) => `TASK.md: ${message}`));
   if (parsed) {
     const taskId = /^# TASK (\d{4}) —/m.exec(taskMarkdown)?.[1];
     const testId = /^# TEST (\d{4}) —/m.exec(testMarkdown)?.[1];

@@ -461,7 +461,7 @@ current-contract inventory + status/dependency validation
               ├─ one active → resume it
               ├─ no active, incomplete DONE/PASSED delivery → resume delivery
               ├─ otherwise  → lowest eligible READY/READY
-              └─ invalid or blocked frontier → stop with reason
+              └─ invalid, blocked, cancelled, or nonselectable current state → truthful stop
               ↓
 selected Task receives ordinary lifecycle authority
               ↓
@@ -471,13 +471,15 @@ repository outcome, then Delivery NONE or exact-SHA STANDARD state
               └─ satisfied → report, or re-preflight next Task in continuous mode
 ```
 
-Task status and Test status remain separate fields but current-contract pairings are closed. Implementation can be blocked while verification is unavailable; cancellation records `CANCELLED/BLOCKED`. A current pair's static delivery requirement does not add a third repository lifecycle state.
+Task status and Test status remain separate fields but current-contract pairings are closed and map through one exhaustive queue-state table. Implementation can be blocked while verification is unavailable; cancellation records `CANCELLED/BLOCKED` and produces a distinct terminal result rather than completion. The byte-exact all-complete response is eligible only after every applicable current pair is `DONE/PASSED` and every dependency and delivery gate is satisfied; queue truth is never inferred from only the highest-numbered pair. A current pair's static delivery requirement does not add a third repository lifecycle state.
 
 During execution, discoveries update Task intent and Test coverage together; durable meaning is routed to its permanent owner before implementation alignment. Before compaction or interruption, the workflow persists Completed, Remaining, Resume Point, Blockers, current decisions/document impact, repository state, commands, results, row evidence, and unverified risks in the existing pair. Terminal `DONE`/`PASSED` requires mapped acceptance criteria, executed required checks, synchronized durable documents, a complete final diff coverage review, reproducible evidence, final pair validation, and no repository work left in Plan, Remaining, or Resume Point. An unavailable required check produces recorded `BLOCKED` status instead of inferred success. Required external delivery is checked afterward from GitHub and never inserted as self-referential future repository work.
 
 Current-contract `DRAFT/DRAFT` scaffolds may retain authoring guidance, and `CANCELLED/BLOCKED` may preserve that incomplete history. From `READY/READY` onward, each required section must have substantive content or one exact `Not applicable — <reason>` entry; an empty/comment-only section, bare `None`, or reasonless N/A fails validation. Acceptance Criteria and the Intent-to-Test Matrix remain substantive graph nodes with at least one AC, one row, and complete mapping. This semantic completeness check does not impose a size profile or second artifact type: routine Tasks stay concise by guidance, while release/security evidence may expand as needed.
 
 For byte-preserving compatibility, pre-rule contract-v2 pairs without any reasoned-N/A entry retain their historical negative placeholders. Empty required content and missing AC/matrix graph nodes still fail. The updated canonical template includes reasoned N/A, so adopting any such entry activates strict bare-None and N/A-shape validation for the complete pair without creating another Task type or rewriting old evidence.
+
+For non-complete current pairs, `Dependencies` has one grammar: the exact no-dependency sentinel or one or more distinct `- Task NNNN.` bullets. Queue and pair validation reject negated or explanatory mentions, duplicate or mixed forms, missing targets, and cycles before selection. Repository-complete current artifacts with older free-form dependency sections fall back to the preceding literal-reference reader solely for immutable history; unmarked legacy pairs remain under their historical contract.
 
 Compatible one-pair scaffold creation retains its DRAFT two-file atomicity. Adaptive batch creation first resolves and rejects a symlinked tasks root, inspects a valid queue, preallocates every contiguous ID and direct-child path, resolves complete model-authored Markdown plus explicit dependency references, and validates every `READY/READY` pair and the combined dependency graph before writing. It then acquires the exclusive creation lock, rechecks inventory and target absence, writes the complete set beneath one unique hidden staging root, validates the staged directories again, and publishes every owned directory while canonical queue inspection remains locked.
 
@@ -774,7 +776,7 @@ Task 0023 changes only deterministic audit-classifier evidence and did not run a
 - required Markdown sections;
 - current-contract Task/Test marker identity, paired status values, and static `STANDARD` or reasoned `NONE` delivery declaration;
 - legacy Task/Test readability without applying current queue or delivery rules retroactively;
-- literal hard-dependency references, missing IDs, cycles, active-count, deterministic next-ready selection, and queue-frontier outcomes;
+- canonical current hard-dependency bullets, completed-history compatibility, missing IDs, cycles, exhaustive status classification, active-count, deterministic next-ready selection, truthful cancellation, and all-current terminal outcomes;
 - relative plugin paths beginning with `./`;
 - version synchronization;
 - package file inclusion.
@@ -788,7 +790,7 @@ Development-only validation scripts use Node built-ins to check JavaScript synta
 
 - task number allocation;
 - slug generation;
-- exact and automatic Task resolution, status-pair consistency, dependency graphs, historical-blocker isolation, and no-work outcomes;
+- exact and automatic Task resolution, exhaustive status-pair consistency, dependency grammars and graphs, historical-blocker isolation, cancellation, and all-current no-work outcomes;
 - repository-root detection;
 - scope path resolution;
 - ownership hashing;

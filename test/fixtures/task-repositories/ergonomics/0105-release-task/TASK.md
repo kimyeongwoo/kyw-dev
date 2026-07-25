@@ -12,7 +12,7 @@ Verify one exact release candidate across supported runtime, package, and proven
 
 ## Dependencies
 
-- Not applicable — fixture dependencies are represented by its frozen candidate identity.
+- Not applicable — no hard dependency is required for this outcome.
 
 ## In Scope
 

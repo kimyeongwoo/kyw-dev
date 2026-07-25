@@ -12,7 +12,7 @@ Reject a trailing delimiter without changing valid parser output.
 
 ## Dependencies
 
-- Not applicable — the parser fixture has no hard Task dependency.
+- Not applicable — no hard dependency is required for this outcome.
 
 ## In Scope
 
