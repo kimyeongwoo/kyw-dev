@@ -261,6 +261,42 @@ test("atomic task creation publishes TASK.md and TEST.md together", async (t) =>
   assert.equal(second.id, "0002");
 });
 
+test("pair validation enforces canonical open dependencies and reads completed history", async (t) => {
+  const temporaryRoot = await temporaryDirectory(t);
+  const readyFixture = path.join(
+    fixturesRoot,
+    "ergonomics",
+    "0101-standard-task",
+  );
+  const invalidDirectory = path.join(temporaryRoot, "0101-invalid-dependencies");
+  await mkdir(invalidDirectory);
+  const invalidTask = (
+    await readFile(path.join(readyFixture, "TASK.md"), "utf8")
+  ).replace(
+    "- Not applicable — no hard dependency is required for this outcome.",
+    "- This Task does not depend on Task 9999.",
+  );
+  await Promise.all([
+    writeFile(path.join(invalidDirectory, "TASK.md"), invalidTask, "utf8"),
+    writeFile(
+      path.join(invalidDirectory, "TEST.md"),
+      await readFile(path.join(readyFixture, "TEST.md"), "utf8"),
+      "utf8",
+    ),
+  ]);
+  assert.match(
+    (await validateTaskDirectory(invalidDirectory)).join("\n"),
+    /Dependencies line 1 must be exactly/,
+  );
+
+  const completedHistory = path.join(
+    fixturesRoot,
+    "ergonomics",
+    "0102-documentation-only",
+  );
+  assert.deepEqual(await validateTaskDirectory(completedHistory), []);
+});
+
 test("atomic task creation removes staged partial files after injected failure", async (t) => {
   const tasksRoot = path.join(await temporaryDirectory(t), "docs", "tasks");
   await assert.rejects(

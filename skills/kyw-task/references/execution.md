@@ -56,7 +56,7 @@ The current contract is identified by the paired `<!-- kyw-task-contract: 2 -->`
 
 Legacy unmarked Task/Test evidence remains readable and valid under its historical contract. Do not recursively reinterpret a terminal legacy Task's old free-form dependencies, handoff prose, or delivery sequence as current queue state.
 
-For current-contract Tasks, parse as a hard dependency only a literal singular `Task NNNN` reference inside `## Dependencies`. Ignore other prose as a queue edge. Missing referenced Tasks and cycles fail closed. A hard dependency is satisfied only by `DONE/PASSED` plus any required external delivery; `BLOCKED`, `CANCELLED`, draft, ready, active, missing, or undelivered dependencies are unsatisfied.
+For every non-complete current-contract Task, `## Dependencies` must be exactly `- Not applicable — no hard dependency is required for this outcome.` or one or more distinct bullets in the exact form `- Task NNNN.`. Reject negated prose, explanatory mentions, duplicate or mixed forms, missing references, and cycles. Repository-complete current artifacts whose dependency prose predates this grammar retain the prior literal-reference reader for immutable compatibility and are not rewritten. A hard dependency is satisfied only by `DONE/PASSED` plus any required external delivery; `BLOCKED`, `CANCELLED`, draft, ready, active, missing, or undelivered dependencies are unsatisfied.
 
 Selection is deterministic:
 
@@ -66,7 +66,7 @@ Selection is deterministic:
 4. Historical `BLOCKED` Tasks that are neither active nor hard dependencies do not block unrelated current work.
 5. Continuous mode uses the same selection once, finishes one Task serially, then performs a fresh preflight and calls the dispatcher again. It never allocates, parallelizes, or continues in the background.
 
-When no Task is active, resumable for delivery, or selectable, use the highest current-contract Task as the queue frontier. A blocked frontier reports its blocker. Return exactly `현재 만들어진 Task는 모두 완료됐습니다. 더 이상 진행할 작업이 없습니다. 추가로 하고 싶은 작업이 있나요?` only when that frontier is `DONE/PASSED` or `CANCELLED/BLOCKED`, every hard dependency is satisfied, and required delivery is proven. Do not create a Task in response.
+When no Task is active, resumable for delivery, or selectable, classify the first non-complete current Task instead of inferring queue truth from the highest ID. A blocked Task reports its blocker, a draft reports no selectable work, and cancellation returns the distinct `TASK_CANCELLED` terminal result after its required gates. Return exactly `현재 만들어진 Task는 모두 완료됐습니다. 더 이상 진행할 작업이 없습니다. 추가로 하고 싶은 작업이 있나요?` only when every applicable current-contract Task is `DONE/PASSED`, every hard dependency is satisfied, and required delivery is proven. Do not create a Task in response.
 
 Current-contract `## Delivery` contains static policy only:
 

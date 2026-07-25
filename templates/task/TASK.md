@@ -12,7 +12,7 @@ DRAFT
 
 ## Dependencies
 
-- Not applicable — no hard dependency is identified in this draft.
+- Not applicable — no hard dependency is required for this outcome.
 
 ## In Scope
 

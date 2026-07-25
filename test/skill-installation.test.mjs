@@ -79,7 +79,7 @@ function readyBatchSpecification(key = "installed-ready", title = "Installed rea
   const taskMarkdown = readFileSync(join(fixtureRoot, "TASK.md"), "utf8")
     .replace("# TASK 0101 — Concise Standard Task", "# TASK {{TASK_ID}} — {{TASK_TITLE}}")
     .replace(
-      "- Not applicable — the fixture has no hard Task dependency.",
+      "- Not applicable — no hard dependency is required for this outcome.",
       "{{TASK_DEPENDENCIES}}",
     );
   const testMarkdown = readFileSync(join(fixtureRoot, "TEST.md"), "utf8").replace(

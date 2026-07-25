@@ -11,7 +11,10 @@ import {
   parseTaskInvocation,
   resolveTaskDispatch,
 } from "../src/core/task-artifacts.mjs";
-import { TASK_CONTRACT_MARKER } from "../src/core/template-contracts.mjs";
+import {
+  TASK_CONTRACT_MARKER,
+  TASK_TEST_STATUS_PAIRS,
+} from "../src/core/template-contracts.mjs";
 
 test("all-complete dispatch message remains the exact product phrase", () => {
   assert.equal(
@@ -35,7 +38,7 @@ function taskMarkdown({
   id,
   title = `Task ${id}`,
   status = "READY",
-  dependencies = "- Not applicable — the fixture has no hard Task dependency.",
+  dependencies = "- Not applicable — no hard dependency is required for this outcome.",
   delivery = "STANDARD",
   legacy = false,
   blocker = "- None known.",
@@ -354,6 +357,164 @@ test("exact dispatch can resume DRAFT authoring and recheck a recorded blocker w
   assert.match(blocked.blocker, /Required fixture is unavailable/);
 });
 
+test("current status table is exhaustive across exact, next, and continuous dispatch", async (t) => {
+  const rows = [
+    {
+      pair: ["DRAFT", "DRAFT"],
+      status: "DRAFT",
+      exact: { outcome: "SELECTED", action: "AUTHOR" },
+      automatic: { outcome: "BLOCKED", code: "NO_SELECTABLE_TASK" },
+    },
+    {
+      pair: ["READY", "READY"],
+      status: "READY",
+      exact: { outcome: "SELECTED", action: "IMPLEMENT" },
+      automatic: { outcome: "SELECTED", action: "IMPLEMENT" },
+    },
+    {
+      pair: ["IN_PROGRESS", "RUNNING"],
+      status: "IN_PROGRESS",
+      exact: { outcome: "SELECTED", action: "RESUME" },
+      automatic: { outcome: "SELECTED", action: "RESUME" },
+    },
+    {
+      pair: ["DONE", "PASSED"],
+      status: "DONE",
+      exact: { outcome: "TERMINAL", code: "TASK_COMPLETE" },
+      automatic: { outcome: "NO_WORK", code: "ALL_TASKS_COMPLETE" },
+    },
+    {
+      pair: ["BLOCKED", "BLOCKED"],
+      status: "BLOCKED",
+      blocker: "- Required fixture is unavailable.",
+      exact: { outcome: "SELECTED", action: "RECHECK_BLOCKER" },
+      automatic: { outcome: "BLOCKED", code: "QUEUE_FRONTIER_BLOCKED" },
+    },
+    {
+      pair: ["CANCELLED", "BLOCKED"],
+      status: "CANCELLED",
+      exact: { outcome: "TERMINAL", code: "TASK_CANCELLED" },
+      automatic: { outcome: "TERMINAL", code: "TASK_CANCELLED" },
+    },
+  ];
+  assert.deepEqual(
+    rows.map(({ pair }) => pair),
+    TASK_TEST_STATUS_PAIRS.map((pair) => [...pair]),
+  );
+
+  for (const row of rows) {
+    const root = await createQueue(t, [
+      {
+        id: "0001",
+        status: row.status,
+        blocker: row.blocker,
+        delivery: "local status-table fixture",
+      },
+    ]);
+    const exact = await resolveTaskDispatch({
+      tasksRoot: root,
+      invocation: "$kyw-task 0001",
+    });
+    assert.equal(exact.outcome, row.exact.outcome, `${row.status} exact outcome`);
+    if (row.exact.action) {
+      assert.equal(exact.action, row.exact.action, `${row.status} exact action`);
+    }
+    if (row.exact.code) {
+      assert.equal(exact.code, row.exact.code, `${row.status} exact code`);
+    }
+
+    for (const [invocation, expectedMode] of [
+      ["task 진행해줘", "NEXT"],
+      ["남은 task 계속 실행해줘", "CONTINUOUS"],
+    ]) {
+      const automatic = await resolveTaskDispatch({
+        tasksRoot: root,
+        invocation,
+        managedRoutingAvailable: true,
+      });
+      assert.equal(
+        automatic.outcome,
+        row.automatic.outcome,
+        `${row.status} ${expectedMode} outcome`,
+      );
+      if (row.automatic.action) {
+        assert.equal(
+          automatic.action,
+          row.automatic.action,
+          `${row.status} ${expectedMode} action`,
+        );
+      }
+      if (row.automatic.code) {
+        assert.equal(
+          automatic.code,
+          row.automatic.code,
+          `${row.status} ${expectedMode} code`,
+        );
+      }
+      if (automatic.outcome === "SELECTED") {
+        assert.equal(automatic.mode, expectedMode, `${row.status} selected mode`);
+      }
+    }
+  }
+});
+
+test("every non-highest current state prevents a false all-complete verdict", async (t) => {
+  const rows = [
+    {
+      status: "DRAFT",
+      expected: { outcome: "BLOCKED", code: "NO_SELECTABLE_TASK" },
+    },
+    {
+      status: "READY",
+      expected: { outcome: "SELECTED", action: "IMPLEMENT" },
+    },
+    {
+      status: "IN_PROGRESS",
+      expected: { outcome: "SELECTED", action: "RESUME" },
+    },
+    {
+      status: "BLOCKED",
+      blocker: "- Required fixture is unavailable.",
+      expected: { outcome: "BLOCKED", code: "QUEUE_TRANSITION_BLOCKED" },
+    },
+    {
+      status: "CANCELLED",
+      expected: { outcome: "TERMINAL", code: "TASK_CANCELLED" },
+    },
+    {
+      status: "DONE",
+      delivery: "STANDARD",
+      expected: { outcome: "SELECTED", action: "DELIVER" },
+    },
+  ];
+
+  for (const row of rows) {
+    const root = await createQueue(t, [
+      {
+        id: "0001",
+        status: row.status,
+        blocker: row.blocker,
+        delivery: row.delivery ?? "local non-highest fixture",
+      },
+      { id: "0002", status: "DONE", delivery: "local terminal fixture" },
+    ]);
+    const result = await resolveTaskDispatch({
+      tasksRoot: root,
+      invocation: "task 진행해줘",
+      managedRoutingAvailable: true,
+    });
+    assert.equal(result.outcome, row.expected.outcome, `${row.status} outcome`);
+    if (row.expected.action) {
+      assert.equal(result.action, row.expected.action, `${row.status} action`);
+    }
+    if (row.expected.code) {
+      assert.equal(result.code, row.expected.code, `${row.status} code`);
+    }
+    assert.notEqual(result.code, "ALL_TASKS_COMPLETE", row.status);
+    assert.notEqual(result.message, ALL_TASKS_COMPLETE_MESSAGE, row.status);
+  }
+});
+
 test("automatic dispatch resumes one active Task and fails closed on multiple active Tasks", async (t) => {
   const root = await createQueue(t, [
     { id: "0001", status: "IN_PROGRESS" },
@@ -415,13 +576,13 @@ test("verified execution preflight blockers stop routing before selection", asyn
   assert.match(inheritedName.message, /unknown field constructor/);
 });
 
-test("automatic dispatch uses literal hard dependencies and the lowest satisfied READY Task", async (t) => {
+test("automatic dispatch uses canonical hard dependencies and the lowest satisfied READY Task", async (t) => {
   const root = await createQueue(t, [
     { id: "0001", status: "DONE", delivery: "local fixture" },
     {
       id: "0002",
       status: "READY",
-      dependencies: "- Task 0001.\n- Tasks 9999 through 9998 are explanatory prose.",
+      dependencies: "- Task 0001.",
     },
     { id: "0003", status: "READY" },
   ]);
@@ -433,6 +594,113 @@ test("automatic dispatch uses literal hard dependencies and the lowest satisfied
   assert.equal(result.outcome, "SELECTED");
   assert.equal(result.task.id, "0002");
   assert.deepEqual(result.task.dependencies, ["0001"]);
+});
+
+test("current dependency grammar accepts only the canonical sentinel or canonical bullets", async (t) => {
+  const accepted = [
+    {
+      label: "canonical sentinel",
+      prerequisites: [],
+      id: "0001",
+      dependencies: "- Not applicable — no hard dependency is required for this outcome.",
+      expected: [],
+    },
+    {
+      label: "one canonical reference",
+      prerequisites: [{ id: "0001", status: "DONE", delivery: "local prerequisite" }],
+      id: "0002",
+      dependencies: "- Task 0001.",
+      expected: ["0001"],
+    },
+    {
+      label: "one canonical reference per bullet",
+      prerequisites: [
+        { id: "0001", status: "DONE", delivery: "local prerequisite" },
+        { id: "0002", status: "DONE", delivery: "local prerequisite" },
+      ],
+      id: "0003",
+      dependencies: "- Task 0001.\n- Task 0002.",
+      expected: ["0001", "0002"],
+    },
+  ];
+  for (const row of accepted) {
+    const root = await createQueue(t, [
+      ...row.prerequisites,
+      { id: row.id, status: "READY", dependencies: row.dependencies },
+    ]);
+    const result = await resolveTaskDispatch({
+      tasksRoot: root,
+      invocation: `$kyw-task ${row.id}`,
+    });
+    assert.equal(result.outcome, "SELECTED", row.label);
+    assert.deepEqual(result.task.dependencies, row.expected, row.label);
+  }
+
+  const rejected = [
+    [
+      "noncanonical no-dependency prose",
+      "- Not applicable — the fixture has no hard Task dependency.",
+    ],
+    ["negated reference", "- This Task does not depend on Task 0001."],
+    ["explanatory reference", "- Task 0001 is background context only."],
+    ["multiple references in one bullet", "- Task 0001 and Task 0002."],
+    ["duplicate reference", "- Task 0001.\n- Task 0001."],
+    [
+      "sentinel mixed with a reference",
+      "- Not applicable — no hard dependency is required for this outcome.\n- Task 0001.",
+    ],
+    ["unreferenced explanatory bullet", "- Supporting context only."],
+    ["blank line between bullets", "- Task 0001.\n\n- Task 0002."],
+  ];
+  for (const [label, dependencies] of rejected) {
+    const root = await createQueue(t, [
+      { id: "0001", status: "DONE", delivery: "local prerequisite" },
+      { id: "0002", status: "READY", dependencies },
+    ]);
+    const result = await resolveTaskDispatch({
+      tasksRoot: root,
+      invocation: "$kyw-task 0002",
+    });
+    assert.equal(result.outcome, "BLOCKED", label);
+    assert.equal(result.code, "INVALID_TASK_QUEUE", label);
+    assert.match(result.message, /Dependencies/, label);
+  }
+});
+
+test("repository-complete current dependency prose remains readable without weakening open Tasks", async (t) => {
+  const completedRoot = await createQueue(t, [
+    { id: "0001", status: "DONE", delivery: "historical prerequisite" },
+    {
+      id: "0002",
+      status: "DONE",
+      dependencies: "- Task 0001 was the previously delivered prerequisite.",
+      delivery: "historical completed artifact",
+    },
+  ]);
+  const completed = await resolveTaskDispatch({
+    tasksRoot: completedRoot,
+    invocation: "task 진행해줘",
+    managedRoutingAvailable: true,
+  });
+  assert.equal(completed.outcome, "NO_WORK");
+  assert.equal(completed.code, "ALL_TASKS_COMPLETE");
+
+  const openRoot = await createQueue(t, [
+    { id: "0001", status: "DONE", delivery: "historical prerequisite" },
+    {
+      id: "0002",
+      status: "READY",
+      dependencies: "- Task 0001 was the previously delivered prerequisite.",
+    },
+  ]);
+  const open = await resolveTaskDispatch({
+    tasksRoot: openRoot,
+    invocation: "task 진행해줘",
+    managedRoutingAvailable: true,
+  });
+  assert.equal(open.outcome, "BLOCKED");
+  assert.equal(open.code, "INVALID_TASK_QUEUE");
+  assert.match(open.message, /Dependencies line 1/);
 });
 
 test("missing dependencies, cycles, and required blockers fail closed without freezing unrelated work", async (t) => {
@@ -905,7 +1173,7 @@ test("supplied CI, review, and identity failures block delivery resume", async (
   }
 });
 
-test("cancelled frontiers require standard delivery and unrelated historical blockers do not stop a later frontier", async (t) => {
+test("cancelled frontiers require standard delivery, stay distinct, and preserve historical isolation", async (t) => {
   const cancelledRoot = await createQueue(t, [{ id: "0001", status: "CANCELLED" }]);
   const pending = await resolveTaskDispatch({
     tasksRoot: cancelledRoot,
@@ -920,7 +1188,9 @@ test("cancelled frontiers require standard delivery and unrelated historical blo
     deliveryLedger: { "0001": deliveredEntry() },
     deliveryExpectations: { "0001": deliveredExpectation() },
   });
-  assert.equal(delivered.outcome, "NO_WORK");
+  assert.equal(delivered.outcome, "TERMINAL");
+  assert.equal(delivered.code, "TASK_CANCELLED");
+  assert.notEqual(delivered.message, ALL_TASKS_COMPLETE_MESSAGE);
 
   const dependencyRoot = await createQueue(t, [
     { id: "0001", status: "BLOCKED", legacy: true, blocker: "- Required blocker." },

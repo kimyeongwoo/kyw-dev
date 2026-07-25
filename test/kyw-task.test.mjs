@@ -883,6 +883,37 @@ test("kyw-task authoring adapter scaffolds one pair and task execution validates
   assert.equal(fileDeliveryResult.status, 0, fileDeliveryResult.stderr);
   assert.equal(JSON.parse(fileDeliveryResult.stdout).outcome, "NO_WORK");
 
+  const draftQueueResult = runAdapter([
+    "create",
+    "--tasks-root",
+    dispatchRoot,
+    "--title",
+    "Terminal truth sentinel",
+  ]);
+  assert.equal(draftQueueResult.status, 0, draftQueueResult.stderr);
+  assert.equal(JSON.parse(draftQueueResult.stdout).id, "0003");
+  const mixedTerminalResult = runAdapter([
+    "dispatch",
+    "--tasks-root",
+    dispatchRoot,
+    "--invocation",
+    "task 진행해줘",
+    "--managed-routing",
+    "true",
+    "--delivery-ledger-json",
+    JSON.stringify(deliveryLedger),
+    "--delivery-expectations-json",
+    JSON.stringify(deliveryExpectations),
+  ]);
+  assert.equal(mixedTerminalResult.status, 0, mixedTerminalResult.stderr);
+  const mixedTerminal = JSON.parse(mixedTerminalResult.stdout);
+  assert.equal(mixedTerminal.outcome, "BLOCKED");
+  assert.equal(mixedTerminal.code, "NO_SELECTABLE_TASK");
+  assert.notEqual(
+    mixedTerminal.message,
+    "현재 만들어진 Task는 모두 완료됐습니다. 더 이상 진행할 작업이 없습니다. 추가로 하고 싶은 작업이 있나요?",
+  );
+
   const invalidRoot = join(root, "invalid-attempt", "docs", "tasks");
   const invalidResult = runAdapter(["create", "--tasks-root", invalidRoot]);
   assert.equal(invalidResult.status, 1);
