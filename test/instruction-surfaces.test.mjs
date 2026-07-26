@@ -269,7 +269,22 @@ test("README puts installation, explicit Skills, first use, and current status b
   }
   assert.match(readme, /Task 0020 is `BLOCKED`/);
   assert.match(readme, /Tasks 0029 and 0038 reached `READY_FOR_APPROVAL` and were later superseded/);
-  assert.match(readme, /No version tag, GitHub Release, npm publication, or public plugin-directory submission has occurred/);
+  assert.match(readme, /Task 0047's exact historical candidate also reached `READY_FOR_APPROVAL`/);
+  assert.match(readme, /Task 0048 found its package-relevant bytes `UNCHANGED` at the audited point/);
+  assert.match(
+    readme,
+    /numbered Task\/Test artifacts—not this durable summary—are the authoritative record for exact candidate identities, verdicts, and supersession/,
+  );
+  assert.match(
+    readme,
+    /Candidate readiness describes only the exact evaluated bytes and never authorizes publication, registry mutation, a version change, a tag, a GitHub Release, or a public submission/,
+  );
+  assert.match(
+    readme,
+    /No publication-boundary package version change, version tag, GitHub Release, npm publication, registry mutation, or public plugin-directory submission has occurred/,
+  );
+  assert.doesNotMatch(readme, /A fresh full release re-gate is required/);
+  assert.doesNotMatch(readme, /current repository bytes are not release-approved/);
   assert.doesNotMatch(readme, /Tasks 0001 through 0015/);
   assert.doesNotMatch(readme, /^### Grilling evaluation harness$/m);
   assert.doesNotMatch(readme, /^### Audit behavior smoke$/m);
