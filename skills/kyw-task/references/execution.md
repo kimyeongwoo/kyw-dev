@@ -29,6 +29,8 @@ This reference is the canonical detailed execution procedure. `AGENTS.md` owns r
 5. Stop and reconcile a conflict among permanent sources, the Task/Test pair, or the repository before implementation. Never silently choose a convenient claim.
 6. Pass verified conflict, unexplained work, remote drift, or unresolved decisions as execution-preflight findings; empty means checked and clear.
 
+Refactors and large-file extractions derive changed bytes from verified current exact `main`. Record its `branch-base` SHA, the `PR-base` SHA at exact-head review, and the immediately pre-merge `main` SHA. Re-prove them and check each base advance for critical-path upstream movement; missing proof, unexplained identity drift, or such movement is `remoteDrift` and stops for reconciliation against then-current exact `main`. Stale branch snapshots, old whole-file copies, and broad cherry-picks are bounded comparison evidence only, never implementation sources.
+
 Dispatch from verified state:
 
 - `DRAFT` / `DRAFT`: resume existing-pair customization and current-summary confirmation without allocating another ID; do not implement.
@@ -39,7 +41,7 @@ Dispatch from verified state:
 - `CANCELLED` / `BLOCKED`: stop without implementation mutations.
 - Any unsupported or contradictory pair: record the inconsistency as a blocker and stop before implementation.
 
-Explicit create-and-execute intent authorizes only the first dependency-satisfied Task in the atomically published set; create-only intent authorizes none. Confirmation of a compatible existing DRAFT summary authorizes that pair after promotion. A recognized exact, automatic, or continuous invocation that selects existing work authorizes implementation and its ordinary declared `STANDARD` lifecycle. An inspect-only, ambiguous, create-only, or non-matching request does not.
+Recognized selection supplies the authority stated below; inspect-only, ambiguous, create-only, and non-matching requests do not.
 
 ## Dispatch and advance the queue
 
@@ -154,7 +156,7 @@ Use the exact exposed value with `OBSERVED`. Use `UNAVAILABLE` as both value and
 
 Before the first implementation mutation, update the verified pair together from `READY` / `READY` to `IN_PROGRESS` / `RUNNING`, record the start in Completed or Discoveries, make Remaining and Resume Point concrete, and validate again.
 
-Adaptive create-and-execute selection of the first eligible new `READY/READY` pair, or exact, automatic, or continuous selection of an existing `READY/READY` pair, confirms implementation and ordinary delivery; selected resumable `DONE/PASSED` confirms delivery. Never reconfirm. Only a genuine unresolved user-owned blocker permits one question with one recommendation; otherwise use evidence or a safe reversible choice.
+A selected ready pair needs no reconfirmation. Only a genuine unresolved user-owned blocker permits one question with one recommendation; otherwise use evidence or a safe reversible choice.
 
 When a recorded blocker has cleared, change `BLOCKED` / `BLOCKED` back to `IN_PROGRESS` / `RUNNING`, record why it cleared, and validate before continuing. Do not erase the earlier blocked result or command evidence.
 

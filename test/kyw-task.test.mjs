@@ -279,6 +279,18 @@ test("kyw-task execution and resume documentation matches the packaged workflow"
     /selecting a current-contract `READY\/READY` pair confirms implementation and ordinary `STANDARD` delivery/,
   );
   assert.match(architecture, /An unavailable required check produces recorded `BLOCKED` status/);
+  assert.match(
+    execution,
+    /Refactors and large-file extractions[\s\S]*verified current exact `main`[\s\S]*`branch-base` SHA[\s\S]*`PR-base` SHA[\s\S]*immediately pre-merge `main` SHA/,
+  );
+  assert.match(
+    execution,
+    /critical-path upstream movement[\s\S]*`remoteDrift`[\s\S]*stops for reconciliation/,
+  );
+  assert.match(
+    execution,
+    /Stale branch snapshots, old whole-file copies, and broad cherry-picks[\s\S]*bounded comparison evidence only, never implementation sources/,
+  );
 });
 
 test("kyw-task authoring inspects facts and grills only unresolved Task decisions", async () => {
