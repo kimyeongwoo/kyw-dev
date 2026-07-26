@@ -48,9 +48,9 @@ Small questions and narrowly scoped changes do not require a Task folder. They s
 
 ## Release status
 
-Version `0.1.0` has implemented package, plugin, four-Skill, CLI, CI, installer, and development-only validation surfaces, but the current repository bytes are not release-approved or published. Historical release evidence remains immutable: Task 0020 is `BLOCKED`, while the exact candidates from Tasks 0029 and 0038 reached `READY_FOR_APPROVAL` and were later superseded by repository changes. A fresh full release re-gate is required before any publication decision.
+Version `0.1.0` has implemented package, plugin, four-Skill, CLI, CI, installer, and development-only validation surfaces, but it has not been published. Historical release evidence remains immutable: Task 0020 is `BLOCKED`; the exact candidates from Tasks 0029 and 0038 reached `READY_FOR_APPROVAL` and were later superseded; Task 0047's exact historical candidate also reached `READY_FOR_APPROVAL`; and Task 0048 found its package-relevant bytes `UNCHANGED` at the audited point. The numbered Task/Test artifacts—not this durable summary—are the authoritative record for exact candidate identities, verdicts, and supersession.
 
-No version tag, GitHub Release, npm publication, or public plugin-directory submission has occurred. Preparing metadata, packing a tarball, passing CI, or running a dry run does not authorize those actions. Even a later pre-publication verdict does not by itself satisfy the published-tarball licensing requirement in [SPEC §15](docs/SPEC.md#15-mvp-acceptance-criteria).
+No publication-boundary package version change, version tag, GitHub Release, npm publication, registry mutation, or public plugin-directory submission has occurred. Candidate readiness describes only the exact evaluated bytes and never authorizes publication, registry mutation, a version change, a tag, a GitHub Release, or a public submission. Preparing metadata, packing a tarball, passing CI, or running a dry run does not authorize those actions. Even a later pre-publication verdict does not by itself satisfy the published-tarball licensing requirement in [SPEC §15](docs/SPEC.md#15-mvp-acceptance-criteria).
 
 Source: [kimyeongwoo/kyw-dev](https://github.com/kimyeongwoo/kyw-dev) · Issues: [GitHub issue tracker](https://github.com/kimyeongwoo/kyw-dev/issues)
 

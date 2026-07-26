@@ -4,7 +4,7 @@
 
 ## Status
 
-READY
+DONE
 
 ## Goal
 
@@ -36,24 +36,24 @@ Reconcile the README release/status wording with Tasks 0047 and 0048 using stabl
 
 ## Acceptance Criteria
 
-- [ ] AC-01: README no longer states or implies that no fresh re-gate has run; it accurately records Task 0047 historical `READY_FOR_APPROVAL` and Task 0048's audited `UNCHANGED` candidate impact.
-- [ ] AC-02: README uses stable wording that does not embed a latest exact candidate hash or mutable current readiness verdict and does not require a circular edit after each later re-gate.
-- [ ] AC-03: Historical readiness, current publication state, and publication authority are clearly distinguished, with no implication that readiness authorizes publication.
-- [ ] AC-04: README identifies numbered Task/Test artifacts as the authoritative record for exact-byte candidate identities, verdicts, and supersession.
-- [ ] AC-05: Task 0050 terminal evidence honestly records that its packaged README bytes, together with Task 0049 package-relevant changes, supersede Task 0047's candidate and make Task 0051's fresh re-gate necessary.
-- [ ] AC-06: No publication, registry mutation, version, tag, GitHub Release, public submission, release command, or Task 0051 implementation occurs.
-- [ ] AC-07: SPEC, ARCHITECTURE, and AGENTS remain unchanged unless the final README edit reveals a real permanent-truth conflict; any required synchronization is minimal and explained.
-- [ ] AC-08: Focused documentation tests, formatting, package-boundary verification, canonical validation of every Task pair, whitespace review, and final documentation/scope review pass.
+- [x] AC-01: README no longer states or implies that no fresh re-gate has run; it accurately records Task 0047 historical `READY_FOR_APPROVAL` and Task 0048's audited `UNCHANGED` candidate impact.
+- [x] AC-02: README uses stable wording that does not embed a latest exact candidate hash or mutable current readiness verdict and does not require a circular edit after each later re-gate.
+- [x] AC-03: Historical readiness, current publication state, and publication authority are clearly distinguished, with no implication that readiness authorizes publication.
+- [x] AC-04: README identifies numbered Task/Test artifacts as the authoritative record for exact-byte candidate identities, verdicts, and supersession.
+- [x] AC-05: Task 0050 terminal evidence honestly records that its packaged README bytes, together with Task 0049 package-relevant changes, supersede Task 0047's candidate and make Task 0051's fresh re-gate necessary.
+- [x] AC-06: No publication, registry mutation, version, tag, GitHub Release, public submission, release command, or Task 0051 implementation occurs.
+- [x] AC-07: SPEC, ARCHITECTURE, and AGENTS remain unchanged unless the final README edit reveals a real permanent-truth conflict; any required synchronization is minimal and explained.
+- [x] AC-08: Focused documentation tests, formatting, package-boundary verification, canonical validation of every Task pair, whitespace review, and final documentation/scope review pass.
 
 ## Plan
 
-- [ ] Reconfirm Tasks 0047 and 0048 terminal evidence and isolate the exact stale sentences in README's release/status section.
-- [ ] Draft one concise durable paragraph that records historical readiness and audit impact while delegating exact-byte current evidence to numbered Task artifacts.
-- [ ] Preserve the explicit no-publication/no-authority boundary and remove only the stale fresh-gate claim.
-- [ ] Add or update the smallest existing documentation test for the stable wording and absence of circular/latest-candidate claims.
-- [ ] Record the post-edit package-byte supersession and Task 0051 dependency in this pair without inserting mutable candidate state into README.
-- [ ] Review permanent-document impact, run focused documentation checks, format, package boundary, canonical all-Task validation, and final diff/coverage review.
-- [ ] Finish `DONE/PASSED` only with executed evidence and no release action.
+- [x] Reconfirm Tasks 0047 and 0048 terminal evidence and isolate the exact stale sentences in README's release/status section.
+- [x] Draft one concise durable paragraph that records historical readiness and audit impact while delegating exact-byte current evidence to numbered Task artifacts.
+- [x] Preserve the explicit no-publication/no-authority boundary and remove only the stale fresh-gate claim.
+- [x] Add or update the smallest existing documentation test for the stable wording and absence of circular/latest-candidate claims.
+- [x] Record the post-edit package-byte supersession and Task 0051 dependency in this pair without inserting mutable candidate state into README.
+- [x] Review permanent-document impact, run focused documentation checks, format, package boundary, canonical all-Task validation, and final diff/coverage review.
+- [x] Finish `DONE/PASSED` only with executed evidence and no release action.
 
 ## Decisions
 
@@ -74,14 +74,26 @@ Reconcile the README release/status wording with Tasks 0047 and 0048 using stabl
 
 - Task 0048 classified README freshness as `DOCUMENTATION_DRIFT`, F-06 as `PARTIAL`, and Task 0047 candidate impact as `UNCHANGED` through the audited main.
 - `package.json#files` includes `README.md`; therefore the authorized README edit will be package-relevant even though it changes no runtime behavior.
-- No documentation edit or verification command has run for this Task; these are authoring facts, not completion evidence.
+- Fresh immutable evidence confirms Task 0047's exact candidate reached `READY_FOR_APPROVAL` only after its authentication blocker cleared, while expressly withholding publication authority; Task 0048 then proved the package-relevant bytes remained `UNCHANGED` at its audited main.
+- Canonical exact dispatch selected Task 0050 as `IMPLEMENT` only after fresh GitHub/local evidence satisfied every current-contract `STANDARD` transition from Task 0030 through Task 0049.
+- Execution started from clean exact local/cached/live-remote `main` SHA `1ae16f51c23275450d58ff12e2556b0282023bb3`, the Task 0049 merge commit. No Task 0050 branch or PR, Task transaction, tag, GitHub Release, staged path, tracked change, or untracked path existed.
+- The branch `task/0050-reconcile-readme-release-history` was created directly from that exact main after the preflight passed.
+- The focused current-main documentation baseline passed 10/10 before the README/test edit.
+- The README release section now preserves Task 0020 and Tasks 0029/0038, adds only the immutable Task 0047 `READY_FOR_APPROVAL` and Task 0048 `UNCHANGED` facts, delegates exact candidate identities/verdicts/supersession to numbered Task/Test artifacts, and separates exact-byte readiness from publication authority.
+- The existing README instruction-surface test gained the smallest focused positive and negative assertions for those stable facts, the evidence owner, the publication boundary, and removal of both stale current-readiness sentences.
+- The exact changed-path planner classified the four Task 0050 paths as `STABLE` because README is a package input and required `npm run check`.
+- The planner-selected Stable gate passed 288/288 tests, lint over 70 JavaScript modules and foundation metadata, format over 292 UTF-8/LF text files, and package selection over 39 files totaling 93,183 bytes.
+- Package-input comparison from Task 0047's source SHA `515a5ff5cc69f4324fcb10e48c7fb9c7f5fd9ca8` to the Task 0049 merge contains only `skills/kyw-task/references/execution.md`; adding the current worktree contains only that file plus `README.md`. Those package-byte changes supersede the Task 0047 candidate and require Task 0051's fresh re-gate.
+- All 51 Task/Test pairs passed canonical validation, `git diff --check` passed, and the exact current diff contains only README, this pair, and `test/instruction-surfaces.test.mjs`. Among permanent documents only README changed.
+- Package and plugin versions remain `0.1.0`; no tag or GitHub Release exists. No release, candidate, dry-run, registry/auth, isolation, model-backed, publish, version, tag, Release, or public-submission command or mutation ran.
+- Two independent read-only final reviews found no historical-evidence error, circular wording, authority ambiguity, scope drift, package-boundary mismatch, uncovered acceptance criterion, unsupported result, or permanent-document conflict.
 
 ## Documentation Impact
 
-- SPEC: Expected unchanged; release and publication requirements already separate readiness from authority.
-- ARCHITECTURE: Expected unchanged; exact candidate and publication boundaries are already authoritative.
+- SPEC: Unchanged; release evidence identity and separate publication authority already own the durable product requirement.
+- ARCHITECTURE: Unchanged; exact candidate, package inclusion, and publication boundaries already own the durable system meaning.
 - README: Minimal release/status reconciliation is the primary outcome.
-- AGENTS: Expected unchanged; repository execution and completion rules do not change.
+- AGENTS: Unchanged; repository execution and completion rules do not change.
 
 ## Delivery
 
@@ -90,15 +102,21 @@ Reconcile the README release/status wording with Tasks 0047 and 0048 using stabl
 
 ## Completed
 
-- Not applicable — implementation has not started.
+- Read the current Task/Test pair, all four permanent documents, Task 0049 dependency evidence, and the explicitly referenced Task 0047/0048 historical release evidence.
+- Reconstructed and validated the full current-contract external delivery ledger through Task 0049, then received canonical `IMPLEMENT` selection for Task 0050.
+- Passed the clean exact-main/remote/status/branch/transaction/tag/Release preflight and created the Task branch from SHA `1ae16f51c23275450d58ff12e2556b0282023bb3`.
+- Passed the focused 10/10 baseline, applied the minimal README and existing-test assertion change, and passed the same focused group after the edit.
+- Ran the exact changed-path planner and its required Stable gate successfully.
+- Proved the package-byte supersession boundary, unchanged package/plugin versions, zero tags/Releases, exact four-path scope, README-only permanent-document impact, canonical validity of all 51 pairs, and clean whitespace.
+- Completed the exact diff-to-matrix and AC-to-test self-review plus two independent read-only reviews; all found the four-path outcome complete and within scope.
 
 ## Remaining
 
-- Apply the minimal README/test change, record candidate supersession, run every planned check, review permanent truth and final scope, and capture terminal evidence.
+- None — the repository outcome and its local verification evidence are complete; mutable `STANDARD` delivery is evaluated separately.
 
 ## Resume Point
 
-- Begin by comparing the current README release/status paragraph with the immutable Task 0047 verdict and Task 0048 candidate-impact finding, then draft stable non-circular wording.
+- None — no repository work remains; resume only separately tracked `STANDARD` delivery from the exact terminal commit.
 
 ## Blockers
 
