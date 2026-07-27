@@ -153,7 +153,7 @@ The packaged deterministic mechanics use these cohesive core boundaries:
 - `src/core/template-contracts.mjs` implements the canonical template registry and enforces token rendering, required-section contracts, lifecycle-aware meaningful-content or reasoned-N/A rules, current-contract and legacy Task/Test status rules, static delivery-requirement parsing, acceptance-to-test traceability, and evidence validation. It applies no global Task length cap.
 - `src/core/task-artifact-shared.mjs` owns Task-specific filesystem identity, hashing, lock/transaction constants, and bounded ownership-proof primitives.
 - `src/core/task-artifact-contract.mjs` owns Task Markdown/status/dependency parsing, directory naming and containment, inventory, and file-backed pair validation.
-- `src/core/task-artifact-delivery.mjs` owns invocation parsing, repository execution-preflight classification, and exact-SHA delivery-evidence classification.
+- `src/core/task-artifact-delivery.mjs` owns invocation parsing, repository execution-preflight classification, and versioned role-separated exact-SHA delivery-evidence classification.
 - `src/core/task-artifact-queue.mjs` owns dependency graph validation, queue inspection, allocation, and deterministic exact/automatic/continuous dispatch.
 - `src/core/task-artifact-creation.mjs` owns compatible one-pair creation plus ownership-safe fully authored batch transactions, rollback, inspection, recovery, and bounded diagnostics.
 - `src/core/task-artifacts.mjs` is the stable public re-export facade for all existing Task artifact imports and exports.
@@ -369,7 +369,9 @@ STANDARD → GitHub PR/Actions exact-SHA state is the canonical external ledger
 NONE     → the Task records a reason
 ```
 
-Task/Test owns repository outcome and reproducible behavioral evidence. GitHub owns mutable pull-request head, review, merge, and Actions facts. The resolver receives local repository/base/outcome-SHA expectations separately from the GitHub ledger and requires their exact identity relations. It classifies absent or identity-bound pending evidence as resumable, supplied failure or unsafe identity/schema drift as blocked, and fully bound success as satisfied. `DONE/PASSED` may therefore precede delivery, but the dispatcher cannot advance while `STANDARD` delivery is resumable or blocked. A fresh local, remote, and GitHub preflight occurs at every serial transition. CI success satisfies delivery only; it cannot replace Task acceptance evidence.
+Task/Test owns repository outcome and reproducible behavioral evidence. GitHub owns mutable pull-request head, review, merge, Actions job, and checkout-log facts. The resolver receives schema-v2 local repository/base/outcome/workflow/required-job expectations separately from the GitHub ledger. Hardened evidence has four bound nodes: every PR Stable/packed job at the actual head, one distinct synthetic merge-compatibility job with exact base/head parents, the reviewed final PR merge, and every post-merge `main` Stable/packed job at that merge SHA; aggregate gates and numeric workflow/run-attempt/job identities are part of the graph. A PR run's API head cannot substitute for the checkout asserted inside a job, and a synthetic job cannot occupy an actual-head slot. Missing final nodes, unknown versions, stale or conflicting identities, reused roles/jobs, and supplied failures block; an absent or valid explicitly pending graph remains resumable.
+
+Schema-v1 GitHub evidence remains eligible only through a schema-v2 trusted-local `LEGACY_PRE_CONTRACT` expectation that binds the exact local contract anchor and historical merge SHA. It returns `LEGACY_PRE_CONTRACT_CONTINUITY` with actual-head `UNVERIFIED`; optional observed synthetic and post-merge checkouts remain separately labeled. The collector may use this path only for an outcome proved repository-complete before the hardened anchor, never for the selected new delivery. `DONE/PASSED` may precede delivery, but the dispatcher cannot advance while `STANDARD` delivery is resumable or blocked. A fresh local, remote, and GitHub preflight occurs at every serial transition. CI success satisfies delivery only; it cannot replace Task acceptance evidence.
 
 The static `STANDARD` field is policy, not ambient authority. The recognized current-user exact, automatic, or continuous invocation is the authority bridge when it selects a Task. The resolver returns `IMPLEMENT`, `RESUME`, or `DELIVER` with `STANDARD_LIFECYCLE` authority and no ceremonial reconfirmation. That ordinary scope covers exact-path commit, non-force push, non-draft PR, exact-head CI, review and mergeability inspection, expected-head protected merge, post-merge base CI, and terminal reporting. Publication, registry mutation, tags, releases, public submission, force push, destructive recovery, branch deletion, rerun, bypass, and unrelated mutation remain separate authority boundaries. Unsafe drift, unexplained user work, conflict, CI or review failure, or a new user-owned decision stops the invocation.
 
@@ -677,21 +679,25 @@ The first-release notes, approval checklist, exact commands, and rollback/deprec
 
 `.github/workflows/ci.yml` is the only required CI workflow. It runs for pull requests, pushes to `main`, and optional manual dispatch with workflow-level `contents: read`, explicit job timeouts, disabled checkout credential persistence, and no secret reference. Its event-specific concurrency identity cancels only superseded runs for the same pull-request number, gives every `main` push a non-cancelling commit-SHA group, and isolates manual dispatch by run ID so neither can erase an unrelated exact-SHA `main` result. Every external Action use is pinned to an upstream-verified full commit SHA with a readable release comment. Root `.gitattributes` forces text checkout materialization to LF on every runner because foundation parsing, deterministic packing, and the repository format contract operate on LF bytes. The repository intentionally has no dependencies or lockfile, so jobs do not run `npm ci` or enable a package-manager cache.
 
+Every Stable and packed job explicitly checks out the PR head on `pull_request`, or the event SHA on `push`/manual dispatch, and immediately emits one `KYWCIEVIDENCE` line before repository verification after proving `git rev-parse HEAD`. On a PR, one separately named Ubuntu/Node 24 job instead checks out `github.sha`, proves it is the two-parent synthetic merge of the event base/head snapshot, emits the merge-compatibility role, and runs the complete Stable command set. The aggregate gate requires that job only for PRs and requires it to be skipped on other events. Numeric job IDs and conclusions come from the Actions API; the job log supplies the asserted checkout and parent identities.
+
 ```text
 pull request / main push / manual dispatch
-        ├─ stable matrix
+        ├─ exact event checkout → stable matrix
         │    ├─ Node 22 LTS × ubuntu/macos/windows
         │    ├─ Node 24 LTS × ubuntu/macos/windows
         │    └─ Node 26 Current × ubuntu compatibility
         │         └─ test + lint + format:check + pack:check
-        ├─ packed release: Node 24 LTS × ubuntu
+        ├─ exact event checkout → packed release: Node 24 LTS × ubuntu
         │         └─ release:candidate → one real packed-byte inspection
+        ├─ PR only: synthetic merge compatibility, Node 24 LTS × ubuntu
+        │         └─ assert merge/base/head → complete Stable command set
         └─ aggregate required result
 ```
 
 The stable matrix runs native temporary-directory CLI and direct-install tests on each host. Codex marketplace coverage remains isolated and executes only where the CLI exists; its absence cannot skip the preceding packed user/project lifecycles or fail a public contributor for missing authentication. The packed job logs the real archive's file count, size, and SHA-256, rejects development/lifecycle content, and runs the extracted CLI. It cannot publish, create a tag or release, merge, or mutate branch-protection settings. Repository administrators may require only the aggregate credential-free result without making a model-backed job part of public PR admission.
 
-The packed job does not call the local `release:ci` composite because the stable matrix already owns the exact-head Stable proof. `release:candidate` creates and inspects the immutable real tarball once in that job. Local `release:ci` remains the deliberate full regression composite (`check` plus `release:candidate`) for release-sensitive implementation work where there is no separate hosted Stable result yet.
+The packed job does not call the local `release:ci` composite because the stable matrix owns the exact event-checkout Stable proof. `release:candidate` creates and inspects the immutable real tarball once in that job. Merge compatibility repeats Stable commands because its base-combined bytes are a distinct evidence boundary, but it cannot satisfy an actual-head role. Local `release:ci` remains the deliberate full regression composite (`check` plus `release:candidate`) for release-sensitive implementation work where there is no separate hosted Stable result yet.
 
 ## 11.6 Verification tier planner
 
@@ -841,7 +847,7 @@ The audit runner uses the same run-scoped lifecycle, supported signals, exit cod
 - package file inclusion.
 - direct-install source/metadata path containment, Skill contract shape, and SHA-256 syntax.
 - public release metadata, absence of lifecycle publish/install scripts, implemented plugin copy, and canonical local marketplace policy/source shape.
-- CI triggers, least-privilege permissions, cancellation/timeouts, exact OS/runtime lanes, stable command coverage, credential absence, and package-script agreement.
+- CI triggers, least-privilege permissions, cancellation/timeouts, actual PR-head and event-SHA assertions, separate synthetic merge/parent assertions, exact OS/runtime lanes, stable command coverage, credential absence, aggregate event behavior, and package-script agreement.
 
 Development-only validation scripts use Node built-ins to check JavaScript syntax, canonical JSON formatting, text-file encoding and whitespace, and the npm tarball allowlist. These scripts stay outside the packed runtime boundary.
 

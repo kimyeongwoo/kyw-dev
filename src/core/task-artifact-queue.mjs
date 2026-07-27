@@ -357,7 +357,12 @@ function selectionBlockedResult(task, blockers) {
   );
 }
 
-function selectedResult(task, parsedInvocation, requestedAction) {
+function selectedResult(
+  task,
+  parsedInvocation,
+  requestedAction,
+  deliveryEvidence,
+) {
   const action =
     requestedAction ??
     (blockedTask(task)
@@ -389,6 +394,11 @@ function selectedResult(task, parsedInvocation, requestedAction) {
     ...(action === "DELIVER"
       ? {
           deliveryDisposition: "RESUMABLE",
+          deliveryClassification: deliveryEvidence?.classification ?? "PENDING",
+          actualHeadEvidence: deliveryEvidence?.actualHead ?? "UNVERIFIED",
+          mergeCompatibilityEvidence:
+            deliveryEvidence?.mergeCompatibility ?? "UNVERIFIED",
+          postMergeEvidence: deliveryEvidence?.postMerge ?? "UNVERIFIED",
           message: `Task ${task.id} is repository-complete; the recognized invocation authorizes resuming ordinary STANDARD delivery without ceremonial reconfirmation.`,
         }
       : {}),
@@ -405,6 +415,10 @@ function deliveryEvidenceBlockedResult(task, classification) {
     {
       task: taskSummary(task),
       deliveryDisposition: "BLOCKED",
+      deliveryClassification: classification.classification,
+      actualHeadEvidence: classification.actualHead,
+      mergeCompatibilityEvidence: classification.mergeCompatibility,
+      postMergeEvidence: classification.postMerge,
       issues: classification.issues,
     },
   );
@@ -422,7 +436,7 @@ function terminalTaskResult(task, byId, deliveryState, parsedInvocation) {
     }
     const classification = deliveryClassification(task, deliveryState);
     if (classification.disposition === "RESUMABLE") {
-      return selectedResult(task, parsedInvocation, "DELIVER");
+      return selectedResult(task, parsedInvocation, "DELIVER", classification);
     }
     if (classification.disposition === "BLOCKED") {
       return deliveryEvidenceBlockedResult(task, classification);
@@ -433,6 +447,10 @@ function terminalTaskResult(task, byId, deliveryState, parsedInvocation) {
       message: `Task ${task.id} is repository-complete and required delivery is satisfied.`,
       task: taskSummary(task),
       deliveryDisposition: "SATISFIED",
+      deliveryClassification: classification.classification,
+      actualHeadEvidence: classification.actualHead,
+      mergeCompatibilityEvidence: classification.mergeCompatibility,
+      postMergeEvidence: classification.postMerge,
       mutationRequired: false,
     });
   }
@@ -507,7 +525,7 @@ function automaticTerminalResult(currentTasks, byId, deliveryState, parsedInvoca
     }
     const classification = deliveryClassification(task, deliveryState);
     if (classification.disposition === "RESUMABLE") {
-      return selectedResult(task, parsedInvocation, "DELIVER");
+      return selectedResult(task, parsedInvocation, "DELIVER", classification);
     }
     if (classification.disposition === "BLOCKED") {
       return deliveryEvidenceBlockedResult(task, classification);
@@ -680,7 +698,7 @@ export async function resolveTaskDispatch({
       deliveryState,
     );
     if (blockers.length === 0) {
-      return selectedResult(task, parsedInvocation, "DELIVER");
+      return selectedResult(task, parsedInvocation, "DELIVER", classification);
     }
     unavailableDelivery.push(`Task ${task.id}: ${blockers.join("; ")}`);
   }

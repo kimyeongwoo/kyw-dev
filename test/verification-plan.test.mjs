@@ -238,7 +238,15 @@ test("permanent, Task, package, and hosted surfaces keep the tier contract align
   assert.equal(packageJson.scripts["release:ci"], "npm run check && npm run release:candidate");
   assert.equal((workflow.match(/run: npm run release:candidate/g) ?? []).length, 1);
   assert.equal((workflow.match(/run: npm run release:ci/g) ?? []).length, 0);
+  assert.match(workflow, /^  merge-compatibility:\s*$/mu);
   for (const command of ["npm test", "npm run lint", "npm run format:check", "npm run pack:check"]) {
-    assert.equal((workflow.match(new RegExp(`run: ${command.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`, "g")) ?? []).length, 1);
+    assert.equal(
+      (
+        workflow.match(
+          new RegExp(`run: ${command.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`, "g"),
+        ) ?? []
+      ).length,
+      2,
+    );
   }
 });

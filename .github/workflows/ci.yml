@@ -58,6 +58,20 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+      - name: Assert checkout identity
+        shell: bash
+        env:
+          EVIDENCE_ROLE: ${{ github.event_name == 'pull_request' && 'PR_ACTUAL_HEAD' || github.event_name == 'push' && 'POST_MERGE_MAIN' || 'MANUAL_HEAD' }}
+          EXPECTED_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number || '0' }}
+        run: |
+          set -euo pipefail
+          actual_sha="$(git rev-parse HEAD)"
+          printf 'KYWCIEVIDENCE schema=2 role=%s repository=%s event=%s pr=%s workflow=%s run_id=%s run_attempt=%s job=%s expected_sha=%s actual_sha=%s\n' \
+            "$EVIDENCE_ROLE" "$GITHUB_REPOSITORY" "$GITHUB_EVENT_NAME" "$PR_NUMBER" "$GITHUB_WORKFLOW" \
+            "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$GITHUB_JOB" "$EXPECTED_SHA" "$actual_sha"
+          test "$actual_sha" = "$EXPECTED_SHA"
       - name: Set up Node.js ${{ matrix.node }}
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
@@ -85,6 +99,20 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+      - name: Assert checkout identity
+        shell: bash
+        env:
+          EVIDENCE_ROLE: ${{ github.event_name == 'pull_request' && 'PR_ACTUAL_HEAD' || github.event_name == 'push' && 'POST_MERGE_MAIN' || 'MANUAL_HEAD' }}
+          EXPECTED_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number || '0' }}
+        run: |
+          set -euo pipefail
+          actual_sha="$(git rev-parse HEAD)"
+          printf 'KYWCIEVIDENCE schema=2 role=%s repository=%s event=%s pr=%s workflow=%s run_id=%s run_attempt=%s job=%s expected_sha=%s actual_sha=%s\n' \
+            "$EVIDENCE_ROLE" "$GITHUB_REPOSITORY" "$GITHUB_EVENT_NAME" "$PR_NUMBER" "$GITHUB_WORKFLOW" \
+            "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$GITHUB_JOB" "$EXPECTED_SHA" "$actual_sha"
+          test "$actual_sha" = "$EXPECTED_SHA"
       - name: Set up Node.js 24.x
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
@@ -97,20 +125,78 @@ jobs:
       - name: Run credential-free packed release gate
         run: npm run release:candidate
 
+  merge-compatibility:
+    name: Merge compatibility / Ubuntu / Node 24.x
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out synthetic merge
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+      - name: Assert synthetic merge identity and parents
+        shell: bash
+        env:
+          EXPECTED_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EXPECTED_SYNTHETIC_SHA: ${{ github.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          actual_sha="$(git rev-parse HEAD)"
+          read -r actual_base_sha actual_head_sha extra_parent <<<"$(git show --no-patch --format=%P HEAD)"
+          printf 'KYWCIEVIDENCE schema=2 role=PR_MERGE_COMPATIBILITY repository=%s event=%s pr=%s workflow=%s run_id=%s run_attempt=%s job=%s expected_sha=%s actual_sha=%s expected_base_sha=%s actual_base_sha=%s expected_head_sha=%s actual_head_sha=%s\n' \
+            "$GITHUB_REPOSITORY" "$GITHUB_EVENT_NAME" "$PR_NUMBER" "$GITHUB_WORKFLOW" \
+            "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$GITHUB_JOB" "$EXPECTED_SYNTHETIC_SHA" "$actual_sha" \
+            "$EXPECTED_BASE_SHA" "$actual_base_sha" "$EXPECTED_HEAD_SHA" "$actual_head_sha"
+          test "$actual_sha" = "$EXPECTED_SYNTHETIC_SHA"
+          test "$actual_base_sha" = "$EXPECTED_BASE_SHA"
+          test "$actual_head_sha" = "$EXPECTED_HEAD_SHA"
+          test -z "${extra_parent:-}"
+      - name: Set up Node.js 24.x
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 24.x
+          package-manager-cache: false
+      - name: Report runtime versions
+        run: |
+          node --version
+          npm --version
+      - name: Test
+        run: npm test
+      - name: Lint
+        run: npm run lint
+      - name: Check formatting
+        run: npm run format:check
+      - name: Check package contents
+        run: npm run pack:check
+
   required:
     name: Required / credential-free CI
     if: ${{ always() }}
     needs:
       - stable
       - packed-release
+      - merge-compatibility
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: Require stable and packed gates
         env:
+          EVENT_NAME: ${{ github.event_name }}
+          MERGE_COMPATIBILITY_RESULT: ${{ needs.merge-compatibility.result }}
           PACKED_RESULT: ${{ needs.packed-release.result }}
           STABLE_RESULT: ${{ needs.stable.result }}
         run: |
-          printf 'stable=%s\npacked=%s\n' "$STABLE_RESULT" "$PACKED_RESULT"
+          printf 'stable=%s\npacked=%s\nmerge_compatibility=%s\n' \
+            "$STABLE_RESULT" "$PACKED_RESULT" "$MERGE_COMPATIBILITY_RESULT"
           test "$STABLE_RESULT" = "success"
           test "$PACKED_RESULT" = "success"
+          if test "$EVENT_NAME" = "pull_request"; then
+            test "$MERGE_COMPATIBILITY_RESULT" = "success"
+          else
+            test "$MERGE_COMPATIBILITY_RESULT" = "skipped"
+          fi

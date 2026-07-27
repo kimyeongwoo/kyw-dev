@@ -197,14 +197,182 @@ function deliveredEntry({
   taskId = "0001",
   outcomeCharacter = "a",
   mergeCharacter = "b",
+  baseCharacter = outcomeCharacter === "c" ? "e" : "c",
+  syntheticCharacter = outcomeCharacter === "d" ? "f" : "d",
 } = {}) {
   const outcomeSha = outcomeCharacter.repeat(40);
   const mergeSha = mergeCharacter.repeat(40);
+  const baseSha = baseCharacter.repeat(40);
+  const syntheticMergeSha = syntheticCharacter.repeat(40);
+  const checkoutJob = (id, name, key, sha) => ({
+    id,
+    name,
+    key,
+    conclusion: "SUCCESS",
+    expectedSha: sha,
+    actualCheckoutSha: sha,
+  });
   return {
+    schemaVersion: 2,
+    claim: "FINAL",
     source: "GITHUB",
     taskId,
     repository: "example/dispatch-fixture",
     outcomeSha,
+    pullRequest: {
+      number: 42,
+      headSha: outcomeSha,
+      baseRef: "main",
+      baseSha,
+      mergeSha,
+      state: "MERGED",
+      review: "CLEAR",
+    },
+    actualHead: {
+      role: "PR_ACTUAL_HEAD",
+      repository: "example/dispatch-fixture",
+      event: "pull_request",
+      pullRequestNumber: 42,
+      workflowId: 314856028,
+      workflowName: "CI",
+      workflowPath: ".github/workflows/ci.yml",
+      runId: 1001,
+      runAttempt: 1,
+      runHeadSha: outcomeSha,
+      jobs: [
+        checkoutJob(1101, "Stable / fixture", "stable", outcomeSha),
+        checkoutJob(1102, "Packed release / fixture", "packed-release", outcomeSha),
+      ],
+      gateJob: {
+        id: 1103,
+        name: "Required / credential-free CI",
+        key: "required",
+        conclusion: "SUCCESS",
+      },
+    },
+    mergeCompatibility: {
+      role: "PR_MERGE_COMPATIBILITY",
+      repository: "example/dispatch-fixture",
+      event: "pull_request",
+      pullRequestNumber: 42,
+      workflowId: 314856028,
+      workflowName: "CI",
+      workflowPath: ".github/workflows/ci.yml",
+      runId: 1001,
+      runAttempt: 1,
+      runHeadSha: outcomeSha,
+      syntheticMergeSha,
+      expectedBaseSha: baseSha,
+      actualBaseParentSha: baseSha,
+      expectedHeadSha: outcomeSha,
+      actualHeadParentSha: outcomeSha,
+      job: checkoutJob(
+        1104,
+        "Merge compatibility / fixture",
+        "merge-compatibility",
+        syntheticMergeSha,
+      ),
+    },
+    merge: {
+      repository: "example/dispatch-fixture",
+      branch: "main",
+      sha: mergeSha,
+    },
+    postMerge: {
+      role: "POST_MERGE_MAIN",
+      repository: "example/dispatch-fixture",
+      event: "push",
+      branch: "main",
+      workflowId: 314856028,
+      workflowName: "CI",
+      workflowPath: ".github/workflows/ci.yml",
+      runId: 1002,
+      runAttempt: 1,
+      runHeadSha: mergeSha,
+      jobs: [
+        checkoutJob(1201, "Stable / fixture", "stable", mergeSha),
+        checkoutJob(1202, "Packed release / fixture", "packed-release", mergeSha),
+      ],
+      gateJob: {
+        id: 1203,
+        name: "Required / credential-free CI",
+        key: "required",
+        conclusion: "SUCCESS",
+      },
+    },
+  };
+}
+
+function deliveredExpectation({
+  taskId = "0001",
+  outcomeCharacter = "a",
+  baseCharacter = outcomeCharacter === "c" ? "e" : "c",
+} = {}) {
+  return {
+    schemaVersion: 2,
+    source: "LOCAL_GIT",
+    taskId,
+    repository: "example/dispatch-fixture",
+    baseRef: "main",
+    baseSha: baseCharacter.repeat(40),
+    outcomeSha: outcomeCharacter.repeat(40),
+    deliveryContract: {
+      kind: "HARDENED_EXACT_HEAD",
+      version: 2,
+      workflow: {
+        id: 314856028,
+        name: "CI",
+        path: ".github/workflows/ci.yml",
+      },
+      actualHeadJobs: ["Stable / fixture", "Packed release / fixture"],
+      mergeCompatibilityJob: "Merge compatibility / fixture",
+      requiredGateJob: "Required / credential-free CI",
+      postMergeJobs: ["Stable / fixture", "Packed release / fixture"],
+    },
+  };
+}
+
+function legacyDeliveredExpectation({
+  taskId = "0001",
+  outcomeCharacter = "a",
+  mergeCharacter = "b",
+  anchorCharacter = "f",
+} = {}) {
+  return {
+    schemaVersion: 2,
+    source: "LOCAL_GIT",
+    taskId,
+    repository: "example/dispatch-fixture",
+    baseRef: "main",
+    outcomeSha: outcomeCharacter.repeat(40),
+    deliveryContract: {
+      kind: "LEGACY_PRE_CONTRACT",
+      version: 1,
+      eligibilitySource: "LOCAL_GIT_PRE_CONTRACT_HISTORY",
+      contractAnchorSha: anchorCharacter.repeat(40),
+      mergeSha: mergeCharacter.repeat(40),
+    },
+  };
+}
+
+function legacyDeliveredEntry({
+  taskId = "0001",
+  outcomeCharacter = "a",
+  mergeCharacter = "b",
+  anchorCharacter = "f",
+} = {}) {
+  const outcomeSha = outcomeCharacter.repeat(40);
+  const mergeSha = mergeCharacter.repeat(40);
+  return {
+    schemaVersion: 1,
+    claim: "FINAL",
+    source: "GITHUB",
+    taskId,
+    repository: "example/dispatch-fixture",
+    outcomeSha,
+    classification: "LEGACY_PRE_CONTRACT_CONTINUITY",
+    actualHead: "UNVERIFIED",
+    contractAnchorSha: anchorCharacter.repeat(40),
     pullRequest: {
       number: 42,
       headSha: outcomeSha,
@@ -223,19 +391,6 @@ function deliveredEntry({
       checks: "SUCCESS",
       runId: 1002,
     },
-  };
-}
-
-function deliveredExpectation({
-  taskId = "0001",
-  outcomeCharacter = "a",
-} = {}) {
-  return {
-    source: "LOCAL_GIT",
-    taskId,
-    repository: "example/dispatch-fixture",
-    baseRef: "main",
-    outcomeSha: outcomeCharacter.repeat(40),
   };
 }
 
@@ -883,10 +1038,10 @@ test("exact GitHub ledger evidence gates terminal queue advancement and no-work 
   });
   assertStandardAuthority(pending, "DELIVER");
   assert.equal(pending.task.id, "0001");
-  assert.deepEqual(classifyDeliveryEvidence("0001"), {
-    disposition: "RESUMABLE",
-    issues: [],
-  });
+  const noEvidence = classifyDeliveryEvidence("0001");
+  assert.equal(noEvidence.disposition, "RESUMABLE");
+  assert.equal(noEvidence.classification, "PENDING");
+  assert.equal(noEvidence.actualHead, "UNVERIFIED");
 
   const entry = deliveredEntry();
   const expectation = deliveredExpectation();
@@ -898,7 +1053,14 @@ test("exact GitHub ledger evidence gates terminal queue advancement and no-work 
   });
   assertStandardAuthority(pendingWithExpectation, "DELIVER");
   assert.equal(pendingWithExpectation.deliveryDisposition, "RESUMABLE");
+  assert.equal(
+    pendingWithExpectation.deliveryClassification,
+    "HARDENED_EXACT_HEAD",
+  );
+  assert.equal(pendingWithExpectation.actualHeadEvidence, "UNVERIFIED");
   const pendingPullRequest = {
+    schemaVersion: 2,
+    claim: "PENDING",
     source: "GITHUB",
     taskId: "0001",
     repository: "example/dispatch-fixture",
@@ -907,10 +1069,9 @@ test("exact GitHub ledger evidence gates terminal queue advancement and no-work 
       number: 42,
       headSha: "a".repeat(40),
       baseRef: "main",
+      baseSha: "c".repeat(40),
       state: "OPEN",
-      checks: "PENDING",
       review: "CLEAR",
-      runId: 1001,
     },
   };
   const pendingWithSnapshot = await resolveTaskDispatch({
@@ -921,14 +1082,16 @@ test("exact GitHub ledger evidence gates terminal queue advancement and no-work 
     deliveryExpectations: { "0001": expectation },
   });
   assertStandardAuthority(pendingWithSnapshot, "DELIVER");
-  assert.deepEqual(classifyDeliveryEvidence("0001", pendingPullRequest, expectation), {
-    disposition: "RESUMABLE",
-    issues: [],
-  });
+  const pendingClassification = classifyDeliveryEvidence(
+    "0001",
+    pendingPullRequest,
+    expectation,
+  );
+  assert.equal(pendingClassification.disposition, "RESUMABLE");
+  assert.equal(pendingClassification.actualHead, "UNVERIFIED");
   const pendingMain = deliveredEntry();
-  pendingMain.merge.checks = "PENDING";
-  delete pendingMain.merge.mainRunHeadSha;
-  delete pendingMain.merge.runId;
+  pendingMain.claim = "PENDING";
+  delete pendingMain.postMerge;
   const pendingAfterMerge = await resolveTaskDispatch({
     tasksRoot: root,
     invocation: "task 진행해줘",
@@ -937,18 +1100,42 @@ test("exact GitHub ledger evidence gates terminal queue advancement and no-work 
     deliveryExpectations: { "0001": expectation },
   });
   assertStandardAuthority(pendingAfterMerge, "DELIVER");
-  assert.deepEqual(classifyDeliveryEvidence("0001", undefined, expectation), {
-    disposition: "RESUMABLE",
-    issues: [],
-  });
-  assert.deepEqual(evaluateDeliveryEvidence("0001", entry, expectation), {
-    satisfied: true,
-    issues: [],
-  });
-  assert.deepEqual(classifyDeliveryEvidence("0001", entry, expectation), {
-    disposition: "SATISFIED",
-    issues: [],
-  });
+  assert.equal(pendingAfterMerge.actualHeadEvidence, "VERIFIED");
+  assert.equal(
+    pendingAfterMerge.mergeCompatibilityEvidence,
+    "VERIFIED_SYNTHETIC",
+  );
+  assert.equal(pendingAfterMerge.postMergeEvidence, "UNVERIFIED");
+  const pendingMainClassification = classifyDeliveryEvidence(
+    "0001",
+    pendingMain,
+    expectation,
+  );
+  assert.equal(pendingMainClassification.disposition, "RESUMABLE");
+  assert.equal(pendingMainClassification.actualHead, "VERIFIED");
+  assert.equal(
+    pendingMainClassification.mergeCompatibility,
+    "VERIFIED_SYNTHETIC",
+  );
+  assert.equal(pendingMainClassification.postMerge, "UNVERIFIED");
+  assert.equal(
+    classifyDeliveryEvidence("0001", undefined, expectation).disposition,
+    "RESUMABLE",
+  );
+  const evaluation = evaluateDeliveryEvidence("0001", entry, expectation);
+  assert.equal(evaluation.satisfied, true);
+  assert.equal(evaluation.classification, "HARDENED_EXACT_HEAD");
+  assert.equal(evaluation.actualHead, "VERIFIED");
+  assert.equal(evaluation.mergeCompatibility, "VERIFIED_SYNTHETIC");
+  assert.equal(evaluation.postMerge, "VERIFIED_EXACT_CHECKOUT");
+  assert.deepEqual(evaluation.issues, []);
+  const finalClassification = classifyDeliveryEvidence(
+    "0001",
+    entry,
+    expectation,
+  );
+  assert.equal(finalClassification.disposition, "SATISFIED");
+  assert.equal(finalClassification.actualHead, "VERIFIED");
   assert.match(
     evaluateDeliveryEvidence("0001", entry).issues.join("\n"),
     /trusted local delivery expectations/,
@@ -957,8 +1144,12 @@ test("exact GitHub ledger evidence gates terminal queue advancement and no-work 
     ["expected source", (value) => { value.source = "GITHUB"; }, /expectation.source/],
     ["expected task", (value) => { value.taskId = "0002"; }, /expectation.taskId/],
     ["expected repository", (value) => { value.repository = "other/repository"; }, /repository must equal the trusted local expectation/],
-    ["expected base", (value) => { value.baseRef = "release"; }, /baseRef must equal the trusted local expectation/],
+    ["expected base", (value) => { value.baseRef = "release"; }, /pullRequest.baseRef/],
     ["expected outcome", (value) => { value.outcomeSha = "c".repeat(40); }, /outcomeSha must equal the trusted local expectation/],
+    ["expected version", (value) => { value.schemaVersion = 3; }, /expectation.schemaVersion/],
+    ["expected base SHA", (value) => { value.baseSha = "short"; }, /expectation.baseSha/],
+    ["expected workflow", (value) => { value.deliveryContract.workflow.id = 0; }, /positive integer/],
+    ["expected job set", (value) => { value.deliveryContract.actualHeadJobs.pop(); }, /required job set/],
   ]) {
     const invalidExpectation = structuredClone(expectation);
     mutate(invalidExpectation);
@@ -967,24 +1158,51 @@ test("exact GitHub ledger evidence gates terminal queue advancement and no-work 
     assert.match(evaluation.issues.join("\n"), pattern, label);
   }
   const invalidEvidenceCases = [
-    ["source", (value) => { value.source = "LOCAL"; }, /source must be GITHUB/],
-    ["task", (value) => { value.taskId = "0002"; }, /taskId must equal 0001/],
+    ["schema version", (value) => { value.schemaVersion = 3; }, /schemaVersion/],
+    ["final claim", (value) => { value.claim = "PENDING"; }, /claim/],
+    ["source", (value) => { value.source = "LOCAL"; }, /source must equal "GITHUB"/],
+    ["task", (value) => { value.taskId = "0002"; }, /taskId must equal "0001"/],
     ["repository", (value) => { value.repository = "missing-slash"; }, /owner\/name/],
     ["outcome SHA", (value) => { value.outcomeSha = "A".repeat(40); }, /outcomeSha/],
     ["PR number", (value) => { value.pullRequest.number = 0; }, /positive integer/],
     ["PR head", (value) => { value.pullRequest.headSha = "c".repeat(40); }, /headSha must equal/],
-    ["PR base", (value) => { value.pullRequest.baseRef = ""; }, /baseRef is required/],
-    ["PR merge SHA", (value) => { value.pullRequest.mergeSha = "c".repeat(40); }, /mergeSha must equal merge.sha/],
-    ["PR state", (value) => { value.pullRequest.state = "OPEN"; }, /state must be MERGED/],
-    ["PR checks", (value) => { value.pullRequest.checks = "FAILURE"; }, /checks must be SUCCESS/],
-    ["PR review", (value) => { value.pullRequest.review = "CHANGES_REQUESTED"; }, /review must be CLEAR/],
-    ["PR run", (value) => { value.pullRequest.runId = 0; }, /runId must be a positive integer/],
+    ["PR base", (value) => { value.pullRequest.baseRef = ""; }, /baseRef/],
+    ["PR base SHA", (value) => { value.pullRequest.baseSha = "short"; }, /baseSha/],
+    ["trusted PR base drift", (value) => {
+      const staleBaseSha = "9".repeat(40);
+      value.pullRequest.baseSha = staleBaseSha;
+      value.mergeCompatibility.expectedBaseSha = staleBaseSha;
+      value.mergeCompatibility.actualBaseParentSha = staleBaseSha;
+    }, /trusted local expectation/],
+    ["PR merge SHA", (value) => { value.pullRequest.mergeSha = "c".repeat(40); }, /merge.sha/],
+    ["PR state", (value) => { value.pullRequest.state = "OPEN"; }, /pullRequest.state/],
+    ["PR review", (value) => { value.pullRequest.review = "CHANGES_REQUESTED"; }, /pullRequest.review/],
+    ["actual role", (value) => { value.actualHead.role = "PR_MERGE_COMPATIBILITY"; }, /actualHead.role/],
+    ["actual event", (value) => { value.actualHead.event = "push"; }, /actualHead.event/],
+    ["actual run", (value) => { value.actualHead.runId = 0; }, /actualHead.runId/],
+    ["actual attempt", (value) => { value.actualHead.runAttempt = 0; }, /actualHead.runAttempt/],
+    ["actual run head", (value) => { value.actualHead.runHeadSha = "c".repeat(40); }, /runHeadSha/],
+    ["actual expected checkout", (value) => { value.actualHead.jobs[0].expectedSha = "c".repeat(40); }, /expectedSha/],
+    ["actual checkout", (value) => { value.actualHead.jobs[0].actualCheckoutSha = "c".repeat(40); }, /actualCheckoutSha/],
+    ["actual missing lane", (value) => { value.actualHead.jobs.pop(); }, /required job set/],
+    ["merge role", (value) => { value.mergeCompatibility.role = "PR_ACTUAL_HEAD"; }, /mergeCompatibility.role/],
+    ["synthetic equals head", (value) => {
+      value.mergeCompatibility.syntheticMergeSha = value.outcomeSha;
+      value.mergeCompatibility.job.expectedSha = value.outcomeSha;
+      value.mergeCompatibility.job.actualCheckoutSha = value.outcomeSha;
+    }, /distinct from the actual PR head/],
+    ["merge base parent", (value) => { value.mergeCompatibility.actualBaseParentSha = "e".repeat(40); }, /actualBaseParentSha/],
+    ["merge head parent", (value) => { value.mergeCompatibility.actualHeadParentSha = "e".repeat(40); }, /actualHeadParentSha/],
+    ["merge job reuse", (value) => { value.mergeCompatibility.job.id = value.actualHead.jobs[0].id; }, /reuse a job ID/],
     ["merge repository", (value) => { value.merge.repository = "other/repository"; }, /merge.repository/],
     ["merge branch", (value) => { value.merge.branch = "release"; }, /merge.branch/],
     ["merge SHA", (value) => { value.merge.sha = "short"; }, /merge.sha/],
-    ["main head", (value) => { value.merge.mainRunHeadSha = "c".repeat(40); }, /mainRunHeadSha/],
-    ["main checks", (value) => { value.merge.checks = "FAILURE"; }, /checks must be SUCCESS/],
-    ["main run", (value) => { value.merge.runId = 0; }, /runId must be a positive integer/],
+    ["post event", (value) => { value.postMerge.event = "pull_request"; }, /postMerge.event/],
+    ["post branch", (value) => { value.postMerge.branch = "release"; }, /postMerge.branch/],
+    ["post head", (value) => { value.postMerge.runHeadSha = "c".repeat(40); }, /postMerge.runHeadSha/],
+    ["post run reuse", (value) => { value.postMerge.runId = value.actualHead.runId; }, /distinct from the pull-request run/],
+    ["post checkout", (value) => { value.postMerge.jobs[0].actualCheckoutSha = "c".repeat(40); }, /actualCheckoutSha/],
+    ["unknown field", (value) => { value.syntheticOnly = true; }, /unknown field syntheticOnly/],
   ];
   for (const [label, mutate, pattern] of invalidEvidenceCases) {
     const invalid = structuredClone(entry);
@@ -1032,7 +1250,35 @@ test("exact GitHub ledger evidence gates terminal queue advancement and no-work 
   });
   assert.equal(stale.code, "DELIVERY_EVIDENCE_INVALID");
   assert.equal(stale.deliveryDisposition, "BLOCKED");
-  assert.match(stale.message, /headSha must equal outcomeSha/);
+  assert.match(stale.message, /pullRequest.headSha/);
+
+  const syntheticOnly = deliveredEntry();
+  delete syntheticOnly.actualHead;
+  const syntheticOnlyClassification = classifyDeliveryEvidence(
+    "0001",
+    syntheticOnly,
+    expectation,
+  );
+  assert.equal(syntheticOnlyClassification.disposition, "BLOCKED");
+  assert.equal(
+    syntheticOnlyClassification.blockerCode,
+    "DELIVERY_EVIDENCE_INVALID",
+  );
+  assert.equal(syntheticOnlyClassification.actualHead, "UNVERIFIED");
+  assert.match(
+    syntheticOnlyClassification.issues.join("\n"),
+    /actualHead evidence is required/,
+  );
+
+  const unversionedCoarse = legacyDeliveredEntry();
+  delete unversionedCoarse.schemaVersion;
+  const unversionedClassification = classifyDeliveryEvidence(
+    "0001",
+    unversionedCoarse,
+    expectation,
+  );
+  assert.equal(unversionedClassification.disposition, "BLOCKED");
+  assert.match(unversionedClassification.issues.join("\n"), /schemaVersion/);
 
   const independentRoot = await createQueue(t, [
     { id: "0001", status: "DONE" },
@@ -1053,6 +1299,137 @@ test("exact GitHub ledger evidence gates terminal queue advancement and no-work 
     deliveryExpectations: { "0001": deliveredExpectation() },
   });
   assert.equal(allDelivered.outcome, "NO_WORK");
+});
+
+test("PR 40 remains legacy synthetic compatibility with actual head unverified", () => {
+  const outcomeSha = "c1a896e447020cd99d80079e770d95e9cd387474";
+  const baseSha = "bc6cf87b2e391f14f39c95726d8d0e89dd58cbe9";
+  const syntheticMergeSha = "e27468e27fab93a06c0a250278982751035dc4eb";
+  const mergeSha = "4463051d2bd073048321b09f0b6524ea31fb8f80";
+  const expectation = {
+    schemaVersion: 2,
+    source: "LOCAL_GIT",
+    taskId: "0053",
+    repository: "kimyeongwoo/kyw-dev",
+    baseRef: "main",
+    outcomeSha,
+    deliveryContract: {
+      kind: "LEGACY_PRE_CONTRACT",
+      version: 1,
+      eligibilitySource: "LOCAL_GIT_PRE_CONTRACT_HISTORY",
+      contractAnchorSha: mergeSha,
+      mergeSha,
+    },
+  };
+  const entry = {
+    schemaVersion: 1,
+    claim: "FINAL",
+    source: "GITHUB",
+    taskId: "0053",
+    repository: "kimyeongwoo/kyw-dev",
+    outcomeSha,
+    classification: "LEGACY_PRE_CONTRACT_CONTINUITY",
+    actualHead: "UNVERIFIED",
+    contractAnchorSha: mergeSha,
+    pullRequest: {
+      number: 40,
+      headSha: outcomeSha,
+      baseRef: "main",
+      mergeSha,
+      state: "MERGED",
+      checks: "SUCCESS",
+      review: "CLEAR",
+      runId: 30263213789,
+    },
+    merge: {
+      repository: "kimyeongwoo/kyw-dev",
+      branch: "main",
+      sha: mergeSha,
+      mainRunHeadSha: mergeSha,
+      checks: "SUCCESS",
+      runId: 30263379563,
+    },
+    observedMergeCompatibility: {
+      role: "PR_MERGE_COMPATIBILITY",
+      runId: 30263213789,
+      jobId: 89967727509,
+      syntheticMergeSha,
+      actualCheckoutSha: syntheticMergeSha,
+      baseSha,
+      headSha: outcomeSha,
+      actualBaseParentSha: baseSha,
+      actualHeadParentSha: outcomeSha,
+    },
+    observedPostMerge: {
+      role: "POST_MERGE_MAIN",
+      runId: 30263379563,
+      jobId: 89968284743,
+      expectedSha: mergeSha,
+      actualCheckoutSha: mergeSha,
+    },
+  };
+
+  const evaluation = evaluateDeliveryEvidence("0053", entry, expectation);
+  assert.equal(evaluation.satisfied, true);
+  assert.equal(evaluation.classification, "LEGACY_PRE_CONTRACT_CONTINUITY");
+  assert.equal(evaluation.actualHead, "UNVERIFIED");
+  assert.equal(evaluation.mergeCompatibility, "VERIFIED_SYNTHETIC");
+  assert.equal(evaluation.postMerge, "VERIFIED_EXACT_CHECKOUT");
+  assert.equal(
+    classifyDeliveryEvidence("0053", entry, expectation).disposition,
+    "SATISFIED",
+  );
+
+  const hardenedExpectation = deliveredExpectation({ taskId: "0053" });
+  hardenedExpectation.repository = "kimyeongwoo/kyw-dev";
+  hardenedExpectation.outcomeSha = outcomeSha;
+  const cannotPromote = classifyDeliveryEvidence(
+    "0053",
+    entry,
+    hardenedExpectation,
+  );
+  assert.equal(cannotPromote.disposition, "BLOCKED");
+  assert.notEqual(cannotPromote.actualHead, "VERIFIED");
+  assert.match(cannotPromote.issues.join("\n"), /does not match the trusted delivery contract/);
+
+  const missingEligibility = structuredClone(expectation);
+  delete missingEligibility.deliveryContract.contractAnchorSha;
+  const missingEligibilityResult = classifyDeliveryEvidence(
+    "0053",
+    entry,
+    missingEligibility,
+  );
+  assert.equal(missingEligibilityResult.disposition, "BLOCKED");
+  assert.match(missingEligibilityResult.issues.join("\n"), /contractAnchorSha/);
+});
+
+test("explicit legacy continuity advances the queue without claiming exact-head success", async (t) => {
+  const root = await createQueue(t, [
+    { id: "0001", status: "DONE" },
+    { id: "0002", status: "READY" },
+  ]);
+  const legacyState = {
+    deliveryLedger: { "0001": legacyDeliveredEntry() },
+    deliveryExpectations: { "0001": legacyDeliveredExpectation() },
+  };
+  const terminal = await resolveTaskDispatch({
+    tasksRoot: root,
+    invocation: "$kyw-impl 0001",
+    ...legacyState,
+  });
+  assert.equal(terminal.outcome, "TERMINAL");
+  assert.equal(terminal.deliveryClassification, "LEGACY_PRE_CONTRACT_CONTINUITY");
+  assert.equal(terminal.actualHeadEvidence, "UNVERIFIED");
+  assert.notEqual(terminal.actualHeadEvidence, "VERIFIED");
+
+  const next = await resolveTaskDispatch({
+    tasksRoot: root,
+    invocation: "task 진행해줘",
+    managedRoutingAvailable: true,
+    ...legacyState,
+  });
+  assertStandardAuthority(next, "IMPLEMENT");
+  assert.equal(next.task.id, "0002");
 });
 
 test("Task 0031 regression resumes delivery before Task 0032 without another approval", async (t) => {
@@ -1190,14 +1567,17 @@ test("supplied CI, review, and identity failures block delivery resume", async (
   const root = await createQueue(t, [{ id: "0001", status: "DONE" }]);
   const expectation = deliveredExpectation();
   const cases = [
-    ["PR CI failure", "DELIVERY_BLOCKED", (entry) => { entry.pullRequest.checks = "FAILURE"; }, /reports FAILURE/],
+    ["PR CI failure", "DELIVERY_BLOCKED", (entry) => { entry.actualHead.jobs[0].conclusion = "FAILURE"; }, /reports FAILURE/],
+    ["merge compatibility failure", "DELIVERY_BLOCKED", (entry) => { entry.mergeCompatibility.job.conclusion = "FAILURE"; }, /reports FAILURE/],
+    ["required PR gate failure", "DELIVERY_BLOCKED", (entry) => { entry.actualHead.gateJob.conclusion = "FAILURE"; }, /reports FAILURE/],
     ["review blocker", "DELIVERY_BLOCKED", (entry) => { entry.pullRequest.review = "CHANGES_REQUESTED"; }, /reports CHANGES_REQUESTED/],
     ["repository drift", "DELIVERY_EVIDENCE_INVALID", (entry) => { entry.repository = "other/repository"; }, /trusted local expectation/],
-    ["base drift", "DELIVERY_EVIDENCE_INVALID", (entry) => { entry.pullRequest.baseRef = "release"; }, /trusted local expectation/],
+    ["base drift", "DELIVERY_EVIDENCE_INVALID", (entry) => { entry.pullRequest.baseRef = "release"; }, /pullRequest.baseRef/],
     ["outcome drift", "DELIVERY_EVIDENCE_INVALID", (entry) => { entry.outcomeSha = "c".repeat(40); }, /trusted local expectation/],
-    ["head drift", "DELIVERY_EVIDENCE_INVALID", (entry) => { entry.pullRequest.headSha = "c".repeat(40); }, /headSha must equal outcomeSha/],
-    ["merge drift", "DELIVERY_EVIDENCE_INVALID", (entry) => { entry.merge.mainRunHeadSha = "c".repeat(40); }, /mainRunHeadSha/],
-    ["post-merge CI failure", "DELIVERY_BLOCKED", (entry) => { entry.merge.checks = "FAILURE"; }, /reports FAILURE/],
+    ["head drift", "DELIVERY_EVIDENCE_INVALID", (entry) => { entry.pullRequest.headSha = "c".repeat(40); }, /pullRequest.headSha/],
+    ["merge drift", "DELIVERY_EVIDENCE_INVALID", (entry) => { entry.postMerge.runHeadSha = "c".repeat(40); }, /postMerge.runHeadSha/],
+    ["post-merge CI failure", "DELIVERY_BLOCKED", (entry) => { entry.postMerge.jobs[0].conclusion = "FAILURE"; }, /reports FAILURE/],
+    ["required main gate failure", "DELIVERY_BLOCKED", (entry) => { entry.postMerge.gateJob.conclusion = "FAILURE"; }, /reports FAILURE/],
   ];
 
   for (const [label, expectedCode, mutate, pattern] of cases) {
