@@ -50,6 +50,17 @@ function jobBody(name, nextName, workflowText = workflow) {
   return workflowText.slice(start, end);
 }
 
+function stepBody(name, nextName, jobText) {
+  const startMarker = `      - name: ${name}\n`;
+  const start = jobText.indexOf(startMarker);
+  assert.notEqual(start, -1, `missing workflow step: ${name}`);
+  const end = nextName
+    ? jobText.indexOf(`      - name: ${nextName}\n`, start + startMarker.length)
+    : jobText.length;
+  assert.notEqual(end, -1, `missing workflow step after ${name}: ${nextName}`);
+  return jobText.slice(start, end);
+}
+
 function assertEventScopedConcurrency(workflowText) {
   const match = /^concurrency:\n  group: (.+)\n  cancel-in-progress: (.+)$/m.exec(workflowText);
   assert.ok(match, "missing exact two-field workflow concurrency block");
@@ -98,14 +109,24 @@ function assertExactCheckoutEvidenceTopology(workflowText) {
     ["stable", stable],
     ["packed-release", packed],
   ]) {
+    const checkout = stepBody(
+      "Check out repository",
+      "Assert checkout identity",
+      body,
+    );
     assert.equal(
-      body.split(actualHeadRef).length - 1,
+      checkout.split(actualHeadRef).length - 1,
       1,
       `${label} must check out the event-specific exact SHA`,
     );
-    assert.match(
-      body,
-      /ref: \$\{\{ github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.sha \|\| github\.sha \}\}\n      - name: Assert checkout identity/,
+    assert.doesNotMatch(
+      checkout,
+      /fetch-depth:/,
+      `${label} does not need parent history`,
+    );
+    assert.equal(
+      checkout.match(/^      - name:/gm)?.length,
+      1,
       `${label} must assert identity immediately after checkout`,
     );
     assert.match(body, /role=%s repository=%s event=%s pr=%s workflow=%s run_id=%s run_attempt=%s job=%s expected_sha=%s actual_sha=%s/);
@@ -118,30 +139,46 @@ function assertExactCheckoutEvidenceTopology(workflowText) {
     mergeCompatibility,
     /if: \$\{\{ github\.event_name == 'pull_request' \}\}/,
   );
-  assert.match(mergeCompatibility, /ref: \$\{\{ github\.sha \}\}/);
-  assert.match(mergeCompatibility, /role=PR_MERGE_COMPATIBILITY/);
-  assert.match(
+  const mergeCheckout = stepBody(
+    "Check out synthetic merge",
+    "Assert synthetic merge identity and parents",
     mergeCompatibility,
+  );
+  const mergeAssertion = stepBody(
+    "Assert synthetic merge identity and parents",
+    "Set up Node.js 24.x",
+    mergeCompatibility,
+  );
+  assert.match(mergeCheckout, /ref: \$\{\{ github\.sha \}\}/);
+  assert.match(mergeCheckout, /^          fetch-depth: 2$/m);
+  assert.equal(
+    mergeCompatibility.match(/fetch-depth:/g)?.length,
+    1,
+    "merge compatibility must set history depth only on its synthetic checkout",
+  );
+  assert.match(mergeAssertion, /role=PR_MERGE_COMPATIBILITY/);
+  assert.match(
+    mergeAssertion,
     /EXPECTED_BASE_SHA: \$\{\{ github\.event\.pull_request\.base\.sha \}\}/,
   );
   assert.match(
-    mergeCompatibility,
+    mergeAssertion,
     /EXPECTED_HEAD_SHA: \$\{\{ github\.event\.pull_request\.head\.sha \}\}/,
   );
-  assert.match(mergeCompatibility, /git show --no-patch --format=%P HEAD/);
+  assert.match(mergeAssertion, /git show --no-patch --format=%P HEAD/);
   assert.match(
-    mergeCompatibility,
+    mergeAssertion,
     /test "\$actual_sha" = "\$EXPECTED_SYNTHETIC_SHA"/,
   );
   assert.match(
-    mergeCompatibility,
+    mergeAssertion,
     /test "\$actual_base_sha" = "\$EXPECTED_BASE_SHA"/,
   );
   assert.match(
-    mergeCompatibility,
+    mergeAssertion,
     /test "\$actual_head_sha" = "\$EXPECTED_HEAD_SHA"/,
   );
-  assert.match(mergeCompatibility, /test -z "\$\{extra_parent:-\}"/);
+  assert.match(mergeAssertion, /test -z "\$\{extra_parent:-\}"/);
   for (const command of [
     "npm test",
     "npm run lint",
@@ -233,10 +270,45 @@ test("CI regression guards reject movable Action refs and unsafe event concurren
     ),
     workflow.replace('test "$actual_sha" = "$EXPECTED_SHA"', "true"),
     workflow.replace("role=PR_MERGE_COMPATIBILITY", "role=PR_ACTUAL_HEAD"),
+    workflow.replace("          fetch-depth: 2\n", ""),
+    workflow.replace("          fetch-depth: 2", "          fetch-depth: 1"),
+    workflow
+      .replace("          fetch-depth: 2\n", "")
+      .replace(
+        "          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}",
+        "          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}\n          fetch-depth: 2",
+      ),
+    workflow
+      .replace("          fetch-depth: 2\n", "")
+      .replace(
+        "          package-manager-cache: false",
+        "          package-manager-cache: false\n          fetch-depth: 2",
+      ),
+    workflow
+      .replace("          fetch-depth: 2\n", "")
+      .replace(
+        "      - name: Assert synthetic merge identity and parents\n        shell: bash",
+        "      - name: Assert synthetic merge identity and parents\n        shell: bash\n        fetch-depth: 2",
+      ),
+    workflow.replace(
+      'git show --no-patch --format=%P HEAD',
+      'printf ""',
+    ),
+    workflow.replace(
+      'test "$actual_sha" = "$EXPECTED_SYNTHETIC_SHA"',
+      "true",
+    ),
     workflow.replace('test "$actual_base_sha" = "$EXPECTED_BASE_SHA"', "true"),
+    workflow.replace('test "$actual_head_sha" = "$EXPECTED_HEAD_SHA"', "true"),
+    workflow.replace('test -z "${extra_parent:-}"', "true"),
+    workflow.replace("      - merge-compatibility\n", ""),
     workflow.replace(
       'test "$MERGE_COMPATIBILITY_RESULT" = "success"',
       'test "$MERGE_COMPATIBILITY_RESULT" = "skipped"',
+    ),
+    workflow.replace(
+      'test "$MERGE_COMPATIBILITY_RESULT" = "skipped"',
+      'test "$MERGE_COMPATIBILITY_RESULT" = "success"',
     ),
   ];
   for (const variant of exactEvidenceVariants) {

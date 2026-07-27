@@ -45,7 +45,7 @@ Make ordinary GitHub `STANDARD` delivery prove the actual pull-request head chec
 - [x] AC-05: A PR-associated successful run or successful `refs/pull/<number>/merge` checkout alone never returns actual-head PASS. The observed PR #40 evidence remains truthfully classified as successful legacy merge compatibility plus successful exact post-merge `main`, with actual PR-head checkout unverified, and is never retroactively promoted to exact-head success.
 - [x] AC-06: Missing, partial, stale, malformed, mismatched, unknown-version, reused-role, or synthetic-only claimed-success evidence fails closed as `RESUMABLE` when no final claim exists or `BLOCKED` when supplied evidence is invalid; only a complete role-separated exact identity graph returns terminal `SATISFIED`.
 - [x] AC-07: One-active-Task selection, dependency and status grammar, evidence honesty, current and legacy Task readers, already completed pre-contract delivery continuity, ordinary `STANDARD` authority, five-Skill responsibility boundaries, immutable Action pins, credential-free CI, user-work safety, and publication boundaries remain intact without historical artifact rewrites.
-- [x] AC-08: This Task's own non-draft PR must produce inspectable actual-head and separate merge-compatibility evidence under the hardened workflow, and its post-merge `main` run must prove the exact merge SHA before terminal delivery reporting; mutable PR/run facts stay in the external ledger and are not pre-claimed as repository test PASS.
+- [x] AC-08: This Task provides workflow and evaluator contracts that can generate, collect, and verify separately the actual-head, merge-compatibility, and post-merge exact-main roles on a real PR and post-merge run; deterministic workflow/tests and available real-PR evidence verify this repository behavior, while mutable corrective-run, merge, and post-merge facts remain owned by the external GitHub ledger.
 
 ## Plan
 
@@ -57,6 +57,8 @@ Make ordinary GitHub `STANDARD` delivery prove the actual pull-request head chec
 - [x] Re-run the exact PR #40 read-only evidence inspection and prove it is retained without an exact-head PASS.
 - [x] Run the changed-path planner, its focused and required Stable/Release commands, canonical pair validation, and final diff-to-matrix review without crossing excluded release boundaries.
 - [x] Prepare the repository-complete ordinary-delivery handoff for this Task's actual PR-head and merge-compatibility run, expected-head merge, and exact post-merge `main` run; mutable completion remains the separate external ledger gate.
+- [x] Give only the merge-compatibility checkout the minimum parent history needed to observe the synthetic commit and its two direct parents, with structural mutation coverage for missing, shallow, and misplaced depth.
+- [x] Re-run canonical, focused, planner-selected complete verification and the final diff/staging audit, then terminalize the repository pair without erasing prior local or GitHub failure evidence.
 
 ## Decisions
 
@@ -104,6 +106,12 @@ Make ordinary GitHub `STANDARD` delivery prove the actual pull-request head chec
 - Final diff review found two fail-closed projection gaps before commit: the PR base SHA was internally consistent but not bound to the trusted-local expectation, and resumable queue output discarded already verified role states. Exact `baseSha` binding, a jointly stale base/parent regression, and resumable actual-head/merge/post-merge projections were added; subsequent focused runs passed 40/40 and 44/44.
 - The final pre-commit drift audit reconfirmed local HEAD, local `main`, cached `origin/main`, direct remote `main`, and GitHub `main` at `4463051d2bd073048321b09f0b6524ea31fb8f80`. The repository outcome is terminal before external delivery because mutable PR/Actions facts cannot be committed without invalidating the head they describe; AC-08 is completed only by the separate ledger gate during the same invocation.
 - The final planner-selected local run, after the last queue projection and documentation wording edits, passed 314/314 tests, lint, format, pack, and a 41-file/98,907-byte packed candidate with SHA-256 `f46bbc1e9ac19a6a97ff2f09135db47ca5d8bb5e84ed49007e5ea9b644d464db`.
+- Corrective-delivery preflight on 2026-07-28 found a clean worktree on `task/0054-harden-pr-ci-actual-head-evidence`; local branch head, cached remote branch, direct remote branch, and PR #41 head all equal `e0a9611014f091d96c523a08357301dad89c9360`, while local/cached/direct/GitHub `main` all remain `4463051d2bd073048321b09f0b6524ea31fb8f80`.
+- Fresh GitHub inspection retained failed PR run `30277529398` attempt 1 without rerun. Its seven Stable jobs and packed job succeeded after asserting expected/actual checkout `e0a9611014f091d96c523a08357301dad89c9360`; merge-compatibility job `90015253486` checked out synthetic SHA `bd4772eb4e7d0995f2ec790a524d0e108c7ae65b` but emitted empty actual parent fields, then aggregate job `90015729770` failed with `stable=success`, `packed=success`, and `merge_compatibility=failure`.
+- GitHub's synthetic commit API reports exactly two ordered parents, base `4463051d2bd073048321b09f0b6524ea31fb8f80` then head `e0a9611014f091d96c523a08357301dad89c9360`; the workflow's default checkout depth made the synthetic commit a shallow boundary, so the existing fail-closed parent assertions correctly rejected incomplete evidence.
+- The pinned `actions/checkout` action declares `fetch-depth` default 1. A read-only diagnostic fetch of the live PR #41 merge ref with depth 2 remained shallow while exposing synthetic SHA `bd4772eb4e7d0995f2ec790a524d0e108c7ae65b` and both ordered direct parents, so no evidence justified broadening to depth 0.
+- The corrective production diff adds only `fetch-depth: 2` to the synthetic checkout. Structural tests isolate jobs and steps, preserve explicit actual-head checkout with no parent depth, and reject omitted depth, depth 1, depth on another checkout/job or wrong step, weakened synthetic/base/head/two-parent assertions, missing aggregate dependency, and incorrect PR versus push/manual gate handling.
+- Corrective focused runs passed workflow 4/4, delivery/dispatcher/instruction 40/40, and retained planner/continuity 11/11. The exact four-path planner selected `RELEASE`; both complete runs passed 314/314 tests plus lint, format, pack, and the unchanged 41-file/98,907-byte candidate with SHA-256 `f46bbc1e9ac19a6a97ff2f09135db47ca5d8bb5e84ed49007e5ea9b644d464db`, with the second run covering the final implementation/test bytes.
 
 ## Documentation Impact
 
@@ -111,6 +119,7 @@ Make ordinary GitHub `STANDARD` delivery prove the actual pull-request head chec
 - ARCHITECTURE: Updated workflow checkout/identity flow, role-separated ledger schema, evaluator/migration boundary, and aggregate CI topology.
 - README: Updated the concise maintainer CI/delivery explanation and exact-head versus merge-compatibility terminology.
 - AGENTS: Unaffected because its one-active-Task, evidence-honesty, stable-command, and completion invariants already cover the change; no repository-wide rule changed.
+- Corrective impact: No permanent document changed because SPEC, ARCHITECTURE, and README already require observable ordered synthetic parents; depth 2 repairs the implementation of that existing meaning without changing product behavior, architecture boundaries, setup, or repository-wide rules.
 
 ## Delivery
 
@@ -127,14 +136,16 @@ Make ordinary GitHub `STANDARD` delivery prove the actual pull-request head chec
 - Reached 44/44 PASS on the complete planned focused command after retaining each preceding local failure and correction.
 - Reinspected PR #40 exactly, followed the changed-path `RELEASE` plan, corrected its two discovered retained-test failures, added the final trusted-base and resumable-projection safeguards, and completed the diff-to-matrix review.
 - Completed the final planner-selected 314-test Release regression and terminal Task/Test handoff without invoking any prohibited registry, publication, model, version, tag, or Release boundary.
+- Revalidated the terminal pair and empty Task transaction, compared local/cached/direct/GitHub refs and PR #41 metadata to the expected snapshot, and preserved the first failing Actions run and job-log evidence before reopening the pair for the minimum corrective repository change.
+- Added only the minimum synthetic-checkout history depth, strengthened role/step-structural mutation coverage, aligned AC-08/T-08 with repository acceptance versus external delivery ownership, and completed focused plus planner-selected Release verification and final four-path coverage review.
 
 ## Remaining
 
-- None — the repository outcome and reproducible acceptance evidence are complete; mutable GitHub PR/Actions delivery remains the canonical external queue gate, not future repository work.
+- None — the corrective repository outcome and reproducible acceptance evidence are complete; mutable GitHub PR/Actions delivery remains the canonical external queue gate.
 
 ## Resume Point
 
-- None — resume is unnecessary for repository implementation; the recognized invocation proceeds directly through the external `STANDARD` delivery ledger.
+- None — resume is unnecessary for repository implementation; continue ordinary `STANDARD` delivery from exact-path staging of the four corrective paths.
 
 ## Blockers
 

@@ -136,6 +136,7 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
+          fetch-depth: 2
       - name: Assert synthetic merge identity and parents
         shell: bash
         env:
