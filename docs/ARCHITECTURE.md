@@ -129,6 +129,7 @@ kyw-dev/
 │  ├─ audit-readonly-boundary.mjs
 │  ├─ evaluator-process.mjs
 │  ├─ grilling-eval.mjs
+│  ├─ release-evidence-harness.mjs
 │  ├─ release-gate-isolation.mjs
 │  ├─ spec-behavioral-acceptance.mjs
 │  ├─ verification-plan.mjs
@@ -640,6 +641,8 @@ Plugin-cache traversal never follows a linked or unsupported cache component; an
 
 The stricter local `node ./scripts/release-gate-isolation.mjs` gate requires Codex and runs the complete extracted-tarball user/project/force-preservation and marketplace lifecycle. Its lexical guard runs before target creation or child execution, its materialized guard rechecks realpaths and filesystem types before every spawn, and protected-state evidence is compared and attributed before attempt cleanup. A successful product lifecycle cannot override an unsafe path, a violation, persistent ambient/inconclusive state, unavailable required Codex CLI, another lifecycle failure, or unverified cleanup identity. Only a first ambient result receives the one unchanged fresh-attempt retry. Public CI keeps Codex optional, but the same runner still requires the complete direct lifecycle and all isolation/attribution gates.
 
+The development-only `scripts/release-evidence-harness.mjs` is the retained-evidence boundary around an explicitly approved `release:check`; it is not another release verdict or publication authority. Its harmless self-test and dry-validation modes run no release composite. Actual mode requires both `--run` and `--allow-release-command`, invokes the reviewed composite at most once, and has no retry or separate dry-run child. The harness, its tests, and external evidence roots remain outside package bytes.
+
 The first-release notes, approval checklist, exact commands, and rollback/deprecation procedure live in Task 0009 rather than a new permanent release document. A bad published version is corrected with a new semantic version and normally deprecated rather than removed; npm unpublish is an exceptional, policy-bound, irreversible response.
 
 ## 11.5 Credential-free continuous integration
@@ -728,6 +731,16 @@ The attribution result is exactly `CLEAN`, `ISOLATION_VIOLATION`, or `AMBIENT_ST
 This boundary uses no daemon, watcher, filesystem/process/OS tracing, ambient process scan, snapshot database, event journal, telemetry, or normal-state repair. The standalone runner resolves and protects actual normal-state locations from its inherited environment. Deterministic distribution integration instead supplies a temporary synthetic protected-state fixture through the same inherited-environment/location resolver; that fixture remains outside every runner-created lifecycle root and does not weaken standalone defaults.
 
 The positive npm `files` allowlist excludes repository Tasks/docs, local marketplace fixtures, generated archives, credential/config files, and machine-local paths. Release validation compares an exact inventory, extracts a real tarball created in an isolated temporary directory, scans packed text for credential-shaped values and absolute local paths, and verifies the project and Matt Pocock legal notices by content and SHA-256.
+
+### Release evidence harness
+
+The release evidence harness separates two path roles. `validateEvidenceRoot` accepts an existing root that equals its own canonical identity only when that root is a real strict child of the allowed external parent and does not overlap the repository. `validateEvidenceOutput` separately requires every output to be a strict descendant of that canonical root. Both lexical and post-materialization canonical containment are checked. Existing objects use native realpath; Windows identity removes ordinary versus extended drive/UNC prefixes, normalizes separators and case, and accepts long/short aliases only when canonical object identity agrees. Links, junctions, reparse-style escapes, unsupported types, prefix-confused siblings, and repository overlap fail closed. Deterministic tests inject only a narrow canonical identity mapping rather than a filesystem-provider abstraction.
+
+Each invocation creates one unpredictable direct child beneath the caller-owned root and writes with exclusive creation. Before a gated child, it records source and package identity, repository/config/protected-state baselines, the exact command plan, Node identity/version, and requested npm launcher identity/hash/version. It selects a matching exact npm CLI, places an owned shim first in the supplied PATH, and uses a harmless nested npm probe to record and compare child `npm_execpath`, `npm_config_user_agent`, effective npm version, Node identity, and the first actually resolvable npm launcher. Any ambiguity is `NPM_PROVENANCE_MISMATCH` before the gated child.
+
+Child stdout and stderr are separated and redacted while streaming to external unparsed evidence files. Immediately after close, exit code, signal, end timestamp, and monotonic runtime are durably recorded before stream finalization, hashing, or summary parsing. Parser failure cannot remove those files. Summaries are recursively bounded, credential-redacted, written to a same-parent temporary file, and atomically renamed. Normal npm config is observed by path/metadata/content hash only; the child receives owned blank config and cache locations with credential-shaped inherited environment entries removed. Repository, package, userconfig, and protected state are observed before and after without repair or mutation.
+
+Duplicate child acquisition fails and the release retry maximum is zero. The harness never automatically cleans retained evidence. Cleanup requires the exact owned direct-child identity and token, a concrete preservation proof, a sealed complete inventory, and no later foreign entry; it can remove that run only, never the caller root, repository, sibling, or parent. This is a purpose-built development boundary, not a generic supervisor, filesystem layer, daemon, watcher, or package runtime dependency.
 
 ### Grilling evaluation harness
 

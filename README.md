@@ -166,6 +166,25 @@ node ./scripts/spec-behavioral-acceptance.mjs --validate-fixtures
 node ./scripts/release-gate-isolation.mjs
 ```
 
+### Development-only release evidence harness
+
+`scripts/release-evidence-harness.mjs` retains one run's release evidence beneath an existing caller-owned root outside the repository. Run it from the repository root after creating the named sibling directory:
+
+```bash
+node ./scripts/release-evidence-harness.mjs --self-test --repository . --allowed-parent .. --evidence-root ../kyw-dev-release-evidence
+node ./scripts/release-evidence-harness.mjs --dry-validate --repository . --allowed-parent .. --evidence-root ../kyw-dev-release-evidence
+```
+
+`--self-test` runs only harmless children, including the deliberate exit-7 durability check. `--dry-validate` validates the exact `npm run release:check` plan, external paths, protected/config state, and npm provenance without running that release command, a standalone dry run, release isolation, or a registry/auth probe. Both modes retain a new unpredictable run directory containing preflight, command-plan, npm/Node provenance, postflight, and atomic redacted summary evidence. Child stream files are unparsed but redacted before storage; the harness never copies normal npm credentials or config contents.
+
+Blocked Task 0051 can reuse the following exact command only after separate approval of the release boundary and creation of a fresh empty sibling root:
+
+```bash
+node ./scripts/release-evidence-harness.mjs --run --allow-release-command --repository . --allowed-parent .. --evidence-root ../kyw-dev-task0051-release-evidence
+```
+
+Actual mode invokes the reviewed composite once through the proved exact npm CLI and has no retry or additional standalone dry run. The double flag is an execution guard, not publication approval: registry mutation, actual publish, version/tag/Release changes, and public submission remain separate actions. Evidence is never automatically deleted; cleanup is permitted only for the exact owned run after its sanitized result has been preserved.
+
 Use the read-only planner with explicit repository-relative paths:
 
 | Tier | Trigger | Maintainer entry point |
