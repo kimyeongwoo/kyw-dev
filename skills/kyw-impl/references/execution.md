@@ -75,58 +75,15 @@ Current-contract `## Delivery` contains static policy only:
 - `STANDARD` uses GitHub PR/Actions exact-SHA state as the canonical ledger.
 - `NONE — <reason>` requires a concrete reason and has no external delivery gate.
 
-For `STANDARD`, first derive trusted expectations from the verified local Git remote, selected base, and repository-outcome SHA:
+For `STANDARD`, pass separate Task-keyed objects through `--delivery-expectations-json` and `--delivery-ledger-json`; never create a repository snapshot file. The trusted-local expectation uses `schemaVersion: 2`, exact source/task/repository/base ref/base SHA/outcome, `HARDENED_EXACT_HEAD` version 2, workflow ID/name/path, exact Stable/packed job-name sets, and distinct merge-compatibility/gate names.
 
-```json
-{
-  "0030": {
-    "source": "LOCAL_GIT",
-    "taskId": "0030",
-    "repository": "owner/repository",
-    "baseRef": "main",
-    "outcomeSha": "<40-lowercase-hex-PR-head>"
-  }
-}
-```
+The final GitHub object uses schema 2 and `claim: "FINAL"`. Bind `pullRequest`; `actualHead`/`PR_ACTUAL_HEAD`; `mergeCompatibility`/`PR_MERGE_COMPATIBILITY`; `merge`; and `postMerge`/`POST_MERGE_MAIN`. Roles carry repository/event/ref, workflow, run ID/attempt/head, and numeric jobs. Checkout jobs carry `{id,name,key,conclusion,expectedSha,actualCheckoutSha}`; synthetic evidence adds SHA/parents; actual-head and post-merge add the gate.
 
-Then collect a fresh read-only GitHub snapshot as a separate Task-keyed object:
+Get numeric identities/conclusions from GitHub APIs and the asserted checkout/parents from each job's `KYWCIEVIDENCE` line. A successful job at only `refs/pull/<number>/merge` is merge compatibility, never actual head. Missing logs, reused jobs, stale attempts, or mismatch stops; do not rerun CI. `PENDING` is resumable only when every supplied record is valid; `FINAL` requires the whole graph.
 
-```json
-{
-  "0030": {
-    "source": "GITHUB",
-    "taskId": "0030",
-    "repository": "owner/repository",
-    "outcomeSha": "<40-lowercase-hex-PR-head>",
-    "pullRequest": {
-      "number": 123,
-      "headSha": "<same-outcome-sha>",
-      "baseRef": "main",
-      "mergeSha": "<40-lowercase-hex-merge-sha>",
-      "state": "MERGED",
-      "checks": "SUCCESS",
-      "review": "CLEAR",
-      "runId": 456
-    },
-    "merge": {
-      "repository": "owner/repository",
-      "branch": "main",
-      "sha": "<same-merge-sha>",
-      "mainRunHeadSha": "<same-merge-sha>",
-      "checks": "SUCCESS",
-      "runId": 789
-    }
-  }
-}
-```
+Legacy continuity requires trusted local proof that the outcome predates the hardened anchor: `LEGACY_PRE_CONTRACT` version 1, eligibility `LOCAL_GIT_PRE_CONTRACT_HISTORY`, and exact anchor/merge SHAs. Its schema-1 ledger says `LEGACY_PRE_CONTRACT_CONTINUITY` and `actualHead: "UNVERIFIED"`. It never becomes exact-head PASS and is forbidden for the selected new outcome.
 
-Pass the two objects separately through `--delivery-expectations-json` and `--delivery-ledger-json`; use path forms only for existing authorized snapshots and never create a repository file. The evaluator binds GitHub repository, base, and PR head to the independently inspected local expectations. Exact-head checks must succeed, review state must be clear, the PR merge SHA must identify the successful base-branch run head, exact run/PR identifiers must be present, and the snapshot must come from the fresh trusted GitHub query.
-
-Classify delivery as:
-
-- `RESUMABLE`: final evidence is absent or an identity-bound snapshot is pending; select the complete Task with `DELIVER`.
-- `BLOCKED`: supplied evidence is failing, blocked, unsafe, malformed, or identity-drifted; report exact issues.
-- `SATISFIED`: fresh exact evidence proves the ledger; return terminal without duplicate mutation.
+Classify absent or valid-pending evidence `RESUMABLE`; failing, incomplete-final, unknown-version, malformed, stale, role-confused, reused, or drifted evidence `BLOCKED`; and only a complete hardened graph or explicitly eligible legacy continuity `SATISFIED`.
 
 The static `STANDARD` declaration alone authorizes no ambient mutation. A dispatch returning `IMPLEMENT`, `RESUME`, or `DELIVER` authorizes acceptance verification, `DONE/PASSED`, exact-path commit, non-force push, non-draft PR, exact-head CI, review/mergeability inspection, expected-head protected merge, post-merge base CI, and terminal reporting. Do not ask for ceremonial confirmation before those ordinary steps.
 

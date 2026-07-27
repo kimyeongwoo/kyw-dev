@@ -118,6 +118,21 @@ test("instruction surfaces split authoring from one canonical implementation own
     architecture,
     /Publication, registry mutation, tags, releases, public submission, force push, destructive recovery, branch deletion, rerun, bypass, and unrelated mutation remain separate authority boundaries/,
   );
+  for (const surface of [readme, spec, architecture]) {
+    assert.match(surface, /actual PR-head|actual head/i);
+    assert.match(surface, /merge compatib/i);
+    assert.match(surface, /post-merge/i);
+  }
+  assert.match(execution, /actualHead/);
+  assert.match(execution, /merge compatib/i);
+  assert.match(execution, /postMerge/);
+  assert.match(execution, /HARDENED_EXACT_HEAD/);
+  assert.match(execution, /LEGACY_PRE_CONTRACT/);
+  assert.match(execution, /actualHead: "UNVERIFIED"/);
+  assert.match(execution, /successful job at only `refs\/pull\/<number>\/merge`/);
+  assert.match(readme, /successful synthetic checkout never counts as actual-head PASS/);
+  assert.match(spec, /reused role\/job/);
+  assert.match(architecture, /`KYWCIEVIDENCE`/);
 
   assert.match(prompts, /절차를 복제하지 않고 호출만 제공한다/);
   assert.match(prompts, /\$kyw-impl/);

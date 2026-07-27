@@ -4,6 +4,18 @@ const managedNextAliasPattern = /^task\s+진행해줘(?:\s+([\s\S]*\S))?\s*$/iu;
 const managedContinuousAliasPattern =
   /^남은\s+task\s+계속\s+실행해줘(?:\s+([\s\S]*\S))?\s*$/iu;
 const gitShaPattern = /^[0-9a-f]{40}$/;
+const repositoryPattern = /^[^/\s]+\/[^/\s]+$/;
+
+const EXPECTATION_SCHEMA_VERSION = 2;
+const HARDENED_LEDGER_SCHEMA_VERSION = 2;
+const LEGACY_LEDGER_SCHEMA_VERSION = 1;
+const HARDENED_CONTRACT = "HARDENED_EXACT_HEAD";
+const LEGACY_CONTRACT = "LEGACY_PRE_CONTRACT";
+const LEGACY_CLASSIFICATION = "LEGACY_PRE_CONTRACT_CONTINUITY";
+const LEGACY_ELIGIBILITY_SOURCE = "LOCAL_GIT_PRE_CONTRACT_HISTORY";
+const ACTUAL_HEAD_ROLE = "PR_ACTUAL_HEAD";
+const MERGE_COMPATIBILITY_ROLE = "PR_MERGE_COMPATIBILITY";
+const POST_MERGE_ROLE = "POST_MERGE_MAIN";
 
 function portableFallback(taskId) {
   return taskId ? `$kyw-impl ${taskId}` : "$kyw-impl NNNN";
@@ -91,298 +103,1177 @@ export function evaluateTaskExecutionPreflight(preflight = {}) {
   return Object.freeze({ safe: issues.length === 0, issues: Object.freeze(issues) });
 }
 
+function isRecord(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function unknownFields(label, value, allowed, issues) {
+  if (!isRecord(value)) return;
+  for (const key of Object.keys(value)) {
+    if (!allowed.includes(key)) {
+      issues.push(`${label} contains unknown field ${key}`);
+    }
+  }
+}
+
+function requireString(label, value, issues) {
+  if (typeof value !== "string" || !value.trim()) {
+    issues.push(`${label} must be a non-empty string`);
+    return false;
+  }
+  return true;
+}
+
+function requireSha(label, value, issues) {
+  if (!gitShaPattern.test(value ?? "")) {
+    issues.push(`${label} must be an exact 40-character lowercase Git SHA`);
+    return false;
+  }
+  return true;
+}
+
+function requirePositiveInteger(label, value, issues) {
+  if (!Number.isInteger(value) || value < 1) {
+    issues.push(`${label} must be a positive integer`);
+    return false;
+  }
+  return true;
+}
+
+function requireExact(label, value, expected, issues) {
+  if (value !== expected) {
+    issues.push(`${label} must equal ${JSON.stringify(expected)}`);
+    return false;
+  }
+  return true;
+}
+
+function validateStringSet(label, value, issues) {
+  if (
+    !Array.isArray(value) ||
+    value.length === 0 ||
+    value.some((entry) => typeof entry !== "string" || !entry.trim())
+  ) {
+    issues.push(`${label} must be a non-empty array of non-empty strings`);
+    return [];
+  }
+  if (new Set(value).size !== value.length) {
+    issues.push(`${label} must not contain duplicate values`);
+  }
+  return value;
+}
+
+function expectationContractKind(expectation) {
+  return isRecord(expectation?.deliveryContract)
+    ? expectation.deliveryContract.kind
+    : undefined;
+}
+
 function deliveryExpectationIssues(taskId, expectation) {
   const issues = [];
-  if (!expectation || typeof expectation !== "object" || Array.isArray(expectation)) {
-    issues.push(`Task ${taskId} requires trusted local delivery expectations`);
+  if (!isRecord(expectation)) {
+    return [`Task ${taskId} requires trusted local delivery expectations`];
+  }
+  unknownFields(
+    "expectation",
+    expectation,
+    [
+      "schemaVersion",
+      "source",
+      "taskId",
+      "repository",
+      "baseRef",
+      "baseSha",
+      "outcomeSha",
+      "deliveryContract",
+    ],
+    issues,
+  );
+  requireExact(
+    "expectation.schemaVersion",
+    expectation.schemaVersion,
+    EXPECTATION_SCHEMA_VERSION,
+    issues,
+  );
+  requireExact("expectation.source", expectation.source, "LOCAL_GIT", issues);
+  requireExact("expectation.taskId", expectation.taskId, taskId, issues);
+  if (!repositoryPattern.test(expectation.repository ?? "")) {
+    issues.push("expectation.repository must be an exact owner/name identifier");
+  }
+  requireString("expectation.baseRef", expectation.baseRef, issues);
+  requireSha("expectation.outcomeSha", expectation.outcomeSha, issues);
+
+  const contract = expectation.deliveryContract;
+  if (!isRecord(contract)) {
+    issues.push("expectation.deliveryContract is required");
+    return issues;
+  }
+  if (contract.kind === HARDENED_CONTRACT) {
+    requireSha("expectation.baseSha", expectation.baseSha, issues);
+    unknownFields(
+      "expectation.deliveryContract",
+      contract,
+      [
+        "kind",
+        "version",
+        "workflow",
+        "actualHeadJobs",
+        "mergeCompatibilityJob",
+        "requiredGateJob",
+        "postMergeJobs",
+      ],
+      issues,
+    );
+    requireExact("expectation.deliveryContract.version", contract.version, 2, issues);
+    const workflow = contract.workflow;
+    if (!isRecord(workflow)) {
+      issues.push("expectation.deliveryContract.workflow is required");
+    } else {
+      unknownFields(
+        "expectation.deliveryContract.workflow",
+        workflow,
+        ["id", "name", "path"],
+        issues,
+      );
+      requirePositiveInteger("expectation.deliveryContract.workflow.id", workflow.id, issues);
+      requireString("expectation.deliveryContract.workflow.name", workflow.name, issues);
+      requireString("expectation.deliveryContract.workflow.path", workflow.path, issues);
+    }
+    const actualHeadJobs = validateStringSet(
+      "expectation.deliveryContract.actualHeadJobs",
+      contract.actualHeadJobs,
+      issues,
+    );
+    const postMergeJobs = validateStringSet(
+      "expectation.deliveryContract.postMergeJobs",
+      contract.postMergeJobs,
+      issues,
+    );
+    requireString(
+      "expectation.deliveryContract.mergeCompatibilityJob",
+      contract.mergeCompatibilityJob,
+      issues,
+    );
+    requireString(
+      "expectation.deliveryContract.requiredGateJob",
+      contract.requiredGateJob,
+      issues,
+    );
+    if (actualHeadJobs.includes(contract.mergeCompatibilityJob)) {
+      issues.push(
+        "expectation.deliveryContract.mergeCompatibilityJob must be distinct from actualHeadJobs",
+      );
+    }
+    if (actualHeadJobs.includes(contract.requiredGateJob)) {
+      issues.push(
+        "expectation.deliveryContract.requiredGateJob must be distinct from actualHeadJobs",
+      );
+    }
+    if (postMergeJobs.includes(contract.requiredGateJob)) {
+      issues.push(
+        "expectation.deliveryContract.requiredGateJob must be distinct from postMergeJobs",
+      );
+    }
+  } else if (contract.kind === LEGACY_CONTRACT) {
+    unknownFields(
+      "expectation.deliveryContract",
+      contract,
+      [
+        "kind",
+        "version",
+        "eligibilitySource",
+        "contractAnchorSha",
+        "mergeSha",
+      ],
+      issues,
+    );
+    requireExact("expectation.deliveryContract.version", contract.version, 1, issues);
+    requireExact(
+      "expectation.deliveryContract.eligibilitySource",
+      contract.eligibilitySource,
+      LEGACY_ELIGIBILITY_SOURCE,
+      issues,
+    );
+    requireSha(
+      "expectation.deliveryContract.contractAnchorSha",
+      contract.contractAnchorSha,
+      issues,
+    );
+    requireSha("expectation.deliveryContract.mergeSha", contract.mergeSha, issues);
   } else {
-    if (expectation.source !== "LOCAL_GIT") {
-      issues.push("expectation.source must be LOCAL_GIT");
-    }
-    if (expectation.taskId !== taskId) {
-      issues.push(`expectation.taskId must equal ${taskId}`);
-    }
-    if (!/^[^/\s]+\/[^/\s]+$/.test(expectation.repository ?? "")) {
-      issues.push("expectation.repository must be an exact owner/name identifier");
-    }
-    if (typeof expectation.baseRef !== "string" || !expectation.baseRef.trim()) {
-      issues.push("expectation.baseRef is required");
-    }
-    if (!gitShaPattern.test(expectation.outcomeSha ?? "")) {
-      issues.push("expectation.outcomeSha must be an exact 40-character lowercase Git SHA");
-    }
+    issues.push(
+      `expectation.deliveryContract.kind must be ${HARDENED_CONTRACT} or ${LEGACY_CONTRACT}`,
+    );
   }
   return issues;
 }
 
 function deliveryIdentityIssues(taskId, entry, expectation) {
   const issues = [];
-  if (entry.source !== "GITHUB") {
-    issues.push("source must be GITHUB");
+  if (!isRecord(entry)) {
+    return [`Task ${taskId} requires GitHub delivery evidence`];
   }
-  if (entry.taskId !== taskId) {
-    issues.push(`taskId must equal ${taskId}`);
-  }
-  if (!/^[^/\s]+\/[^/\s]+$/.test(entry.repository ?? "")) {
+  requireExact("source", entry.source, "GITHUB", issues);
+  requireExact("taskId", entry.taskId, taskId, issues);
+  if (!repositoryPattern.test(entry.repository ?? "")) {
     issues.push("repository must be an exact owner/name identifier");
   }
   if (entry.repository !== expectation?.repository) {
     issues.push("repository must equal the trusted local expectation");
   }
-  if (!gitShaPattern.test(entry.outcomeSha ?? "")) {
-    issues.push("outcomeSha must be an exact 40-character lowercase Git SHA");
-  }
+  requireSha("outcomeSha", entry.outcomeSha, issues);
   if (entry.outcomeSha !== expectation?.outcomeSha) {
     issues.push("outcomeSha must equal the trusted local expectation");
   }
   return issues;
 }
 
-export function evaluateDeliveryEvidence(taskId, entry, expectation) {
-  const issues = deliveryExpectationIssues(taskId, expectation);
-  if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
-    return Object.freeze({
-      satisfied: false,
-      issues: Object.freeze([...issues, `Task ${taskId} requires GitHub delivery evidence`]),
-    });
+function createValidation(classification, actualHead, mergeCompatibility, postMerge) {
+  return {
+    issues: [],
+    blockers: [],
+    classification,
+    actualHead,
+    mergeCompatibility,
+    postMerge,
+  };
+}
+
+function validateConclusion(label, conclusion, validation) {
+  if (conclusion === "FAILURE") {
+    validation.blockers.push(`${label} reports FAILURE`);
+  } else if (conclusion !== "SUCCESS") {
+    validation.issues.push(`${label} must be SUCCESS`);
+  }
+}
+
+function validateWorkflowRun(label, role, expectedRole, expectation, entry, validation) {
+  const issues = validation.issues;
+  if (!isRecord(role)) {
+    issues.push(`${label} evidence is required`);
+    return false;
+  }
+  const workflow = expectation?.deliveryContract?.workflow;
+  requireExact(`${label}.role`, role.role, expectedRole, issues);
+  requireExact(`${label}.repository`, role.repository, entry.repository, issues);
+  requirePositiveInteger(`${label}.workflowId`, role.workflowId, issues);
+  requireExact(`${label}.workflowId`, role.workflowId, workflow?.id, issues);
+  requireString(`${label}.workflowName`, role.workflowName, issues);
+  requireExact(`${label}.workflowName`, role.workflowName, workflow?.name, issues);
+  requireString(`${label}.workflowPath`, role.workflowPath, issues);
+  requireExact(`${label}.workflowPath`, role.workflowPath, workflow?.path, issues);
+  requirePositiveInteger(`${label}.runId`, role.runId, issues);
+  requirePositiveInteger(`${label}.runAttempt`, role.runAttempt, issues);
+  requireSha(`${label}.runHeadSha`, role.runHeadSha, issues);
+  return true;
+}
+
+function validateCheckoutJob(
+  label,
+  job,
+  { expectedName, expectedSha },
+  validation,
+) {
+  const issues = validation.issues;
+  if (!isRecord(job)) {
+    issues.push(`${label} must be an object`);
+    return undefined;
+  }
+  unknownFields(
+    label,
+    job,
+    [
+      "id",
+      "name",
+      "key",
+      "conclusion",
+      "expectedSha",
+      "actualCheckoutSha",
+    ],
+    issues,
+  );
+  requirePositiveInteger(`${label}.id`, job.id, issues);
+  requireString(`${label}.name`, job.name, issues);
+  if (expectedName !== undefined) {
+    requireExact(`${label}.name`, job.name, expectedName, issues);
+  }
+  requireString(`${label}.key`, job.key, issues);
+  validateConclusion(`${label}.conclusion`, job.conclusion, validation);
+  requireSha(`${label}.expectedSha`, job.expectedSha, issues);
+  requireExact(`${label}.expectedSha`, job.expectedSha, expectedSha, issues);
+  requireSha(`${label}.actualCheckoutSha`, job.actualCheckoutSha, issues);
+  requireExact(
+    `${label}.actualCheckoutSha`,
+    job.actualCheckoutSha,
+    expectedSha,
+    issues,
+  );
+  return job.id;
+}
+
+function validateGateJob(label, job, expectedName, validation) {
+  const issues = validation.issues;
+  if (!isRecord(job)) {
+    issues.push(`${label} evidence is required`);
+    return undefined;
+  }
+  unknownFields(label, job, ["id", "name", "key", "conclusion"], issues);
+  requirePositiveInteger(`${label}.id`, job.id, issues);
+  requireString(`${label}.name`, job.name, issues);
+  requireExact(`${label}.name`, job.name, expectedName, issues);
+  requireString(`${label}.key`, job.key, issues);
+  validateConclusion(`${label}.conclusion`, job.conclusion, validation);
+  return job.id;
+}
+
+function validateCheckoutJobSet(
+  label,
+  jobs,
+  expectedNames,
+  expectedSha,
+  validation,
+) {
+  const issues = validation.issues;
+  if (!Array.isArray(jobs)) {
+    issues.push(`${label} must be an array`);
+    return [];
+  }
+  const expected = Array.isArray(expectedNames) ? expectedNames : [];
+  const actualNames = jobs.map((job) => job?.name);
+  if (
+    actualNames.length !== expected.length ||
+    expected.some((name) => !actualNames.includes(name)) ||
+    actualNames.some((name) => !expected.includes(name))
+  ) {
+    issues.push(`${label} names must exactly match the trusted required job set`);
+  }
+  if (new Set(actualNames).size !== actualNames.length) {
+    issues.push(`${label} must not reuse a job name`);
+  }
+  return jobs
+    .map((job, index) =>
+      validateCheckoutJob(
+        `${label}[${index}]`,
+        job,
+        { expectedName: job?.name, expectedSha },
+        validation,
+      ),
+    )
+    .filter((value) => value !== undefined);
+}
+
+function validatePullRequest(entry, expectation, validation, { final }) {
+  const issues = validation.issues;
+  const pullRequest = entry.pullRequest;
+  if (!isRecord(pullRequest)) {
+    issues.push("pullRequest evidence is required");
+    return undefined;
+  }
+  unknownFields(
+    "pullRequest",
+    pullRequest,
+    ["number", "headSha", "baseRef", "baseSha", "mergeSha", "state", "review"],
+    issues,
+  );
+  requirePositiveInteger("pullRequest.number", pullRequest.number, issues);
+  requireSha("pullRequest.headSha", pullRequest.headSha, issues);
+  requireExact("pullRequest.headSha", pullRequest.headSha, entry.outcomeSha, issues);
+  requireString("pullRequest.baseRef", pullRequest.baseRef, issues);
+  requireExact(
+    "pullRequest.baseRef",
+    pullRequest.baseRef,
+    expectation?.baseRef,
+    issues,
+  );
+  requireSha("pullRequest.baseSha", pullRequest.baseSha, issues);
+  if (pullRequest.baseSha !== expectation?.baseSha) {
+    issues.push("pullRequest.baseSha must equal the trusted local expectation");
+  }
+  if (!["OPEN", "MERGED"].includes(pullRequest.state)) {
+    issues.push("pullRequest.state must be OPEN or MERGED");
+  }
+  if (!["PENDING", "CLEAR", "CHANGES_REQUESTED"].includes(pullRequest.review)) {
+    issues.push("pullRequest.review must be PENDING, CLEAR, or CHANGES_REQUESTED");
+  } else if (pullRequest.review === "CHANGES_REQUESTED") {
+    validation.blockers.push("pullRequest.review reports CHANGES_REQUESTED");
+  }
+  if (pullRequest.state === "OPEN") {
+    if (pullRequest.mergeSha !== undefined && pullRequest.mergeSha !== null) {
+      issues.push("an OPEN pullRequest must not assert mergeSha");
+    }
+    if (entry.merge !== undefined && entry.merge !== null) {
+      issues.push("an OPEN pullRequest must not assert merge evidence");
+    }
+    if (entry.postMerge !== undefined && entry.postMerge !== null) {
+      issues.push("an OPEN pullRequest must not assert postMerge evidence");
+    }
+  } else {
+    requireSha("pullRequest.mergeSha", pullRequest.mergeSha, issues);
+  }
+  if (final) {
+    requireExact("pullRequest.state", pullRequest.state, "MERGED", issues);
+    requireExact("pullRequest.review", pullRequest.review, "CLEAR", issues);
+  }
+  return pullRequest;
+}
+
+function validateMerge(entry, pullRequest, validation, { required }) {
+  const issues = validation.issues;
+  const merge = entry.merge;
+  if (!isRecord(merge)) {
+    if (required) issues.push("merge evidence is required");
+    return undefined;
+  }
+  unknownFields("merge", merge, ["repository", "branch", "sha"], issues);
+  requireExact("merge.repository", merge.repository, entry.repository, issues);
+  requireExact("merge.branch", merge.branch, pullRequest?.baseRef, issues);
+  requireSha("merge.sha", merge.sha, issues);
+  requireExact("merge.sha", merge.sha, pullRequest?.mergeSha, issues);
+  return merge;
+}
+
+function validateActualHead(entry, expectation, pullRequest, validation, { required }) {
+  const evidence = entry.actualHead;
+  if (!isRecord(evidence)) {
+    if (required) validation.issues.push("actualHead evidence is required");
+    return undefined;
+  }
+  unknownFields(
+    "actualHead",
+    evidence,
+    [
+      "role",
+      "repository",
+      "event",
+      "pullRequestNumber",
+      "workflowId",
+      "workflowName",
+      "workflowPath",
+      "runId",
+      "runAttempt",
+      "runHeadSha",
+      "jobs",
+      "gateJob",
+    ],
+    validation.issues,
+  );
+  validateWorkflowRun(
+    "actualHead",
+    evidence,
+    ACTUAL_HEAD_ROLE,
+    expectation,
+    entry,
+    validation,
+  );
+  requireExact("actualHead.event", evidence.event, "pull_request", validation.issues);
+  requireExact(
+    "actualHead.pullRequestNumber",
+    evidence.pullRequestNumber,
+    pullRequest?.number,
+    validation.issues,
+  );
+  requireExact(
+    "actualHead.runHeadSha",
+    evidence.runHeadSha,
+    entry.outcomeSha,
+    validation.issues,
+  );
+  const jobIds = validateCheckoutJobSet(
+    "actualHead.jobs",
+    evidence.jobs,
+    expectation?.deliveryContract?.actualHeadJobs,
+    entry.outcomeSha,
+    validation,
+  );
+  const gateJobId = validateGateJob(
+    "actualHead.gateJob",
+    evidence.gateJob,
+    expectation?.deliveryContract?.requiredGateJob,
+    validation,
+  );
+  return { ...evidence, jobIds, gateJobId };
+}
+
+function validateMergeCompatibility(
+  entry,
+  expectation,
+  pullRequest,
+  validation,
+  { required },
+) {
+  const evidence = entry.mergeCompatibility;
+  if (!isRecord(evidence)) {
+    if (required) validation.issues.push("mergeCompatibility evidence is required");
+    return undefined;
+  }
+  unknownFields(
+    "mergeCompatibility",
+    evidence,
+    [
+      "role",
+      "repository",
+      "event",
+      "pullRequestNumber",
+      "workflowId",
+      "workflowName",
+      "workflowPath",
+      "runId",
+      "runAttempt",
+      "runHeadSha",
+      "syntheticMergeSha",
+      "expectedBaseSha",
+      "actualBaseParentSha",
+      "expectedHeadSha",
+      "actualHeadParentSha",
+      "job",
+    ],
+    validation.issues,
+  );
+  validateWorkflowRun(
+    "mergeCompatibility",
+    evidence,
+    MERGE_COMPATIBILITY_ROLE,
+    expectation,
+    entry,
+    validation,
+  );
+  requireExact(
+    "mergeCompatibility.event",
+    evidence.event,
+    "pull_request",
+    validation.issues,
+  );
+  requireExact(
+    "mergeCompatibility.pullRequestNumber",
+    evidence.pullRequestNumber,
+    pullRequest?.number,
+    validation.issues,
+  );
+  requireExact(
+    "mergeCompatibility.runHeadSha",
+    evidence.runHeadSha,
+    entry.outcomeSha,
+    validation.issues,
+  );
+  requireSha(
+    "mergeCompatibility.syntheticMergeSha",
+    evidence.syntheticMergeSha,
+    validation.issues,
+  );
+  if (evidence.syntheticMergeSha === entry.outcomeSha) {
+    validation.issues.push(
+      "mergeCompatibility.syntheticMergeSha must be distinct from the actual PR head",
+    );
+  }
+  requireExact(
+    "mergeCompatibility.expectedBaseSha",
+    evidence.expectedBaseSha,
+    pullRequest?.baseSha,
+    validation.issues,
+  );
+  requireExact(
+    "mergeCompatibility.actualBaseParentSha",
+    evidence.actualBaseParentSha,
+    pullRequest?.baseSha,
+    validation.issues,
+  );
+  requireExact(
+    "mergeCompatibility.expectedHeadSha",
+    evidence.expectedHeadSha,
+    entry.outcomeSha,
+    validation.issues,
+  );
+  requireExact(
+    "mergeCompatibility.actualHeadParentSha",
+    evidence.actualHeadParentSha,
+    entry.outcomeSha,
+    validation.issues,
+  );
+  const jobId = validateCheckoutJob(
+    "mergeCompatibility.job",
+    evidence.job,
+    {
+      expectedName: expectation?.deliveryContract?.mergeCompatibilityJob,
+      expectedSha: evidence.syntheticMergeSha,
+    },
+    validation,
+  );
+  return { ...evidence, jobId };
+}
+
+function validatePostMerge(entry, expectation, pullRequest, merge, validation, { required }) {
+  const evidence = entry.postMerge;
+  if (!isRecord(evidence)) {
+    if (required) validation.issues.push("postMerge evidence is required");
+    return undefined;
+  }
+  unknownFields(
+    "postMerge",
+    evidence,
+    [
+      "role",
+      "repository",
+      "event",
+      "branch",
+      "workflowId",
+      "workflowName",
+      "workflowPath",
+      "runId",
+      "runAttempt",
+      "runHeadSha",
+      "jobs",
+      "gateJob",
+    ],
+    validation.issues,
+  );
+  validateWorkflowRun(
+    "postMerge",
+    evidence,
+    POST_MERGE_ROLE,
+    expectation,
+    entry,
+    validation,
+  );
+  requireExact("postMerge.event", evidence.event, "push", validation.issues);
+  requireExact("postMerge.branch", evidence.branch, pullRequest?.baseRef, validation.issues);
+  requireExact("postMerge.runHeadSha", evidence.runHeadSha, merge?.sha, validation.issues);
+  const jobIds = validateCheckoutJobSet(
+    "postMerge.jobs",
+    evidence.jobs,
+    expectation?.deliveryContract?.postMergeJobs,
+    merge?.sha,
+    validation,
+  );
+  const gateJobId = validateGateJob(
+    "postMerge.gateJob",
+    evidence.gateJob,
+    expectation?.deliveryContract?.requiredGateJob,
+    validation,
+  );
+  return { ...evidence, jobIds, gateJobId };
+}
+
+function validateDistinctExactIdentities(actualHead, mergeCompatibility, postMerge, validation) {
+  if (actualHead && mergeCompatibility) {
+    requireExact(
+      "mergeCompatibility.runId",
+      mergeCompatibility.runId,
+      actualHead.runId,
+      validation.issues,
+    );
+    requireExact(
+      "mergeCompatibility.runAttempt",
+      mergeCompatibility.runAttempt,
+      actualHead.runAttempt,
+      validation.issues,
+    );
+  }
+  if (
+    postMerge &&
+    (postMerge.runId === actualHead?.runId || postMerge.runId === mergeCompatibility?.runId)
+  ) {
+    validation.issues.push("postMerge.runId must be distinct from the pull-request run");
+  }
+  const ids = [
+    ...(actualHead?.jobIds ?? []),
+    actualHead?.gateJobId,
+    mergeCompatibility?.jobId,
+    ...(postMerge?.jobIds ?? []),
+    postMerge?.gateJobId,
+  ].filter((value) => value !== undefined);
+  if (new Set(ids).size !== ids.length) {
+    validation.issues.push(
+      "actualHead, mergeCompatibility, gate, and postMerge evidence must not reuse a job ID",
+    );
+  }
+}
+
+function validateHardenedEntry(taskId, entry, expectation, { final }) {
+  const validation = createValidation(
+    HARDENED_CONTRACT,
+    "VERIFIED",
+    "VERIFIED_SYNTHETIC",
+    "VERIFIED_EXACT_CHECKOUT",
+  );
+  validation.issues.push(...deliveryExpectationIssues(taskId, expectation));
+  if (!isRecord(entry)) {
+    validation.issues.push(`Task ${taskId} requires GitHub delivery evidence`);
+    return validation;
+  }
+  unknownFields(
+    "delivery evidence",
+    entry,
+    [
+      "schemaVersion",
+      "claim",
+      "source",
+      "taskId",
+      "repository",
+      "outcomeSha",
+      "pullRequest",
+      "actualHead",
+      "mergeCompatibility",
+      "merge",
+      "postMerge",
+    ],
+    validation.issues,
+  );
+  requireExact(
+    "schemaVersion",
+    entry.schemaVersion,
+    HARDENED_LEDGER_SCHEMA_VERSION,
+    validation.issues,
+  );
+  requireExact("claim", entry.claim, final ? "FINAL" : "PENDING", validation.issues);
+  validation.issues.push(...deliveryIdentityIssues(taskId, entry, expectation));
+  if (expectationContractKind(expectation) !== HARDENED_CONTRACT) {
+    validation.issues.push(
+      `hardened schema ${HARDENED_LEDGER_SCHEMA_VERSION} evidence requires ${HARDENED_CONTRACT} expectations`,
+    );
   }
 
-  issues.push(...deliveryIdentityIssues(taskId, entry, expectation));
+  const pullRequest = validatePullRequest(entry, expectation, validation, { final });
+  const mergeRequired = final || pullRequest?.state === "MERGED";
+  const merge = validateMerge(entry, pullRequest, validation, { required: mergeRequired });
+  const actualHead = validateActualHead(entry, expectation, pullRequest, validation, {
+    required: final,
+  });
+  const mergeCompatibility = validateMergeCompatibility(
+    entry,
+    expectation,
+    pullRequest,
+    validation,
+    { required: final },
+  );
+  const postMerge = validatePostMerge(
+    entry,
+    expectation,
+    pullRequest,
+    merge,
+    validation,
+    { required: final },
+  );
+  validation.actualHead = actualHead ? "VERIFIED" : "UNVERIFIED";
+  validation.mergeCompatibility = mergeCompatibility
+    ? "VERIFIED_SYNTHETIC"
+    : "UNVERIFIED";
+  validation.postMerge = postMerge ? "VERIFIED_EXACT_CHECKOUT" : "UNVERIFIED";
+  validateDistinctExactIdentities(
+    actualHead,
+    mergeCompatibility,
+    postMerge,
+    validation,
+  );
+  return validation;
+}
+
+function validateLegacyObservedMergeCompatibility(entry, observed, validation) {
+  if (observed === undefined) return "LEGACY_CHECKS_SUCCESS";
+  if (!isRecord(observed)) {
+    validation.issues.push("observedMergeCompatibility must be an object when present");
+    return "INVALID";
+  }
+  unknownFields(
+    "observedMergeCompatibility",
+    observed,
+    [
+      "role",
+      "runId",
+      "jobId",
+      "syntheticMergeSha",
+      "actualCheckoutSha",
+      "baseSha",
+      "headSha",
+      "actualBaseParentSha",
+      "actualHeadParentSha",
+    ],
+    validation.issues,
+  );
+  requireExact(
+    "observedMergeCompatibility.role",
+    observed.role,
+    MERGE_COMPATIBILITY_ROLE,
+    validation.issues,
+  );
+  requireExact(
+    "observedMergeCompatibility.runId",
+    observed.runId,
+    entry.pullRequest?.runId,
+    validation.issues,
+  );
+  requirePositiveInteger(
+    "observedMergeCompatibility.jobId",
+    observed.jobId,
+    validation.issues,
+  );
+  requireSha(
+    "observedMergeCompatibility.syntheticMergeSha",
+    observed.syntheticMergeSha,
+    validation.issues,
+  );
+  requireExact(
+    "observedMergeCompatibility.actualCheckoutSha",
+    observed.actualCheckoutSha,
+    observed.syntheticMergeSha,
+    validation.issues,
+  );
+  requireSha(
+    "observedMergeCompatibility.baseSha",
+    observed.baseSha,
+    validation.issues,
+  );
+  requireExact(
+    "observedMergeCompatibility.headSha",
+    observed.headSha,
+    entry.outcomeSha,
+    validation.issues,
+  );
+  requireExact(
+    "observedMergeCompatibility.actualBaseParentSha",
+    observed.actualBaseParentSha,
+    observed.baseSha,
+    validation.issues,
+  );
+  requireExact(
+    "observedMergeCompatibility.actualHeadParentSha",
+    observed.actualHeadParentSha,
+    entry.outcomeSha,
+    validation.issues,
+  );
+  if (observed.syntheticMergeSha === entry.outcomeSha) {
+    validation.issues.push(
+      "observedMergeCompatibility.syntheticMergeSha must be distinct from the PR head",
+    );
+  }
+  return "VERIFIED_SYNTHETIC";
+}
+
+function validateLegacyObservedPostMerge(entry, observed, validation) {
+  if (observed === undefined) return "LEGACY_API_HEAD_SUCCESS";
+  if (!isRecord(observed)) {
+    validation.issues.push("observedPostMerge must be an object when present");
+    return "INVALID";
+  }
+  unknownFields(
+    "observedPostMerge",
+    observed,
+    ["role", "runId", "jobId", "expectedSha", "actualCheckoutSha"],
+    validation.issues,
+  );
+  requireExact(
+    "observedPostMerge.role",
+    observed.role,
+    POST_MERGE_ROLE,
+    validation.issues,
+  );
+  requireExact(
+    "observedPostMerge.runId",
+    observed.runId,
+    entry.merge?.runId,
+    validation.issues,
+  );
+  requirePositiveInteger("observedPostMerge.jobId", observed.jobId, validation.issues);
+  requireExact(
+    "observedPostMerge.expectedSha",
+    observed.expectedSha,
+    entry.merge?.sha,
+    validation.issues,
+  );
+  requireExact(
+    "observedPostMerge.actualCheckoutSha",
+    observed.actualCheckoutSha,
+    entry.merge?.sha,
+    validation.issues,
+  );
+  return "VERIFIED_EXACT_CHECKOUT";
+}
+
+function validateLegacyEntry(taskId, entry, expectation) {
+  const validation = createValidation(
+    LEGACY_CLASSIFICATION,
+    "UNVERIFIED",
+    "LEGACY_CHECKS_SUCCESS",
+    "LEGACY_API_HEAD_SUCCESS",
+  );
+  validation.issues.push(...deliveryExpectationIssues(taskId, expectation));
+  if (!isRecord(entry)) {
+    validation.issues.push(`Task ${taskId} requires GitHub delivery evidence`);
+    return validation;
+  }
+  unknownFields(
+    "delivery evidence",
+    entry,
+    [
+      "schemaVersion",
+      "claim",
+      "source",
+      "taskId",
+      "repository",
+      "outcomeSha",
+      "classification",
+      "actualHead",
+      "contractAnchorSha",
+      "pullRequest",
+      "merge",
+      "observedMergeCompatibility",
+      "observedPostMerge",
+    ],
+    validation.issues,
+  );
+  requireExact(
+    "schemaVersion",
+    entry.schemaVersion,
+    LEGACY_LEDGER_SCHEMA_VERSION,
+    validation.issues,
+  );
+  requireExact("claim", entry.claim, "FINAL", validation.issues);
+  validation.issues.push(...deliveryIdentityIssues(taskId, entry, expectation));
+  requireExact("classification", entry.classification, LEGACY_CLASSIFICATION, validation.issues);
+  requireExact("actualHead", entry.actualHead, "UNVERIFIED", validation.issues);
+  const contract = expectation?.deliveryContract;
+  if (expectationContractKind(expectation) !== LEGACY_CONTRACT) {
+    validation.issues.push(
+      `legacy schema ${LEGACY_LEDGER_SCHEMA_VERSION} evidence requires ${LEGACY_CONTRACT} expectations`,
+    );
+  }
+  requireExact(
+    "contractAnchorSha",
+    entry.contractAnchorSha,
+    contract?.contractAnchorSha,
+    validation.issues,
+  );
+
   const pullRequest = entry.pullRequest;
-  if (!pullRequest || typeof pullRequest !== "object") {
-    issues.push("pullRequest evidence is required");
+  if (!isRecord(pullRequest)) {
+    validation.issues.push("pullRequest evidence is required");
   } else {
-    if (!Number.isInteger(pullRequest.number) || pullRequest.number < 1) {
-      issues.push("pullRequest.number must be a positive integer");
+    unknownFields(
+      "pullRequest",
+      pullRequest,
+      [
+        "number",
+        "headSha",
+        "baseRef",
+        "mergeSha",
+        "state",
+        "checks",
+        "review",
+        "runId",
+      ],
+      validation.issues,
+    );
+    requirePositiveInteger("pullRequest.number", pullRequest.number, validation.issues);
+    requireExact(
+      "pullRequest.headSha",
+      pullRequest.headSha,
+      entry.outcomeSha,
+      validation.issues,
+    );
+    requireExact(
+      "pullRequest.baseRef",
+      pullRequest.baseRef,
+      expectation?.baseRef,
+      validation.issues,
+    );
+    requireExact(
+      "pullRequest.mergeSha",
+      pullRequest.mergeSha,
+      contract?.mergeSha,
+      validation.issues,
+    );
+    requireExact("pullRequest.state", pullRequest.state, "MERGED", validation.issues);
+    validateConclusion("pullRequest.checks", pullRequest.checks, validation);
+    if (pullRequest.review === "CHANGES_REQUESTED") {
+      validation.blockers.push("pullRequest.review reports CHANGES_REQUESTED");
+    } else {
+      requireExact("pullRequest.review", pullRequest.review, "CLEAR", validation.issues);
     }
-    if (pullRequest.headSha !== entry.outcomeSha) {
-      issues.push("pullRequest.headSha must equal outcomeSha");
-    }
-    if (typeof pullRequest.baseRef !== "string" || !pullRequest.baseRef.trim()) {
-      issues.push("pullRequest.baseRef is required");
-    }
-    if (pullRequest.baseRef !== expectation?.baseRef) {
-      issues.push("pullRequest.baseRef must equal the trusted local expectation");
-    }
-    if (!gitShaPattern.test(pullRequest.mergeSha ?? "")) {
-      issues.push("pullRequest.mergeSha must be an exact 40-character lowercase Git SHA");
-    }
-    if (pullRequest.state !== "MERGED") {
-      issues.push("pullRequest.state must be MERGED");
-    }
-    if (pullRequest.checks !== "SUCCESS") {
-      issues.push("pullRequest.checks must be SUCCESS");
-    }
-    if (pullRequest.review !== "CLEAR") {
-      issues.push("pullRequest.review must be CLEAR");
-    }
-    if (!Number.isInteger(pullRequest.runId) || pullRequest.runId < 1) {
-      issues.push("pullRequest.runId must be a positive integer");
-    }
+    requirePositiveInteger("pullRequest.runId", pullRequest.runId, validation.issues);
   }
 
   const merge = entry.merge;
-  if (!merge || typeof merge !== "object") {
-    issues.push("merge evidence is required");
+  if (!isRecord(merge)) {
+    validation.issues.push("merge evidence is required");
   } else {
-    if (merge.repository !== entry.repository) {
-      issues.push("merge.repository must equal repository");
-    }
-    if (merge.branch !== pullRequest?.baseRef) {
-      issues.push("merge.branch must equal pullRequest.baseRef");
-    }
-    if (!gitShaPattern.test(merge.sha ?? "")) {
-      issues.push("merge.sha must be an exact 40-character lowercase Git SHA");
-    }
-    if (pullRequest?.mergeSha !== merge.sha) {
-      issues.push("pullRequest.mergeSha must equal merge.sha");
-    }
-    if (merge.mainRunHeadSha !== merge.sha) {
-      issues.push("merge.mainRunHeadSha must equal merge.sha");
-    }
-    if (merge.checks !== "SUCCESS") {
-      issues.push("merge.checks must be SUCCESS");
-    }
-    if (!Number.isInteger(merge.runId) || merge.runId < 1) {
-      issues.push("merge.runId must be a positive integer");
-    }
+    unknownFields(
+      "merge",
+      merge,
+      [
+        "repository",
+        "branch",
+        "sha",
+        "mainRunHeadSha",
+        "checks",
+        "runId",
+      ],
+      validation.issues,
+    );
+    requireExact("merge.repository", merge.repository, entry.repository, validation.issues);
+    requireExact("merge.branch", merge.branch, expectation?.baseRef, validation.issues);
+    requireExact("merge.sha", merge.sha, contract?.mergeSha, validation.issues);
+    requireExact("merge.mainRunHeadSha", merge.mainRunHeadSha, merge.sha, validation.issues);
+    validateConclusion("merge.checks", merge.checks, validation);
+    requirePositiveInteger("merge.runId", merge.runId, validation.issues);
   }
 
-  return Object.freeze({ satisfied: issues.length === 0, issues: Object.freeze(issues) });
+  validation.mergeCompatibility = validateLegacyObservedMergeCompatibility(
+    entry,
+    entry.observedMergeCompatibility,
+    validation,
+  );
+  validation.postMerge = validateLegacyObservedPostMerge(
+    entry,
+    entry.observedPostMerge,
+    validation,
+  );
+  return validation;
 }
 
-function blockedDeliveryClassification(blockerCode, issues) {
+function invalidValidation(taskId, entry, expectation) {
+  const validation = createValidation("INVALID", "UNVERIFIED", "UNVERIFIED", "UNVERIFIED");
+  validation.issues.push(...deliveryExpectationIssues(taskId, expectation));
+  if (!isRecord(entry)) {
+    validation.issues.push(`Task ${taskId} requires GitHub delivery evidence`);
+    return validation;
+  }
+  validation.issues.push(...deliveryIdentityIssues(taskId, entry, expectation));
+  if (![LEGACY_LEDGER_SCHEMA_VERSION, HARDENED_LEDGER_SCHEMA_VERSION].includes(entry.schemaVersion)) {
+    validation.issues.push(
+      `schemaVersion must be ${LEGACY_LEDGER_SCHEMA_VERSION} or ${HARDENED_LEDGER_SCHEMA_VERSION}`,
+    );
+  } else {
+    validation.issues.push(
+      `schemaVersion ${entry.schemaVersion} does not match the trusted delivery contract`,
+    );
+  }
+  return validation;
+}
+
+function finalValidation(taskId, entry, expectation) {
+  const contractKind = expectationContractKind(expectation);
+  if (contractKind === HARDENED_CONTRACT && entry?.schemaVersion === 2) {
+    return validateHardenedEntry(taskId, entry, expectation, { final: true });
+  }
+  if (contractKind === LEGACY_CONTRACT && entry?.schemaVersion === 1) {
+    return validateLegacyEntry(taskId, entry, expectation);
+  }
+  return invalidValidation(taskId, entry, expectation);
+}
+
+function publicEvaluation(validation) {
   return Object.freeze({
-    disposition: "BLOCKED",
-    blockerCode,
-    issues: Object.freeze(issues),
+    satisfied: validation.issues.length === 0 && validation.blockers.length === 0,
+    classification: validation.classification,
+    actualHead: validation.actualHead,
+    mergeCompatibility: validation.mergeCompatibility,
+    postMerge: validation.postMerge,
+    issues: Object.freeze([...validation.issues, ...validation.blockers]),
   });
 }
 
-function classifyPendingDeliveryEvidence(taskId, entry, expectation) {
-  const invalidIssues = [
-    ...deliveryExpectationIssues(taskId, expectation),
-    ...deliveryIdentityIssues(taskId, entry, expectation),
-  ];
-  const pullRequest = entry.pullRequest;
-  if (!pullRequest || typeof pullRequest !== "object" || Array.isArray(pullRequest)) {
-    invalidIssues.push("pullRequest evidence is required");
-  } else {
-    if (!Number.isInteger(pullRequest.number) || pullRequest.number < 1) {
-      invalidIssues.push("pullRequest.number must be a positive integer");
-    }
-    if (pullRequest.headSha !== entry.outcomeSha) {
-      invalidIssues.push("pullRequest.headSha must equal outcomeSha");
-    }
-    if (pullRequest.baseRef !== expectation?.baseRef) {
-      invalidIssues.push("pullRequest.baseRef must equal the trusted local expectation");
-    }
-    if (!["OPEN", "MERGED"].includes(pullRequest.state)) {
-      invalidIssues.push("pullRequest.state must be OPEN or MERGED");
-    }
-    if (!["PENDING", "SUCCESS", "FAILURE"].includes(pullRequest.checks)) {
-      invalidIssues.push("pullRequest.checks must be PENDING, SUCCESS, or FAILURE");
-    }
-    if (!["PENDING", "CLEAR", "CHANGES_REQUESTED"].includes(pullRequest.review)) {
-      invalidIssues.push("pullRequest.review must be PENDING, CLEAR, or CHANGES_REQUESTED");
-    }
-    if (
-      pullRequest.runId !== undefined &&
-      (!Number.isInteger(pullRequest.runId) || pullRequest.runId < 1)
-    ) {
-      invalidIssues.push("pullRequest.runId must be a positive integer when present");
-    }
-  }
-  if (invalidIssues.length > 0) {
-    return blockedDeliveryClassification("DELIVERY_EVIDENCE_INVALID", invalidIssues);
-  }
+export function evaluateDeliveryEvidence(taskId, entry, expectation) {
+  return publicEvaluation(finalValidation(taskId, entry, expectation));
+}
 
-  if (pullRequest.state === "OPEN") {
-    const openIssues = [];
-    if (pullRequest.mergeSha !== undefined && pullRequest.mergeSha !== null) {
-      openIssues.push("an OPEN pullRequest must not assert mergeSha");
-    }
-    if (entry.merge !== undefined && entry.merge !== null) {
-      openIssues.push("an OPEN pullRequest must not assert merge evidence");
-    }
-    if (openIssues.length > 0) {
-      return blockedDeliveryClassification("DELIVERY_EVIDENCE_INVALID", openIssues);
-    }
-    const blockedIssues = [];
-    if (pullRequest.checks === "FAILURE") {
-      blockedIssues.push("pullRequest.checks reports FAILURE");
-    }
-    if (pullRequest.review === "CHANGES_REQUESTED") {
-      blockedIssues.push("pullRequest.review reports CHANGES_REQUESTED");
-    }
-    return blockedIssues.length > 0
-      ? blockedDeliveryClassification("DELIVERY_BLOCKED", blockedIssues)
-      : Object.freeze({ disposition: "RESUMABLE", issues: Object.freeze([]) });
-  }
+function blockedDeliveryClassification(blockerCode, validation) {
+  return Object.freeze({
+    disposition: "BLOCKED",
+    blockerCode,
+    classification: validation.classification,
+    actualHead: validation.actualHead,
+    mergeCompatibility: validation.mergeCompatibility,
+    postMerge: validation.postMerge,
+    issues: Object.freeze([...validation.issues, ...validation.blockers]),
+  });
+}
 
-  const mergedIssues = [];
-  if (!gitShaPattern.test(pullRequest.mergeSha ?? "")) {
-    mergedIssues.push("pullRequest.mergeSha must be an exact 40-character lowercase Git SHA");
-  }
-  if (!Number.isInteger(pullRequest.runId) || pullRequest.runId < 1) {
-    mergedIssues.push("pullRequest.runId must be a positive integer");
-  }
-  const merge = entry.merge;
-  if (!merge || typeof merge !== "object" || Array.isArray(merge)) {
-    mergedIssues.push("merge evidence is required for a MERGED pullRequest");
-  } else {
-    if (merge.repository !== entry.repository) {
-      mergedIssues.push("merge.repository must equal repository");
-    }
-    if (merge.branch !== pullRequest.baseRef) {
-      mergedIssues.push("merge.branch must equal pullRequest.baseRef");
-    }
-    if (!gitShaPattern.test(merge.sha ?? "")) {
-      mergedIssues.push("merge.sha must be an exact 40-character lowercase Git SHA");
-    }
-    if (pullRequest.mergeSha !== merge.sha) {
-      mergedIssues.push("pullRequest.mergeSha must equal merge.sha");
-    }
-    if (!["PENDING", "SUCCESS", "FAILURE"].includes(merge.checks)) {
-      mergedIssues.push("merge.checks must be PENDING, SUCCESS, or FAILURE");
-    }
-    if (
-      merge.mainRunHeadSha !== undefined &&
-      merge.mainRunHeadSha !== null &&
-      merge.mainRunHeadSha !== merge.sha
-    ) {
-      mergedIssues.push("merge.mainRunHeadSha must equal merge.sha when present");
-    }
-    if (
-      merge.runId !== undefined &&
-      (!Number.isInteger(merge.runId) || merge.runId < 1)
-    ) {
-      mergedIssues.push("merge.runId must be a positive integer when present");
-    }
-    if (merge.checks !== "PENDING" && merge.mainRunHeadSha !== merge.sha) {
-      mergedIssues.push("completed merge evidence requires mainRunHeadSha equal to merge.sha");
-    }
-    if (
-      merge.checks !== "PENDING" &&
-      (!Number.isInteger(merge.runId) || merge.runId < 1)
-    ) {
-      mergedIssues.push("completed merge evidence requires a positive merge.runId");
-    }
-  }
-  if (mergedIssues.length > 0) {
-    return blockedDeliveryClassification("DELIVERY_EVIDENCE_INVALID", mergedIssues);
-  }
-  const blockedIssues = [];
-  if (pullRequest.checks === "FAILURE") {
-    blockedIssues.push("pullRequest.checks reports FAILURE");
-  }
-  if (pullRequest.review === "CHANGES_REQUESTED") {
-    blockedIssues.push("pullRequest.review reports CHANGES_REQUESTED");
-  }
-  if (merge.checks === "FAILURE") {
-    blockedIssues.push("merge.checks reports FAILURE");
-  }
-  if (blockedIssues.length > 0) {
-    return blockedDeliveryClassification("DELIVERY_BLOCKED", blockedIssues);
-  }
-  if (
-    pullRequest.checks === "PENDING" ||
-    pullRequest.review === "PENDING" ||
-    merge.checks === "PENDING"
-  ) {
-    return Object.freeze({ disposition: "RESUMABLE", issues: Object.freeze([]) });
-  }
-  return blockedDeliveryClassification("DELIVERY_EVIDENCE_INVALID", [
-    "supplied delivery evidence is neither pending nor a valid final ledger",
-  ]);
+function resumableClassification(expectation) {
+  return Object.freeze({
+    disposition: "RESUMABLE",
+    classification:
+      expectationContractKind(expectation) === HARDENED_CONTRACT
+        ? HARDENED_CONTRACT
+        : "PENDING",
+    actualHead: "UNVERIFIED",
+    mergeCompatibility: "UNVERIFIED",
+    postMerge: "UNVERIFIED",
+    issues: Object.freeze([]),
+  });
 }
 
 export function classifyDeliveryEvidence(taskId, entry, expectation) {
   const evidenceSupplied = entry !== undefined;
   const expectationSupplied = expectation !== undefined;
   if (!evidenceSupplied && !expectationSupplied) {
-    return Object.freeze({ disposition: "RESUMABLE", issues: Object.freeze([]) });
+    return resumableClassification(expectation);
   }
 
-  const evaluation = evaluateDeliveryEvidence(taskId, entry, expectation);
+  const expectationIssues = deliveryExpectationIssues(taskId, expectation);
   if (!evidenceSupplied) {
-    const missingEvidenceIssue = `Task ${taskId} requires GitHub delivery evidence`;
-    const suppliedExpectationIssues = evaluation.issues.filter(
-      (issue) => issue !== missingEvidenceIssue,
-    );
-    return suppliedExpectationIssues.length === 0
-      ? Object.freeze({ disposition: "RESUMABLE", issues: Object.freeze([]) })
-      : blockedDeliveryClassification(
-          "DELIVERY_EVIDENCE_INVALID",
-          suppliedExpectationIssues,
-        );
+    if (expectationIssues.length > 0) {
+      const validation = createValidation(
+        "INVALID",
+        "UNVERIFIED",
+        "UNVERIFIED",
+        "UNVERIFIED",
+      );
+      validation.issues.push(...expectationIssues);
+      return blockedDeliveryClassification("DELIVERY_EVIDENCE_INVALID", validation);
+    }
+    return resumableClassification(expectation);
   }
 
-  if (evaluation.satisfied) {
-    return Object.freeze({ disposition: "SATISFIED", issues: Object.freeze([]) });
+  if (!isRecord(entry)) {
+    return blockedDeliveryClassification(
+      "DELIVERY_EVIDENCE_INVALID",
+      invalidValidation(taskId, entry, expectation),
+    );
   }
-  if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
-    return blockedDeliveryClassification("DELIVERY_EVIDENCE_INVALID", evaluation.issues);
+
+  if (entry.claim === "PENDING") {
+    if (
+      entry.schemaVersion !== HARDENED_LEDGER_SCHEMA_VERSION ||
+      expectationContractKind(expectation) !== HARDENED_CONTRACT
+    ) {
+      return blockedDeliveryClassification(
+        "DELIVERY_EVIDENCE_INVALID",
+        invalidValidation(taskId, entry, expectation),
+      );
+    }
+    const validation = validateHardenedEntry(taskId, entry, expectation, {
+      final: false,
+    });
+    if (validation.blockers.length > 0) {
+      return blockedDeliveryClassification("DELIVERY_BLOCKED", validation);
+    }
+    if (validation.issues.length > 0) {
+      return blockedDeliveryClassification("DELIVERY_EVIDENCE_INVALID", validation);
+    }
+    return Object.freeze({
+      disposition: "RESUMABLE",
+      classification: HARDENED_CONTRACT,
+      actualHead: entry.actualHead ? "VERIFIED" : "UNVERIFIED",
+      mergeCompatibility: entry.mergeCompatibility
+        ? "VERIFIED_SYNTHETIC"
+        : "UNVERIFIED",
+      postMerge: entry.postMerge ? "VERIFIED_EXACT_CHECKOUT" : "UNVERIFIED",
+      issues: Object.freeze([]),
+    });
   }
-  return classifyPendingDeliveryEvidence(taskId, entry, expectation);
+
+  const validation = finalValidation(taskId, entry, expectation);
+  if (validation.blockers.length > 0) {
+    return blockedDeliveryClassification("DELIVERY_BLOCKED", validation);
+  }
+  if (validation.issues.length > 0) {
+    return blockedDeliveryClassification("DELIVERY_EVIDENCE_INVALID", validation);
+  }
+  return Object.freeze({
+    disposition: "SATISFIED",
+    classification: validation.classification,
+    actualHead: validation.actualHead,
+    mergeCompatibility: validation.mergeCompatibility,
+    postMerge: validation.postMerge,
+    issues: Object.freeze([]),
+  });
 }

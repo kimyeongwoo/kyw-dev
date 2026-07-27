@@ -242,6 +242,22 @@ test("kyw-impl preserves evidence honesty, final coverage review, and checkpoint
   assert.match(execution, /If safe reconciliation is impossible, record and block rather than hiding scope drift/);
 });
 
+test("kyw-impl collects hardened role-separated delivery evidence without legacy relabeling", async () => {
+  const execution = await readFile(EXECUTION_REFERENCE_PATH, "utf8");
+
+  assert.match(execution, /trusted-local expectation uses `schemaVersion: 2`/);
+  assert.match(execution, /HARDENED_EXACT_HEAD/);
+  assert.match(execution, /`PR_ACTUAL_HEAD`/);
+  assert.match(execution, /`PR_MERGE_COMPATIBILITY`/);
+  assert.match(execution, /`POST_MERGE_MAIN`/);
+  assert.match(execution, /`KYWCIEVIDENCE`/);
+  assert.match(execution, /successful job at only `refs\/pull\/<number>\/merge`/);
+  assert.match(execution, /do not rerun CI/i);
+  assert.match(execution, /`LEGACY_PRE_CONTRACT`/);
+  assert.match(execution, /actualHead: "UNVERIFIED"/);
+  assert.match(execution, /forbidden for the selected new outcome/);
+});
+
 test("shared adapter dispatches kyw-impl and leaves rejected authoring inputs byte-stable", async (t) => {
   const { tasksRoot, taskDirectory, taskMarkdown, testMarkdown } =
     await temporaryTasksRoot(t);
