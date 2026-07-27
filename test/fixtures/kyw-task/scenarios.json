@@ -1,7 +1,7 @@
 {
   "normal": {
     "fixture": "settled-project",
-    "invocation": "$kyw-task add an administrator unlock action",
+    "invocation": "$kyw-task \"add an administrator unlock action\"",
     "expectedOutcome": "An administrator can unlock one currently locked account.",
     "settledFacts": [
       "Node.js 22 or newer",
@@ -15,7 +15,7 @@
     ]
   },
   "oversized": {
-    "invocation": "$kyw-task add administrator unlock, replace session storage, and build an audit dashboard",
+    "invocation": "$kyw-task \"add administrator unlock, replace session storage, and build an audit dashboard\"",
     "independentOutcomes": [
       "administrator unlock action",
       "session storage migration",
@@ -33,11 +33,13 @@
     "beforePublicationPairCount": 0,
     "publishedStatus": "READY/READY",
     "postPublicationConfirmationRequired": false,
-    "createOnlyImplementationStarts": false,
-    "createAndExecuteActiveTaskCount": 1,
-    "createAndExecuteSelectedPairIndex": 0,
+    "implementationStarts": false,
+    "permanentDocumentMutationStarts": false,
+    "automaticSkillChainStarts": false,
+    "nextCommandCount": 1,
+    "nextCommand": "$kyw-impl 0004",
     "unselectedPairStatus": "READY/READY",
-    "continuousInvocationRequiredForRemainder": true
+    "explicitImplInvocationRequired": true
   },
   "explicitStructure": {
     "requestedCount": 2,
@@ -50,7 +52,8 @@
       "Administrative unlock"
     ],
     "requestedDependency": "Administrative unlock depends on Authentication foundation",
-    "requestedMode": "CREATE_ONLY",
+    "authoringOnly": true,
+    "redundantCreateOnlyIntentAccepted": true,
     "preservedExactlyWhenSafe": true,
     "silentRewriteAllowed": false
   },
@@ -66,5 +69,32 @@
     "initialStatus": "DRAFT/DRAFT",
     "explicitConfirmationRequired": true,
     "promotedStatus": "READY/READY"
-  }
+  },
+  "nonDraftExact": [
+    {
+      "initialStatus": "READY/READY",
+      "implementationStarts": false,
+      "guidance": "$kyw-impl 0042"
+    },
+    {
+      "initialStatus": "IN_PROGRESS/RUNNING",
+      "implementationStarts": false,
+      "guidance": "$kyw-impl 0042"
+    },
+    {
+      "initialStatus": "BLOCKED/BLOCKED",
+      "implementationStarts": false,
+      "guidance": "$kyw-impl 0042"
+    },
+    {
+      "initialStatus": "DONE/PASSED",
+      "implementationStarts": false,
+      "guidance": "$kyw-impl 0042"
+    },
+    {
+      "initialStatus": "CANCELLED/BLOCKED",
+      "implementationStarts": false,
+      "guidance": "$kyw-impl 0042"
+    }
+  ]
 }

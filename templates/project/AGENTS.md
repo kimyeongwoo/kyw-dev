@@ -19,10 +19,10 @@ Stop and reconcile these documents when they conflict.
 
 ## Task Routing
 
-This is the minimal derived projection required for loaded repository routing. The installed `$kyw-task` execution reference owns the detailed procedure.
+This is the minimal derived projection required for loaded repository routing. The installed `$kyw-impl` execution reference owns the detailed procedure.
 
-- `$kyw-task NNNN` is portable for existing Tasks. With this contract, also route only `task NNNN 실행해줘`, `task 진행해줘`, and `남은 task 계속 실행해줘`; incidental `task` text never triggers.
-- Create mode may atomically author the smallest dependency-aware `READY/READY` pair set; create-only stops, while create-and-execute activates only its first eligible Task.
+- `$kyw-task "goal"` only authors the smallest dependency-aware `READY/READY` pair set, reports one exact next `$kyw-impl NNNN`, and stops without implementation or automatic chaining. `$kyw-task NNNN` only resumes compatible `DRAFT/DRAFT` authoring; a non-DRAFT pair receives `$kyw-impl NNNN` migration guidance.
+- `$kyw-impl NNNN` is portable for existing Tasks. With this contract, route only `task NNNN 실행해줘`, `task 진행해줘`, and `남은 task 계속 실행해줘` to `kyw-impl`; incidental `task` text never triggers.
 - Keep one Task active: exact cannot bypass it; ready selection confirms; otherwise resume the sole active, then resumable `STANDARD` delivery, then the lowest eligible ready. Continuous mode is serial here.
 - Preserve model/effort unless overridden. Task/Test owns repository outcome; GitHub gates delivery. Selected `IMPLEMENT`, `RESUME`, or `DELIVER` needs no ordinary `STANDARD` reconfirmation. Ask one question with one recommendation only for a real user-owned blocker; otherwise consume appended constraints and proceed. Publication/force/destructive/non-standard actions stay separate.
 

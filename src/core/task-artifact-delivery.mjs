@@ -1,4 +1,4 @@
-const exactInvocationPattern = /^\$kyw-task\s+(\d{4})(?:\s+([\s\S]*\S))?\s*$/u;
+const exactInvocationPattern = /^\$kyw-impl\s+(\d{4})(?:\s+([\s\S]*\S))?\s*$/u;
 const managedExactAliasPattern = /^task\s+(\d{4})\s+실행해줘(?:\s+([\s\S]*\S))?\s*$/iu;
 const managedNextAliasPattern = /^task\s+진행해줘(?:\s+([\s\S]*\S))?\s*$/iu;
 const managedContinuousAliasPattern =
@@ -6,7 +6,7 @@ const managedContinuousAliasPattern =
 const gitShaPattern = /^[0-9a-f]{40}$/;
 
 function portableFallback(taskId) {
-  return taskId ? `$kyw-task ${taskId}` : "$kyw-task NNNN";
+  return taskId ? `$kyw-impl ${taskId}` : "$kyw-impl NNNN";
 }
 
 export function parseTaskInvocation(invocation, { managedRoutingAvailable = false } = {}) {

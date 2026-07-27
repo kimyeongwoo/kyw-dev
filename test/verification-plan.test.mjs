@@ -77,7 +77,7 @@ test("documentation and Skill changes receive smaller focused plans", () => {
   const skill = planVerification({
     changedPaths: [
       "skills/kyw-task/SKILL.md",
-      "skills/kyw-task/references/execution.md",
+      "skills/kyw-impl/references/execution.md",
       "docs/tasks/0035-verification-tiering/TEST.md",
     ],
   });
@@ -85,6 +85,7 @@ test("documentation and Skill changes receive smaller focused plans", () => {
   assert.equal(skill.highestTier, "FOCUSED");
   assert.equal(skill.leafCommandCount, 3);
   assert.match(skill.commands[0].command, /test\/kyw-task\.test\.mjs/);
+  assert.match(skill.commands[0].command, /test\/kyw-impl\.test\.mjs/);
   assert.deepEqual(
     skill.commands.slice(1).map(({ command }) => command),
     ["npm run format:check", "npm run pack:check"],
@@ -147,6 +148,12 @@ test("template owners stay focused while an unknown packaged Skill fails closed 
   assert.match(projectTemplate.commands[0].command, /test\/template-contracts\.test\.mjs/);
   assert.match(projectTemplate.commands[0].command, /test\/kyw-init\.test\.mjs/);
 
+  const implementationSkill = planVerification({
+    changedPaths: ["skills/kyw-impl/SKILL.md"],
+  });
+  assert.equal(implementationSkill.changeClass, "skill");
+  assert.match(implementationSkill.commands[0].command, /test\/kyw-impl\.test\.mjs/);
+
   const unknownSkill = planVerification({ changedPaths: ["skills/unknown/SKILL.md"] });
   assert.equal(unknownSkill.changeClass, "runtime");
   assert.deepEqual(unknownSkill.commands.map(({ command }) => command), ["npm run check"]);
@@ -187,13 +194,14 @@ test("changed paths fail closed before classification", () => {
 test("CLI emits a reproducible JSON plan and rejects missing input", () => {
   const result = spawnSync(
     process.execPath,
-    [scriptPath, "--json", "skills/kyw-task/SKILL.md"],
+    [scriptPath, "--json", "skills/kyw-impl/SKILL.md"],
     { encoding: "utf8" },
   );
   assert.equal(result.status, 0, result.stderr);
   const plan = JSON.parse(result.stdout);
   assert.equal(plan.changeClass, "skill");
   assert.equal(plan.leafCommandCount, 3);
+  assert.match(plan.commands[0].command, /test\/kyw-impl\.test\.mjs/);
   assert.equal(plan.hosted.leafCommandCount, 29);
 
   const missing = spawnSync(process.execPath, [scriptPath], { encoding: "utf8" });
@@ -215,7 +223,7 @@ test("permanent, Task, package, and hosted surfaces keep the tier contract align
   const specification = readRepositoryText("docs/SPEC.md");
   const architecture = readRepositoryText("docs/ARCHITECTURE.md");
   const readme = readRepositoryText("README.md");
-  const execution = readRepositoryText("skills/kyw-task/references/execution.md");
+  const execution = readRepositoryText("skills/kyw-impl/references/execution.md");
   const workflow = readRepositoryText(".github/workflows/ci.yml");
   const packageJson = JSON.parse(readRepositoryText("package.json"));
 

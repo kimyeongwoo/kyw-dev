@@ -47,7 +47,7 @@ export const SCENARIO_CONTRACTS = Object.freeze([
     id: "S-03",
     acceptance: "SPEC AC-05 / AC-06",
     fixture: "s03-task",
-    intent: "Atomically allocate the exact next READY Task/Test pair and stop for create-only intent.",
+    intent: "Author the exact next READY Task/Test pair, report one exact kyw-impl command, and stop.",
     expectedMutations: Object.freeze([
       "docs/tasks/0004-<allocated-slug>/TASK.md",
       "docs/tasks/0004-<allocated-slug>/TEST.md",
@@ -57,7 +57,7 @@ export const SCENARIO_CONTRACTS = Object.freeze([
     id: "S-04",
     acceptance: "SPEC AC-05",
     fixture: "S-03 resulting-state copy",
-    intent: "Recover the existing create-only READY pair without reallocating or recreating it.",
+    intent: "Select the existing READY pair through kyw-impl without allocating or recreating a pair.",
     expectedMutations: Object.freeze([]),
   }),
   Object.freeze({
@@ -410,11 +410,13 @@ export function validateDirectScenarioEvidence(record) {
       "pairComplete",
       "traceability",
       "readyPair",
-      "createOnlyStop",
+      "authoringStop",
+      "oneNextImplCommand",
       "applicationUnchanged",
     ]) {
       requireCheck(name);
     }
+    requireCheck("automaticSkillChain", false);
     if (record.checks?.taskNumber !== "0004") errors.push("S-03: wrong Task number");
   }
   if (record.id === "S-04") {
@@ -425,11 +427,12 @@ export function validateDirectScenarioEvidence(record) {
       "gitStateRead",
       "handoffFieldsRead",
       "readyPair",
-      "createOnlyStop",
+      "implementationInvocation",
     ]) {
       requireCheck(name);
     }
-    requireCheck("resumeAllocatedTask", false);
+    requireCheck("taskAllocation", false);
+    requireCheck("authoringMutation", false);
   }
   if (record.id === "S-05") {
     for (const name of [

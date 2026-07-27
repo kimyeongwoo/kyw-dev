@@ -42,7 +42,13 @@ export const ISOLATION_OUTCOMES = Object.freeze({
   AMBIENT_STATE_CHANGED: "AMBIENT_STATE_CHANGED",
 });
 
-const managedSkillNames = Object.freeze(["kyw-audit", "kyw-grilling", "kyw-init", "kyw-task"]);
+const managedSkillNames = Object.freeze([
+  "kyw-audit",
+  "kyw-grilling",
+  "kyw-impl",
+  "kyw-init",
+  "kyw-task",
+]);
 const attributionIdentifiers = Object.freeze([
   "kyw-dev-local",
   "kyw-dev",

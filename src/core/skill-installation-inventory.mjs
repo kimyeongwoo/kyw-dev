@@ -4,6 +4,7 @@ import path from "node:path";
 import {
   INSTALL_METADATA_NAME,
   INSTALL_SCHEMA_VERSION,
+  LEGACY_MANAGED_SKILL_NAMES,
   MANAGED_SKILL_NAMES,
   PACKAGE_ROOT,
   SkillInstallationError,
@@ -307,8 +308,16 @@ export function validateInstallMetadata(metadata, { expectedScope } = {}) {
       }
       skillNames.push(skill.name);
     }
-    if (JSON.stringify(skillNames) !== JSON.stringify(MANAGED_SKILL_NAMES)) {
-      errors.push(`skills must list exactly: ${MANAGED_SKILL_NAMES.join(", ")}`);
+    const skillListIdentity = JSON.stringify(skillNames);
+    if (
+      skillListIdentity !== JSON.stringify(MANAGED_SKILL_NAMES) &&
+      skillListIdentity !== JSON.stringify(LEGACY_MANAGED_SKILL_NAMES)
+    ) {
+      errors.push(
+        "skills must list exactly the current inventory " +
+          `(${MANAGED_SKILL_NAMES.join(", ")}) or legacy schema-1 inventory ` +
+          `(${LEGACY_MANAGED_SKILL_NAMES.join(", ")})`,
+      );
     }
   }
 

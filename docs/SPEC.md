@@ -112,65 +112,62 @@ Output:
 
 ### `$kyw-task`
 
-Purpose: create the smallest safe set of numbered Tasks for one request, execute an exact existing Task, or advance a pre-created Task queue serially through implementation and verification.
+Purpose: author the smallest safe set of numbered Task/Test pairs for one request, or finish compatible authoring of an existing DRAFT pair.
 
 Invocation examples:
 
 ```text
 $kyw-task "add account lockout"
 $kyw-task 0007
+```
+
+Required behavior:
+
+1. Read permanent documents and inspect relevant code.
+2. Identify unresolved Task-level decisions; reuse the grilling protocol only for intent discovery or one genuine blocking decision.
+3. Keep one pair when the request has one independently verifiable outcome and one coherent acceptance set. When independent outcomes, separate acceptance sets, dependency ordering, or session scope require decomposition, derive the smallest dependency-aware Task/Test pair set and create the complete set instead of stopping at a split proposal.
+4. Honor Task count, boundaries, order, titles, and dependencies explicitly supplied in the current prompt when they satisfy independent verification, truthful evidence, permanent truth, and safety. `create-only` is redundant authoring intent; a request to create and execute still ends at the authoring boundary and requires a new explicit `kyw-impl` invocation. When another constraint conflicts, state the conflict and minimum safe alternative and ask only the one user decision genuinely required to proceed.
+5. Keep decomposition, number/path allocation, dependency materialization, and Task/Test authoring inside `kyw-task`; do not transfer those responsibilities or file writes to `kyw-grilling`.
+6. Preallocate every ID and final path, render every complete pair with acceptance criteria and an intent-to-test matrix, canonically validate all pairs and the full dependency graph, then publish the whole set through one versioned transaction manifest/lock. Revalidate the queue and dependency-source identities, target paths, and prepared pair hashes after lock acquisition and immediately before first publication.
+7. Fail before publication on a missing dependency or cycle. A validation, race, lock, write, or publication failure leaves no usable partial queue when ownership-safe rollback is fully proven. Unknown, linked, replaced, or changed transaction paths preserve the manifest/lock and keep canonical readers fail-closed; the workflow must not claim successful rollback or a clean partial-queue state in that case.
+8. Publish every successfully authored pair as `READY/READY`. Existing DRAFT pairs and the legacy one-pair scaffold helper remain resumable for compatibility, but adaptive create does not publish a placeholder DRAFT for later customization.
+9. Treat permanent documents and implementation files as read-only. Record expected documentation impact in the authored pair, but leave durable-document synchronization to a later selected `kyw-impl` execution.
+10. Authoring does not invoke `$kyw-impl` automatically. After success, report the created paths and dependencies, print exactly one next `$kyw-impl NNNN` command for the first eligible created pair, and stop without implementation, permanent-document mutation, commit, PR, or delivery.
+11. Use `$kyw-task NNNN` only when that exact existing pair is `DRAFT/DRAFT`: finish or revise authoring, validate it, and promote it to `READY/READY` when confirmed. For any non-DRAFT pair, perform no execution and return state-appropriate migration guidance containing the exact `$kyw-impl NNNN` command.
+
+### `$kyw-impl`
+
+Purpose: select and execute already existing Tasks through implementation, resume, verification, durable-document synchronization, terminal repository state, and ordinary `STANDARD` delivery.
+
+Invocation examples:
+
+```text
+$kyw-impl 0007
 task 0007 실행해줘
 task 진행해줘
 남은 task 계속 실행해줘
 ```
 
-The `$kyw-task NNNN` form is portable. The three natural-language forms are anchored repository aliases available only when a kyw-managed `AGENTS.md` routing contract is loaded; a surface without that contract must direct the user to the portable form.
+The `$kyw-impl NNNN` form is portable. The three natural-language forms are anchored repository aliases available only when a kyw-managed `AGENTS.md` routing contract is loaded; a surface without that contract must direct the user to the portable form. Incidental text containing `task` does not match an anchored alias and retains ordinary-prompt behavior.
 
-New-Task behavior:
+Required behavior:
 
-1. Read permanent documents and inspect relevant code.
-2. Identify unresolved Task-level decisions; reuse the grilling protocol only for intent discovery or one genuine blocking decision.
-3. Keep one pair when the request has one independently verifiable outcome and one coherent acceptance set. When independent outcomes, separate acceptance sets, dependency ordering, or session scope require decomposition, derive the smallest dependency-aware Task/Test pair set and create the complete set instead of stopping at a split proposal.
-4. Honor Task count, boundaries, order, titles, dependencies, and create-only versus create-and-execute behavior explicitly supplied in the current prompt when they satisfy independent verification, truthful evidence, permanent truth, and safety. When they do not, state the conflict and minimum safe alternative and ask only the one user decision genuinely required to proceed.
-5. Keep decomposition, number/path allocation, dependency materialization, and Task/Test authoring inside `kyw-task`; do not transfer those responsibilities or file writes to `kyw-grilling`.
-6. Preallocate every ID and final path, render every complete pair with acceptance criteria and an intent-to-test matrix, canonically validate all pairs and the full dependency graph, then publish the whole set through one versioned transaction manifest/lock. Revalidate the queue and dependency-source identities, target paths, and prepared pair hashes after lock acquisition and immediately before first publication.
-7. Fail before publication on a missing dependency or cycle. A validation, race, lock, write, or publication failure leaves no usable partial queue when ownership-safe rollback is fully proven. Unknown, linked, replaced, or changed transaction paths preserve the manifest/lock and keep canonical readers fail-closed; the workflow must not claim successful rollback or a clean partial-queue state in that case.
-8. Publish every successfully authored pair as `READY/READY`. Existing DRAFT pairs and the legacy one-pair scaffold helper remain resumable for compatibility, but adaptive create does not publish a placeholder DRAFT for later customization.
-9. For create-only intent, report the created pair set and stop without implementation. For create-and-execute intent, begin only the first dependency-satisfied new Task through the ordinary single-Task execution lifecycle. Executing every remaining pair still requires the existing `남은 task 계속 실행해줘` dispatcher contract.
-
-Execution behavior:
-
-1. Implement only the current Task scope; adaptive authoring may create several ready pairs, but at most one enters execution.
-2. Update Task and Test when discoveries, design, scope, risk, or expected behavior changes.
-3. Synchronize permanent documents whenever durable truth changes.
-4. Run the planned tests and any additional tests implied by the final diff.
-5. Record exact commands, results, failures, and unverified items.
-6. Review the final diff against scope and test coverage.
-7. Conclude `DONE`, `BLOCKED`, or `CANCELLED`; never infer a pass from unexecuted checks.
-
-Resume behavior:
-
-1. Load the current Task and Test state, permanent documents, git status, and relevant diff.
-2. Verify recorded state against the repository.
-3. Resume at `Resume Point` rather than repeating completed work.
-4. Before compaction, refresh `Completed`, `Remaining`, `Resume Point`, and test evidence.
-
-Existing-Task dispatch behavior:
-
-1. Resolve an exact ID to exactly one existing Task. Selecting a current-contract `READY/READY` pair confirms implementation and, for `STANDARD`, the ordinary delivery lifecycle. Ask a user question only when a genuinely unresolved user-owned decision blocks progress; that progress turn contains exactly one question and exactly one recommended answer. When no such blocker exists, proceed without a ceremonial question. A different active Task blocks exact selection.
-2. Treat `DRAFT/DRAFT` as unconfirmed authoring, `READY/READY` as selectable, `IN_PROGRESS/RUNNING` as active, `DONE/PASSED` as repository-complete, `BLOCKED/BLOCKED` as stopped, and `CANCELLED/BLOCKED` as terminal. Any other pair fails closed.
-3. For every non-complete current-contract Task, require `## Dependencies` to be exactly the canonical no-dependency sentinel or one or more `- Task NNNN.` bullets with one distinct reference per bullet. Reject other prose, negation, explanatory mentions, duplicates, and mixed forms. A missing referenced Task, dependency cycle, or unsatisfied hard dependency fails closed. Repository-complete current artifacts whose dependency prose predates this grammar remain readable through the prior literal-reference interpretation without being rewritten; unmarked legacy artifacts retain their historical contract.
-4. For `task 진행해줘`, safely resume the sole active pair; if none exists, resume the lowest-numbered repository-complete Task whose `STANDARD` delivery is classified `RESUMABLE`; only then select the lowest-numbered dependency-satisfied ready pair. Multiple active pairs fail closed.
-5. For `남은 task 계속 실행해줘`, use the same priority and authority for each selected Task, process only pre-created eligible Tasks serially and within the current invocation, and recheck repository, remote, and required GitHub delivery state before every transition. Never promise background continuation.
-6. Stop on an active or hard-dependency blocker, current queue-frontier blocker, unsafe drift, unexplained user work, unresolved product decision, review or CI failure, or separately gated authority. A historical blocker that is neither active nor a hard dependency does not freeze a current queue.
-7. Treat only text appended by the current user to the invocation as an execution override. Consume it as a settled constraint without asking it back to the user. It applies to the first selected Task unless the user explicitly scopes it to every remaining Task, and it cannot waive acceptance, evidence honesty, safety, user-work preservation, or external-mutation authority. Stop for one blocking decision question only when the constraint conflicts with durable truth or remains materially ambiguous.
-8. Preserve the active model and reasoning effort unless the current user explicitly overrides them. For model-dependent evidence, record model identifier, requested model alias, reasoning effort, concrete Codex surface, Codex version, and per-field observability in `TEST.md`. A known absence of an override is observed; a value the active surface does not expose is `UNAVAILABLE`. Never infer, downgrade, substitute, or sweep settings.
-9. Let Task/Test own repository outcome and reproducible evidence. A current-contract pair declares `STANDARD` delivery with GitHub PR/Actions exact-SHA state as its canonical ledger, or `NONE` with a reason. Bind that ledger to separately inspected local repository, base, and outcome-SHA expectations. Mutable delivery results never become future facts required inside the pair. The static `STANDARD` declaration alone grants no ambient mutation authority; a recognized exact, automatic, or continuous invocation returning `IMPLEMENT`, `RESUME`, or `DELIVER` grants the selected Task's ordinary lifecycle authority without another ceremonial confirmation.
-10. Ordinary `STANDARD` authority includes implementation, acceptance-specific verification, repository `DONE/PASSED`, exact-path staging and commit, non-force branch push, non-draft PR creation, exact-head PR CI observation, review-blocker and mergeability inspection, expected-head protected merge, exact post-merge base-branch CI observation, and terminal reporting. It excludes publication, registry mutation, tags, GitHub Releases, public plugin submission, force push, destructive recovery, branch deletion, workflow rerun, bypass, and unrelated mutation.
-11. Do not advance past a repository-complete Task while required delivery remains unknown, pending, or failed. Missing or pending final evidence means authorized ordinary delivery must resume; supplied CI failure, review blocker, repository/base/SHA drift, conflict, unexplained user work, or a new user-owned decision fails closed. Fully bound successful evidence is terminal and must not create duplicate delivery mutations. CI success proves delivery state, not behavioral acceptance.
-12. Create no Task and return exactly `현재 만들어진 Task는 모두 완료됐습니다. 더 이상 진행할 작업이 없습니다. 추가로 하고 싶은 작업이 있나요?` only when every applicable current-contract Task is `DONE/PASSED`, every hard dependency is satisfied, and every required delivery gate is satisfied.
-13. A current draft, blocked, cancelled, delivery-incomplete, inconsistent, or otherwise non-complete Task prevents that all-complete verdict. Report its selectable, blocker, no-selectable, or distinct `TASK_CANCELLED` terminal result even when a higher-numbered Task is complete.
-14. Incidental text containing `task` does not match an anchored alias and retains ordinary-prompt behavior.
+1. Accept only an exact existing Task or the managed automatic/continuous aliases. A goal-style request, missing Task, or new outcome performs zero allocation or pair mutation and guides the user to a new explicit `$kyw-task "<outcome>"` invocation. A `DRAFT/DRAFT` pair is not implementation-ready and receives exact `$kyw-task NNNN` authoring guidance.
+2. Resolve an exact ID to exactly one existing Task. Selecting a current-contract `READY/READY` pair confirms implementation and, for `STANDARD`, the ordinary delivery lifecycle. Ask a user question only when a genuinely unresolved user-owned decision blocks progress; that progress turn contains exactly one question and exactly one recommended answer. When no such blocker exists, proceed without a ceremonial question. A different active Task blocks exact selection.
+3. Treat `READY/READY` as selectable, `IN_PROGRESS/RUNNING` as active, `DONE/PASSED` as repository-complete, `BLOCKED/BLOCKED` as conditionally recheckable, and `CANCELLED/BLOCKED` as terminal. Any other pair fails closed. Preserve current and legacy artifact readers without schema or historical rewrite; an exact legacy pair remains recheckable or resumable according to its recorded historical contract.
+4. Implement only the selected current Task scope. Update its Task and Test when discoveries, design, scope, risk, or expected behavior changes; synchronize only permanent documents whose durable truth changes; run planned and final-diff-implied tests; record exact commands, results, failures, and unverified items; review final scope and coverage; and conclude `DONE`, `BLOCKED`, or `CANCELLED` without inferring a pass from unexecuted checks.
+5. On resume, load the current pair, permanent documents, git status, and relevant diff, verify recorded state against the repository, and continue at `Resume Point` rather than repeating Completed work. Before compaction, refresh `Completed`, `Remaining`, `Resume Point`, and test evidence.
+6. For every non-complete current-contract Task, require `## Dependencies` to be exactly the canonical no-dependency sentinel or one or more `- Task NNNN.` bullets with one distinct reference per bullet. Reject other prose, negation, explanatory mentions, duplicates, and mixed forms. A missing referenced Task, dependency cycle, or unsatisfied hard dependency fails closed. Repository-complete current artifacts whose dependency prose predates this grammar remain readable through the prior literal-reference interpretation without being rewritten; unmarked legacy artifacts retain their historical contract.
+7. For `task 진행해줘`, safely resume the sole active pair; if none exists, resume the lowest-numbered repository-complete Task whose `STANDARD` delivery is classified `RESUMABLE`; only then select the lowest-numbered dependency-satisfied ready pair. Multiple active pairs fail closed.
+8. For `남은 task 계속 실행해줘`, use the same priority and authority for each selected Task, process only pre-created eligible Tasks serially and within the current invocation, and recheck repository, remote, and required GitHub delivery state before every transition. Never promise background continuation.
+9. Stop on an active or hard-dependency blocker, current queue-frontier blocker, unsafe drift, unexplained user work, unresolved product decision, review or CI failure, or separately gated authority. A historical blocker that is neither active nor a hard dependency does not freeze a current queue.
+10. Treat only text appended by the current user to the invocation as an execution override. Consume it as a settled constraint without asking it back to the user. It applies to the first selected Task unless the user explicitly scopes it to every remaining Task, and it cannot waive acceptance, evidence honesty, safety, user-work preservation, or external-mutation authority. Stop for one blocking decision question only when the constraint conflicts with durable truth or remains materially ambiguous.
+11. Preserve the active model and reasoning effort unless the current user explicitly overrides them. For model-dependent evidence, record model identifier, requested model alias, reasoning effort, concrete Codex surface, Codex version, and per-field observability in `TEST.md`. A known absence of an override is observed; a value the active surface does not expose is `UNAVAILABLE`. Never infer, downgrade, substitute, or sweep settings.
+12. Let Task/Test own repository outcome and reproducible evidence. A current-contract pair declares `STANDARD` delivery with GitHub PR/Actions exact-SHA state as its canonical ledger, or `NONE` with a reason. Bind that ledger to separately inspected local repository, base, and outcome-SHA expectations. Mutable delivery results never become future facts required inside the pair. The static `STANDARD` declaration alone grants no ambient mutation authority; a recognized exact, automatic, or continuous invocation returning `IMPLEMENT`, `RESUME`, or `DELIVER` grants the selected Task's ordinary lifecycle authority without another ceremonial confirmation.
+13. Ordinary `STANDARD` authority includes implementation, acceptance-specific verification, repository `DONE/PASSED`, exact-path staging and commit, non-force branch push, non-draft PR creation, exact-head PR CI observation, review-blocker and mergeability inspection, expected-head protected merge, exact post-merge base-branch CI observation, and terminal reporting. It excludes publication, registry mutation, tags, GitHub Releases, public plugin submission, force push, destructive recovery, branch deletion, workflow rerun, bypass, and unrelated mutation.
+14. Do not advance past a repository-complete Task while required delivery remains unknown, pending, or failed. Missing or pending final evidence means authorized ordinary delivery must resume; supplied CI failure, review blocker, repository/base/SHA drift, conflict, unexplained user work, or a new user-owned decision fails closed. Fully bound successful evidence is terminal and must not create duplicate delivery mutations. CI success proves delivery state, not behavioral acceptance.
+15. Create no Task and return exactly `현재 만들어진 Task는 모두 완료됐습니다. 더 이상 진행할 작업이 없습니다. 추가로 하고 싶은 작업이 있나요?` only when every applicable current-contract Task is `DONE/PASSED`, every hard dependency is satisfied, and every required delivery gate is satisfied.
+16. A current draft, blocked, cancelled, delivery-incomplete, inconsistent, or otherwise non-complete Task prevents that all-complete verdict. Report its authoring guidance, selectable, blocker, no-selectable, or distinct `TASK_CANCELLED` terminal result even when a higher-numbered Task is complete.
 
 ### `$kyw-audit`
 
@@ -220,6 +217,7 @@ Required behavior:
 - Once terminal cancellation is established, stop immediately and do not resume, summarize, seek confirmation, or ask another decision under later implementation pressure without a new explicit invocation.
 - Do not act on the plan until the user confirms shared understanding.
 - Produce no file by itself unless a wrapper Skill explicitly materializes the result.
+- After terminal confirmation of a feature-design outcome, recommend a new explicit `$kyw-task "<confirmed outcome>"` invocation. Do not add a create-only suffix, write files, invoke that Skill automatically, or continue the interview.
 
 ## 6.2 npm CLI
 
@@ -292,7 +290,7 @@ Stable exit codes:
 | 6 | filesystem or permission failure |
 | 7 | recovery required |
 
-Direct-install metadata uses schema version 1 and records package name/version, scope, install/update timestamps, the four managed Skill paths, and a sorted SHA-256 inventory. Mutating commands stage bytes beneath the validated Skills root before touching targets, publish a bounded recovery journal before commit, commit metadata last, roll back an incomplete commit only from type/hash/ownership-proven entries, and finish cleanup only when exact markers and the published state prove the new state. Unknown content inside a reserved transaction directory blocks recursive cleanup for inspection. Broad recursive deletion of `.agents/skills/` is never allowed.
+Direct-install metadata uses schema version 1 and records package name/version, scope, install/update timestamps, the five managed Skill paths, and a sorted SHA-256 inventory. New install and update writes use that five-Skill inventory. Doctor, update, and uninstall also accept the exact legacy schema-1 four-Skill inventory for safe ownership validation and transition; no other partial or reordered inventory is valid. Mutating commands stage bytes beneath the validated Skills root before touching targets, publish a bounded recovery journal before commit, commit metadata last, roll back an incomplete commit only from type/hash/ownership-proven entries, and finish cleanup only when exact markers and the published state prove the new state. Unknown content inside a reserved transaction directory blocks recursive cleanup for inspection. Broad recursive deletion of `.agents/skills/` is never allowed.
 
 ## 7. Managed project artifact contract
 
@@ -478,7 +476,7 @@ Do not split by arbitrary file count or estimated token count alone. Adaptive cr
 
 - Create `TEST.md` immediately with the Task.
 - Derive initial cases from Goal, scope, acceptance criteria, known failure paths, and required regressions.
-- Adaptive create publishes only complete canonically validated `READY/READY` pairs after intent and any real blocker are settled. Create-only authority ends there; create-and-execute authority begins only the first dependency-satisfied pair.
+- Adaptive authoring publishes only complete canonically validated `READY/READY` pairs after intent and any real blocker are settled, reports one exact next `$kyw-impl NNNN`, and stops. Execution begins only through that later explicit invocation.
 - Preserve existing `DRAFT/DRAFT` pairs and the compatible one-pair scaffold helper as resumable historical/low-level authoring paths; never reinterpret them as confirmed.
 
 ### During development
@@ -516,7 +514,7 @@ Do not repeat a package identity proof against the same immutable candidate byte
 
 When the user asks a question or small, bounded change without invoking a Skill:
 
-- first recognize only the three exact anchored Task aliases when the managed repository routing contract is loaded;
+- first recognize only the three exact anchored existing-Task aliases and route them to `kyw-impl` when the managed repository routing contract is loaded;
 - do not create a numbered Task by default;
 - inspect the repository and answer or implement directly;
 - run proportionate verification for code/configuration changes;
@@ -543,7 +541,7 @@ When the user asks a question or small, bounded change without invoking a Skill:
 - Primary target: current Codex CLI, IDE extension, and ChatGPT desktop Codex surfaces that support Skills.
 - Direct Skills are supported on the ChatGPT desktop app, Codex CLI, and IDE extension. Plugins are supported on the ChatGPT desktop app and Codex CLI but not in the IDE extension; IDE users use direct repository or user Skills.
 - Skill directories must contain `SKILL.md` with `name` and `description`.
-- User-visible Skills must provide `agents/openai.yaml` with UI metadata and explicit-invocation policy.
+- All five user-visible Skills must provide `agents/openai.yaml` with UI metadata and explicit-invocation policy.
 - Plugin root must contain `.codex-plugin/plugin.json` and keep Skill paths relative to the plugin root.
 - MVP Node runtime target: Node.js 22 or newer. Node.js 20 and unsupported odd-numbered releases are not supported CI targets.
 - Required runtime evidence covers Node.js 22 and 24 LTS on Linux, macOS, and Windows. While the public engine floor remains `>=22`, Node.js 26 Current has one bounded Linux compatibility lane until it becomes an LTS baseline or the policy is revised.
@@ -584,11 +582,11 @@ Public pull requests, pushes to `main`, and manual CI dispatch must run credenti
 The MVP is accepted when all of the following are demonstrated:
 
 1. The npm package packs with the required plugin and Skill files.
-2. A user-scope direct installation makes the four Skills discoverable.
-3. A project-scope direct installation makes the four Skills discoverable only in that project context.
+2. A user-scope direct installation makes the five Skills discoverable.
+3. A project-scope direct installation makes the five Skills discoverable only in that project context.
 4. `$kyw-init` can initialize an empty fixture and adopt an existing fixture without destructive replacement.
-5. `$kyw-task` creates one pair for one outcome or the smallest dependency-aware pair set for multiple outcomes, with every Task and Test document present and canonically valid.
-6. Create-only stops with all new pairs `READY/READY`; create-and-execute begins only the first dependency-satisfied pair after intent is settled, and no invocation activates more than one Task.
+5. `$kyw-task` creates one pair for one outcome or the smallest dependency-aware pair set for multiple outcomes, with every Task and Test document present and canonically valid, reports one exact next `$kyw-impl NNNN`, and stops without execution or automatic chaining.
+6. `$kyw-impl` executes or resumes only an existing Task, preserves one-current-Task selection and ordinary verification/documentation/delivery behavior, and never allocates or authors a pair.
 7. The Test workflow catches at least one intentionally untested implementation branch in a fixture.
 8. Ordinary small-change instructions enforce permanent-document impact review without creating a Task.
 9. `$kyw-audit` detects stale permanent documentation and unsupported pass claims.

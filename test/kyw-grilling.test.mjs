@@ -164,6 +164,16 @@ test("kyw-grilling standalone confirmation and zero-mutation boundaries are expl
   assert.match(skill, /Do not invoke another Skill or act on the result/);
   assert.match(skill, /Do not create, edit, rename, move, or delete files/);
   assert.match(skill, /Do not implement the plan before or after confirmation/);
+  assert.match(skill, /recommend a new explicit `\$kyw-task "<confirmed outcome>"` invocation/);
+  assert.match(
+    skill,
+    /`?\$kyw-task "<confirmed outcome>"[^.\n]*without a create-only suffix[\s\S]*Do not invoke another Skill or act on the result/,
+  );
+  assert.doesNotMatch(
+    skill,
+    /`?\$kyw-task "<confirmed outcome>" create-only`?/,
+    "the terminal route must not retain the retired suffix",
+  );
 });
 
 test("kyw-grilling upstream MIT license attribution remains preserved", () => {
