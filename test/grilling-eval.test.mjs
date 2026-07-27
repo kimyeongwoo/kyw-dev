@@ -73,7 +73,7 @@ test("pinned upstream baseline, rubric, schemas, and eight scenarios validate of
   );
   assert.equal(
     sha256File(join(REPOSITORY_ROOT, "skills", "kyw-grilling", "SKILL.md")),
-    "99e633b0c92c7e85b4df43991210843f6b66a1c65efd0e9b5df1db556fd837cf",
+    "06956659b07528da4cb55cc70cba545cbac5d2578dabcc93cad4f5e5429af635",
     "Task 0017 kyw-grilling bytes must remain explicit and reviewable",
   );
   const notice = readFileSync(join(REPOSITORY_ROOT, "THIRD_PARTY_NOTICES.md"), "utf8");
@@ -117,7 +117,7 @@ test("Task 0017 benchmark v10 preserves every frozen v9 condition except the exp
   const benchmarkV10 = JSON.parse(readFileSync(join(evalRoot, "benchmark.v10.json"), "utf8"));
   const skillSha256 = sha256File(join(REPOSITORY_ROOT, "skills", "kyw-grilling", "SKILL.md"));
 
-  assert.equal(skillSha256, "99e633b0c92c7e85b4df43991210843f6b66a1c65efd0e9b5df1db556fd837cf");
+  assert.equal(skillSha256, "06956659b07528da4cb55cc70cba545cbac5d2578dabcc93cad4f5e5429af635");
   assert.equal(benchmarkV10.kywSkillSha256ForScoredRun, skillSha256);
   assert.notEqual(benchmarkV9.kywSkillSha256ForScoredRun, benchmarkV10.kywSkillSha256ForScoredRun);
 

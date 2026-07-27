@@ -1,6 +1,6 @@
 {
   "happyPath": {
-    "invocation": "$kyw-task 0042",
+    "invocation": "$kyw-impl 0042",
     "currentSummaryConfirmed": true,
     "states": [
       {
@@ -26,7 +26,7 @@
     "evidence": "T-01 passed the locked-account fixture with exit 0."
   },
   "resume": {
-    "invocation": "$kyw-task 0042",
+    "invocation": "$kyw-impl 0042",
     "taskStatus": "IN_PROGRESS",
     "testStatus": "RUNNING",
     "completed": [

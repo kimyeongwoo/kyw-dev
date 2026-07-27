@@ -52,6 +52,12 @@ const installationModuleUrl = pathToFileURL(
   fileURLToPath(new URL("../src/core/skill-installation.mjs", import.meta.url)),
 ).href;
 const cliExecutable = fileURLToPath(new URL("../bin/kyw-dev.mjs", import.meta.url));
+const legacyManagedSkillNames = [
+  "kyw-grilling",
+  "kyw-init",
+  "kyw-task",
+  "kyw-audit",
+];
 
 test("skill installation facade preserves its public export inventory", () => {
   assert.deepEqual(Object.keys(skillInstallationFacade), [
@@ -213,6 +219,40 @@ function installPluginCacheFixture(
 
 function hashFile(filePath) {
   return createHash("sha256").update(readFileSync(filePath)).digest("hex");
+}
+
+function convertCurrentInstallToLegacy(location) {
+  const metadata = readInstallMetadata(location, { required: true });
+  const currentExecution = join(
+    location.skillsRoot,
+    "kyw-impl",
+    "references",
+    "execution.md",
+  );
+  const legacyExecution = join(
+    location.skillsRoot,
+    "kyw-task",
+    "references",
+    "execution.md",
+  );
+  mkdirSync(path.dirname(legacyExecution), { recursive: true });
+  cpSync(currentExecution, legacyExecution);
+  const legacyMetadata = {
+    ...metadata,
+    skills: legacyManagedSkillNames.map((name) => ({ name, path: name })),
+    files: [
+      ...metadata.files.filter((file) => !file.path.startsWith("kyw-impl/")),
+      {
+        path: "kyw-task/references/execution.md",
+        sha256: hashFile(legacyExecution),
+      },
+    ].sort((left, right) => left.path.localeCompare(right.path)),
+  };
+  const implRoot = path.resolve(location.skillsRoot, "kyw-impl");
+  assert.equal(implRoot.startsWith(`${path.resolve(location.skillsRoot)}${path.sep}`), true);
+  rmSync(implRoot, { recursive: true });
+  writeJson(location.metadataPath, legacyMetadata);
+  return legacyMetadata;
 }
 
 function fileSnapshot(root) {
@@ -435,6 +475,39 @@ test("metadata rejects duplicate, case-normalization, and file-prefix collisions
   }
 });
 
+test("metadata accepts only the current five-Skill or exact legacy four-Skill identity list", () => {
+  const inventory = buildManagedSourceInventory();
+  const base = {
+    schemaVersion: 1,
+    packageName: "kyw-dev",
+    version: inventory.version,
+    scope: "user",
+    installedAt: "2026-07-18T00:00:00.000Z",
+    updatedAt: "2026-07-18T00:00:00.000Z",
+    files: inventory.files.map(({ path: filePath, sha256 }) => ({ path: filePath, sha256 })),
+  };
+  for (const names of [MANAGED_SKILL_NAMES, legacyManagedSkillNames]) {
+    assert.deepEqual(
+      validateInstallMetadata({
+        ...base,
+        skills: names.map((name) => ({ name, path: name })),
+      }),
+      [],
+    );
+  }
+  for (const names of [
+    [...legacyManagedSkillNames].reverse(),
+    legacyManagedSkillNames.slice(0, -1),
+    [...legacyManagedSkillNames, "kyw-unknown"],
+  ]) {
+    const errors = validateInstallMetadata({
+      ...base,
+      skills: names.map((name) => ({ name, path: name })),
+    });
+    assert.ok(errors.some((error) => error.includes("legacy schema-1 inventory")));
+  }
+});
+
 test("project root detection resolves a nested repository without changing cwd", (t) => {
   const root = createRepository(join(temporaryDirectory(t), "repository"));
   const nested = join(root, "src", "feature");
@@ -474,8 +547,9 @@ test("CLI entrypoint installs and uninstalls against an isolated HOME", (t) => {
     encoding: "utf8",
   });
   assert.equal(install.status, 0, install.stderr);
-  assert.match(install.stdout, /Installed 4 kyw-dev Skills/);
+  assert.match(install.stdout, /Installed 5 kyw-dev Skills/);
   assert.ok(existsSync(join(home, ".agents", "skills", "kyw-task", "SKILL.md")));
+  assert.ok(existsSync(join(home, ".agents", "skills", "kyw-impl", "SKILL.md")));
 
   const doctor = spawnSync(process.execPath, [cliExecutable, "doctor"], {
     cwd: workingDirectory,
@@ -507,15 +581,15 @@ test("user install writes complete hashed Skills and a runnable direct-install T
     home,
     now: () => new Date("2026-07-17T00:00:00.000Z"),
   });
-  assert.equal(result.skillCount, 4);
-  assert.equal(result.fileCount, 24);
+  assert.equal(result.skillCount, 5);
+  assert.equal(result.fileCount, 26);
   assert.equal(readFileSync(unrelated, "utf8"), "unrelated\n");
 
   const location = resolveInstallLocation({ scope: "user", home });
   const metadata = readInstallMetadata(location, { required: true });
   assert.deepEqual(validateInstallMetadata(metadata, { expectedScope: "user" }), []);
   assert.equal(metadata.version, "0.1.0");
-  assert.equal(metadata.files.length, 24);
+  assert.equal(metadata.files.length, 26);
   assert.ok(metadata.files.some((file) => file.path === ".kyw-dev/runtime/templates/task/TASK.md"));
   for (const file of metadata.files) {
     assert.equal(hashFile(join(location.skillsRoot, ...file.path.split("/"))), file.sha256);
@@ -536,25 +610,18 @@ test("user install writes complete hashed Skills and a runnable direct-install T
   assert.equal(adapterOutput.id, "0001");
   assert.ok(existsSync(join(adapterOutput.directory, "TASK.md")));
   assert.ok(existsSync(join(adapterOutput.directory, "TEST.md")));
-  const dispatchResult = spawnSync(
+  const validationResult = spawnSync(
     process.execPath,
     [
       adapter,
-      "dispatch",
-      "--tasks-root",
-      join(targetRepository, "docs", "tasks"),
-      "--invocation",
-      "$kyw-task 0001",
-      "--managed-routing",
-      "false",
+      "validate",
+      "--task-directory",
+      adapterOutput.directory,
     ],
     { encoding: "utf8" },
   );
-  assert.equal(dispatchResult.status, 0, dispatchResult.stderr);
-  const dispatchOutput = JSON.parse(dispatchResult.stdout);
-  assert.equal(dispatchOutput.outcome, "SELECTED");
-  assert.equal(dispatchOutput.action, "AUTHOR");
-  assert.equal(dispatchOutput.confirmation, false);
+  assert.equal(validationResult.status, 0, validationResult.stderr);
+  assert.equal(JSON.parse(validationResult.stdout).valid, true);
 
   const batchResult = spawnSync(
     process.execPath,
@@ -575,6 +642,25 @@ test("user install writes complete hashed Skills and a runnable direct-install T
   assert.equal(batchOutput.tasks.length, 1);
   assert.match(readFileSync(batchOutput.tasks[0].taskPath, "utf8"), /## Status\n\nREADY/);
   assert.match(readFileSync(batchOutput.tasks[0].testPath, "utf8"), /## Status\n\nREADY/);
+  const dispatchResult = spawnSync(
+    process.execPath,
+    [
+      adapter,
+      "dispatch",
+      "--tasks-root",
+      join(targetRepository, "docs", "tasks"),
+      "--invocation",
+      "$kyw-impl 0002",
+      "--managed-routing",
+      "false",
+    ],
+    { encoding: "utf8" },
+  );
+  assert.equal(dispatchResult.status, 0, dispatchResult.stderr);
+  const dispatchOutput = JSON.parse(dispatchResult.stdout);
+  assert.equal(dispatchOutput.outcome, "SELECTED");
+  assert.equal(dispatchOutput.action, "IMPLEMENT");
+  assert.equal(dispatchOutput.confirmation, true);
   const transactionInspection = spawnSync(
     process.execPath,
     [
@@ -589,7 +675,7 @@ test("user install writes complete hashed Skills and a runnable direct-install T
   assert.equal(JSON.parse(transactionInspection.stdout).state, "NONE");
 
   const uninstall = uninstallManagedSkills({ scope: "user", home });
-  assert.equal(uninstall.removedFileCount, 24);
+  assert.equal(uninstall.removedFileCount, 26);
   assert.equal(readFileSync(unrelated, "utf8"), "unrelated\n");
   assert.equal(existsSync(location.metadataPath), false);
   for (const skillName of MANAGED_SKILL_NAMES) {
@@ -706,6 +792,52 @@ test("update replaces unchanged managed files and records the new package hashes
   assert.equal(metadata.updatedAt, "2026-07-17T01:00:00.000Z");
   assert.match(readFileSync(join(location.skillsRoot, "kyw-grilling", "SKILL.md"), "utf8"), /version 0\.2\.0/);
   assert.deepEqual(inspectManagedInstallation(location, metadata).modified, []);
+});
+
+test("legacy schema-1 four-Skill metadata remains safe for doctor, update, and uninstall", (t) => {
+  const doctorHome = temporaryDirectory(t, "kyw-dev-legacy-doctor-");
+  installManagedSkills({ scope: "user", home: doctorHome });
+  const doctorLocation = resolveInstallLocation({ scope: "user", home: doctorHome });
+  const doctorMetadata = convertCurrentInstallToLegacy(doctorLocation);
+  assert.deepEqual(validateInstallMetadata(doctorMetadata, { expectedScope: "user" }), []);
+  assert.equal(doctorMetadata.files.length, 24);
+  const doctorReport = diagnoseInstallations({ home: doctorHome, commandRunner });
+  assert.equal(doctorReport.exitCode, 0);
+  assert.deepEqual(
+    doctorReport.scopes.find(({ scope }) => scope === "user").skillNames,
+    [...legacyManagedSkillNames].sort(),
+  );
+
+  const updateHome = temporaryDirectory(t, "kyw-dev-legacy-update-");
+  installManagedSkills({ scope: "user", home: updateHome });
+  const updateLocation = resolveInstallLocation({ scope: "user", home: updateHome });
+  convertCurrentInstallToLegacy(updateLocation);
+  const updated = updateManagedSkills({ scope: "user", home: updateHome });
+  assert.equal(updated.skillCount, 5);
+  assert.equal(updated.fileCount, 26);
+  const updatedMetadata = readInstallMetadata(updateLocation, { required: true });
+  assert.deepEqual(
+    updatedMetadata.skills.map(({ name }) => name),
+    MANAGED_SKILL_NAMES,
+  );
+  assert.equal(updatedMetadata.files.length, 26);
+  assert.ok(existsSync(join(updateLocation.skillsRoot, "kyw-impl", "SKILL.md")));
+  assert.equal(
+    existsSync(join(updateLocation.skillsRoot, "kyw-task", "references", "execution.md")),
+    false,
+  );
+  assert.deepEqual(inspectManagedInstallation(updateLocation, updatedMetadata).modified, []);
+
+  const uninstallHome = temporaryDirectory(t, "kyw-dev-legacy-uninstall-");
+  installManagedSkills({ scope: "user", home: uninstallHome });
+  const uninstallLocation = resolveInstallLocation({ scope: "user", home: uninstallHome });
+  convertCurrentInstallToLegacy(uninstallLocation);
+  const uninstalled = uninstallManagedSkills({ scope: "user", home: uninstallHome });
+  assert.equal(uninstalled.removedFileCount, 24);
+  assert.equal(existsSync(uninstallLocation.metadataPath), false);
+  for (const skillName of legacyManagedSkillNames) {
+    assert.equal(existsSync(join(uninstallLocation.skillsRoot, skillName)), false);
+  }
 });
 
 test("update reports a local modification and leaves all installed bytes unchanged", (t) => {
@@ -1492,8 +1624,15 @@ test("CLI grammar and documented exit categories are deterministic", (t) => {
 
 test("packaged managed source inventory is stable and fully hashed", () => {
   const inventory = buildManagedSourceInventory();
+  assert.deepEqual(MANAGED_SKILL_NAMES, [
+    "kyw-grilling",
+    "kyw-init",
+    "kyw-task",
+    "kyw-impl",
+    "kyw-audit",
+  ]);
   assert.equal(inventory.version, "0.1.0");
-  assert.equal(inventory.files.length, 24);
+  assert.equal(inventory.files.length, 26);
   assert.deepEqual(
     inventory.files.map((file) => file.path),
     [...inventory.files].map((file) => file.path).sort((left, right) => left.localeCompare(right)),
@@ -1525,7 +1664,7 @@ test("actual npm tarball installs, diagnoses, runs its installed adapter, and un
   }
   assert.equal(packed.status, 0, packed.stderr);
   const report = JSON.parse(packed.stdout)[0];
-  assert.equal(report.entryCount, 39);
+  assert.equal(report.entryCount, 41);
   const extractRoot = join(root, "extract");
   mkdirSync(extractRoot);
   const extracted = spawnSync("tar", ["-xf", join(root, report.filename), "-C", extractRoot], {
@@ -1601,7 +1740,7 @@ test("actual npm tarball installs, diagnoses, runs its installed adapter, and un
   assert.equal(dispatchResult.status, 0, dispatchResult.stderr);
   const dispatchOutput = JSON.parse(dispatchResult.stdout);
   assert.equal(dispatchOutput.outcome, "FALLBACK_REQUIRED");
-  assert.equal(dispatchOutput.portableFallback, "$kyw-task 0001");
+  assert.equal(dispatchOutput.portableFallback, "$kyw-impl 0001");
 
   const uninstall = spawnSync(process.execPath, [cli, "uninstall", "--scope", "user"], {
     cwd: work,

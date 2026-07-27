@@ -130,11 +130,11 @@ test("identical protected state is CLEAN", (t) => {
   assert.equal(classification.inconclusive, false);
 });
 
-test("managed normal Skill paths are ISOLATION_VIOLATION", (t) => {
+test("new managed implementation Skill paths are ISOLATION_VIOLATION", (t) => {
   const fixture = createSyntheticProtectedFixture(t);
   const managedFile = writeFixtureFile(
     fixture.normalAgentsRoot,
-    "skills/kyw-audit/SKILL.md",
+    "skills/kyw-impl/SKILL.md",
     "managed before\n",
   );
   const before = snapshotFixture(fixture);
@@ -145,7 +145,7 @@ test("managed normal Skill paths are ISOLATION_VIOLATION", (t) => {
   assert.ok(
     classification.differences.some(
       ({ relativePath, reason }) =>
-        relativePath === "skills/kyw-audit/SKILL.md" && reason === "managed Skill path",
+        relativePath === "skills/kyw-impl/SKILL.md" && reason === "managed Skill path",
     ),
   );
 });

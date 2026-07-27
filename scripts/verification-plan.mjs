@@ -156,6 +156,7 @@ const taskEvidencePattern = /^docs\/tasks\/\d{4}-[^/]+\/(?:TASK|TEST)\.md$/;
 const skillTestNames = new Map([
   ["kyw-audit", "test/kyw-audit.test.mjs"],
   ["kyw-grilling", "test/kyw-grilling.test.mjs"],
+  ["kyw-impl", "test/kyw-impl.test.mjs"],
   ["kyw-init", "test/kyw-init.test.mjs"],
   ["kyw-task", "test/kyw-task.test.mjs"],
 ]);

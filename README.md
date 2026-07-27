@@ -12,21 +12,22 @@ The current usable source is this checkout; `kyw-dev` has not yet been published
 
 | Use case | Choose | Result |
 |---|---|---|
-| Codex CLI or IDE extension; one repository or all repositories | [Direct Skills installation](#direct-skills-installation) | Installs the four managed `kyw-*` Skills at project or user scope. |
-| ChatGPT desktop Codex or Codex CLI with plugin support | [Codex plugin installation](#codex-plugin-installation) | Installs the same four Skills from a local/personal marketplace package. |
+| Codex CLI or IDE extension; one repository or all repositories | [Direct Skills installation](#direct-skills-installation) | Installs the five managed `kyw-*` Skills at project or user scope. |
+| ChatGPT desktop Codex or Codex CLI with plugin support | [Codex plugin installation](#codex-plugin-installation) | Installs the same five Skills from a local/personal marketplace package. |
 
-Use exactly one source for the four Skill names. Keeping direct and plugin copies together creates duplicate discovery; `doctor` reports the sources without deleting either one.
+Use exactly one source for the five Skill names. Keeping direct and plugin copies together creates duplicate discovery; `doctor` reports the sources without deleting either one.
 
 ### Invoke a Skill explicitly
 
 | Skill | First invocation | Outcome |
 |---|---|---|
 | `$kyw-init` | `$kyw-init "adopt this repository without replacing existing contributor guidance"` | Inspect, resolve durable decisions, then create or minimally update the four permanent documents only after confirmation. |
-| `$kyw-task` | `$kyw-task "add account lockout"` | Create one outcome or the smallest dependency-aware Task/Test set; optionally execute only its first eligible Task. |
+| `$kyw-task` | `$kyw-task "add account lockout"` | Atomically author one outcome or the smallest dependency-aware `READY/READY` Task/Test set, report one exact next command, and stop. |
+| `$kyw-impl` | `$kyw-impl 0007` | Implement or resume an existing Task through verification, durable-document synchronization, terminal state, and ordinary `STANDARD` delivery. |
 | `$kyw-audit` | `$kyw-audit 0007` | Independently verify one Task without writes; the exact `$kyw-audit 0007 --fix` form authorizes bounded in-scope repair. |
 | `$kyw-grilling` | `$kyw-grilling "stress-test this account lockout design"` | Run the read-only one-question-at-a-time decision interview without materializing files. |
 
-All four packaged Skills disable implicit invocation. Use the explicit `$skill-name` form on every surface; only a loaded kyw-managed `AGENTS.md` may additionally route the anchored Task aliases in [Task routing and evidence](#task-routing-and-evidence).
+All five packaged Skills disable implicit invocation. Use the explicit `$skill-name` form on every surface; only a loaded kyw-managed `AGENTS.md` may additionally route the anchored Task aliases in [Task routing and evidence](#task-routing-and-evidence).
 
 ### First workflow
 
@@ -39,6 +40,8 @@ README.md + AGENTS.md + docs/SPEC.md + docs/ARCHITECTURE.md
         ↓
 $kyw-task "one outcome or a dependency-aware set"
         ↓
+$kyw-impl NNNN
+        ↓
 Implement → synchronize docs → verify
         ↓
 $kyw-audit NNNN
@@ -48,7 +51,7 @@ Small questions and narrowly scoped changes do not require a Task folder. They s
 
 ## Release status
 
-Version `0.1.0` has implemented package, plugin, four-Skill, CLI, CI, installer, and development-only validation surfaces, but it has not been published. Historical release evidence remains immutable: Task 0020 is `BLOCKED`; the exact candidates from Tasks 0029 and 0038 reached `READY_FOR_APPROVAL` and were later superseded; Task 0047's exact historical candidate also reached `READY_FOR_APPROVAL`; and Task 0048 found its package-relevant bytes `UNCHANGED` at the audited point. The numbered Task/Test artifacts—not this durable summary—are the authoritative record for exact candidate identities, verdicts, and supersession.
+Version `0.1.0` has implemented package, plugin, five-Skill, CLI, CI, installer, and development-only validation surfaces, but it has not been published. Historical release evidence remains immutable: Task 0020 is `BLOCKED`; the exact candidates from Tasks 0029 and 0038 reached `READY_FOR_APPROVAL` and were later superseded; Task 0047's exact historical candidate also reached `READY_FOR_APPROVAL`; and Task 0048 found its package-relevant bytes `UNCHANGED` at the audited point. The numbered Task/Test artifacts—not this durable summary—are the authoritative record for exact candidate identities, verdicts, and supersession.
 
 No publication-boundary package version change, version tag, GitHub Release, npm publication, registry mutation, or public plugin-directory submission has occurred. Candidate readiness describes only the exact evaluated bytes and never authorizes publication, registry mutation, a version change, a tag, a GitHub Release, or a public submission. Preparing metadata, packing a tarball, passing CI, or running a dry run does not authorize those actions. Even a later pre-publication verdict does not by itself satisfy the published-tarball licensing requirement in [SPEC §15](docs/SPEC.md#15-mvp-acceptance-criteria).
 
@@ -59,7 +62,7 @@ Source: [kimyeongwoo/kyw-dev](https://github.com/kimyeongwoo/kyw-dev) · Issues:
 The portable existing-Task form is:
 
 ```text
-$kyw-task 0006
+$kyw-impl 0006
 ```
 
 A repository with the managed routing contract loaded also supports exactly:
@@ -70,10 +73,11 @@ task 진행해줘
 남은 task 계속 실행해줘
 ```
 
-These commands are a concise user projection. [SPEC §6.1](docs/SPEC.md#61-codex-skills) owns product behavior, `AGENTS.md` owns repository invariants, and the packaged [`kyw-task` execution reference](skills/kyw-task/references/execution.md) owns the detailed procedure.
+These commands are a concise user projection. [SPEC §6.1](docs/SPEC.md#61-codex-skills) owns product behavior, `AGENTS.md` owns repository invariants, and the packaged [`kyw-impl` execution reference](skills/kyw-impl/references/execution.md) owns the detailed procedure.
 
-- Independent outcomes, separate acceptance sets, dependency ordering, or excess single-Task scope produce the smallest justified dependency-aware set. A create-only request stops after reporting those paths. A create-and-execute request starts only the first dependency-satisfied new Task.
-- Existing execution continues at the verified `Resume Point` without repeating Completed work. Exact `READY/READY` selection confirms implementation and ordinary `STANDARD` delivery. Automatic selection resumes active work, then resumable delivery, then the lowest eligible ready Task; continuous mode remains serial and current-invocation-only. Invalid states or dependencies fail closed, incidental “task” prose does not route, and a surface without the managed contract uses `$kyw-task NNNN`.
+- Authoring through `$kyw-task "goal"` turns independent outcomes, separate acceptance sets, dependency ordering, or excess single-Task scope into the smallest justified dependency-aware set. It atomically publishes complete `READY/READY` pairs, reports exactly one next `$kyw-impl NNNN` for the first eligible pair, and stops without implementation or automatic Skill chaining.
+- `$kyw-task NNNN` remains only for compatible `DRAFT/DRAFT` authoring or promotion. A non-DRAFT pair is not executed through that form; it receives the exact `$kyw-impl NNNN` migration command.
+- Existing execution continues through `$kyw-impl` at the verified `Resume Point` without repeating Completed work. Exact `READY/READY` selection confirms implementation and ordinary `STANDARD` delivery. Automatic selection resumes active work, then resumable delivery, then the lowest eligible ready Task; continuous mode remains serial and current-invocation-only. Invalid states or dependencies fail closed, incidental “task” prose does not route, and a surface without the managed contract uses `$kyw-impl NNNN`.
 - Appended user text may constrain the first selected Task but cannot waive safety or evidence. The configured model and reasoning effort stay unchanged unless that user explicitly overrides them. `TEST.md` records model identifier, requested alias, reasoning effort, Codex surface, version, and per-field observability; hidden values remain `UNAVAILABLE`, never guessed.
 - Task/Test owns repository outcome; GitHub owns mutable delivery state. The static declaration alone grants no ambient authority, while `IMPLEMENT`, `RESUME`, or `DELIVER` selection authorizes exact-path commit, non-force push, non-draft PR, exact-head CI, expected-head merge, post-merge base-branch CI, and terminal reporting without ceremonial reconfirmation. Publication, registry mutation, tags/releases, public submission, force/destructive operations, reruns, bypasses, and unrelated mutations remain separately authorized.
 
@@ -91,7 +95,7 @@ Official surface behavior was checked on **2026-07-24** against [Build skills](h
 | Repository scope | Run `install --scope project`; Codex discovers `<repo>/.agents/skills/` from that repository context. | A repository marketplace is an alternative for plugin-capable CLI/desktop use. Direct installation does not add `AGENTS.md`, so repository aliases require the managed contract to already exist. |
 | User scope | Run `install --scope user`; Codex discovers `~/.agents/skills/` across repositories. | A personal marketplace plugin is an alternative for plugin-capable CLI/desktop use. A same-named project copy creates another discoverable source. |
 
-The portable `$kyw-grilling`, `$kyw-init`, `$kyw-task NNNN`, and `$kyw-audit NNNN` forms work wherever the corresponding Skills are loaded. The shorter Task forms are repository routing, not implicit Skill aliases. If that contract is absent, not loaded, or outside the current instruction chain, use `$kyw-task NNNN`.
+The portable `$kyw-grilling`, `$kyw-init`, `$kyw-task "<outcome>"`, `$kyw-impl NNNN`, and `$kyw-audit NNNN` forms work wherever the corresponding Skills are loaded. The shorter existing-Task forms are repository routing, not implicit Skill aliases. If that contract is absent, not loaded, or outside the current instruction chain, use `$kyw-impl NNNN`.
 
 ### Direct Skills installation
 
@@ -109,7 +113,7 @@ node ./bin/kyw-dev.mjs doctor
 
 - `user` installs managed Skills under `~/.agents/skills/`; `project` finds the enclosing Git root and installs under `<repo>/.agents/skills/`.
 - The CLI installs workflow Skills only. It does not create project documents or Tasks; `$kyw-init` owns confirmed permanent-document materialization.
-- Ownership is recorded in `.agents/skills/.kyw-dev-install.json`, with deterministic Task runtime support under `.agents/skills/.kyw-dev/runtime/`. The runtime directory is not a fifth discoverable Skill.
+- Ownership is recorded in `.agents/skills/.kyw-dev-install.json`, with deterministic Task runtime support under `.agents/skills/.kyw-dev/runtime/`. New install/update metadata records all five Skills; doctor, update, and uninstall also safely read legacy schema-1 metadata that records the former four-Skill set. The runtime directory is not a discoverable Skill.
 - Install refuses unmanaged collisions, unsafe roots, links, unsupported types, and non-portable managed paths. Use `update` only for an owned installation.
 - Update requires every owned file, parent, and package source to remain confined, link-free, and hash-matching, and refuses unknown managed-container content.
 - Normal uninstall removes only unchanged metadata-owned files. `--force` can remove only modified files already named by valid kyw-dev ownership metadata; it still preserves unknown files, unrelated Skills, links/junctions, and unsupported types.
@@ -142,7 +146,7 @@ The preferred pre-publication npm name is the unscoped `kyw-dev`, but it is not 
 
 ### Codex plugin installation
 
-The npm package contains `.codex-plugin/plugin.json` and all four `skills/` directories. Pre-publication verification extracts the real package into an isolated local marketplace and installs `kyw-dev@kyw-dev-local`; the fixture and runner are development-only and excluded from the tarball.
+The npm package contains `.codex-plugin/plugin.json` and all five `skills/` directories. Pre-publication verification extracts the real package into an isolated local marketplace and installs `kyw-dev@kyw-dev-local`; the fixture and runner are development-only and excluded from the tarball.
 
 An npm marketplace entry can replace the local source only after publication. Plugin and direct-Skills installation are alternatives. See [Architecture §11](docs/ARCHITECTURE.md#11-installation-and-distribution-architecture) for package, marketplace, cache, duplicate, and release-gate boundaries.
 
@@ -214,7 +218,7 @@ The release-isolation command is also development-only. `CLEAN` is its only succ
 
 ## Repository map and contributing
 
-- `skills/`: four packaged reasoning workflows and their focused references.
+- `skills/`: five packaged reasoning workflows and their focused references.
 - `src/` and `bin/`: dependency-free CLI and deterministic core modules.
 - `templates/`: canonical four-document and Task/Test section contracts.
 - `docs/SPEC.md`: product behavior and requirements.

@@ -1,0 +1,7 @@
+interface:
+  display_name: "kyw Implement"
+  short_description: "Execute and deliver one existing Task"
+  default_prompt: "Use $kyw-impl NNNN to implement, resume, verify, and ordinarily deliver an existing Task."
+
+policy:
+  allow_implicit_invocation: false

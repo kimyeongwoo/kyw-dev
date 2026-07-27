@@ -8,9 +8,21 @@
 2. 루트 `AGENTS.md`가 적용되도록 저장소 루트에서 Codex를 시작한다.
 3. 매 세션마다 이전 대화 전체를 다시 붙여 넣지 않는다. 저장소 문서를 현재 진실의 원천으로 사용한다.
 
+## Task 작성
+
+새 outcome을 하나 또는 최소 dependency-aware set으로 작성:
+
+```text
+$kyw-task "<outcome>"
+```
+
+이 호출은 complete `READY/READY` Task/Test pair set을 원자적으로 작성하고, 첫 eligible pair를 위한 exact `$kyw-impl NNNN` 하나를 안내한 뒤 멈춘다. 구현, permanent-document 수정, delivery 또는 자동 Skill 호출은 하지 않는다.
+
+`$kyw-task NNNN`은 기존 `DRAFT/DRAFT` pair의 authoring/promotion에만 사용한다. 다른 상태의 기존 Task는 이 form으로 실행하지 않고 안내된 `$kyw-impl NNNN`을 새로 호출한다.
+
 ## Task 실행과 재개
 
-`AGENTS.md`는 저장소 불변 규칙을, 현재 Task/Test는 현재 범위와 증거를, 설치된 `$kyw-task` 실행 reference는 상세 실행 절차를 소유한다. 이 파일은 절차를 복제하지 않고 호출만 제공한다.
+`AGENTS.md`는 저장소 불변 규칙을, 현재 Task/Test는 현재 범위와 증거를, 설치된 `$kyw-impl` 실행 reference는 상세 실행 절차를 소유한다. 이 파일은 절차를 복제하지 않고 호출만 제공한다.
 
 관리되는 저장소에서 정확한 Task를 실행하거나 재개:
 
@@ -21,7 +33,7 @@ task 0001 실행해줘
 모든 지원 표면에서 사용할 수 있는 portable form:
 
 ```text
-$kyw-task 0001
+$kyw-impl 0001
 ```
 
 활성 Task를 재개하거나 가장 낮은 eligible Task를 하나 선택:

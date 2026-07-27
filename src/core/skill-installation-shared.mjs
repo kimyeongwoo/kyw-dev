@@ -9,6 +9,13 @@ export const MANAGED_SKILL_NAMES = Object.freeze([
   "kyw-grilling",
   "kyw-init",
   "kyw-task",
+  "kyw-impl",
+  "kyw-audit",
+]);
+export const LEGACY_MANAGED_SKILL_NAMES = Object.freeze([
+  "kyw-grilling",
+  "kyw-init",
+  "kyw-task",
   "kyw-audit",
 ]);
 export const INSTALL_SCHEMA_VERSION = 1;

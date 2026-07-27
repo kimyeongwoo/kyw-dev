@@ -66,21 +66,24 @@ function checksFor(id) {
       pairComplete: true,
       traceability: true,
       readyPair: true,
-      createOnlyStop: true,
+      authoringStop: true,
+      oneNextImplCommand: true,
+      automaticSkillChain: false,
       applicationUnchanged: true,
     };
   }
   if (id === "S-04") {
     return {
       ...common,
-      resumeAllocatedTask: false,
+      taskAllocation: false,
+      authoringMutation: false,
       existingTaskPreserved: true,
       permanentDocsRead: true,
       taskPairRead: true,
       gitStateRead: true,
       handoffFieldsRead: true,
       readyPair: true,
-      createOnlyStop: true,
+      implementationInvocation: true,
     };
   }
   if (id === "S-05") {
@@ -227,7 +230,7 @@ test("permanent documents written before confirmation fail", () => {
   expectFailure(record, "preConfirmationDurableWrites");
 });
 
-test("application source changed during create-only Task authoring fails", () => {
+test("application source changed during kyw-task authoring fails", () => {
   const record = validRecord("S-03");
   record.checks.applicationUnchanged = false;
   expectFailure(record, "applicationUnchanged");
@@ -245,20 +248,32 @@ test("a missing Task/Test pair member fails", () => {
   expectFailure(record, "pairComplete");
 });
 
-test("a non-READY adaptive pair or create-only implementation fails", () => {
+test("a non-READY adaptive pair or authoring that continues into implementation fails", () => {
   const notReady = validRecord("S-03");
   notReady.checks.readyPair = false;
   expectFailure(notReady, "readyPair");
 
   const implemented = validRecord("S-03");
-  implemented.checks.createOnlyStop = false;
-  expectFailure(implemented, "createOnlyStop");
+  implemented.checks.authoringStop = false;
+  expectFailure(implemented, "authoringStop");
+
+  const chained = validRecord("S-03");
+  chained.checks.automaticSkillChain = true;
+  expectFailure(chained, "automaticSkillChain");
+
+  const missingHandoff = validRecord("S-03");
+  missingHandoff.checks.oneNextImplCommand = false;
+  expectFailure(missingHandoff, "oneNextImplCommand");
 });
 
-test("resume that allocates another Task fails", () => {
+test("kyw-impl selection that allocates or authors another Task fails", () => {
   const record = validRecord("S-04");
-  record.checks.resumeAllocatedTask = true;
-  expectFailure(record, "resumeAllocatedTask");
+  record.checks.taskAllocation = true;
+  expectFailure(record, "taskAllocation");
+
+  const authored = validRecord("S-04");
+  authored.checks.authoringMutation = true;
+  expectFailure(authored, "authoringMutation");
 });
 
 test("generic suite success without uncovered-branch detection fails", () => {

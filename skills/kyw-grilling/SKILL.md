@@ -36,7 +36,7 @@ When no answerable decision remains:
 1. Summarize the settled decisions and explicit remaining unknowns.
 2. Ask for explicit confirmation that the summary represents shared understanding. Recommend correcting any mismatch before confirming.
 3. Wait for the user's confirmation.
-4. After confirmation, state that the standalone interview is complete and stop. Do not invoke another Skill or act on the result.
+4. After confirmation, state that the standalone interview is complete, that no file was changed, and stop without a question. For a project baseline or rebaseline, recommend a new explicit `$kyw-init` invocation. For a feature or Task outcome, recommend a new explicit `$kyw-task "<confirmed outcome>"` invocation without a create-only suffix. Do not invoke another Skill or act on the result.
 
 If the user asks for implementation, editing, file output, or another mutation before confirmation, decline that action. If an answerable decision remains, continue with exactly the next single unresolved decision question, one recommended answer, and concise reasoning. Stop/cancel wording bundled into the same prohibited request follows this implementation-pressure branch rather than terminal cancellation. If the user asks for action after confirmation, explain that a wrapper or separate request must own it, then stop.
 

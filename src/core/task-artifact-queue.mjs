@@ -360,13 +360,11 @@ function selectionBlockedResult(task, blockers) {
 function selectedResult(task, parsedInvocation, requestedAction) {
   const action =
     requestedAction ??
-    (draftTask(task)
-      ? "AUTHOR"
-      : blockedTask(task)
-        ? "RECHECK_BLOCKER"
-        : activeTask(task)
-          ? "RESUME"
-          : "IMPLEMENT");
+    (blockedTask(task)
+      ? "RECHECK_BLOCKER"
+      : activeTask(task)
+        ? "RESUME"
+        : "IMPLEMENT");
   const lifecycleSelection = ["IMPLEMENT", "RESUME", "DELIVER"].includes(action);
   const standardDeliveryAuthorized =
     lifecycleSelection && task.deliveryRequirement.kind === "STANDARD";
@@ -538,7 +536,10 @@ export async function resolveTaskDispatch({
   if (!parsedInvocation.recognized) {
     return Object.freeze({
       outcome: "NOT_TASK_INVOCATION",
-      code: "NO_ANCHORED_TASK_COMMAND",
+      code: "NO_ANCHORED_IMPLEMENTATION_COMMAND",
+      message:
+        'kyw-impl executes only an existing Task. Use $kyw-task "<outcome>" to author a new Task/Test pair set.',
+      mutationRequired: false,
     });
   }
   if (parsedInvocation.mode === "FALLBACK_REQUIRED") {
@@ -585,7 +586,7 @@ export async function resolveTaskDispatch({
     if (!task) {
       return blockedResult(
         "TASK_NOT_FOUND",
-        `No Task directory exists for ${parsedInvocation.taskId}.`,
+        `No Task directory exists for ${parsedInvocation.taskId}. Use $kyw-task "<outcome>" to author a new Task/Test pair set; kyw-impl never allocates one.`,
       );
     }
     if (active.length === 1 && active[0].id !== task.id) {
@@ -618,7 +619,11 @@ export async function resolveTaskDispatch({
         : selectionBlockedResult(task, blockers);
     }
     if (draftTask(task)) {
-      return selectedResult(task, parsedInvocation);
+      return blockedResult(
+        "DRAFT_AUTHORING_REQUIRED",
+        `Task ${task.id} is DRAFT/DRAFT. Use $kyw-task ${task.id} to complete or promote its authoring; kyw-impl does not author or execute a DRAFT pair.`,
+        { task: taskSummary(task), mutationRequired: false },
+      );
     }
     if (blockedTask(task)) {
       const blockers = queueSelectionBlockers(
@@ -650,7 +655,7 @@ export async function resolveTaskDispatch({
   if (queue.currentTasks.length === 0) {
     return blockedResult(
       "CURRENT_QUEUE_UNAVAILABLE",
-      "No current-contract Task queue exists. Select an existing Task with $kyw-task NNNN.",
+      "No current-contract Task queue exists. Select an existing Task with $kyw-impl NNNN.",
     );
   }
 

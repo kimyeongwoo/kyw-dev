@@ -14,7 +14,7 @@ const coreUrl = existsSync(fileURLToPath(packageCoreUrl)) ? packageCoreUrl : dir
 
 if (!existsSync(fileURLToPath(coreUrl))) {
   throw new Error(
-    "kyw-task runtime support is missing. Reinstall or update kyw-dev before running task-artifacts.mjs.",
+    "kyw-dev Task runtime support is missing. Reinstall or update kyw-dev before running task-artifacts.mjs.",
   );
 }
 

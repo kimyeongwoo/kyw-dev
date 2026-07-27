@@ -1,6 +1,6 @@
 # Task Execution and Resume
 
-Use this workflow only after create-and-execute mode atomically publishes a `READY/READY` pair set and selects its first dependency-satisfied Task, compatible DRAFT authoring promotes one confirmed pair, or the packaged dispatcher selects one existing Task from a portable or managed-repository command. Keep one Task as the execution context and mutation boundary.
+Use this workflow only after the packaged dispatcher selects one existing Task from an explicit portable or managed-repository implementation command. `kyw-impl` never authors, allocates, or promotes a Task. Keep one Task as the execution context and mutation boundary.
 
 ## Authority
 
@@ -33,8 +33,8 @@ Refactors and large-file extractions derive changed bytes from verified current 
 
 Dispatch from verified state:
 
-- `DRAFT` / `DRAFT`: resume existing-pair customization and current-summary confirmation without allocating another ID; do not implement.
-- `READY` / `READY`: start when compatible DRAFT authoring was confirmed, adaptive create-and-execute selected this first eligible new Task, or a recognized existing-Task invocation authorizes implementation plus ordinary declared delivery.
+- `DRAFT` / `DRAFT`: stop without mutation and direct the user to `$kyw-task NNNN` for compatible authoring or promotion.
+- `READY` / `READY`: start when a recognized existing-Task invocation authorizes implementation plus ordinary declared delivery.
 - `IN_PROGRESS` / `RUNNING`: resume from verified recorded state.
 - `BLOCKED` / `BLOCKED`: recheck the recorded blocker. Resume only if it cleared; otherwise refresh evidence and stop blocked.
 - `DONE` / `PASSED`: validate the repository result; resume authorized ordinary `STANDARD` delivery when final evidence is absent, stop on supplied failing or unsafe evidence, or report terminal completion when delivery is satisfied.
@@ -45,7 +45,7 @@ Recognized selection supplies the authority stated below; inspect-only, ambiguou
 
 ## Dispatch and advance the queue
 
-Keep the Skill explicit-only. `$kyw-task NNNN` is portable anywhere the Skill is available. The three natural-language aliases work only when the applicable managed `AGENTS.md` routing contract is loaded; otherwise return the portable `$kyw-task NNNN` fallback. Match the complete anchored command plus optional appended current-user text. Ordinary prose containing “task” is not a dispatch command.
+Keep the Skill explicit-only. `$kyw-impl NNNN` is portable anywhere the Skill is available. The three natural-language aliases work only when the applicable managed `AGENTS.md` routing contract is loaded; otherwise return the portable `$kyw-impl NNNN` fallback. Match the complete anchored command plus optional appended current-user text. Ordinary prose containing “task” is not a dispatch command.
 
 The current contract is identified by the paired `<!-- kyw-task-contract: 2 -->` marker. It uses only these Task/Test pairs:
 
@@ -63,7 +63,7 @@ For every non-complete current-contract Task, `## Dependencies` must be exactly 
 Selection is deterministic:
 
 1. Fail closed if more than one `IN_PROGRESS/RUNNING` Task exists.
-2. Exact selection may return a `DRAFT/DRAFT` pair for authoring, a `BLOCKED/BLOCKED` pair for read-only condition recheck, or select/resume READY or active work; another active Task blocks a different exact Task.
+2. Exact selection rejects a `DRAFT/DRAFT` pair with `$kyw-task NNNN` authoring guidance, may return a `BLOCKED/BLOCKED` pair for read-only condition recheck, or selects/resumes READY or active work; another active Task blocks a different exact Task.
 3. Automatic selection resumes the one active Task. With none active, select the lowest-numbered current `DONE/PASSED` Task with resumable `STANDARD` delivery before the lowest-numbered dependency-satisfied current `READY/READY` Task.
 4. Historical `BLOCKED` Tasks that are neither active nor hard dependencies do not block unrelated current work.
 5. Continuous mode uses the same selection once, finishes one Task serially, then performs a fresh preflight and calls the dispatcher again. It never allocates, parallelizes, or continues in the background.

@@ -10,7 +10,13 @@ import {
 
 export const REPOSITORY_ROOT = fileURLToPath(new URL("../../", import.meta.url));
 
-export const SKILL_NAMES = ["kyw-grilling", "kyw-init", "kyw-task", "kyw-audit"];
+export const SKILL_NAMES = [
+  "kyw-grilling",
+  "kyw-init",
+  "kyw-task",
+  "kyw-impl",
+  "kyw-audit",
+];
 
 const IMPLEMENTED_SKILL_NAMES = new Set(SKILL_NAMES);
 
@@ -51,11 +57,13 @@ export const EXPECTED_TARBALL_FILES = [
   "skills/kyw-audit/references/audit.md",
   "skills/kyw-grilling/SKILL.md",
   "skills/kyw-grilling/agents/openai.yaml",
+  "skills/kyw-impl/SKILL.md",
+  "skills/kyw-impl/agents/openai.yaml",
+  "skills/kyw-impl/references/execution.md",
   "skills/kyw-init/SKILL.md",
   "skills/kyw-init/agents/openai.yaml",
   "skills/kyw-task/SKILL.md",
   "skills/kyw-task/agents/openai.yaml",
-  "skills/kyw-task/references/execution.md",
   "skills/kyw-task/scripts/task-artifacts.mjs",
   "src/cli/run.mjs",
   "src/core/package-info.mjs",
@@ -178,12 +186,14 @@ function validateSkill(root, skillName, errors) {
 
   const placeholderScan =
     skillName === "kyw-task"
-      ? skill.replace("`TODO` `T-01`, `T-02` identifiers", "")
+      ? skill
+          .replace("`TODO` `T-NN` identifiers", "")
+          .replace("`TODO` `T-01`, `T-02` identifiers", "")
       : skill;
   expect(!placeholderScan.includes("TODO"), `${skillName} contains a TODO placeholder`, errors);
   expect(skill.includes(`$${skillName}`), `${skillName} must name its explicit invocation`, errors);
   expect(skill.includes("## Inputs") || skill.includes("## Input"), `${skillName} must define its inputs`, errors);
-  expect(skill.includes("mutation") || skill.includes("mutations"), `${skillName} must define a mutation boundary`, errors);
+  expect(/\bmutat(?:e|es|ion|ions)\b/.test(skill), `${skillName} must define a mutation boundary`, errors);
 
   if (IMPLEMENTED_SKILL_NAMES.has(skillName)) {
     expect(!skill.includes("is not implemented yet"), `${skillName} must not remain an unimplemented stub`, errors);
@@ -196,9 +206,8 @@ function validateSkill(root, skillName, errors) {
     }
     if (skillName === "kyw-task") {
       const adapterPath = join(root, "skills", skillName, "scripts", "task-artifacts.mjs");
-      const executionReferencePath = join(root, "skills", skillName, "references", "execution.md");
       expect(
-        skill.includes("Stay read-only until target, facts, boundaries, mode, and Task decisions are settled"),
+        skill.includes("Do not create `docs/`, `docs/tasks/`, a lock, a scratch file, or a Task artifact during inspection"),
         `${skillName} must settle adaptive boundaries before writes`,
         errors,
       );
@@ -209,13 +218,47 @@ function validateSkill(root, skillName, errors) {
         errors,
       );
       expect(
-        skill.includes("Expected failure rolls every batch-owned final directory back"),
+        skill.includes("Expected failure rolls back batch-owned final paths only with complete ownership proof"),
         `${skillName} must require atomic batch publication`,
         errors,
       );
-      expect(skill.includes("exact(task-id)"), `${skillName} must route exact existing Tasks`, errors);
-      expect(skill.includes("[Task Execution and Resume](references/execution.md)"), `${skillName} must link its execution reference`, errors);
+      expect(!skill.includes("exact(task-id)"), `${skillName} must not route existing Task execution`, errors);
+      expect(
+        !skill.includes("[Task Execution and Resume](references/execution.md)"),
+        `${skillName} must not retain the execution reference`,
+        errors,
+      );
+      expect(
+        !existsSync(join(root, "skills", skillName, "references", "execution.md")),
+        `${skillName} must not retain a duplicate execution reference`,
+        errors,
+      );
+      expect(existsSync(adapterPath), `${skillName} is missing its deterministic Task adapter`, errors);
+      if (existsSync(adapterPath)) {
+        const adapter = readFileSync(adapterPath, "utf8");
+        expect(adapter.includes("../../../src/core/task-artifacts.mjs"), `${skillName} adapter must delegate to the core artifact helper`, errors);
+        expect(adapter.includes("../../.kyw-dev/runtime/src/core/task-artifacts.mjs"), `${skillName} adapter must support the managed direct-install runtime`, errors);
+        expect(!adapter.includes("writeFile"), `${skillName} adapter must not duplicate core file-writing logic`, errors);
+      }
+    }
+    if (skillName === "kyw-impl") {
+      const executionReferencePath = join(root, "skills", skillName, "references", "execution.md");
+      expect(
+        skill.includes("`$kyw-impl NNNN` selects one exact existing Task"),
+        `${skillName} must route exact existing Tasks`,
+        errors,
+      );
+      expect(
+        skill.includes("[Task Execution and Resume](references/execution.md)"),
+        `${skillName} must link its execution reference`,
+        errors,
+      );
       expect(existsSync(executionReferencePath), `${skillName} is missing its execution reference`, errors);
+      expect(
+        !existsSync(join(root, "skills", skillName, "scripts", "task-artifacts.mjs")),
+        `${skillName} must reuse the sole kyw-task adapter rather than duplicate it`,
+        errors,
+      );
       if (existsSync(executionReferencePath)) {
         const executionReference = readFileSync(executionReferencePath, "utf8");
         expect(executionReference.includes("## Contents"), `${skillName} execution reference must provide navigation`, errors);
@@ -228,13 +271,6 @@ function validateSkill(root, skillName, errors) {
         expect(executionReference.includes("Never use `DONE` or `PASSED` with an unexecuted required test"), `${skillName} must block unsupported terminal success`, errors);
         expect(executionReference.includes("Persist a compaction or interruption checkpoint"), `${skillName} must define a compaction handoff`, errors);
         expect(executionReference.includes("Perform the final diff coverage review"), `${skillName} must define final coverage review`, errors);
-      }
-      expect(existsSync(adapterPath), `${skillName} is missing its deterministic Task adapter`, errors);
-      if (existsSync(adapterPath)) {
-        const adapter = readFileSync(adapterPath, "utf8");
-        expect(adapter.includes("../../../src/core/task-artifacts.mjs"), `${skillName} adapter must delegate to the core artifact helper`, errors);
-        expect(adapter.includes("../../.kyw-dev/runtime/src/core/task-artifacts.mjs"), `${skillName} adapter must support the managed direct-install runtime`, errors);
-        expect(!adapter.includes("writeFile"), `${skillName} adapter must not duplicate core file-writing logic`, errors);
       }
     }
     if (skillName === "kyw-audit") {
@@ -409,8 +445,8 @@ export function validateFoundation(root = REPOSITORY_ROOT) {
     expect(!/foundation|stub/i.test(pluginJson.description ?? ""), "plugin description must describe the implemented release", errors);
     expect(!/foundation|stub/i.test(pluginJson.interface?.longDescription ?? ""), "plugin longDescription must not describe stubs", errors);
     expect(
-      Array.isArray(pluginJson.interface?.defaultPrompt) && pluginJson.interface.defaultPrompt.length === 3,
-      "plugin defaultPrompt must contain the three release workflows",
+      Array.isArray(pluginJson.interface?.defaultPrompt) && pluginJson.interface.defaultPrompt.length === 4,
+      "plugin defaultPrompt must contain the four release workflows",
       errors,
     );
     for (const prompt of pluginJson.interface?.defaultPrompt ?? []) {

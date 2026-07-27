@@ -250,7 +250,7 @@ function assertStandardAuthority(result, action) {
 }
 
 test("anchored invocation parsing preserves overrides and rejects incidental task text", () => {
-  assert.deepEqual(parseTaskInvocation("$kyw-task 0042 verify only the parser"), {
+  assert.deepEqual(parseTaskInvocation("$kyw-impl 0042 verify only the parser"), {
     recognized: true,
     mode: "EXACT",
     source: "PORTABLE_SKILL",
@@ -286,12 +286,13 @@ test("anchored invocation parsing preserves overrides and rejects incidental tas
   for (const incidental of [
     "Please update this task description.",
     "please task 진행해줘",
-    "prefix $kyw-task 0042",
+    "prefix $kyw-impl 0042",
     " task 0042 실행해줘",
     "task 진행해줘.",
     "task 42 실행해줘",
-    "$kyw-task 00420",
-    "$kyw-task 0042.",
+    "$kyw-impl 00420",
+    "$kyw-impl 0042.",
+    "$kyw-task 0042",
   ]) {
     assert.deepEqual(parseTaskInvocation(incidental, { managedRoutingAvailable: true }), {
       recognized: false,
@@ -302,15 +303,56 @@ test("anchored invocation parsing preserves overrides and rejects incidental tas
   const fallback = parseTaskInvocation("task 0042 실행해줘 preserve this constraint");
   assert.equal(fallback.mode, "FALLBACK_REQUIRED");
   assert.equal(fallback.overrideText, "preserve this constraint");
-  assert.equal(fallback.portableFallback, "$kyw-task 0042 preserve this constraint");
+  assert.equal(fallback.portableFallback, "$kyw-impl 0042 preserve this constraint");
   assert.equal(
     parseTaskInvocation("task 진행해줘 focused only").portableFallback,
-    "$kyw-task NNNN focused only",
+    "$kyw-impl NNNN focused only",
   );
   assert.equal(
     parseTaskInvocation("남은 task 계속 실행해줘 every remaining Task").portableFallback,
-    "$kyw-task NNNN every remaining Task",
+    "$kyw-impl NNNN every remaining Task",
   );
+});
+
+test("implementation-only dispatch guides missing and goal-style inputs without allocation", async (t) => {
+  const root = await createQueue(t, []);
+  const inventoryBefore = await readdir(root);
+
+  const missing = await resolveTaskDispatch({
+    tasksRoot: root,
+    invocation: "$kyw-impl 0042",
+  });
+  assert.equal(missing.outcome, "BLOCKED");
+  assert.equal(missing.code, "TASK_NOT_FOUND");
+  assert.equal("action" in missing, false);
+  assert.match(missing.message, /\$kyw-task "<outcome>"/);
+
+  for (const invocation of ['$kyw-impl "new outcome"', "$kyw-task 0042"]) {
+    const result = await resolveTaskDispatch({ tasksRoot: root, invocation });
+    assert.equal(result.outcome, "NOT_TASK_INVOCATION", invocation);
+    assert.equal(result.code, "NO_ANCHORED_IMPLEMENTATION_COMMAND", invocation);
+    assert.equal(result.mutationRequired, false, invocation);
+    assert.equal("action" in result, false, invocation);
+    assert.match(result.message, /\$kyw-task "<outcome>"/, invocation);
+  }
+
+  assert.deepEqual(await readdir(root), inventoryBefore);
+});
+
+test("automatic implementation routing preserves exact guidance for a legacy-only queue", async (t) => {
+  const root = await createQueue(t, [{ id: "0001", status: "READY", legacy: true }]);
+
+  for (const invocation of ["task 진행해줘", "남은 task 계속 실행해줘"]) {
+    const result = await resolveTaskDispatch({
+      tasksRoot: root,
+      invocation,
+      managedRoutingAvailable: true,
+    });
+    assert.equal(result.outcome, "BLOCKED", invocation);
+    assert.equal(result.code, "CURRENT_QUEUE_UNAVAILABLE", invocation);
+    assert.match(result.message, /\$kyw-impl NNNN/, invocation);
+    assert.doesNotMatch(result.message, /\$kyw-task/, invocation);
+  }
 });
 
 test("exact READY selection is confirmation and legacy terminal dependencies remain satisfied", async (t) => {
@@ -319,7 +361,7 @@ test("exact READY selection is confirmation and legacy terminal dependencies rem
     { id: "0002", status: "READY", dependencies: "- Task 0001." },
   ]);
   for (const [invocation, managedRoutingAvailable] of [
-    ["$kyw-task 0002 verify the focused path", false],
+    ["$kyw-impl 0002 verify the focused path", false],
     ["task 0002 실행해줘 verify the focused path", true],
   ]) {
     const result = await resolveTaskDispatch({
@@ -335,22 +377,24 @@ test("exact READY selection is confirmation and legacy terminal dependencies rem
   }
 });
 
-test("exact dispatch can resume DRAFT authoring and recheck a recorded blocker without authorizing implementation", async (t) => {
+test("exact implementation dispatch redirects DRAFT authoring and rechecks a recorded blocker", async (t) => {
   const draftRoot = await createQueue(t, [{ id: "0001", status: "DRAFT" }]);
   const draft = await resolveTaskDispatch({
     tasksRoot: draftRoot,
-    invocation: "$kyw-task 0001",
+    invocation: "$kyw-impl 0001",
   });
-  assert.equal(draft.outcome, "SELECTED");
-  assert.equal(draft.action, "AUTHOR");
-  assert.equal(draft.confirmation, false);
+  assert.equal(draft.outcome, "BLOCKED");
+  assert.equal(draft.code, "DRAFT_AUTHORING_REQUIRED");
+  assert.equal("confirmation" in draft, false);
+  assert.equal("action" in draft, false);
+  assert.match(draft.message, /\$kyw-task 0001/);
 
   const blockedRoot = await createQueue(t, [
     { id: "0001", status: "BLOCKED", blocker: "- Required fixture is unavailable." },
   ]);
   const blocked = await resolveTaskDispatch({
     tasksRoot: blockedRoot,
-    invocation: "$kyw-task 0001",
+    invocation: "$kyw-impl 0001",
   });
   assert.equal(blocked.outcome, "SELECTED");
   assert.equal(blocked.action, "RECHECK_BLOCKER");
@@ -362,7 +406,7 @@ test("current status table is exhaustive across exact, next, and continuous disp
     {
       pair: ["DRAFT", "DRAFT"],
       status: "DRAFT",
-      exact: { outcome: "SELECTED", action: "AUTHOR" },
+      exact: { outcome: "BLOCKED", code: "DRAFT_AUTHORING_REQUIRED" },
       automatic: { outcome: "BLOCKED", code: "NO_SELECTABLE_TASK" },
     },
     {
@@ -413,7 +457,7 @@ test("current status table is exhaustive across exact, next, and continuous disp
     ]);
     const exact = await resolveTaskDispatch({
       tasksRoot: root,
-      invocation: "$kyw-task 0001",
+      invocation: "$kyw-impl 0001",
     });
     assert.equal(exact.outcome, row.exact.outcome, `${row.status} exact outcome`);
     if (row.exact.action) {
@@ -630,7 +674,7 @@ test("current dependency grammar accepts only the canonical sentinel or canonica
     ]);
     const result = await resolveTaskDispatch({
       tasksRoot: root,
-      invocation: `$kyw-task ${row.id}`,
+      invocation: `$kyw-impl ${row.id}`,
     });
     assert.equal(result.outcome, "SELECTED", row.label);
     assert.deepEqual(result.task.dependencies, row.expected, row.label);
@@ -659,7 +703,7 @@ test("current dependency grammar accepts only the canonical sentinel or canonica
     ]);
     const result = await resolveTaskDispatch({
       tasksRoot: root,
-      invocation: "$kyw-task 0002",
+      invocation: "$kyw-impl 0002",
     });
     assert.equal(result.outcome, "BLOCKED", label);
     assert.equal(result.code, "INVALID_TASK_QUEUE", label);
@@ -759,7 +803,7 @@ test("exact active and terminal Tasks cannot bypass unsatisfied hard dependencie
   ]);
   const active = await resolveTaskDispatch({
     tasksRoot: activeRoot,
-    invocation: "$kyw-task 0002",
+    invocation: "$kyw-impl 0002",
   });
   assert.equal(active.code, "UNSATISFIED_DEPENDENCY");
   assert.match(active.message, /Dependency remains blocked/);
@@ -775,7 +819,7 @@ test("exact active and terminal Tasks cannot bypass unsatisfied hard dependencie
   ]);
   const terminal = await resolveTaskDispatch({
     tasksRoot: terminalRoot,
-    invocation: "$kyw-task 0002",
+    invocation: "$kyw-impl 0002",
   });
   assert.equal(terminal.code, "UNSATISFIED_DEPENDENCY");
   assert.match(terminal.message, /Dependency remains blocked/);
@@ -967,7 +1011,7 @@ test("exact GitHub ledger evidence gates terminal queue advancement and no-work 
 
   const exactComplete = await resolveTaskDispatch({
     tasksRoot: root,
-    invocation: "$kyw-task 0001",
+    invocation: "$kyw-impl 0001",
     deliveryLedger: { "0001": entry },
     deliveryExpectations: { "0001": expectation },
   });
@@ -1031,7 +1075,7 @@ test("Task 0031 regression resumes delivery before Task 0032 without another app
   for (const [invocation, managedRoutingAvailable] of [
     ["task 0031 실행해줘", true],
     ["task 진행해줘", true],
-    ["$kyw-task 0031", false],
+    ["$kyw-impl 0031", false],
   ]) {
     const result = await resolveTaskDispatch({
       tasksRoot: root,
@@ -1056,7 +1100,7 @@ test("Task 0031 regression resumes delivery before Task 0032 without another app
   };
   const terminal = await resolveTaskDispatch({
     tasksRoot: root,
-    invocation: "$kyw-task 0031",
+    invocation: "$kyw-impl 0031",
     ...deliveredState,
   });
   assert.equal(terminal.outcome, "TERMINAL");
@@ -1250,7 +1294,7 @@ test("queue dispatch rejects identity drift, an in-flight creation lock, and a s
   ]);
   const mismatched = await resolveTaskDispatch({
     tasksRoot: mismatchedRoot,
-    invocation: "$kyw-task 0002",
+    invocation: "$kyw-impl 0002",
   });
   assert.equal(mismatched.code, "INVALID_TASK_QUEUE");
   assert.match(mismatched.message, /directory ID 0002 must match/);
@@ -1263,7 +1307,7 @@ test("queue dispatch rejects identity drift, an in-flight creation lock, and a s
   );
   const duplicate = await resolveTaskDispatch({
     tasksRoot: duplicateRoot,
-    invocation: "$kyw-task 0001",
+    invocation: "$kyw-impl 0001",
   });
   assert.equal(duplicate.code, "INVALID_TASK_QUEUE");
   assert.match(duplicate.message, /requires exactly one section "Status"/);
@@ -1272,7 +1316,7 @@ test("queue dispatch rejects identity drift, an in-flight creation lock, and a s
   await writeFile(path.join(lockedRoot, ".kyw-dev-task-create.lock"), "in flight", "utf8");
   const locked = await resolveTaskDispatch({
     tasksRoot: lockedRoot,
-    invocation: "$kyw-task 0001",
+    invocation: "$kyw-impl 0001",
   });
   assert.equal(locked.code, "INVALID_TASK_QUEUE");
   assert.match(locked.message, /Task queue creation is locked/);
@@ -1284,7 +1328,7 @@ test("queue dispatch rejects identity drift, an in-flight creation lock, and a s
   await symlink(targetRoot, linkedRoot, process.platform === "win32" ? "junction" : "dir");
   const linked = await resolveTaskDispatch({
     tasksRoot: linkedRoot,
-    invocation: "$kyw-task 0001",
+    invocation: "$kyw-impl 0001",
   });
   assert.equal(linked.code, "INVALID_TASK_QUEUE");
   assert.match(linked.message, /must not be a symbolic link/);

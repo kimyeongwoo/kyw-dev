@@ -30,7 +30,13 @@ const marketplaceFixtureRoot = join(
   "distribution",
   "marketplace-root",
 );
-const managedSkillNames = ["kyw-audit", "kyw-grilling", "kyw-init", "kyw-task"];
+const managedSkillNames = [
+  "kyw-audit",
+  "kyw-grilling",
+  "kyw-impl",
+  "kyw-init",
+  "kyw-task",
+];
 const forbiddenLifecycleScripts = [
   "preinstall",
   "install",
@@ -159,9 +165,13 @@ test("release metadata is public-ready while publication remains an explicit com
   assert.equal(pluginJson.interface.developerName, packageJson.author.name);
   assert.equal(pluginJson.interface.websiteURL, RELEASE_METADATA.repositoryWebUrl);
   assert.deepEqual(pluginJson.interface.capabilities, ["Interactive", "Write"]);
-  assert.equal(pluginJson.interface.defaultPrompt.length, 3);
+  assert.equal(pluginJson.interface.defaultPrompt.length, 4);
   assert.match(
     pluginJson.interface.defaultPrompt[2],
+    /\$kyw-impl 0001.*execute an existing Task/,
+  );
+  assert.match(
+    pluginJson.interface.defaultPrompt[3],
     /\$kyw-audit 0001.*without modifying the repository/,
   );
   assert.equal(marketplaceJson.plugins[0].source.path, "./plugins/kyw-dev");

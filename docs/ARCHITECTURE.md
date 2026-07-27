@@ -43,7 +43,7 @@ Each Skill is independently focused. `AGENTS.md` stays thin. Detailed templates 
 
 ### A-03 — Explicit invocation for heavyweight workflows
 
-`kyw-init`, `kyw-task`, `kyw-audit`, and `kyw-grilling` declare `allow_implicit_invocation: false`. A managed project `AGENTS.md` may explicitly route only the anchored `task NNNN 실행해줘`, `task 진행해줘`, and `남은 task 계속 실행해줘` forms into `kyw-task`; this repository router does not enable general implicit Skill matching. Ordinary prompts remain ordinary, and a surface without that loaded contract uses `$kyw-task NNNN`.
+`kyw-init`, `kyw-task`, `kyw-impl`, `kyw-audit`, and `kyw-grilling` declare `allow_implicit_invocation: false`. A managed project `AGENTS.md` may explicitly route only the anchored `task NNNN 실행해줘`, `task 진행해줘`, and `남은 task 계속 실행해줘` forms into `kyw-impl`; this repository router does not enable general implicit Skill matching. Ordinary prompts remain ordinary, and a surface without that loaded contract uses `$kyw-impl NNNN`.
 
 ### A-04 — Non-destructive by default
 
@@ -55,7 +55,7 @@ Plugin distribution through npm must work when package lifecycle scripts are not
 
 ### A-06 — One Task is the execution context boundary
 
-A Task directory is the resumable execution packet. Adaptive authoring may atomically materialize several dependency-aware ready packets, but exactly one Task may be active. Create-and-execute enters only the first eligible new packet; continuous dispatch changes the boundary only after the current Task reaches a repository terminal state and its required external delivery gate passes. It never runs Tasks in parallel or outside the current host invocation. Completed Task folders are historical evidence, not mandatory context for later Tasks. Durable knowledge must be promoted to permanent documents.
+A Task directory is the resumable execution packet. Adaptive authoring may atomically materialize several dependency-aware ready packets and then stops with one exact next command. A later explicit `kyw-impl` invocation may activate exactly one Task; continuous dispatch changes the boundary only after the current Task reaches a repository terminal state and its required external delivery gate passes. It never runs Tasks in parallel or outside the current host invocation. Completed Task folders are historical evidence, not mandatory context for later Tasks. Durable knowledge must be promoted to permanent documents.
 
 ## 4. Top-level package structure
 
@@ -79,10 +79,12 @@ kyw-dev/
 │  ├─ kyw-task/
 │  │  ├─ SKILL.md
 │  │  ├─ agents/openai.yaml
-│  │  ├─ references/
-│  │  │  └─ execution.md
-│  │  ├─ assets/
 │  │  └─ scripts/
+│  ├─ kyw-impl/
+│  │  ├─ SKILL.md
+│  │  ├─ agents/openai.yaml
+│  │  └─ references/
+│  │     └─ execution.md
 │  └─ kyw-audit/
 │     ├─ SKILL.md
 │     ├─ agents/openai.yaml
@@ -164,9 +166,9 @@ The packaged deterministic mechanics use these cohesive core boundaries:
 
 The Task artifact graph is acyclic: shared and delivery are leaves; contract depends on template contracts and shared primitives; queue depends on contract, delivery, and shared primitives; creation depends on template contracts, contract, queue, and shared primitives; and the facade only re-exports the public surface. The installer graph is also acyclic: shared is the leaf; inventory depends on shared; installed state depends on shared and inventory; transactions and doctor each depend on shared, inventory, and installed state; and the facade only re-exports the public surface. The installation inventory module inventories the complete Task runtime graph and canonical templates as direct-install inputs but does not import their Task logic. No core module depends on the CLI, Skills, or development-only validation surfaces.
 
-`skills/kyw-task/scripts/task-artifacts.mjs` is a thin packaged process adapter for the core artifact module's compatible one-pair scaffold, fully authored batch create, read-only transaction inspection, explicit proof-based recovery, validate, and read-only resolve operations. It parses explicit arguments and reports structured results, but owns no numbering, slug, template, validation, dependency, transaction, selection, or file-write logic. Batch input carries complete model-authored Task/Test Markdown with deterministic placeholders and explicit existing/intra-batch dependency references; the core resolves those values and validates the result. In a plugin/npm tree the adapter imports the package-root core; in a direct-Skills tree it falls back to `.agents/skills/.kyw-dev/runtime/src/core/`. This keeps deterministic mechanics in the core modules while giving the reasoning Skill a stable invocation surface in both distribution layouts.
+`skills/kyw-task/scripts/task-artifacts.mjs` remains the one thin packaged process adapter for the core artifact module's compatible one-pair scaffold, fully authored batch create, read-only transaction inspection, explicit proof-based recovery, validate, and read-only resolve operations. Both owner-specific Skills reuse it; neither contains another artifact, state, dependency, dispatcher, or delivery engine. The adapter parses explicit arguments and reports structured results, but owns no numbering, slug, template, validation, dependency, transaction, selection, or file-write logic. Batch input carries complete model-authored Task/Test Markdown with deterministic placeholders and explicit existing/intra-batch dependency references; the core resolves those values and validates the result. In a plugin/npm tree the adapter imports the package-root core; in a direct-Skills tree it falls back to `.agents/skills/.kyw-dev/runtime/src/core/`. This keeps deterministic mechanics singular while giving both reasoning workflows a stable invocation surface in both distribution layouts.
 
-`skills/kyw-task/references/execution.md` is the packaged semantic state-machine reference for exact, automatic, and continuous Task execution. `SKILL.md` loads it only after adaptive create-and-execute selects the first eligible published pair, compatible DRAFT authoring is confirmed, or an existing-Task dispatch selects work. It owns reasoning gates for repository and GitHub preflight, current-Task scope, appended override checks, model/effort preservation, documentation impact, live Task/Test evidence, compaction handoff, final diff coverage, terminal repository status, delivery gating, and serial transition; it does not duplicate deterministic artifact mechanics. Refactors and large-file extractions use current exact-main, branch-base, PR-base, and immediately pre-merge `main` identities, stop on critical-path upstream movement, and treat stale snapshots, whole-file copies, and broad cherry-picks as comparison evidence only.
+`skills/kyw-impl/references/execution.md` is the sole packaged semantic state-machine reference for exact, automatic, and continuous existing-Task execution. `kyw-impl/SKILL.md` loads it after dispatch selects work; `kyw-task` neither owns nor duplicates it. The reference owns reasoning gates for repository and GitHub preflight, current-Task scope, appended override checks, model/effort preservation, documentation impact, live Task/Test evidence, compaction handoff, final diff coverage, terminal repository status, delivery gating, and serial transition; it does not duplicate deterministic artifact mechanics. Refactors and large-file extractions use current exact-main, branch-base, PR-base, and immediately pre-merge `main` identities, stop on critical-path upstream movement, and treat stale snapshots, whole-file copies, and broad cherry-picks as comparison evidence only.
 
 `skills/kyw-audit/references/audit.md` is the packaged semantic reference for an independent Task review. `SKILL.md` resolves one explicitly supplied Task ID, locks bare read-only or exact-`--fix` repair mode, and loads the reference before inspection. The reference owns baseline fallback, stable finding classification, acceptance/evidence reproduction, scope and durable-document comparison, the default zero-write boundary, explicit bounded repair, affected-check reruns, and the final audit verdict. It consumes existing Task validators as evidence but adds no deterministic runtime module or production dependency.
 
@@ -186,7 +188,7 @@ MVP manifest responsibilities:
 - `skills: "./skills/"`;
 - install-surface metadata suitable for a productivity/developer workflow plugin.
 
-The release manifest describes the implemented workflows rather than foundation stubs, exposes only the actual `Interactive` and `Write` capabilities, and provides three bounded starter prompts for init, Task, and audit. It uses only fields accepted by the current official plugin format. Unconfirmed email, privacy/terms, and branding metadata remain absent until real values and files exist.
+The release manifest describes the implemented workflows rather than foundation stubs, exposes only the actual `Interactive` and `Write` capabilities, and provides four bounded starter prompts for init, Task authoring, Task implementation, and audit. It uses only fields accepted by the current official plugin format. Unconfirmed email, privacy/terms, and branding metadata remain absent until real values and files exist.
 
 MVP does not include `mcpServers`, `apps`, or `hooks`. Those fields may be added only through an explicit future architecture decision.
 
@@ -234,7 +236,7 @@ Outputs:
 - explicit remaining unknowns;
 - user confirmation of shared understanding.
 
-It is stateless by itself and writes no files. Wrappers decide how to materialize outcomes.
+It is stateless by itself and writes no files. Wrappers decide how to materialize outcomes. After terminal confirmation of a feature design, its only next-route guidance is a new explicit `$kyw-task "<confirmed outcome>"`; it does not add a create-only suffix, write a pair, or automatically invoke the authoring Skill.
 
 ## 6.3 `kyw-init`
 
@@ -258,12 +260,48 @@ It may create `docs/` but does not create implementation code or all numbered Ta
 
 ## 6.4 `kyw-task`
 
-Responsibility: Task authoring, exact and automatic dispatch, serial queue progression, synchronization, and verification.
+Responsibility: new Task/Test pair-set authoring and compatible legacy DRAFT authoring or promotion only.
 
 Modes:
 
 ```text
-create(goal, create-only | create-and-execute)
+create(goal)
+draft(task-id)
+```
+
+Mutation boundary includes:
+
+- the complete new Task/Test pair set being atomically authored;
+- one explicitly selected existing `DRAFT/DRAFT` pair during compatible authoring or promotion.
+
+Permanent documents, implementation files, existing non-DRAFT pairs, Git, GitHub, and delivery state remain read-only. The authored Task may record expected Documentation Impact, but later durable-document mutation belongs to `kyw-impl`.
+
+During `create(goal)`, inspection, adaptive sizing, and Task-level grilling occur without writes. Once intent is settled, authoring may atomically publish only the smallest justified set of new Task/Test pairs. Every complete pair is prevalidated and becomes `READY/READY` together; no placeholder pair is exposed for post-publication customization. Success reports paths and dependencies plus exactly one next `$kyw-impl NNNN` for the first eligible pair, then stops. A create-only phrase is redundant, while create-and-execute intent still cannot cross this boundary or automatically invoke another Skill.
+
+The exact `$kyw-task NNNN` form resolves only `DRAFT/DRAFT` for compatible completion and promotion. Every non-DRAFT state receives state-appropriate migration guidance containing `$kyw-impl NNNN` and is not executed.
+
+Deterministic authoring helper needs:
+
+- list valid Task directories;
+- allocate one or a complete contiguous set of non-reused four-digit IDs and final paths;
+- create a safe slug;
+- preserve the compatible atomic one-pair DRAFT scaffold;
+- resolve full batch placeholders and explicit existing/intra-batch dependencies;
+- prevalidate every complete `READY/READY` pair plus missing-edge and cycle errors before publication;
+- publish the whole batch under one versioned identity/hash-chained ownership manifest/lock and roll back only exactly proven content on failure;
+- inspect retained transaction evidence read-only and recover it only through one explicit idempotent proof path;
+- make canonical queue inspection fail closed while a creation lock, release marker, or batch staging root exists, so an in-flight prefix is never dispatchable;
+- validate required sections, current-contract markers, delivery declarations, and paired statuses.
+
+The packaged `skills/kyw-task/scripts/task-artifacts.mjs` adapter exposes those existing core operations without duplicating them.
+
+## 6.5 `kyw-impl`
+
+Responsibility: exact existing-Task selection, automatic or continuous dispatch, implementation, resume, verification, durable-document synchronization, terminal state, and ordinary `STANDARD` delivery.
+
+Modes:
+
+```text
 exact(task-id)
 automatic-next()
 continuous()
@@ -271,17 +309,14 @@ continuous()
 
 Mutation boundary includes:
 
-- current Task and Test files;
-- Task implementation files;
-- affected permanent documents;
-- tests required by the Task.
+- the selected current Task and Test files;
+- implementation files and tests required by that Task;
+- permanent documents whose durable meaning changes;
 - explicitly named pre-created nonterminal Task pairs only when the selected Task requires a bounded contract migration.
 
-It must not implement future Tasks or silently broaden scope; a contract migration changes their workflow metadata only.
+It must not allocate an ID, create a Task directory or pair, author or promote a DRAFT, implement future Tasks, or silently broaden scope. A goal-style, missing, or new-outcome request performs zero Task mutation and points to a new explicit `$kyw-task "<outcome>"`; an existing DRAFT points to `$kyw-task NNNN`.
 
-During `create(goal, mode)`, the mutation boundary is narrower: inspection, adaptive sizing, and Task-level grilling occur without writes. Once intent is settled, authoring may atomically publish only the smallest justified set of new Task/Test pairs. Every complete pair is prevalidated and becomes `READY/READY` together; no placeholder pair is exposed for post-publication customization. Create-only stops at that boundary. Create-and-execute expands the mutation boundary only for the first dependency-satisfied new Task through the existing execution reference. Implementation files, permanent documents, and existing Tasks stay read-only during authoring, except for an explicitly scoped safe contract migration named by the selected Task.
-
-The portable existing-Task entry is `$kyw-task NNNN`. A loaded managed `AGENTS.md` may route the anchored aliases as follows:
+The portable existing-Task entry is `$kyw-impl NNNN`. A loaded managed `AGENTS.md` may route the anchored aliases as follows:
 
 ```text
 task NNNN 실행해줘          → exact(NNNN)
@@ -291,7 +326,7 @@ task 진행해줘               → automatic-next()
 
 The router matches only those anchored forms, with any following current-user text retained as an appended override. It does not route incidental prose containing `task`. Because direct Skill installation does not modify project documents, repositories without the managed routing contract and surfaces that do not load it must use the portable form.
 
-Create-and-execute may continue into execution only for the first dependency-satisfied pair in the newly published set. Exact mode resolves one existing four-digit Task; selecting a current-contract `READY/READY` pair confirms implementation and ordinary `STANDARD` delivery, while a different active Task blocks selection. Exact DRAFT and BLOCKED pairs may be selected only for compatible authoring resume or condition recheck. Automatic mode resumes the sole `IN_PROGRESS/RUNNING` pair when its state is safe, otherwise selects the lowest-numbered `DONE/PASSED` pair with resumable `STANDARD` delivery before the lowest-numbered dependency-satisfied `READY/READY` pair. Continuous mode repeats that selection and authority only after each selected Task's repository and delivery transitions finish. It creates no Task, keeps at most one active pair, and stops when the host invocation ends.
+Exact mode resolves one existing four-digit Task; selecting a current-contract `READY/READY` pair confirms implementation and ordinary `STANDARD` delivery, while a different active Task blocks selection. Exact BLOCKED pairs may be selected only for condition recheck. Automatic mode resumes the sole `IN_PROGRESS/RUNNING` pair when its state is safe, otherwise selects the lowest-numbered `DONE/PASSED` pair with resumable `STANDARD` delivery before the lowest-numbered dependency-satisfied `READY/READY` pair. Continuous mode repeats that selection and authority only after each selected Task's repository and delivery transitions finish. It creates no Task, keeps at most one active pair, and stops when the host invocation ends.
 
 Queue-aware pairs carry `<!-- kyw-task-contract: 2 -->` in both files. Their valid state pairs are:
 
@@ -306,6 +341,8 @@ CANCELLED / BLOCKED
 
 Any marker mismatch, unsupported pair, or multiple active pair fails closed. Completed historical artifacts without the current marker retain their legacy validation meaning and are not rewritten or recursively reinterpreted as a current queue.
 
+An exact `$kyw-impl NNNN` may still select, recheck, or resume an unmarked legacy pair according to its recorded historical contract. Legacy artifacts are not mass-rewritten, and automatic queue ordering does not reinterpret their old prose as current state.
+
 The resolver reads literal `Task NNNN` references only from the Task `Dependencies` section. Those references form directed hard-dependency edges; other prose is an evidence or implementation input. It rejects duplicate Task IDs, missing references, current-graph cycles, and unsatisfied edges. A terminal legacy dependency is evaluated from its recorded repository outcome without importing historical evidence prose as new edges. This boundary keeps unrelated historical blockers outside the current queue while still stopping on a selected Task's active or hard-dependency blocker.
 
 The current queue frontier is the highest-numbered current-contract Task. If no active, resumable-delivery, or ready pair exists, a blocked or inconsistent frontier reports its exact blocker. A `DONE/PASSED` or `CANCELLED/BLOCKED` frontier produces the exact no-work response only after its static delivery requirement is satisfied.
@@ -316,24 +353,14 @@ The semantic workflow treats an appended constraint as settled input instead of 
 
 Execution mutations remain limited to the current pair, implementation/tests required by its acceptance criteria, and permanent documents whose durable meaning changed. The only other-pair exception is an explicitly scoped, contract-only migration of named pre-created nonterminal Tasks; their outcomes remain unimplemented. Resume verifies Completed work against repository evidence and begins at Resume Point or the first valid Remaining item instead of blindly repeating recorded actions.
 
-Deterministic helper needs:
+Deterministic execution helper needs:
 
-- list valid Task directories;
-- allocate one or a complete contiguous set of non-reused four-digit IDs and final paths;
-- create a safe slug;
-- preserve the compatible atomic one-pair DRAFT scaffold;
-- resolve full batch placeholders and explicit existing/intra-batch dependencies;
-- prevalidate every complete `READY/READY` pair plus missing-edge and cycle errors before publication;
-- publish the whole batch under one versioned identity/hash-chained ownership manifest/lock and roll back only exactly proven content on failure;
-- inspect retained transaction evidence read-only and recover it only through one explicit idempotent proof path;
-- make canonical queue inspection fail closed while a creation lock, release marker, or batch staging root exists, so an in-flight prefix is never dispatchable;
-- validate required sections, current-contract markers, delivery declarations, and paired statuses;
 - extract hard dependencies and reject missing references or cycles;
 - reject verified conflict, unexplained-work, remote-drift, and user-decision preflight findings;
 - classify required delivery as `RESUMABLE`, `BLOCKED`, or `SATISFIED`;
 - resolve exact, active, delivery-resume, next-ready, blocked-frontier, and no-work local states with an explicit authority scope.
 
-The packaged `skills/kyw-task/scripts/task-artifacts.mjs` adapter exposes those existing core operations to the Skill without duplicating them.
+`kyw-impl` reuses the same packaged adapter and `src/core/task-artifact-*` graph as `kyw-task`; no owner-specific deterministic engine exists.
 
 Every current Task declares one static delivery requirement:
 
@@ -346,7 +373,7 @@ Task/Test owns repository outcome and reproducible behavioral evidence. GitHub o
 
 The static `STANDARD` field is policy, not ambient authority. The recognized current-user exact, automatic, or continuous invocation is the authority bridge when it selects a Task. The resolver returns `IMPLEMENT`, `RESUME`, or `DELIVER` with `STANDARD_LIFECYCLE` authority and no ceremonial reconfirmation. That ordinary scope covers exact-path commit, non-force push, non-draft PR, exact-head CI, review and mergeability inspection, expected-head protected merge, post-merge base CI, and terminal reporting. Publication, registry mutation, tags, releases, public submission, force push, destructive recovery, branch deletion, rerun, bypass, and unrelated mutation remain separate authority boundaries. Unsafe drift, unexplained user work, conflict, CI or review failure, or a new user-owned decision stops the invocation.
 
-## 6.5 `kyw-audit`
+## 6.6 `kyw-audit`
 
 Responsibility: independent consistency and evidence review.
 
@@ -422,7 +449,7 @@ Each normative rule family has one owner. A surface that cannot load that owner 
 | User-visible Task behavior and evidence meaning | `docs/SPEC.md` | Concise commands and outcomes in `README.md`; short invocations in `CODEX_PROMPTS.md` |
 | Repository-wide workspace, routing, model/delivery preservation, change/document discipline, Task/Test lifecycle, stable-check, and completion invariants | Root or generated `AGENTS.md` | The canonical project `AGENTS.md` template, tested against this repository's routing invariant bullets |
 | Task creation and authoring phases | `skills/kyw-task/SKILL.md` | UI metadata may name the invocation but carries no procedure |
-| Detailed selected existing-Task preflight, mutation, evidence-recording, delivery-ledger, queue-advancement, and reporting procedure | `skills/kyw-task/references/execution.md` | `SKILL.md` contains only the dispatch handoff and reference link |
+| Detailed selected existing-Task preflight, mutation, evidence-recording, delivery-ledger, queue-advancement, and reporting procedure | `skills/kyw-impl/references/execution.md` | `kyw-impl/SKILL.md` contains only the dispatch handoff and reference link |
 | Artifact shape and default evidence fields | Canonical Task/Test templates | `src/core/template-contracts.mjs` enforces the template-defined contract; existing artifacts retain compatible historical state |
 | Current scope, discoveries, handoff, and reproducible evidence | The active `TASK.md` / `TEST.md` pair | None; mutable GitHub delivery remains in its external ledger |
 
@@ -431,7 +458,7 @@ Each normative rule family has one owner. A surface that cannot load that owner 
 ## 8. Task lifecycle architecture
 
 ```text
-requested outcome + create mode
+requested outcome
       ↓
 inspect permanent docs + relevant code
       ↓
@@ -444,10 +471,9 @@ preallocate all IDs/paths + render all complete pairs
 canonical pair validation + missing/cycle validation
       ↓ one lock + whole-set publication
 READY / READY pair set
-      ├─ create-only → report and stop
-      └─ create-and-execute → first dependency-satisfied pair only
-                                  ↓
-                         IN_PROGRESS / RUNNING
+      ↓
+report one exact next $kyw-impl NNNN and stop
+      ↓ later explicit invocation
 IN_PROGRESS / RUNNING
       ├─ discovery → update docs / Task / Test
       ├─ possible compaction → persist handoff fields
@@ -456,10 +482,10 @@ IN_PROGRESS / RUNNING
             └─ unmet condition   → BLOCKED / BLOCKED
 ```
 
-Existing-Task dispatch wraps that lifecycle:
+The later existing-Task invocation wraps the execution lifecycle:
 
 ```text
-exact ID / managed automatic alias
+exact $kyw-impl ID / managed automatic alias
               ↓
 current-contract inventory + status/dependency validation
               ├─ one active → resume it
@@ -572,10 +598,12 @@ It records:
 - schema version 1 and package name/version;
 - user or project scope;
 - install and last-update timestamps;
-- the four installed Skill names and paths;
+- the five installed Skill names and paths;
 - a sorted path/SHA-256 record for every managed file.
 
-Metadata paths use non-empty normalized relative POSIX separators and may name only the four managed Skill containers or `.kyw-dev/runtime/`. Validation is host-independent: POSIX, drive, drive-relative, UNC, traversal, backslash/mixed-separator, Windows-reserved/malformed, exact duplicate, Unicode-normalization/case-colliding, and file-as-directory-prefix forms are rejected even on a case-sensitive host. Resolution reconfirms that each path is a strict descendant of the selected Skills root. The same manifest-identity rules apply to package inventory and transaction old/new lists, preventing malformed metadata or journals from authorizing access to unrelated Skills.
+New install and update metadata writes use the ordered five-Skill inventory. Readers used by doctor, update, and uninstall also accept the exact legacy ordered four-Skill schema-1 inventory, validate its recorded ownership and hashes without broadening paths, and let a successful update replace it with the current five-Skill state. Partial, reordered, mixed, or otherwise unknown inventories remain invalid.
+
+Metadata paths use non-empty normalized relative POSIX separators and may name only a recognized current or legacy managed Skill container or `.kyw-dev/runtime/`. Validation is host-independent: POSIX, drive, drive-relative, UNC, traversal, backslash/mixed-separator, Windows-reserved/malformed, exact duplicate, Unicode-normalization/case-colliding, and file-as-directory-prefix forms are rejected even on a case-sensitive host. Resolution reconfirms that each path is a strict descendant of the selected Skills root. The same manifest-identity rules apply to package inventory and transaction old/new lists, preventing malformed metadata or journals from authorizing access to unrelated Skills.
 
 ## 10.5 Atomic update strategy
 
@@ -609,7 +637,7 @@ kyw-dev CLI
 user or repository .agents/skills
 ```
 
-This path is intended for Codex CLI/IDE users who want direct Skill discovery. The four visible `kyw-*` directories are copied byte-for-byte. The CLI also maps the seven canonical Task runtime modules—the public facade, its five cohesive internals, and the template contract—and six templates into `.agents/skills/.kyw-dev/runtime/`. That hidden namespace is ownership-managed support, not a fifth Skill. The `kyw-task` adapter prefers its package-root import and falls back to this runtime only after direct installation.
+This path is intended for Codex CLI/IDE users who want direct Skill discovery. The five visible `kyw-*` directories are copied byte-for-byte. The CLI also maps the seven canonical Task runtime modules—the public facade, its five cohesive internals, and the template contract—and six templates into `.agents/skills/.kyw-dev/runtime/`. That hidden namespace is ownership-managed support, not a discoverable Skill. The single `kyw-task` adapter reused by the authoring and implementation Skills prefers its package-root import and falls back to this runtime only after direct installation.
 
 ## 11.2 Plugin marketplace path
 
@@ -623,7 +651,7 @@ bundled skills/
 
 The npm tarball itself must already contain all plugin files because marketplace npm downloads do not rely on lifecycle scripts.
 
-Before publication, `test/fixtures/distribution/marketplace-root/.agents/plugins/marketplace.json` is the canonical local catalog. It points at `./plugins/kyw-dev` and declares explicit availability, authentication timing, and category metadata. The distribution E2E delegates to the fail-closed release-isolation runner, copies the extracted npm tarball beneath its approved marketplace root, passes a fresh child-only `CODEX_HOME`, adds the marketplace through the Codex CLI, installs the plugin, and confirms that all four cached `SKILL.md` files match packed bytes. Plugin and marketplace removal complete before the exact temporary root is removed. Neither the fixture, runner, nor tests enter the npm tarball.
+Before publication, `test/fixtures/distribution/marketplace-root/.agents/plugins/marketplace.json` is the canonical local catalog. It points at `./plugins/kyw-dev` and declares explicit availability, authentication timing, and category metadata. The distribution E2E delegates to the fail-closed release-isolation runner, copies the extracted npm tarball beneath its approved marketplace root, passes a fresh child-only `CODEX_HOME`, adds the marketplace through the Codex CLI, installs the plugin, and confirms that all five cached `SKILL.md` files match packed bytes. Plugin and marketplace removal complete before the exact temporary root is removed. Neither the fixture, runner, nor tests enter the npm tarball.
 
 ## 11.3 Duplicate-install policy
 
@@ -796,7 +824,7 @@ The audit runner uses the same run-scoped lifecycle, supported signals, exit cod
 
 `scripts/spec-behavioral-acceptance.mjs` is the development-only current-session support surface. It validates the exact fixture inventory, S-02 preservation marker, thin generated-agent inputs, passing generic suites, the independently proven S-05 casual-branch gap, direct mutation attribution, and per-scenario `CURRENT_SESSION_DIRECT` evidence contracts. Its only child executable is the current Node runtime running fixture tests. It has no Codex/model launch, Docker boundary, fixed-session cohort, capability probe, authentication copy, retained-report writer, or model/capability/cohort flag.
 
-`test/spec-behavioral-acceptance.test.mjs` covers each scenario contract independently, package-byte evidence requirements, init confirmation, adaptive create-only READY/stop and resume failures, gap/document routing, exact mutations, and the absence of the retired runner/test paths. The root `scripts/`, `test/`, and fixture tree remain development-only and outside the npm package; normal package validation continues to own packed-byte allowlist identity.
+`test/spec-behavioral-acceptance.test.mjs` covers each scenario contract independently, package-byte evidence requirements, init confirmation, unconditional adaptive authoring READY/stop and later implementation-invocation failures, gap/document routing, exact mutations, and the absence of the retired runner/test paths. The root `scripts/`, `test/`, and fixture tree remain development-only and outside the npm package; normal package validation continues to own packed-byte allowlist identity.
 
 ### Static validation
 
@@ -846,7 +874,7 @@ distribution/marketplace-root
 distribution/fresh-session-project
 ```
 
-Direct-install integration runs the actual CLI against isolated homes and nested Git repositories, executes the installed `kyw-task` adapter through its namespaced runtime fallback, injects staging/swap interruption in a child process, verifies recovery against prior hashes, and confirms doctor leaves both scopes byte-identical.
+Direct-install integration runs the actual CLI against isolated homes and nested Git repositories, exercises authoring and implementation through their one installed Task adapter and namespaced runtime fallback, injects staging/swap interruption in a child process, verifies recovery against prior hashes, and confirms doctor leaves both scopes byte-identical.
 
 Distribution integration creates a synthetic normal-user/protected-state fixture outside the runner's attempt roots, passes it through the ordinary inherited-environment resolver, and proves it unchanged. Inside an attempt root it packs and extracts the actual archive, scans packaged text for source paths or secret-shaped tokens, runs install/update/doctor/normal uninstall at both direct scopes, and verifies that normal uninstall refuses modified/unknown state while force removes only owned bytes and preserves unknown/unrelated hashes. It then materializes the canonical local marketplace around the same extracted bytes and exercises Codex marketplace add/list/install/remove with child-only user/Codex/npm/temp configuration when the CLI is available. Unit regressions use synthetic snapshots/fixtures to cover exact managed paths, kyw-dev identifiers and packed bytes, ambient Codex/agents/npm drift, parent-environment violations, diagnostic privacy/truncation, the one ambient retry with fresh roots/evidence, every nonretryable error, normal-path aliases before child call zero, Windows case/separator identity, and broad cleanup rejection.
 
@@ -909,7 +937,7 @@ Skill-level blocked states must be written into Task/Test when the active workfl
 
 - Keep root `AGENTS.md` under the project target size.
 - Keep each Skill focused and move long material to `references/`.
-- A running existing Task uses exactly the loaded repository instructions, four permanent documents, current Task/Test pair, Task Skill, and its single execution reference, plus only explicit dependencies needed by that Task.
+- A running existing Task uses exactly the loaded repository instructions, four permanent documents, current Task/Test pair, `kyw-impl`, and its single execution reference, plus only explicit dependencies needed by that Task.
 - Before compaction, persist handoff fields.
 - Completed Task details required by future work are promoted to durable documents or summarized in the new Task dependency section.
 
