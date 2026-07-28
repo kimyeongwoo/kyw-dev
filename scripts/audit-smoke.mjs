@@ -733,6 +733,7 @@ export async function runAuditSmoke(
     processTarget,
     gracefulTerminationMs,
     forcedTerminationMs,
+    scheduler,
   } = {},
 ) {
   const codexVersion = preflight(launcher);
@@ -743,6 +744,7 @@ export async function runAuditSmoke(
     processTarget,
     gracefulTerminationMs,
     forcedTerminationMs,
+    scheduler,
     onChildSpawn: ({ pid }) => onState?.({ type: "child-spawn", pid }),
   });
   let completed;

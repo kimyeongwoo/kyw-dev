@@ -39,8 +39,18 @@ function deferred() {
   return { promise, resolve };
 }
 
-function delay(milliseconds) {
+function defaultDelay(milliseconds) {
   return new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds));
+}
+
+function processScheduler(overrides = {}) {
+  return Object.freeze({
+    clearTimeout: overrides.clearTimeout ?? ((handle) => clearTimeout(handle)),
+    delay: overrides.delay ?? defaultDelay,
+    now: overrides.now ?? Date.now,
+    setTimeout: overrides.setTimeout ?? ((callback, milliseconds) => setTimeout(callback, milliseconds)),
+    yield: overrides.yield ?? waitForImmediate,
+  });
 }
 
 function safeField(value, pattern, fallback) {
@@ -105,11 +115,11 @@ function posixProcessGroupAlive(pid, processTarget) {
   }
 }
 
-async function waitUntil(predicate, milliseconds) {
-  const deadline = Date.now() + milliseconds;
-  while (Date.now() < deadline) {
+async function waitUntil(predicate, milliseconds, scheduler) {
+  const deadline = scheduler.now() + milliseconds;
+  while (scheduler.now() < deadline) {
     if (!predicate()) return true;
-    await delay(Math.min(25, Math.max(1, deadline - Date.now())));
+    await scheduler.delay(Math.min(25, Math.max(1, deadline - scheduler.now())));
   }
   return !predicate();
 }
@@ -134,11 +144,18 @@ function runTaskkill(pid, forced, timeout) {
   });
 }
 
-async function runWindowsTerminationPhase(state, pid, forced, milliseconds, taskkill) {
-  const startedAt = Date.now();
+async function runWindowsTerminationPhase(
+  state,
+  pid,
+  forced,
+  milliseconds,
+  taskkill,
+  scheduler,
+) {
+  const startedAt = scheduler.now();
   taskkill(pid, forced, milliseconds);
-  const remaining = Math.max(0, milliseconds - (Date.now() - startedAt));
-  return waitUntil(() => !state.closed, remaining);
+  const remaining = Math.max(0, milliseconds - (scheduler.now() - startedAt));
+  return waitUntil(() => !state.closed, remaining, scheduler);
 }
 
 async function terminateOwnedTree(
@@ -149,6 +166,7 @@ async function terminateOwnedTree(
     gracefulTerminationMs,
     forcedTerminationMs,
     taskkill = runTaskkill,
+    scheduler,
   },
 ) {
   if (!Number.isInteger(state.child.pid)) return { forced: false, terminated: true };
@@ -161,6 +179,7 @@ async function terminateOwnedTree(
       false,
       gracefulTerminationMs,
       taskkill,
+      scheduler,
     );
     if (graceful) return { forced: false, terminated: true };
     const forced = await runWindowsTerminationPhase(
@@ -169,6 +188,7 @@ async function terminateOwnedTree(
       true,
       forcedTerminationMs,
       taskkill,
+      scheduler,
     );
     return { forced: true, terminated: forced };
   }
@@ -177,12 +197,14 @@ async function terminateOwnedTree(
   const graceful = await waitUntil(
     () => posixProcessGroupAlive(pid, processTarget),
     gracefulTerminationMs,
+    scheduler,
   );
   if (graceful) return { forced: false, terminated: true };
   signalPosixGroup(pid, "SIGKILL", processTarget);
   const forced = await waitUntil(
     () => posixProcessGroupAlive(pid, processTarget),
     forcedTerminationMs,
+    scheduler,
   );
   return { forced: true, terminated: forced };
 }
@@ -209,12 +231,14 @@ export function createEvaluatorRunScope({
   forcedTerminationMs = DEFAULT_FORCED_TERMINATION_MS,
   taskkill,
   onChildSpawn,
+  scheduler: schedulerOverrides,
 } = {}) {
   let activeChild;
   let cause;
   let finalized;
   const lifecycleDiagnostics = [];
   const listeners = new Map();
+  const scheduler = processScheduler(schedulerOverrides);
 
   const claimCause = (candidate) => {
     if (cause) return false;
@@ -228,6 +252,7 @@ export function createEvaluatorRunScope({
     gracefulTerminationMs,
     forcedTerminationMs,
     taskkill: taskkill ?? runTaskkill,
+    scheduler,
   };
 
   const terminateActiveChild = async () => {
@@ -268,7 +293,7 @@ export function createEvaluatorRunScope({
     cause?.kind === "interruption" ? new EvaluatorInterruptedError(cause.signal) : null;
 
   const checkpoint = async () => {
-    await waitForImmediate();
+    await scheduler.yield();
     const error = interruptionError();
     if (error) throw error;
   };
@@ -363,13 +388,13 @@ export function createEvaluatorRunScope({
     if (input === undefined) child.stdin?.end();
     else child.stdin?.end(input);
 
-    const timeoutHandle = setTimeout(() => {
+    const timeoutHandle = scheduler.setTimeout(() => {
       timeoutError = errorWithCode("ETIMEDOUT", `Evaluator child exceeded timeout=${timeout}`);
       if (claimCause({ kind: "timeout" })) wakeAfterTermination();
     }, timeout);
 
     await Promise.race([closed.promise, terminalWake.promise]);
-    clearTimeout(timeoutHandle);
+    scheduler.clearTimeout(timeoutHandle);
 
     if (cause?.kind === "interruption") {
       await terminateActiveChild();

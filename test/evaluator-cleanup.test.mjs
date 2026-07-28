@@ -18,8 +18,14 @@ import { runAuditSmoke } from "../scripts/audit-smoke.mjs";
 import {
   defaultRemoveEvaluatorOwnedPath,
   defaultRemoveOwnedPath,
+  createEvaluatorRunScope,
 } from "../scripts/evaluator-process.mjs";
 import { runComparison, runEvaluation } from "../scripts/grilling-eval/core.mjs";
+import {
+  readReadiness,
+  readinessDiagnostic,
+  waitForReadiness,
+} from "./fixtures/evaluator-process/readiness.mjs";
 
 const REPOSITORY_ROOT = fileURLToPath(new URL("../", import.meta.url));
 const FAKE_CODEX = join(
@@ -43,6 +49,30 @@ function processTarget() {
   return target;
 }
 
+function controlledTimeout() {
+  let nextHandle = 1;
+  const timers = new Map();
+  return {
+    fire() {
+      assert.equal(timers.size, 1, "one evaluator child timeout must be pending");
+      const [[handle, callback]] = timers;
+      timers.delete(handle);
+      callback();
+    },
+    scheduler: {
+      clearTimeout(handle) {
+        timers.delete(handle);
+      },
+      setTimeout(callback) {
+        const handle = nextHandle;
+        nextHandle += 1;
+        timers.set(handle, callback);
+        return handle;
+      },
+    },
+  };
+}
+
 function processAlive(pid) {
   if (!Number.isInteger(pid)) return false;
   if (process.platform === "linux") {
@@ -64,18 +94,28 @@ function processAlive(pid) {
   }
 }
 
-async function waitFor(predicate, description, milliseconds = 8_000) {
+async function waitFor(
+  predicate,
+  description,
+  milliseconds = 30_000,
+  diagnostics = () => "state=unavailable",
+) {
   const deadline = Date.now() + milliseconds;
   while (Date.now() < deadline) {
     if (predicate()) return;
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
-  assert.ok(predicate(), `Timed out waiting for ${description}`);
+  if (!predicate()) {
+    throw new Error(`Timed out waiting for ${description}; ${diagnostics()}`);
+  }
 }
 
-async function readReady(path) {
-  await waitFor(() => existsSync(path), `readiness marker ${normalizedOwnedPath(path)}`);
-  return JSON.parse(readFileSync(path, "utf8"));
+async function readReady(invocation) {
+  return waitForReadiness({
+    path: invocation.readyPath,
+    expectedRunId: invocation.readinessRunId,
+    pathLabel: `${invocation.flow}-cleanup-ready`,
+  });
 }
 
 function stopExactPid(pid) {
@@ -122,17 +162,19 @@ function startFlow(
     forcedTerminationMs = 1_000,
     gracefulTerminationMs = 250,
     launcher = FAKE_LAUNCHER,
-    modelTurnTimeoutMs = 3_000,
+    modelTurnTimeoutMs = 60_000,
     onState,
     preflight,
     processTarget: target,
     removeOwnedPath = defaultRemoveEvaluatorOwnedPath,
+    scheduler,
   } = {},
 ) {
   const root = temporaryDirectory(t, `kyw-${flow}-flow-`);
   const authFile = join(root, "auth-source.json");
   const outputRoot = join(root, "results");
   const readyPath = join(root, "ready.json");
+  const readinessRunId = `cleanup-${flow}-${root.split(/[\\/]/).at(-1)}`;
   const authBytes = Buffer.from('{"synthetic":"credential-free"}\n');
   writeFileSync(authFile, authBytes);
   const events = [];
@@ -142,6 +184,7 @@ function startFlow(
   };
   const extraEnv = {
     FAKE_EVALUATOR_BEHAVIOR: behavior,
+    FAKE_EVALUATOR_RUN_ID: readinessRunId,
     FAKE_EVALUATOR_STATE_FILE: readyPath,
   };
   const promise =
@@ -163,6 +206,7 @@ function startFlow(
             preflight,
             processTarget: target,
             removeOwnedPath,
+            scheduler,
           },
         )
       : runEvaluation({
@@ -179,10 +223,21 @@ function startFlow(
           processTarget: target,
           reasoningEffort: "high",
           removeOwnedPath,
+          scheduler,
           scenario: "existing-code-facts",
           variant: "kyw",
         });
-  return { authBytes, authFile, events, flow, outputRoot, promise, readyPath, root };
+  return {
+    authBytes,
+    authFile,
+    events,
+    flow,
+    outputRoot,
+    promise,
+    readinessRunId,
+    readyPath,
+    root,
+  };
 }
 
 function temporaryEvent(events) {
@@ -210,18 +265,25 @@ function terminalDiagnostic(invocation, { error, phase = "terminal" } = {}) {
   const processStates = invocation.events
     .filter((event) => event.type === "child-spawn")
     .map((event) => `child:${event.pid}:alive=${processAlive(event.pid)}`);
-  if (existsSync(invocation.readyPath)) {
-    try {
-      const ready = JSON.parse(readFileSync(invocation.readyPath, "utf8"));
-      for (const [label, pid] of [
-        ["ready-child", ready.pid],
-        ["ready-descendant", ready.descendantPid],
-      ]) {
-        if (Number.isInteger(pid)) processStates.push(`${label}:${pid}:alive=${processAlive(pid)}`);
+  const readiness = readReadiness(invocation.readyPath, invocation.readinessRunId);
+  if (readiness.state === "ready") {
+    for (const [label, pid] of [
+      ["ready-child", readiness.record.pid],
+      ["ready-descendant", readiness.record.descendantPid],
+    ]) {
+      if (Number.isInteger(pid)) {
+        processStates.push(`${label}:${pid}:alive=${processAlive(pid)}`);
       }
-    } catch {
-      processStates.push("ready-state=invalid");
     }
+  } else {
+    processStates.push(
+      readinessDiagnostic({
+        attempts: 1,
+        expectedRunId: invocation.readinessRunId,
+        observation: readiness,
+        pathLabel: `${invocation.flow}-terminal-ready`,
+      }),
+    );
   }
   const cleanupDiagnostics = String(error?.message ?? "")
     .split("\n")
@@ -290,6 +352,8 @@ function assertNoIncompletePublication(invocation, context) {
   );
 }
 
+// Native transport boundary: real child streams plus real owned directories prove the
+// production-default success and cleanup integration for both evaluator flows.
 test("both evaluator flows preserve success and ordinary cleanup", async (t) => {
   for (const flow of ["audit", "grilling"]) {
     const invocation = startFlow(t, flow);
@@ -312,6 +376,8 @@ test("both evaluator flows preserve success and ordinary cleanup", async (t) => 
   }
 });
 
+// Native transport boundary: a real non-zero child exit must retain flow-specific
+// classification while filesystem publication remains atomic.
 test("both evaluator flows preserve handled child failure and publish nothing incomplete", async (t) => {
   for (const flow of ["audit", "grilling"]) {
     const invocation = startFlow(t, flow, { behavior: "nonzero" });
@@ -321,31 +387,45 @@ test("both evaluator flows preserve handled child failure and publish nothing in
   }
 });
 
+// Native-only boundary: the timeout instant is scheduler-controlled, while a real child tree
+// proves the production termination and cleanup boundary.
 test("both evaluator flows preserve timeout classification and remove the timed-out tree", async (t) => {
   for (const flow of ["audit", "grilling"]) {
+    const timeoutControl = controlledTimeout();
     const invocation = startFlow(t, flow, {
       behavior: "hang-ignore-term",
-      modelTurnTimeoutMs: 1_000,
+      modelTurnTimeoutMs: 60_000,
+      scheduler: timeoutControl.scheduler,
     });
-    const ready = await readReady(invocation.readyPath);
+    const ready = await readReady(invocation);
     t.after(() => {
       stopFixtureProcesses(ready);
     });
+    timeoutControl.fire();
     await assert.rejects(
       invocation.promise,
       (error) =>
         error?.code === (flow === "audit" ? "CODEX_EXEC_FAILED" : "CODEX_TIMEOUT"),
     );
-    await waitFor(() => !processAlive(ready.pid), `${flow} timed-out child exit`);
+    await waitFor(
+      () => !processAlive(ready.pid),
+      `${flow} timed-out child exit`,
+      30_000,
+      () => terminalDiagnostic(invocation, { phase: "timeout-child-exit" }),
+    );
     await waitFor(
       () => !processAlive(ready.descendantPid),
       `${flow} timed-out descendant exit`,
+      30_000,
+      () => terminalDiagnostic(invocation, { phase: "timeout-descendant-exit" }),
     );
     assertOwnedStateRemoved(invocation);
     assertNoIncompletePublication(invocation);
   }
 });
 
+// Native-only boundary: the host OS must reject a missing executable through the real spawn
+// transport; the deterministic lifecycle owns the resulting cleanup.
 test("both evaluator flows preserve spawn-failure classification and cleanup", async (t) => {
   for (const flow of ["audit", "grilling"]) {
     const missing = join(tmpdir(), `missing-codex-${flow}-${process.pid}`);
@@ -362,6 +442,8 @@ test("both evaluator flows preserve spawn-failure classification and cleanup", a
   }
 });
 
+// Native-only boundary: a real owned child tree and an unrelated process prove narrow
+// termination; injected events prove repeated-signal and listener semantics.
 test("both evaluator flows interrupt active children idempotently without listener leaks", async (t) => {
   for (const flow of ["audit", "grilling"]) {
     const target = processTarget();
@@ -369,10 +451,10 @@ test("both evaluator flows interrupt active children idempotently without listen
     const baselineTerm = target.listenerCount("SIGTERM");
     const invocation = startFlow(t, flow, {
       behavior: "hang-ignore-term",
-      modelTurnTimeoutMs: 20_000,
+      modelTurnTimeoutMs: 60_000,
       processTarget: target,
     });
-    const ready = await readReady(invocation.readyPath);
+    const ready = await readReady(invocation);
     t.after(() => {
       stopFixtureProcesses(ready);
     });
@@ -385,10 +467,17 @@ test("both evaluator flows interrupt active children idempotently without listen
           (flow === "audit" ? "AUDIT_SMOKE_INTERRUPTED" : "EVALUATION_INTERRUPTED") &&
         error?.exitCode === 130,
     );
-    await waitFor(() => !processAlive(ready.pid), `${flow} interrupted child exit`);
+    await waitFor(
+      () => !processAlive(ready.pid),
+      `${flow} interrupted child exit`,
+      30_000,
+      () => terminalDiagnostic(invocation, { phase: "interrupted-child-exit" }),
+    );
     await waitFor(
       () => !processAlive(ready.descendantPid),
       `${flow} interrupted descendant exit`,
+      30_000,
+      () => terminalDiagnostic(invocation, { phase: "interrupted-descendant-exit" }),
     );
     assertOwnedStateRemoved(invocation);
     assertNoIncompletePublication(invocation);
@@ -397,6 +486,8 @@ test("both evaluator flows interrupt active children idempotently without listen
   }
 });
 
+// Integration boundary: real filesystem acquisition/publication and the child-spawn checkpoint
+// prove that every production phase remains non-public on interruption.
 test("interruption checkpoints clean partially acquired resources and prevent publication", async (t) => {
   const cases = [
     ["audit", "temporary-root"],
@@ -515,39 +606,49 @@ test("both evaluator flows await owned removal before interruption becomes termi
   }
 });
 
-test("an interruption during ordinary cleanup remains bounded for both flows", async (t) => {
-  for (const flow of ["audit", "grilling"]) {
-    const target = processTarget();
-    let emitted = false;
-    const invocation = startFlow(t, flow, {
-      onState(event) {
-        if (!emitted && event.type === "cleanup-complete") {
-          emitted = true;
-          target.emit("SIGINT");
-        }
-      },
-      processTarget: target,
+test("an interruption during ordinary cleanup is deterministic without a native process", async () => {
+  const target = processTarget();
+  const baselineInt = target.listenerCount("SIGINT");
+  const baselineTerm = target.listenerCount("SIGTERM");
+  const scope = createEvaluatorRunScope({
+    processTarget: target,
+    scheduler: { yield: async () => {} },
+  });
+  let releaseCleanup;
+  let cleanupStarted;
+  const cleanupGate = new Promise((resolve) => {
+    releaseCleanup = resolve;
+  });
+  const started = new Promise((resolve) => {
+    cleanupStarted = resolve;
+  });
+  let settled = false;
+  const finalizing = scope
+    .finalize(async () => {
+      cleanupStarted();
+      target.emit("SIGINT");
+      await cleanupGate;
+      return [];
+    })
+    .then((value) => {
+      settled = true;
+      return value;
     });
-    await assert.rejects(
-      invocation.promise,
-      (error) =>
-        error?.code ===
-        (flow === "audit" ? "AUDIT_SMOKE_INTERRUPTED" : "EVALUATION_INTERRUPTED"),
-    );
-    assert.equal(emitted, true);
-    assertOwnedStateRemoved(invocation);
-    if (flow === "grilling") {
-      const published = invocation.events.find((event) => event.type === "published");
-      assert.ok(published);
-      assert.equal(
-        existsSync(published.publishedDirectory),
-        true,
-        `flow=${flow} phase=cleanup-complete pathLabel=published-result ownedPath=${normalizedOwnedPath(published.publishedDirectory)} existence=false`,
-      );
-    }
-  }
+
+  await started;
+  await Promise.resolve();
+  assert.deepEqual(scope.cause, { kind: "interruption", signal: "SIGINT" });
+  assert.equal(settled, false, "terminal state must await the owned cleanup gate");
+  releaseCleanup();
+  const finalState = await finalizing;
+  assert.deepEqual(finalState.cause, { kind: "interruption", signal: "SIGINT" });
+  assert.deepEqual(finalState.diagnostics, []);
+  assert.equal(target.listenerCount("SIGINT"), baselineInt);
+  assert.equal(target.listenerCount("SIGTERM"), baselineTerm);
 });
 
+// Native-only boundary: a real interrupted child tree is combined with injected cleanup failure
+// so first-cause, redaction, and owned-tree cleanup are covered together.
 test("cleanup failures append one safe diagnostic while interruption stays primary", async (t) => {
   const secret = "sk-fixture-secret-value";
   for (const flow of ["audit", "grilling"]) {
@@ -566,7 +667,7 @@ test("cleanup failures append one safe diagnostic while interruption stays prima
     t.after(() => {
       for (const path of leakedRoots) rmSync(path, { recursive: true, force: true });
     });
-    const ready = await readReady(invocation.readyPath);
+    const ready = await readReady(invocation);
     t.after(() => {
       stopFixtureProcesses(ready);
     });
@@ -579,10 +680,21 @@ test("cleanup failures append one safe diagnostic while interruption stays prima
         (flow === "audit" ? "AUDIT_SMOKE_INTERRUPTED" : "EVALUATION_INTERRUPTED")
       );
     });
-    await waitFor(() => !processAlive(ready.pid), `${flow} cleanup-failure child exit`);
+    await waitFor(
+      () => !processAlive(ready.pid),
+      `${flow} cleanup-failure child exit`,
+      30_000,
+      () => terminalDiagnostic(invocation, { error: observed, phase: "cleanup-child-exit" }),
+    );
     await waitFor(
       () => !processAlive(ready.descendantPid),
       `${flow} cleanup-failure descendant exit`,
+      30_000,
+      () =>
+        terminalDiagnostic(invocation, {
+          error: observed,
+          phase: "cleanup-descendant-exit",
+        }),
     );
     assert.match(observed.message, /Evaluator interrupted by SIGINT/);
     assert.match(observed.message, /cleanup operation=/);
@@ -603,6 +715,8 @@ test("cleanup failures append one safe diagnostic while interruption stays prima
   }
 });
 
+// Native transport boundary: sequential real child runs prove that a later process failure does
+// not retract a previously atomic published result.
 test("an incomplete comparison preserves already atomically published run directories", async (t) => {
   const root = temporaryDirectory(t, "kyw-grilling-preserve-");
   const outputRoot = join(root, "results");

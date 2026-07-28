@@ -15,6 +15,12 @@ import {
   defaultRemoveEvaluatorOwnedPath,
   defaultRemoveOwnedPath,
 } from "../scripts/evaluator-process.mjs";
+import {
+  createReadinessRecord,
+  inspectReadinessText,
+  publishReadiness,
+  waitForReadiness,
+} from "./fixtures/evaluator-process/readiness.mjs";
 
 const REPOSITORY_ROOT = fileURLToPath(new URL("../", import.meta.url));
 const FAKE_CHILD = join(
@@ -35,6 +41,91 @@ function processTarget() {
   const target = new EventEmitter();
   target.kill = process.kill.bind(process);
   return target;
+}
+
+function controlledChild(pid = 42_001) {
+  const child = new EventEmitter();
+  child.pid = pid;
+  child.stdin = new EventEmitter();
+  child.stdin.end = () => {};
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  queueMicrotask(() => child.emit("spawn"));
+  return child;
+}
+
+function manualScheduler() {
+  let currentTime = 0;
+  let nextHandle = 1;
+  const timers = new Map();
+  const runDueTimers = () => {
+    const due = [...timers.entries()]
+      .filter(([, timer]) => timer.deadline <= currentTime)
+      .sort((left, right) => left[1].deadline - right[1].deadline);
+    for (const [handle, timer] of due) {
+      if (!timers.delete(handle)) continue;
+      timer.callback();
+    }
+  };
+  return {
+    advance(milliseconds) {
+      currentTime += milliseconds;
+      runDueTimers();
+    },
+    pendingTimers() {
+      return timers.size;
+    },
+    scheduler: {
+      clearTimeout(handle) {
+        timers.delete(handle);
+      },
+      async delay(milliseconds) {
+        currentTime += milliseconds;
+        runDueTimers();
+      },
+      now() {
+        return currentTime;
+      },
+      setTimeout(callback, milliseconds) {
+        const handle = nextHandle;
+        nextHandle += 1;
+        timers.set(handle, { callback, deadline: currentTime + milliseconds });
+        return handle;
+      },
+      async yield() {},
+    },
+  };
+}
+
+function controlledTimeout() {
+  let nextHandle = 1;
+  const timers = new Map();
+  return {
+    fire() {
+      assert.equal(timers.size, 1, "one owned child timeout must be pending");
+      const [[handle, callback]] = timers;
+      timers.delete(handle);
+      callback();
+    },
+    pending() {
+      return timers.size;
+    },
+    scheduler: {
+      clearTimeout(handle) {
+        timers.delete(handle);
+      },
+      setTimeout(callback) {
+        const handle = nextHandle;
+        nextHandle += 1;
+        timers.set(handle, callback);
+        return handle;
+      },
+    },
+  };
+}
+
+async function settleMicrotasks() {
+  for (let index = 0; index < 4; index += 1) await Promise.resolve();
 }
 
 function processAlive(pid) {
@@ -58,18 +149,24 @@ function processAlive(pid) {
   }
 }
 
-async function waitFor(predicate, description, milliseconds = 5_000) {
+async function waitFor(
+  predicate,
+  description,
+  milliseconds = 30_000,
+  diagnostics = () => "state=unavailable",
+) {
   const deadline = Date.now() + milliseconds;
   while (Date.now() < deadline) {
     if (predicate()) return;
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
-  assert.ok(predicate(), `Timed out waiting for ${description}`);
+  if (!predicate()) {
+    throw new Error(`Timed out waiting for ${description}; ${diagnostics()}`);
+  }
 }
 
-async function readReady(path) {
-  await waitFor(() => existsSync(path), "fixture readiness marker");
-  return JSON.parse(readFileSync(path, "utf8"));
+async function readReady(path, expectedRunId, pathLabel) {
+  return waitForReadiness({ path, expectedRunId, pathLabel });
 }
 
 function stopExactPid(pid) {
@@ -117,6 +214,223 @@ function newScope(target, options = {}) {
   });
 }
 
+test("readiness publication is atomic and consumption validates the owned run", async () => {
+  const path = "fixture-ready.json";
+  const runId = "process-readiness-owned-run";
+  const files = new Map();
+  const operations = [];
+  const record = publishReadiness(
+    path,
+    {
+      descendantPid: 42_002,
+      pid: 42_001,
+      protocol: "caller-cannot-override",
+      runId,
+      state: "partial",
+      version: 99,
+    },
+    {
+      writeFile(stagingPath, value) {
+        operations.push(`write:${stagingPath}`);
+        assert.equal(files.has(path), false, "the final path is absent before publication");
+        files.set(stagingPath, value);
+      },
+      rename(stagingPath, publishedPath) {
+        operations.push(`rename:${stagingPath}->${publishedPath}`);
+        assert.equal(files.has(stagingPath), true);
+        assert.equal(files.has(publishedPath), false);
+        files.set(publishedPath, files.get(stagingPath));
+        files.delete(stagingPath);
+      },
+      remove(stagingPath) {
+        files.delete(stagingPath);
+      },
+    },
+  );
+  assert.equal(operations.length, 2);
+  assert.equal(record.protocol, "kyw-evaluator-readiness");
+  assert.equal(record.state, "ready");
+  assert.equal(record.version, 1);
+  assert.match(operations[0], /\.ready\.tmp$/);
+  assert.match(operations[1], /^rename:.*\.ready\.tmp->fixture-ready\.json$/);
+  assert.deepEqual(inspectReadinessText(files.get(path), runId), {
+    state: "ready",
+    reason: "VALIDATED",
+    bytes: Buffer.byteLength(files.get(path), "utf8"),
+    record,
+  });
+
+  const wrongRun = createReadinessRecord({
+    descendantPid: 42_004,
+    pid: 42_003,
+    runId: "process-readiness-other-run",
+  });
+  const scripted = [
+    { state: "absent", reason: "NOT_PUBLISHED", bytes: 0 },
+    inspectReadinessText('{"protocol":', runId),
+    inspectReadinessText(JSON.stringify(wrongRun), runId),
+    inspectReadinessText(files.get(path), runId),
+  ];
+  const observedStates = [];
+  let currentTime = 0;
+  const accepted = await waitForReadiness({
+    path,
+    expectedRunId: runId,
+    timeoutMs: 10,
+    pollIntervalMs: 1,
+    now: () => currentTime,
+    sleep: async (milliseconds) => {
+      currentTime += milliseconds;
+    },
+    read: () => scripted.shift(),
+    onObservation: (observation) => observedStates.push(observation.state),
+  });
+  assert.equal(accepted.runId, runId);
+  assert.deepEqual(observedStates, ["absent", "incomplete", "wrong-run", "ready"]);
+
+  currentTime = 0;
+  await assert.rejects(
+    waitForReadiness({
+      path,
+      expectedRunId: runId,
+      pathLabel: "partial-ready",
+      timeoutMs: 2,
+      pollIntervalMs: 1,
+      now: () => currentTime,
+      sleep: async (milliseconds) => {
+        currentTime += milliseconds;
+      },
+      read: () => inspectReadinessText('{"protocol":', runId),
+    }),
+    (error) =>
+      error?.code === "EVALUATOR_READINESS_TIMEOUT" &&
+      /state=incomplete/.test(error.message) &&
+      /reason=INVALID_JSON/.test(error.message) &&
+      /attempts=3/.test(error.message),
+  );
+
+  const failedFiles = new Map();
+  const failedOperations = [];
+  assert.throws(
+    () =>
+      publishReadiness(
+        "failed-ready.json",
+        { pid: 42_005, runId: "process-readiness-failed-publication" },
+        {
+          writeFile(stagingPath, value) {
+            failedOperations.push("write");
+            failedFiles.set(stagingPath, value);
+          },
+          rename() {
+            failedOperations.push("rename");
+            throw Object.assign(new Error("synthetic rename failure"), { code: "EACCES" });
+          },
+          remove(stagingPath) {
+            failedOperations.push("remove");
+            failedFiles.delete(stagingPath);
+          },
+        },
+      ),
+    (error) => error?.code === "EACCES",
+  );
+  assert.deepEqual(failedOperations, ["write", "rename", "remove"]);
+  assert.equal(failedFiles.size, 0);
+});
+
+test("timeout remains authoritative when a later signal races with termination", async () => {
+  const target = processTarget();
+  const baselineInt = target.listenerCount("SIGINT");
+  const child = controlledChild();
+  const clock = manualScheduler();
+  const terminationCalls = [];
+  const scope = newScope(target, {
+    platform: "win32",
+    scheduler: clock.scheduler,
+    spawnChild: () => child,
+    taskkill(pid, forced, milliseconds) {
+      terminationCalls.push({ forced, milliseconds, pid });
+      if (forced) child.emit("close", null, "SIGKILL");
+    },
+  });
+  const running = scope.runChild({ command: "controlled-child", timeout: 10 });
+  await settleMicrotasks();
+  assert.equal(clock.pendingTimers(), 1);
+  clock.advance(10);
+  await settleMicrotasks();
+  target.emit("SIGINT");
+  const result = await running;
+  assert.equal(result.error?.code, "ETIMEDOUT");
+  assert.deepEqual(scope.cause, { kind: "timeout" });
+  assert.deepEqual(terminationCalls, [
+    { forced: false, milliseconds: 250, pid: child.pid },
+    { forced: true, milliseconds: 1_000, pid: child.pid },
+  ]);
+  const finalState = await scope.finalize();
+  assert.deepEqual(finalState.cause, { kind: "timeout" });
+  assert.equal(clock.pendingTimers(), 0);
+  assert.equal(target.listenerCount("SIGINT"), baselineInt);
+  const settledEvidence = {
+    cause: scope.cause,
+    diagnostics: finalState.diagnostics,
+    stdout: result.stdout,
+    terminationCalls: [...terminationCalls],
+  };
+  child.stdout.emit("data", Buffer.from("late-output"));
+  child.emit("close", 99, "SIGKILL");
+  target.emit("SIGINT");
+  clock.advance(10_000);
+  await settleMicrotasks();
+  assert.deepEqual(
+    {
+      cause: scope.cause,
+      diagnostics: finalState.diagnostics,
+      stdout: result.stdout,
+      terminationCalls,
+    },
+    settledEvidence,
+    "settled lifecycle evidence must not change after late child or signal events",
+  );
+});
+
+test("injected Linux and macOS schedulers terminate only the owned POSIX group", async () => {
+  for (const platform of ["linux", "darwin"]) {
+    const target = new EventEmitter();
+    const child = controlledChild(platform === "linux" ? 42_101 : 42_102);
+    const clock = manualScheduler();
+    const signals = [];
+    let groupAlive = true;
+    target.kill = (pid, signal) => {
+      assert.equal(pid, -child.pid);
+      signals.push(signal);
+      if (signal === "SIGTERM") {
+        groupAlive = false;
+        child.emit("close", null, "SIGTERM");
+        return;
+      }
+      if (signal === 0 && !groupAlive) {
+        throw Object.assign(new Error("missing controlled process group"), { code: "ESRCH" });
+      }
+    };
+    const baselineInt = target.listenerCount("SIGINT");
+    const baselineTerm = target.listenerCount("SIGTERM");
+    const scope = newScope(target, {
+      platform,
+      scheduler: clock.scheduler,
+      spawnChild: () => child,
+    });
+    const running = scope.runChild({ command: "controlled-posix-child", timeout: 10 });
+    await settleMicrotasks();
+    clock.advance(10);
+    const result = await running;
+    assert.equal(result.error?.code, "ETIMEDOUT");
+    assert.deepEqual(signals, ["SIGTERM", 0]);
+    const finalState = await scope.finalize();
+    assert.deepEqual(finalState.cause, { kind: "timeout" });
+    assert.equal(target.listenerCount("SIGINT"), baselineInt);
+    assert.equal(target.listenerCount("SIGTERM"), baselineTerm);
+  }
+});
+
 test("owned-process termination remains PID-rooted without global process enumeration", () => {
   const source = readFileSync(join(REPOSITORY_ROOT, "scripts", "evaluator-process.mjs"), "utf8");
   assert.match(source, /processTarget\.kill\(-pid,/);
@@ -124,6 +438,8 @@ test("owned-process termination remains PID-rooted without global process enumer
   assert.doesNotMatch(source, /\b(?:Get-Process|tasklist|wmic|ps\s+-|pgrep|pkill)\b/i);
 });
 
+// Native-only boundary: Windows exclusive-handle release and filesystem retry semantics are
+// observable only through a real handle-owning process.
 test(
   "Windows evaluator cleanup awaits bounded release of an owned exclusive handle",
   { skip: process.platform !== "win32" },
@@ -187,6 +503,8 @@ test(
   },
 );
 
+// Native-only boundary: actual stdin/stdout/stderr encoding, exit status, and spawn failure
+// behavior add process-transport confidence beyond the controlled child seam.
 test("run-scoped child execution preserves input, UTF-8 output, non-zero status, and spawn errors", async () => {
   for (const expectation of [
     {
@@ -238,45 +556,73 @@ test("run-scoped child execution preserves input, UTF-8 output, non-zero status,
   }
 });
 
-test("timeout and max-output causes terminate the exact owned child tree within fixed bounds", async (t) => {
-  const root = temporaryDirectory(t);
-  for (const expectation of [
-    { code: "ETIMEDOUT", maxBuffer: 1_024, mode: "hang", timeout: 1_000 },
-    { code: "ENOBUFS", maxBuffer: 128, mode: "overflow", timeout: 3_000 },
-  ]) {
-    const target = processTarget();
-    const scope = newScope(target);
-    const readyPath = join(root, `${expectation.mode}.json`);
-    let ready;
-    let result;
-    try {
-      const running = scope.runChild({
-        args: [FAKE_CHILD, expectation.mode, readyPath],
-        command: process.execPath,
-        maxBuffer: expectation.maxBuffer,
-        timeout: expectation.timeout,
-      });
-      if (expectation.mode === "hang") {
-        ready = await readReady(readyPath);
-        t.after(() => {
-          stopFixtureProcesses(ready);
+// Native-only boundary: a real stream overflow and an owned child plus descendant prove
+// behavior that the deterministic scheduler cannot represent.
+test(
+  "timeout and max-output causes terminate the exact owned child tree",
+  { timeout: 120_000 },
+  async (t) => {
+    const root = temporaryDirectory(t);
+    for (const expectation of [
+      { code: "ETIMEDOUT", maxBuffer: 1_024, mode: "hang" },
+      { code: "ENOBUFS", maxBuffer: 128, mode: "overflow" },
+    ]) {
+      const target = processTarget();
+      const timeoutControl = controlledTimeout();
+      const scope = newScope(target, { scheduler: timeoutControl.scheduler });
+      const readyPath = join(root, `${expectation.mode}.json`);
+      const readinessRunId = `process-${expectation.mode}-owned-tree`;
+      let ready;
+      let result;
+      try {
+        const running = scope.runChild({
+          args: [FAKE_CHILD, expectation.mode, readyPath, readinessRunId],
+          command: process.execPath,
+          maxBuffer: expectation.maxBuffer,
+          timeout: 30_000,
         });
+        if (expectation.mode === "hang") {
+          ready = await readReady(
+            readyPath,
+            readinessRunId,
+            "process-timeout-owned-tree",
+          );
+          t.after(() => {
+            stopFixtureProcesses(ready);
+          });
+          timeoutControl.fire();
+        }
+        result = await running;
+      } finally {
+        await scope.finalize();
       }
-      result = await running;
-    } finally {
-      await scope.finalize();
+      assert.equal(result.error?.code, expectation.code);
+      assert.equal(timeoutControl.pending(), 0);
+      if (ready) {
+        await waitFor(
+          () => !processAlive(ready.pid),
+          "timed-out child exit",
+          30_000,
+          () => `pid=${ready.pid} alive=${processAlive(ready.pid)} cause=${scope.cause?.kind}`,
+        );
+        await waitFor(
+          () => !processAlive(ready.descendantPid),
+          "timed-out descendant exit",
+          30_000,
+          () =>
+            `pid=${ready.descendantPid} alive=${processAlive(ready.descendantPid)} cause=${scope.cause?.kind}`,
+        );
+      }
     }
-    assert.equal(result.error?.code, expectation.code);
-    if (ready) {
-      await waitFor(() => !processAlive(ready.pid), "timed-out child exit");
-      await waitFor(() => !processAlive(ready.descendantPid), "timed-out descendant exit");
-    }
-  }
-});
+  },
+);
 
+// Native-only boundary: a real child tree proves narrowly owned termination and preserves an
+// unrelated process; pure lifecycle tests cover cause ordering and listener state.
 test("repeated interruption owns only the tracked tree, is idempotent, and removes listeners", async (t) => {
   const root = temporaryDirectory(t);
   const readyPath = join(root, "ready.json");
+  const readinessRunId = "process-repeated-interruption";
   const target = processTarget();
   const baselineInt = target.listenerCount("SIGINT");
   const baselineTerm = target.listenerCount("SIGTERM");
@@ -288,15 +634,20 @@ test("repeated interruption owns only the tracked tree, is idempotent, and remov
   t.after(() => {
     if (processAlive(unrelated.pid)) unrelated.kill("SIGKILL");
   });
-  const scope = newScope(target);
+  const timeoutControl = controlledTimeout();
+  const scope = newScope(target, { scheduler: timeoutControl.scheduler });
   let ready;
   try {
     const running = scope.runChild({
-      args: [FAKE_CHILD, "hang-ignore-term", readyPath],
+      args: [FAKE_CHILD, "hang-ignore-term", readyPath, readinessRunId],
       command: process.execPath,
-      timeout: 10_000,
+      timeout: 30_000,
     });
-    ready = await readReady(readyPath);
+    ready = await readReady(
+      readyPath,
+      readinessRunId,
+      "process-repeated-interruption-ready",
+    );
     t.after(() => {
       stopFixtureProcesses(ready);
     });
@@ -314,54 +665,45 @@ test("repeated interruption owns only the tracked tree, is idempotent, and remov
     const [firstResult, secondResult] = await Promise.all([first, second]);
     assert.deepEqual(firstResult, secondResult);
   }
-  await waitFor(() => !processAlive(ready.pid), "interrupted child exit");
-  await waitFor(() => !processAlive(ready.descendantPid), "interrupted descendant exit");
+  await waitFor(
+    () => !processAlive(ready.pid),
+    "interrupted child exit",
+    30_000,
+    () => `pid=${ready.pid} alive=${processAlive(ready.pid)} cause=${scope.cause?.kind}`,
+  );
+  await waitFor(
+    () => !processAlive(ready.descendantPid),
+    "interrupted descendant exit",
+    30_000,
+    () =>
+      `pid=${ready.descendantPid} alive=${processAlive(ready.descendantPid)} cause=${scope.cause?.kind}`,
+  );
   assert.equal(processAlive(unrelated.pid), true);
+  assert.equal(timeoutControl.pending(), 0);
   assert.equal(target.listenerCount("SIGINT"), baselineInt);
   assert.equal(target.listenerCount("SIGTERM"), baselineTerm);
 });
 
-test("timeout remains authoritative when a later signal races with termination", async (t) => {
-  const root = temporaryDirectory(t);
-  const readyPath = join(root, "timeout-race.json");
-  const target = processTarget();
-  const scope = newScope(target);
-  let ready;
-  try {
-    const running = scope.runChild({
-      args: [FAKE_CHILD, "hang-ignore-term", readyPath],
-      command: process.execPath,
-      timeout: 1_000,
-    });
-    ready = await readReady(readyPath);
-    t.after(() => {
-      stopFixtureProcesses(ready);
-    });
-    await waitFor(() => scope.cause?.kind === "timeout", "timeout cause", 3_000);
-    target.emit("SIGINT");
-    const result = await running;
-    assert.equal(result.error?.code, "ETIMEDOUT");
-    assert.equal(scope.cause.kind, "timeout");
-  } finally {
-    await scope.finalize();
-  }
-  await waitFor(() => !processAlive(ready.pid), "timeout-race child exit");
-  await waitFor(() => !processAlive(ready.descendantPid), "timeout-race descendant exit");
-});
-
 test("a signal after child exit but before final cleanup prevents success", async () => {
   const target = processTarget();
-  const scope = newScope(target);
-  const result = await scope.runChild({
-    args: [FAKE_CHILD, "success"],
-    command: process.execPath,
-    timeout: 3_000,
+  const baselineInt = target.listenerCount("SIGINT");
+  const child = controlledChild();
+  const clock = manualScheduler();
+  const scope = newScope(target, {
+    scheduler: clock.scheduler,
+    spawnChild: () => child,
   });
+  const running = scope.runChild({ command: "controlled-child", timeout: 10 });
+  await settleMicrotasks();
+  child.emit("close", 0, null);
+  const result = await running;
   assert.equal(result.status, 0);
+  assert.equal(clock.pendingTimers(), 0);
   target.emit("SIGINT");
   await assert.rejects(scope.checkpoint(), (error) => error?.code === "EVALUATOR_INTERRUPTED");
   const finalState = await scope.finalize();
   assert.deepEqual(finalState.cause, { kind: "interruption", signal: "SIGINT" });
+  assert.equal(target.listenerCount("SIGINT"), baselineInt);
 });
 
 test("partial cleanup is repeat-safe and diagnostics expose labels, not secret paths or values", async (t) => {

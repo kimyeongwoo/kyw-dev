@@ -9,6 +9,8 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 
+import { publishReadiness } from "./readiness.mjs";
+
 const THREAD_ID = "22222222-3333-4444-8555-666666666666";
 let args = process.argv.slice(2);
 
@@ -56,6 +58,7 @@ if (behavior === "nonzero") {
 const repositoryOption = args.indexOf("--cd");
 const repository = repositoryOption === -1 ? process.cwd() : args[repositoryOption + 1];
 const stateFile = process.env.FAKE_EVALUATOR_STATE_FILE;
+const readinessRunId = process.env.FAKE_EVALUATOR_RUN_ID;
 
 if (behavior === "hang" || behavior === "hang-ignore-term") {
   const descendant = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
@@ -72,20 +75,16 @@ if (behavior === "hang" || behavior === "hang-ignore-term") {
     });
   }
   if (stateFile) {
-    writeFileSync(
-      stateFile,
-      `${JSON.stringify({
-        authCopy: join(process.env.CODEX_HOME, "auth.json"),
-        codexHome: process.env.CODEX_HOME,
-        descendantPid: descendant.pid,
-        pid: process.pid,
-        ready: true,
-        repository,
-        temporaryHome: process.env.HOME,
-        temporaryRoot: process.env.TEMP,
-      })}\n`,
-      "utf8",
-    );
+    publishReadiness(stateFile, {
+      authCopy: join(process.env.CODEX_HOME, "auth.json"),
+      codexHome: process.env.CODEX_HOME,
+      descendantPid: descendant.pid,
+      pid: process.pid,
+      repository,
+      runId: readinessRunId,
+      temporaryHome: process.env.HOME,
+      temporaryRoot: process.env.TEMP,
+    });
   }
   process.stdout.write(`READY child=${process.pid} descendant=${descendant.pid}\n`);
   setInterval(() => {}, 1_000);

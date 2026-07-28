@@ -595,8 +595,11 @@ format stay in source/tests.
 Model-backed grilling and audit smoke are development-only and require an
 explicit model, reasoning effort, authentication source, and cost gate. They
 run in isolated temporary repositories, preserve normal user state, redact
-outputs, and never become required public CI. Deterministic unit tests cover
-their parsers and lifecycle without model calls.
+outputs, and never become required public CI. Pure lifecycle tests inject
+schedulers and events; retained native smoke accepts only an atomically
+published, run-bound readiness record before crossing real console, signal,
+stream, or process-tree boundaries. Time bounds stop hangs and emit state
+diagnostics rather than defining an elapsed-speed acceptance threshold.
 
 Exact signal handling, timeouts, retry delays, fixture catalogs, schema
 versions, and historical benchmark outcomes remain with evaluator source/tests
