@@ -1,6 +1,8 @@
 param(
   [Parameter(Mandatory = $true)][string]$NodePath,
   [Parameter(Mandatory = $true)][string]$Entrypoint,
+  [Parameter(Mandatory = $true)][string]$ReadinessWaiter,
+  [Parameter(Mandatory = $true)][string]$ReadinessRunId,
   [Parameter(Mandatory = $true)][ValidateSet('audit', 'grilling')][string]$Flow,
   [Parameter(Mandatory = $true)][string]$StateDirectory,
   [Parameter(Mandatory = $true)][string]$ResultPath
@@ -110,7 +112,8 @@ $commandLine = @(
   (Quote-NativeArgument $Entrypoint),
   (Quote-NativeArgument $Flow),
   (Quote-NativeArgument $StateDirectory),
-  'hang'
+  'hang',
+  (Quote-NativeArgument $ReadinessRunId)
 ) -join ' '
 $process = [EvaluatorConsoleControl]::Start($NodePath, $commandLine, (Split-Path -Parent $Entrypoint))
 $launchPath = Join-Path $StateDirectory 'console-launch.json'
@@ -120,10 +123,10 @@ $launchPath = Join-Path $StateDirectory 'console-launch.json'
   [Text.UTF8Encoding]::new($false)
 )
 $readyPath = Join-Path $StateDirectory 'ready.json'
-$deadline = [DateTime]::UtcNow.AddSeconds(20)
-while (-not (Test-Path -LiteralPath $readyPath)) {
-  if ([DateTime]::UtcNow -ge $deadline) { throw 'Evaluator readiness marker timed out' }
-  Start-Sleep -Milliseconds 25
+$readinessOutput = & $NodePath $ReadinessWaiter $readyPath $ReadinessRunId "windows-$Flow" 2>&1
+$readinessExitCode = $LASTEXITCODE
+if ($readinessExitCode -ne 0) {
+  throw "Evaluator readiness handshake failed exit=$readinessExitCode output=$($readinessOutput -join ' ')"
 }
 
 [EvaluatorConsoleControl]::FreeConsole() | Out-Null
@@ -135,9 +138,8 @@ $generated = [EvaluatorConsoleControl]::GenerateConsoleCtrlEvent(
   [EvaluatorConsoleControl]::CTRL_C_EVENT,
   0
 )
-Start-Sleep -Milliseconds 100
-[EvaluatorConsoleControl]::FreeConsole() | Out-Null
 $wait = [EvaluatorConsoleControl]::WaitForSingleObject($process.hProcess, 30000)
+[EvaluatorConsoleControl]::FreeConsole() | Out-Null
 $exitCode = [uint32]0
 $exitCodeRead = [EvaluatorConsoleControl]::GetExitCodeProcess($process.hProcess, [ref]$exitCode)
 [EvaluatorConsoleControl]::CloseHandle($process.hThread) | Out-Null
@@ -148,6 +150,8 @@ $resultJson = @{
   ctrlCGenerated = $generated
   exitCode = $exitCode
   exitCodeRead = $exitCodeRead
+  readinessRunId = $ReadinessRunId
+  readinessValidated = ($readinessExitCode -eq 0)
   waitCompleted = ($wait -eq [EvaluatorConsoleControl]::WAIT_OBJECT_0)
 } | ConvertTo-Json
 [IO.File]::WriteAllText(

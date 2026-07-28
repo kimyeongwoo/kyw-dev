@@ -1159,6 +1159,7 @@ export async function runEvaluation({
   processTarget,
   gracefulTerminationMs,
   forcedTerminationMs,
+  scheduler,
 } = {}) {
   assertNonemptyString(variantId, "variant");
   assertNonemptyString(scenarioId, "scenario");
@@ -1193,6 +1194,7 @@ export async function runEvaluation({
     processTarget,
     gracefulTerminationMs,
     forcedTerminationMs,
+    scheduler,
     onChildSpawn: ({ pid }) => onState?.({ type: "child-spawn", pid }),
   });
 

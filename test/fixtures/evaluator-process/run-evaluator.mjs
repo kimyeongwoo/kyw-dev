@@ -21,11 +21,13 @@ const FAKE_CODEX = join(
   "evaluator-process",
   "fake-codex.mjs",
 );
-const [flow, stateDirectory, behavior = "hang"] = process.argv.slice(2);
+const [flow, stateDirectory, behavior = "hang", readinessRunId] = process.argv.slice(2);
 
-if (!flow && !stateDirectory) process.exit(0);
-if (!new Set(["audit", "grilling"]).has(flow) || !stateDirectory) {
-  process.stderr.write("Usage: run-evaluator.mjs <audit|grilling> <state-directory> [behavior]\n");
+if (!flow && !stateDirectory && !readinessRunId) process.exit(0);
+if (!new Set(["audit", "grilling"]).has(flow) || !stateDirectory || !readinessRunId) {
+  process.stderr.write(
+    "Usage: run-evaluator.mjs <audit|grilling> <state-directory> [behavior] <readiness-run-id>\n",
+  );
   process.exit(2);
 }
 
@@ -52,6 +54,7 @@ function onState(event) {
 const launcher = { command: process.execPath, prefixArgs: [FAKE_CODEX] };
 const extraEnv = {
   FAKE_EVALUATOR_BEHAVIOR: behavior,
+  FAKE_EVALUATOR_RUN_ID: readinessRunId,
   FAKE_EVALUATOR_STATE_FILE: readyPath,
 };
 
@@ -64,7 +67,7 @@ try {
             mode: "readonly",
             model: "fake-model",
             reasoningEffort: "high",
-            timeoutMs: 20_000,
+            timeoutMs: 90_000,
           },
           {
             extraEnv,
@@ -77,7 +80,7 @@ try {
           extraEnv,
           launcher,
           model: "fake-model",
-          modelTurnTimeoutMs: 20_000,
+          modelTurnTimeoutMs: 90_000,
           onState,
           outputRoot: join(stateDirectory, "results"),
           reasoningEffort: "high",

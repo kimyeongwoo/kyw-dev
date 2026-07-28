@@ -1,23 +1,21 @@
 #!/usr/bin/env node
 
 import { spawn } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 
-const [mode, stateFile] = process.argv.slice(2);
+import { publishReadiness } from "./readiness.mjs";
+
+const [mode, stateFile, readinessRunId] = process.argv.slice(2);
 
 if (!mode) process.exit(0);
 
 function writeReady(descendantPid = null) {
   if (!stateFile) return;
-  writeFileSync(
-    stateFile,
-    `${JSON.stringify({
-      descendantPid,
-      pid: process.pid,
-      ready: true,
-    })}\n`,
-    "utf8",
-  );
+  publishReadiness(stateFile, {
+    descendantPid,
+    pid: process.pid,
+    runId: readinessRunId,
+  });
 }
 
 if (mode === "success") {
