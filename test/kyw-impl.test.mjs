@@ -111,6 +111,8 @@ test("kyw-impl has no authoring engine and calls the one shared packaged adapter
   assert.match(skill, /sole packaged Task adapter in the sibling `kyw-task` Skill/);
   assert.match(skill, /\.\.\/kyw-task\/scripts\/task-artifacts\.mjs dispatch/);
   assert.match(skill, /owns no copied parser, state, dependency, queue, transaction, or delivery engine/);
+  assert.match(skill, /automatically hydrates queue-required prior `STANDARD` outcomes/);
+  assert.doesNotMatch(skill, /--delivery-(?:ledger|expectations)(?:-json)?/);
   assert.doesNotMatch(skill, /create-batch --tasks-root|inspect-transaction --tasks-root|recover-transaction --tasks-root/);
   assert.match(adapter, /\.\.\/\.\.\/\.\.\/src\/core\/task-artifacts\.mjs/);
   assert.match(adapter, /resolveTaskDispatch/);
@@ -245,6 +247,9 @@ test("kyw-impl preserves evidence honesty, final coverage review, and checkpoint
 test("kyw-impl collects hardened role-separated delivery evidence without legacy relabeling", async () => {
   const execution = await readFile(EXECUTION_REFERENCE_PATH, "utf8");
 
+  assert.match(execution, /pass no delivery payload/);
+  assert.match(execution, /sole dispatcher call/);
+  assert.match(execution, /invocation-local command cache/);
   assert.match(execution, /trusted-local expectation uses `schemaVersion: 2`/);
   assert.match(execution, /HARDENED_EXACT_HEAD/);
   assert.match(execution, /`PR_ACTUAL_HEAD`/);

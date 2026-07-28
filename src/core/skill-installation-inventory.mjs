@@ -195,6 +195,7 @@ export function buildManagedSourceInventory({ sourceRoot = PACKAGE_ROOT } = {}) 
     ["src/core/task-artifact-contract.mjs", ".kyw-dev/runtime/src/core/task-artifact-contract.mjs"],
     ["src/core/task-artifact-creation.mjs", ".kyw-dev/runtime/src/core/task-artifact-creation.mjs"],
     ["src/core/task-artifact-delivery.mjs", ".kyw-dev/runtime/src/core/task-artifact-delivery.mjs"],
+    ["src/core/task-artifact-hydration.mjs", ".kyw-dev/runtime/src/core/task-artifact-hydration.mjs"],
     ["src/core/task-artifact-queue.mjs", ".kyw-dev/runtime/src/core/task-artifact-queue.mjs"],
     ["src/core/task-artifact-shared.mjs", ".kyw-dev/runtime/src/core/task-artifact-shared.mjs"],
     ["src/core/task-artifacts.mjs", ".kyw-dev/runtime/src/core/task-artifacts.mjs"],

@@ -136,7 +136,8 @@ Skills
   └─ one packaged Task adapter
        └─ Task artifact facade and cohesive core modules
             ├─ canonical template contracts
-            └─ filesystem / GitHub evidence inputs
+            ├─ queue and production delivery evaluator
+            └─ bounded local-Git / GitHub hydration inputs
 
 CLI entry
   └─ installation facade and cohesive core modules
@@ -234,7 +235,11 @@ listed in the package allowlist.
 For `STANDARD`, GitHub PRs, reviews, merges, Actions runs, numeric job
 identities, and asserted checkout logs form the mutable ledger. Task/Test stores
 the repository outcome and reproducible behavior evidence, not a stale copy of
-that graph. `NONE` delivery stays local and records a reason.
+that graph. The shared hydration module derives required outcomes from the
+queue, proves local terminal merges and the hardened anchor, and normalizes
+fresh GitHub observations for the existing evaluator. Its cache and pagination
+bounds live for one invocation only; credentials and raw logs are never stored
+as repository evidence. `NONE` delivery stays local and records a reason.
 
 ## 5. Control and data flows
 
@@ -275,7 +280,11 @@ in-flight or unproven transaction, so a partial prefix cannot become dispatchabl
 
 ```text
 explicit existing-Task invocation
-   → repository, pair, dependency, preflight, and delivery validation
+   → repository, pair, dependency, and preflight validation
+   → queue-derived prior STANDARD set
+   → local ancestry/contract proof
+   → bounded cached GitHub collection + production delivery evaluation
+   → one dispatcher call
    → IMPLEMENT | RESUME | DELIVER
    → one current mutation boundary
    → acceptance-specific verification + durable-owner synchronization

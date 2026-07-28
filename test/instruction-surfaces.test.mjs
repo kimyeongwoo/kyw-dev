@@ -125,6 +125,9 @@ test("instruction surfaces retain one canonical owner and minimal projections", 
   assert.match(readme, /\$kyw-task "goal"[\s\S]*authors[\s\S]*stops/i);
   assert.match(readme, /Continuous mode remains serial and lasts only for the current invocation/);
   assert.match(readme, /automatic selection resumes active work, then resumable `STANDARD` delivery/);
+  assert.match(readme, /one-line `\$kyw-impl NNNN` path automatically reconstructs/);
+  assert.match(spec, /before one dispatcher call/);
+  assert.match(architecture, /bounded local-Git \/ GitHub hydration inputs/);
   assert.match(readme, /surface without the managed contract uses `\$kyw-impl NNNN`/);
   assert.match(
     readme,
