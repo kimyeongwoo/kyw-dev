@@ -1,46 +1,35 @@
 # Repository Instructions
 
-## Sources of Truth
+## Truth and context loading
 
-- Product behavior and requirements: `docs/SPEC.md`
-- System structure and constraints: `docs/ARCHITECTURE.md`
-- Installation, usage, and contributor entry point: `README.md`
-- Current implementation unit: its `docs/tasks/NNNN-*/TASK.md`
-- Current verification contract and evidence: the matching `TEST.md`
+- Product/acceptance: `docs/SPEC.md`; structure/flows: `docs/ARCHITECTURE.md`.
+- Setup/usage/contributing: `README.md`; current scope/evidence: its Task/Test pair.
 
-Stop and reconcile these documents when they conflict.
+Always load applicable `AGENTS.md` and the selected/current Task/Test pair. Index or search README, SPEC, and ARCHITECTURE first; read only owner sections selected by Goal, scope, Documentation Impact, changed code, and dependencies.
 
-## Working Scope
+Read all four permanent documents for `kyw-init`, rebaseline, major redesign, broad cross-owner change, source conflict, missing/ambiguous ownership, or insufficient targeted truth. Stop if a conflict remains unresolved.
 
-- Work on one numbered Task at a time for substantial, independently testable outcomes.
-- Do not create a Task for an explanation or a small, clearly bounded fix unless the user asks for one.
-- Read the current Task, its Test, the permanent documents, and only explicitly referenced dependencies.
-- Preserve user-authored behavior and do not implement future Tasks.
+## Scope and routing
 
-## Task Routing
+- Work on one Task; preserve user work and exclude future Tasks/unrelated cleanup.
+- Do not create a Task for an explanation or small fix unless requested.
+- All five `kyw-*` Skills are explicit-only. `$kyw-task "goal"` authors the smallest complete dependency-aware `READY/READY` set, prints one `$kyw-impl NNNN`, and stops. `$kyw-task NNNN` handles only compatible `DRAFT/DRAFT`.
+- `$kyw-impl NNNN` is portable for existing Tasks. Route only exact `task NNNN 실행해줘`, `task 진행해줘`, and `남은 task 계속 실행해줘`; incidental `task` prose never routes.
+- Keep one Task active: exact cannot bypass it; otherwise resume active work, resumable `STANDARD` delivery, then the lowest eligible ready Task. Continuous mode is serial and current-invocation-only.
+- Preserve model/effort unless overridden. Selected `IMPLEMENT`, `RESUME`, or `DELIVER` needs no ceremonial `STANDARD` reconfirmation.
+- Task/Test owns repository outcome; GitHub gates mutable delivery. Publication, registry/version/tag/Release/public submission, force/destructive work, reruns, bypasses, branch deletion, and unrelated changes require separate authority.
 
-This is the minimal derived projection required for loaded repository routing. The installed `$kyw-impl` execution reference owns the detailed procedure.
+## Change and documentation discipline
 
-- `$kyw-task "goal"` only authors the smallest dependency-aware `READY/READY` pair set, reports one exact next `$kyw-impl NNNN`, and stops without implementation or automatic chaining. `$kyw-task NNNN` only resumes compatible `DRAFT/DRAFT` authoring; a non-DRAFT pair receives `$kyw-impl NNNN` migration guidance.
-- `$kyw-impl NNNN` is portable for existing Tasks. With this contract, route only `task NNNN 실행해줘`, `task 진행해줘`, and `남은 task 계속 실행해줘` to `kyw-impl`; incidental `task` text never triggers.
-- Keep one Task active: exact cannot bypass it; ready selection confirms; otherwise resume the sole active, then resumable `STANDARD` delivery, then the lowest eligible ready. Continuous mode is serial here.
-- Preserve model/effort unless overridden. Task/Test owns repository outcome; GitHub gates delivery. Selected `IMPLEMENT`, `RESUME`, or `DELIVER` needs no ordinary `STANDARD` reconfirmation. Ask one question with one recommendation only for a real user-owned blocker; otherwise consume appended constraints and proceed. Publication/force/destructive/non-standard actions stay separate.
+- Inspect first; choose the smallest conforming design and preserve behavior/unknown files.
+- Product/acceptance → `docs/SPEC.md`; structure/flows/distribution → `docs/ARCHITECTURE.md`.
+- Setup/usage/contributing → `README.md`; repository-wide agent rules → `AGENTS.md`.
+- Record impact in the active Task; do not edit unaffected documents merely to mark them reviewed.
 
-## Documentation Sync
-
-- Product behavior or acceptance criteria → `docs/SPEC.md`
-- Components, boundaries, dependencies, or data flow → `docs/ARCHITECTURE.md`
-- Setup, commands, configuration, or usage → `README.md`
-- Repository-wide agent invariants → `AGENTS.md`
-
-Record each impact decision in the active Task. Do not edit an unaffected document merely to mark it reviewed.
-
-## Verification
+## Evidence and completion
 
 {{VERIFY_COMMANDS}}
 
-Run proportionate verification directly by default; delegate only when requested or materially confidence-improving. Record only commands that ran, their results, and unverified work in the active `TEST.md`.
+Keep Task/Test aligned with scope, risk, acceptance, and results. Run proportionate acceptance checks. Record only executed commands, failures, limitations, and residual risk.
 
-## Completion Gate
-
-A Task is complete only when its acceptance criteria pass, required checks ran, the final diff was reviewed, affected permanent documents are synchronized, and Task/Test evidence is auditable. Otherwise report the work as blocked with the remaining risk.
+Before completion, compare diff to scope/matrix, synchronize affected truth, and validate the pair. Before compaction, update `Completed`, `Remaining`, `Resume Point`, blockers, and evidence. Complete only when acceptance, checks, diff, documents, and evidence agree; otherwise record `BLOCKED` with recovery.

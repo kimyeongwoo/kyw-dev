@@ -264,17 +264,22 @@ test("kyw-audit gives a clean Task PASS without churn and documents the verdict 
   assert.match(readme, /Independently verify one Task without writes/);
   assert.doesNotMatch(readme, /strict literal boundary instead of a general shell classifier/);
   assert.match(spec, /Treat bare `\$kyw-audit <ID>` as strictly read-only/);
-  assert.match(spec, /documented literal, single-process read-only shapes/);
-  assert.match(spec, /literal `--fix` token immediately follows the Task ID/);
+  assert.match(skill, /literal, single-process read-only command shapes/);
+  assert.doesNotMatch(spec, /documented literal, single-process read-only shapes/);
+  assert.match(audit, /literal `--fix` token immediately after the one Task ID/);
   assert.match(prompts, /\$kyw-audit 000N --fix/);
   assert.match(prompts, /자연어로 “고쳐줘”라고 덧붙이는 것은 수리 승인이 아니며/);
   assert.match(
     plugin.interface.defaultPrompt[3],
     /\$kyw-audit 0001.*without modifying the repository/,
   );
-  assert.match(spec, /End with evidence-based `PASS` or `BLOCKED`/);
+  assert.match(spec, /evidence-based findings and a `PASS` or `BLOCKED` verdict/);
   assert.match(architecture, /references\/audit\.md/);
-  assert.match(architecture, /Findings receive stable `F-NN` IDs/);
-  assert.match(architecture, /bare invocation remains read-only through the final response/);
-  assert.match(architecture, /accepted inspection language is intentionally smaller than either host shell/);
+  assert.match(audit, /Assign findings stable sequential IDs `F-01`/);
+  assert.match(audit, /It cannot upgrade a bare invocation/);
+  assert.match(audit, /require one literal executable and one documented argument shape/);
+  assert.doesNotMatch(
+    architecture,
+    /Findings receive stable `F-NN` IDs|accepted inspection language is intentionally smaller/,
+  );
 });

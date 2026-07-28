@@ -21,20 +21,25 @@ Creating `docs/` solely to hold the last two files is inside this boundary. Do n
 ## Phase 1 - Inspect without writing
 
 1. Resolve the target repository and applicable repository instructions.
-2. Inspect existing files with read-only operations before asking questions. Prefer focused searches and metadata over broad file dumps. Inspect, when present:
-   - the four durable document paths and nearby documentation;
+2. Treat every `kyw-init` mode, including adopt and rebaseline, as a full read
+   of all four existing permanent-document paths before durable decisions are
+   settled. Record an absent path as absent rather than substituting a summary.
+   Stop and reconcile conflicting permanent sources.
+3. Inspect existing files with read-only operations before asking
+   questions. Prefer focused searches and metadata over broad source dumps.
+   Inspect, when present:
    - source and test layout, manifests, lockfiles, runtime declarations, and exact contributor commands;
    - configuration names and secret-handling guidance without exposing secret values;
    - components, dependency directions, storage, external interfaces, and deployment clues;
    - current version-control status and relevant diff when available;
    - existing Task directory names only as needed to make later recommendations.
-3. Separate established repository facts from unresolved durable decisions. Record the source of each important fact internally; never ask the user to repeat a fact that inspection can establish.
-4. Classify the run and explain the evidence:
+4. Separate established repository facts from unresolved durable decisions. Record the source of each important fact internally; never ask the user to repeat a fact that inspection can establish.
+5. Classify the run and explain the evidence:
    - `new`: little or no application implementation exists and the kyw-dev document contract is absent.
    - `adopt`: meaningful implementation exists, but the document contract is absent or incomplete and no intentional replacement was requested.
    - `rebaseline`: an existing kyw-dev baseline or established design exists and the invocation intentionally requests replacement or reconciliation.
-5. Treat ambiguous replacement intent as a decision. Never infer permission to rebaseline solely because existing documents are incomplete, stale, or inconvenient.
-6. Identify useful existing sections, incompatible claims, duplicate ownership, and content that must be preserved verbatim or relocated only with approval.
+6. Treat ambiguous replacement intent as a decision. Never infer permission to rebaseline solely because existing documents are incomplete, stale, or inconvenient.
+7. Identify useful existing sections, incompatible claims, duplicate ownership, and content that must be preserved verbatim or relocated only with approval.
 
 Do not create, edit, rename, move, or delete files during inspection or interviewing. In particular, do not create `docs/` as a pre-confirmation marker.
 
@@ -71,7 +76,7 @@ Proceed only after explicit confirmation of the current summary.
    - `AGENTS.md`: source-of-truth routing, substantial-versus-small Task rule, documentation-impact routing that also applies to ordinary small changes, repository verification commands, and the completion gate.
    - `docs/SPEC.md`: goals, non-goals, user-visible behavior, domain rules, functional and quality requirements, acceptance criteria, and explicit unresolved decisions.
    - `docs/ARCHITECTURE.md`: system context, component responsibilities, module/dependency boundaries, data/control flow, storage/external interfaces, cross-cutting constraints, and important trade-offs.
-5. Keep a newly generated `AGENTS.md` below 4 KiB. When adopting, preserve compatible user rules and report when preservation prevents the 4 KiB target. Warn and obtain renewed confirmation before an edit would make `AGENTS.md` exceed 8 KiB; never delete user rules merely to meet the size target.
+5. Keep a newly generated `AGENTS.md` below 4 KiB. When adopting, preserve compatible user rules and report when preservation prevents the target. Reject an edit above the 8 KiB hard ceiling; only a separately authorized policy change with explicit Task acceptance and user approval may change it. Never delete user rules merely to meet a budget.
 6. Resolve every template token and authoring comment. Do not leave `{{...}}`, template HTML comments, or unexplained unfinished markers. Record a genuine unknown as an explicit unresolved decision with its impact and owner rather than as a placeholder.
 7. Apply changes only to the four allowed paths. Do not implement application functionality, alter existing Task evidence, or create any recommended Task.
 
@@ -82,7 +87,7 @@ If a write or verification step fails after materialization begins, stop and rep
 After writing:
 
 1. Re-read all four documents and verify they exist, are project-specific, have no unresolved template artifacts, and agree on shared facts.
-2. Measure `AGENTS.md` in bytes and apply the 4 KiB target and 8 KiB warning rule.
+2. Measure `AGENTS.md` in bytes and apply the 4 KiB target and 8 KiB hard ceiling.
 3. Inspect the final changed-path list and relevant diff. Confirm that only the four allowed paths changed, preserved sections remain, and no numbered Task or application file was created or modified.
 4. Report the selected mode, files created or minimally updated, preserved sections, conflict resolutions, remaining unknowns, and recommended first Tasks. Report checks actually performed and any residual risk.
 

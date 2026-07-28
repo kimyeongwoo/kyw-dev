@@ -56,15 +56,27 @@ test("verification commands have one tier, trigger, and unique registry identity
 test("documentation and Skill changes receive smaller focused plans", () => {
   const documentation = planVerification({
     changedPaths: [
+      "AGENTS.md",
       "README.md",
       "docs/SPEC.md",
-      "docs/tasks/0035-verification-tiering/TASK.md",
-      "docs/tasks/0035-verification-tiering/TEST.md",
+      "docs/ARCHITECTURE.md",
+      "docs/tasks/0055-compact-permanent-documents-and-add-growth-guard/TASK.md",
+      "docs/tasks/0055-compact-permanent-documents-and-add-growth-guard/TEST.md",
     ],
   });
   assert.equal(documentation.changeClass, "documentation");
   assert.equal(documentation.highestTier, "FOCUSED");
   assert.equal(documentation.leafCommandCount, 2);
+  assert.deepEqual(documentation.riskPaths, [
+    "AGENTS.md",
+    "README.md",
+    "docs/ARCHITECTURE.md",
+    "docs/SPEC.md",
+  ]);
+  assert.deepEqual(documentation.evidencePaths, [
+    "docs/tasks/0055-compact-permanent-documents-and-add-growth-guard/TASK.md",
+    "docs/tasks/0055-compact-permanent-documents-and-add-growth-guard/TEST.md",
+  ]);
   assert.deepEqual(
     documentation.commands.map(({ command }) => command),
     [
@@ -110,6 +122,16 @@ test("runtime, mixed, unknown, and release-sensitive paths escalate conservative
   assert.equal(release.highestTier, "RELEASE");
   assert.equal(release.leafCommandCount, 5);
   assert.deepEqual(release.commands.map(({ command }) => command), ["npm run release:ci"]);
+
+  const foundationValidator = planVerification({
+    changedPaths: ["scripts/lib/validate-foundation.mjs"],
+  });
+  assert.equal(foundationValidator.changeClass, "release");
+  assert.equal(foundationValidator.highestTier, "RELEASE");
+  assert.equal(foundationValidator.leafCommandCount, 5);
+  assert.deepEqual(foundationValidator.commands.map(({ command }) => command), [
+    "npm run release:ci",
+  ]);
 
   const mixedRelease = planVerification({
     changedPaths: ["skills/kyw-task/SKILL.md", "package.json"],
@@ -227,15 +249,30 @@ test("permanent, Task, package, and hosted surfaces keep the tier contract align
   const workflow = readRepositoryText(".github/workflows/ci.yml");
   const packageJson = JSON.parse(readRepositoryText("package.json"));
 
-  assert.match(specification, /### Verification tiers[\s\S]*\*\*Focused\*\*[\s\S]*\*\*Stable\*\*[\s\S]*\*\*Release\*\*/);
-  assert.match(architecture, /## 11\.6 Verification tier planner/);
-  assert.match(architecture, /Immutable candidate archive[\s\S]*release:candidate/);
+  assert.match(
+    specification,
+    /## 6\. Evidence, verification, and documentation behavior[\s\S]*\*\*Focused\*\*[\s\S]*\*\*Stable\*\*[\s\S]*\*\*Release\*\*/,
+  );
+  assert.match(architecture, /### 9\.2 Verification planning/);
+  assert.match(
+    architecture,
+    /### 9\.4 Release verification[\s\S]*Candidate\s+verification creates one real archive/,
+  );
   assert.match(readme, /npm run verify:plan -- <changed-path>/);
   assert.match(execution, /Classify verification proportionally; use the repository planner/);
 
+  assert.equal(packageJson.scripts.test, "node --test");
   assert.equal(packageJson.scripts["verify:plan"], "node ./scripts/verification-plan.mjs");
   assert.equal(packageJson.scripts["release:candidate"], "node ./scripts/packed-release-check.mjs");
   assert.equal(packageJson.scripts["release:ci"], "npm run check && npm run release:candidate");
+  for (const ordinaryTestPath of [
+    "test/foundation.test.mjs",
+    "test/instruction-surfaces.test.mjs",
+  ]) {
+    assert.match(ordinaryTestPath, /^test\/[^/]+\.test\.mjs$/);
+    assert.match(readRepositoryText(ordinaryTestPath), /from "node:test"/);
+  }
+  assert.equal((workflow.match(/- name: Test\s+run: npm test/g) ?? []).length, 2);
   assert.equal((workflow.match(/run: npm run release:candidate/g) ?? []).length, 1);
   assert.equal((workflow.match(/run: npm run release:ci/g) ?? []).length, 0);
   assert.match(workflow, /^  merge-compatibility:\s*$/mu);

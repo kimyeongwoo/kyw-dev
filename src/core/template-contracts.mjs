@@ -50,11 +50,10 @@ export const DOCUMENT_CONTRACTS = Object.freeze({
   AGENTS: Object.freeze({
     relativePath: "project/AGENTS.md",
     requiredSections: Object.freeze([
-      "Sources of Truth",
-      "Working Scope",
-      "Documentation Sync",
-      "Verification",
-      "Completion Gate",
+      "Truth and context loading",
+      "Scope and routing",
+      "Change and documentation discipline",
+      "Evidence and completion",
     ]),
     requiredTokens: Object.freeze(["VERIFY_COMMANDS"]),
   }),

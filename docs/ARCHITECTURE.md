@@ -1,334 +1,357 @@
 # kyw-dev Architecture
 
-## 1. Purpose
+## 1. Purpose and system context
 
-This document defines how `kyw-dev` is structured to satisfy `SPEC.md`. It describes stable boundaries and flows, not chronological implementation steps.
-
-## 2. System context
-
-```text
-GitHub repository
-        │ source + releases
-        ▼
-npm package: kyw-dev (or scoped fallback)
-        ├───────────────┐
-        │               │
-        ▼               ▼
-Direct CLI install      Codex marketplace/plugin install
-user/project Skills     plugin cache with bundled Skills
-        │               │
-        └───────┬───────┘
-                ▼
-        Codex discovers kyw-* Skills
-                ▼
-        Target software repository
-        ├─ README.md
-        ├─ AGENTS.md
-        ├─ docs/SPEC.md
-        ├─ docs/ARCHITECTURE.md
-        └─ docs/tasks/NNNN-*/
-```
-
-`kyw-dev` has no server component in MVP and sends no project data to an external service.
-
-## 3. Architectural principles
-
-### A-01 — Skills contain reasoning workflows; scripts contain deterministic mechanics
-
-Use `SKILL.md` for interview, decision, documentation, and review instructions. Use Node scripts only for operations that must be deterministic, such as path resolution, task number allocation, installation ownership, atomic copying, metadata validation, and fixture testing.
-
-### A-02 — Progressive context loading
-
-Each Skill is independently focused. `AGENTS.md` stays thin. Detailed templates and procedures live in Skill `references/` and `assets/`, loaded only when relevant.
-
-### A-03 — Explicit invocation for heavyweight workflows
-
-`kyw-init`, `kyw-task`, `kyw-impl`, `kyw-audit`, and `kyw-grilling` declare `allow_implicit_invocation: false`. A managed project `AGENTS.md` may explicitly route only the anchored `task NNNN 실행해줘`, `task 진행해줘`, and `남은 task 계속 실행해줘` forms into `kyw-impl`; this repository router does not enable general implicit Skill matching. Ordinary prompts remain ordinary, and a surface without that loaded contract uses `$kyw-impl NNNN`.
-
-### A-04 — Non-destructive by default
-
-Existing project documents and installed files are inspected before modification. CLI-owned files are tracked by metadata and hashes. Generated documents are semantically updated by Codex, not blindly replaced by a package upgrade.
-
-### A-05 — No lifecycle-script dependency
-
-Plugin distribution through npm must work when package lifecycle scripts are not executed. The package is complete as packed; direct CLI execution occurs only when the user explicitly runs `npx`/`npm exec` or an installed binary.
-
-### A-06 — One Task is the execution context boundary
-
-A Task directory is the resumable execution packet. Adaptive authoring may atomically materialize several dependency-aware ready packets and then stops with one exact next command. A later explicit `kyw-impl` invocation may activate exactly one Task; continuous dispatch changes the boundary only after the current Task reaches a repository terminal state and its required external delivery gate passes. It never runs Tasks in parallel or outside the current host invocation. Completed Task folders are historical evidence, not mandatory context for later Tasks. Durable knowledge must be promoted to permanent documents.
-
-## 4. Top-level package structure
+This document owns the stable structure of `kyw-dev`: components, boundaries,
+dependency direction, control and data flow, distribution, validation, and
+technical trade-offs. Observable product behavior belongs in
+[`SPEC.md`](SPEC.md); setup and usage belong in [`README.md`](../README.md);
+repository-wide Codex invariants belong in [`AGENTS.md`](../AGENTS.md).
+Detailed authoring, execution, and audit procedure lives with the owning Skill,
+and current work or evidence lives in the selected Task/Test pair.
 
 ```text
-kyw-dev/
-├─ .gitattributes
-├─ .github/
-│  └─ workflows/ci.yml
-├─ .codex-plugin/
-│  └─ plugin.json
-├─ skills/
-│  ├─ kyw-grilling/
-│  │  ├─ SKILL.md
-│  │  ├─ agents/openai.yaml
-│  │  └─ references/
-│  ├─ kyw-init/
-│  │  ├─ SKILL.md
-│  │  ├─ agents/openai.yaml
-│  │  ├─ references/
-│  │  └─ assets/
-│  ├─ kyw-task/
-│  │  ├─ SKILL.md
-│  │  ├─ agents/openai.yaml
-│  │  └─ scripts/
-│  ├─ kyw-impl/
-│  │  ├─ SKILL.md
-│  │  ├─ agents/openai.yaml
-│  │  └─ references/
-│  │     └─ execution.md
-│  └─ kyw-audit/
-│     ├─ SKILL.md
-│     ├─ agents/openai.yaml
-│     └─ references/
-│        └─ audit.md
-├─ templates/
-│  ├─ project/
-│  └─ task/
-├─ src/
-│  ├─ cli/
-│  └─ core/
-├─ bin/
-│  └─ kyw-dev.mjs
-├─ test/
-│  ├─ fixtures/
-│  │  └─ distribution/
-│  │     ├─ fresh-session-project/
-│  │     └─ marketplace-root/.agents/plugins/marketplace.json
-│  ├─ unit/
-│  ├─ integration/
-│  └─ distribution.test.mjs
-├─ eval/
-│  └─ grilling/
-│     ├─ baseline.json
-│     ├─ benchmark.v1.json
-│     ├─ benchmark.v2.json
-│     ├─ benchmark.v3.json
-│     ├─ benchmark.v4.json
-│     ├─ benchmark.v5.json
-│     ├─ benchmark.v6.json
-│     ├─ benchmark.v7.json
-│     ├─ benchmark.v8.json
-│     ├─ benchmark.v9.json
-│     ├─ benchmark.v10.json
-│     ├─ baselines/upstream-grilling/SKILL.md
-│     ├─ rubric.v1.json
-│     ├─ scenario.schema.v1.json
-│     ├─ result.schema.v1.json
-│     ├─ result.schema.v2.json
-│     ├─ result.schema.v3.json
-│     └─ scenarios/
-├─ scripts/
-│  ├─ audit-smoke.mjs
-│  ├─ audit-readonly-boundary.mjs
-│  ├─ evaluator-process.mjs
-│  ├─ grilling-eval.mjs
-│  ├─ release-evidence-harness.mjs
-│  ├─ release-gate-isolation.mjs
-│  ├─ spec-behavioral-acceptance.mjs
-│  ├─ verification-plan.mjs
-│  ├─ grilling-eval/
-│  └─ development-only validation commands
-├─ docs/
-├─ package.json
-└─ legal files
+GitHub source repository
+        │
+        ├─ npm package / Codex plugin bytes
+        │       └─ plugin cache with five Skills
+        │
+        └─ direct CLI installation
+                └─ user or project Skills + hidden runtime support
+                           │
+                           ▼
+                    Codex discovers kyw-* Skills
+                           │
+                           ▼
+                    target repository
+                    ├─ four permanent documents
+                    └─ numbered Task/Test pairs
 ```
 
-The `templates/` directory is the canonical template source for deterministic tests and CLI packaging. A Skill may reference its own assets or the packaged templates through scripts, but template duplication must be checked for drift.
+There is no server, database, daemon, watcher, or telemetry component. After
+package acquisition, normal use requires no kyw-dev network service. GitHub is
+used only when a selected Task declares GitHub-backed `STANDARD` delivery.
 
-Root `eval/`, `scripts/`, and `test/` are development-only verification surfaces. They validate the package but are excluded from the npm tarball. Runtime and packaged Skill code must not import them.
+## 2. Architectural principles
 
-The release-isolation lifecycle, evaluator ownership, protected-state classification, and diagnostic/privacy rules are defined once under [Validation architecture](#13-validation-architecture). Release commands and immutable package-identity boundaries remain under [Installation and distribution architecture](#11-installation-and-distribution-architecture).
+### A-01 — Reasoning in Skills, mechanics in deterministic code
 
-The packaged deterministic mechanics use these cohesive core boundaries:
+Skills own interviews, decisions, scoped inspection, document reasoning,
+evidence interpretation, and stop conditions. Dependency-free Node modules own
+operations that require exact and repeatable behavior: template validation,
+Task identity and dependency parsing, queue selection, transaction ownership,
+delivery classification, install containment, hashing, and CLI dispatch.
 
-- `src/core/template-contracts.mjs` implements the canonical template registry and enforces token rendering, required-section contracts, lifecycle-aware meaningful-content or reasoned-N/A rules, current-contract and legacy Task/Test status rules, static delivery-requirement parsing, acceptance-to-test traceability, and evidence validation. It applies no global Task length cap.
-- `src/core/task-artifact-shared.mjs` owns Task-specific filesystem identity, hashing, lock/transaction constants, and bounded ownership-proof primitives.
-- `src/core/task-artifact-contract.mjs` owns Task Markdown/status/dependency parsing, directory naming and containment, inventory, and file-backed pair validation.
-- `src/core/task-artifact-delivery.mjs` owns invocation parsing, repository execution-preflight classification, and versioned role-separated exact-SHA delivery-evidence classification.
-- `src/core/task-artifact-queue.mjs` owns dependency graph validation, queue inspection, allocation, and deterministic exact/automatic/continuous dispatch.
-- `src/core/task-artifact-creation.mjs` owns compatible one-pair creation plus ownership-safe fully authored batch transactions, rollback, inspection, recovery, and bounded diagnostics.
-- `src/core/task-artifacts.mjs` is the stable public re-export facade for all existing Task artifact imports and exports.
-- `src/core/skill-installation-shared.mjs` owns installer error/result constants, scope and repository resolution, portable managed-path containment, safe file identity/hash reads, and shared real-directory/parent proofs.
-- `src/core/skill-installation-inventory.mjs` owns packaged source inventory, Skill/plugin validation, ownership metadata construction, and metadata schema validation.
-- `src/core/skill-installation-state.mjs` owns installed metadata reads, managed-tree inspection, safe scope/container traversal, conflict classification inputs, and reserved-artifact discovery.
-- `src/core/skill-installation-transaction.mjs` owns install/update/uninstall orchestration, journaled staging and commit, ownership-proof recovery and rollback, and mutation-time revalidation.
-- `src/core/skill-installation-doctor.mjs` owns read-only direct-Skills/plugin-cache discovery, duplicate and health diagnostics, tool detection, and report formatting.
-- `src/core/skill-installation.mjs` is the stable public re-export facade for every existing installer and CLI import.
+Permanent documents do not copy those algorithms. They state only stable
+product or architecture meaning and link to the canonical procedural owner.
 
-The Task artifact graph is acyclic: shared and delivery are leaves; contract depends on template contracts and shared primitives; queue depends on contract, delivery, and shared primitives; creation depends on template contracts, contract, queue, and shared primitives; and the facade only re-exports the public surface. The installer graph is also acyclic: shared is the leaf; inventory depends on shared; installed state depends on shared and inventory; transactions and doctor each depend on shared, inventory, and installed state; and the facade only re-exports the public surface. The installation inventory module inventories the complete Task runtime graph and canonical templates as direct-install inputs but does not import their Task logic. No core module depends on the CLI, Skills, or development-only validation surfaces.
+### A-02 — Explicit heavyweight workflows
 
-`skills/kyw-task/scripts/task-artifacts.mjs` remains the one thin packaged process adapter for the core artifact module's compatible one-pair scaffold, fully authored batch create, read-only transaction inspection, explicit proof-based recovery, validate, and read-only resolve operations. Both owner-specific Skills reuse it; neither contains another artifact, state, dependency, dispatcher, or delivery engine. The adapter parses explicit arguments and reports structured results, but owns no numbering, slug, template, validation, dependency, transaction, selection, or file-write logic. Batch input carries complete model-authored Task/Test Markdown with deterministic placeholders and explicit existing/intra-batch dependency references; the core resolves those values and validates the result. In a plugin/npm tree the adapter imports the package-root core; in a direct-Skills tree it falls back to `.agents/skills/.kyw-dev/runtime/src/core/`. This keeps deterministic mechanics singular while giving both reasoning workflows a stable invocation surface in both distribution layouts.
+The five user-visible Skills—`kyw-grilling`, `kyw-init`, `kyw-task`,
+`kyw-impl`, and `kyw-audit`—disable implicit invocation. A managed
+`AGENTS.md` may route only the three exact existing-Task aliases to
+`kyw-impl`; that repository projection does not enable general implicit Skill
+matching. Ordinary prompts remain ordinary.
 
-`skills/kyw-impl/references/execution.md` is the sole packaged semantic state-machine reference for exact, automatic, and continuous existing-Task execution. `kyw-impl/SKILL.md` loads it after dispatch selects work; `kyw-task` neither owns nor duplicates it. The reference owns reasoning gates for repository and GitHub preflight, current-Task scope, appended override checks, model/effort preservation, documentation impact, live Task/Test evidence, compaction handoff, final diff coverage, terminal repository status, delivery gating, and serial transition; it does not duplicate deterministic artifact mechanics. Refactors and large-file extractions use current exact-main, branch-base, PR-base, and immediately pre-merge `main` identities, stop on critical-path upstream movement, and treat stale snapshots, whole-file copies, and broad cherry-picks as comparison evidence only.
+### A-03 — Progressive, fail-closed context loading
 
-`skills/kyw-audit/references/audit.md` is the packaged semantic reference for an independent Task review. `SKILL.md` resolves one explicitly supplied Task ID, locks bare read-only or exact-`--fix` repair mode, and loads the reference before inspection. The reference owns baseline fallback, stable finding classification, acceptance/evidence reproduction, scope and durable-document comparison, the default zero-write boundary, explicit bounded repair, affected-check reruns, and the final audit verdict. It consumes existing Task validators as evidence but adds no deterministic runtime module or production dependency.
+Applicable repository instructions and a selected/current Task/Test pair are
+always loaded. README, SPEC, and ARCHITECTURE are first indexed by heading or
+targeted search. Goal, scope, Documentation Impact, changed paths, and code
+dependencies select the owning sections.
 
-## 5. Plugin manifest
+Initialization, rebaseline, major redesign, broad cross-owner changes, source
+conflicts, ambiguous ownership, missing headings, or insufficient targeted
+truth escalate to a full read of all four permanent documents. An unresolved
+conflict stops the workflow. This reduces routine context without permitting a
+workflow to guess at missing durable truth.
 
-Required path:
+### A-04 — One Task is the execution boundary
+
+A Task/Test directory is one resumable implementation packet. Authoring may
+atomically create a dependency-aware set, but later implementation activates
+at most one pair. Continuous execution is serial, advances only after the
+current repository and delivery gates finish, and never becomes background
+work. Completed pairs remain historical evidence; durable meaning is promoted
+to a permanent owner rather than recovered by rereading history.
+
+### A-05 — Preserve unknown and user-authored state
+
+Repository edits, Task publication, direct installation, update, uninstall,
+and recovery all fail closed when ownership, containment, type, link-free
+ancestry, or expected identity cannot be proved. A force option may narrow a
+known conflict policy; it never broadens path ownership. Generated project
+documents are semantic user content and are not replaced during package
+updates.
+
+### A-06 — Distribution is complete without lifecycle scripts
+
+Packed plugin and Skill bytes are usable as acquired. Installation never
+depends on npm lifecycle scripts. The package contains no production
+dependency, while development-only tests, evaluators, fixtures, and release
+gates remain outside the runtime and package boundary.
+
+## 3. Authority and dependency direction
+
+### Document ownership
 
 ```text
-.codex-plugin/plugin.json
+Observable behavior, requirements, acceptance     → docs/SPEC.md
+Components, boundaries, dependencies, flows       → docs/ARCHITECTURE.md
+Setup, commands, configuration, usage              → README.md
+Repository-wide Codex invariants                   → AGENTS.md
+Current scope, decisions, handoff                   → active TASK.md
+Test intent and reproducible repository evidence   → active TEST.md
+Mutable PR, run, review, and merge identities       → GitHub
 ```
 
-MVP manifest responsibilities:
+When durable meaning changes, the owning permanent document changes first,
+then the current Task/Test pair and implementation align with it. An unaffected
+owner is not edited merely to record review.
 
-- stable plugin identifier `kyw-dev`;
-- semantic version matching `package.json`;
-- description, `Kim Yeongwoo` publisher metadata, and the verified public repository/homepage;
-- `skills: "./skills/"`;
-- install-surface metadata suitable for a productivity/developer workflow plugin.
+### Instruction authority and projections
 
-The release manifest describes the implemented workflows rather than foundation stubs, exposes only the actual `Interactive` and `Write` capabilities, and provides four bounded starter prompts for init, Task authoring, Task implementation, and audit. It uses only fields accepted by the current official plugin format. Unconfirmed email, privacy/terms, and branding metadata remain absent until real values and files exist.
+Each normative rule family has one owner. Other surfaces carry only a named
+minimal projection needed before that owner can be loaded.
 
-MVP does not include `mcpServers`, `apps`, or `hooks`. Those fields may be added only through an explicit future architecture decision.
+| Rule family | Canonical owner | Permitted projection |
+|---|---|---|
+| Observable product and acceptance contracts | `docs/SPEC.md` | Concise purpose, invocation, and current status in README |
+| Stable components, dependency direction, flows, and distribution structure | `docs/ARCHITECTURE.md` | Short repository-map links in README |
+| Repository routing, preservation, progressive loading, evidence honesty, and completion | Root `AGENTS.md` | Canonical generated `AGENTS.md` template |
+| New Task/Test authoring | `skills/kyw-task/SKILL.md` | Invocation and outcome summaries only |
+| Existing-Task execution, resume, verification, documentation sync, and delivery | `skills/kyw-impl/references/execution.md` | `kyw-impl/SKILL.md` dispatch handoff plus concise repository/user projections |
+| Independent audit and bounded repair | `skills/kyw-audit/references/audit.md` | Audit Skill handoff plus invocation summaries |
+| Exact Task/Test shape | Canonical Task and Test templates | Deterministic template validator and minimal state semantics |
+| Deterministic algorithms and exhaustive edge cases | Source and focused tests | Stable component/invariant descriptions here |
+| Current and historical repository evidence | Current and historical Task/Test pairs | No permanent-document copy |
 
-A build/test check must fail when plugin and npm versions differ.
+`CODEX_PROMPTS.md` is maintainer convenience, not normative authority. Mutable
+GitHub facts never become a permanent-document or Task future-work snapshot.
 
-`package.json` is the runtime source for product version and the npm source for package name, Node engine range, public repository URLs, author, executable, and packed file boundary. The plugin manifest mirrors name/version/license/author/repository identity, the CLI reads its displayed version from the packed package metadata, and direct-install ownership records that same package name/version. Validation fails on drift across those surfaces.
-
-## 6. Skill architecture
-
-## 6.1 Shared Skill contract
-
-Every Skill directory contains:
+### Code dependency direction
 
 ```text
-SKILL.md
-agents/openai.yaml
+Skills
+  └─ one packaged Task adapter
+       └─ Task artifact facade and cohesive core modules
+            ├─ canonical template contracts
+            └─ filesystem / GitHub evidence inputs
+
+CLI entry
+  └─ installation facade and cohesive core modules
+       └─ package inventory + filesystem ownership state
+
+development validation
+  ├─ imports runtime/package surfaces for verification
+  └─ is never imported by runtime, CLI, or packaged Skills
 ```
 
-`SKILL.md` front matter contains at least:
+`kyw-task` and `kyw-impl` share the same packaged adapter and core graph. There
+is one deterministic Task/runtime/delivery engine; neither Skill owns a copied
+parser, allocator, queue, transaction, or delivery classifier. Facades keep
+public imports stable while cohesive internals remain acyclic.
 
-- `name` matching the directory;
-- a concise `description` with clear trigger and non-trigger scope.
+## 4. Component groups
 
-`agents/openai.yaml` contains:
+### 4.1 Skill workflows
 
-- display name;
-- short description;
-- optional default prompt;
-- `policy.allow_implicit_invocation: false`.
+- `kyw-grilling` is a conversation-only decision primitive. It inspects
+  targeted facts, asks one user-owned decision at a time, and writes no files.
+- `kyw-init` owns confirmed creation or reconciliation of exactly the four
+  permanent documents. It does not implement the application or create Tasks.
+- `kyw-task` owns new complete Task/Test authoring and compatible DRAFT
+  completion. It does not implement or deliver an existing Task.
+- `kyw-impl` owns selection and execution of an existing Task through
+  repository outcome and ordinary declared delivery. It never allocates or
+  authors a pair.
+- `kyw-audit` independently compares one Task with established truth and
+  evidence. Its bare mode has no mutation authority; exact repair mode remains
+  bounded to demonstrated in-scope findings.
 
-Skill instructions must state explicit inputs, outputs, stop conditions, and file mutation boundaries.
+The long semantic procedures remain in their Skill/reference owners so normal
+discovery does not load every workflow.
 
-## 6.2 `kyw-grilling`
+### 4.2 Task artifact runtime
 
-Responsibility: decision interview only.
+The Task runtime is grouped by responsibility:
 
-Inputs:
+- template contracts validate canonical project and Task/Test artifacts;
+- shared primitives own portable identities, hashes, and transaction constants;
+- artifact contracts parse paths, markers, statuses, dependencies, and delivery
+  declarations;
+- queue logic validates the dependency graph and deterministic selection;
+- creation logic publishes complete authored sets under ownership proof;
+- delivery logic parses invocation, preflight, and exact-SHA evidence roles;
+- one facade and one process adapter expose the combined public surface.
 
-- idea, plan, design, or ambiguous Task;
-- repository facts available to inspect.
+The process adapter accepts explicit validated arguments and delegates all
+meaningful mechanics. In an npm/plugin tree it imports the package core. A
+direct installation falls back to the hidden managed runtime copied beside the
+Skills. That runtime is not itself a discoverable Skill.
 
-Outputs:
+### 4.3 CLI and installation runtime
 
-- conversation-level settled decisions;
-- explicit remaining unknowns;
-- user confirmation of shared understanding.
+The dependency-free CLI parses only the supported command grammar and delegates
+to an installation facade. Cohesive internals own:
 
-It is stateless by itself and writes no files. Wrappers decide how to materialize outcomes. After terminal confirmation of a feature design, its only next-route guidance is a new explicit `$kyw-task "<confirmed outcome>"`; it does not add a create-only suffix, write a pair, or automatically invoke the authoring Skill.
+- physical user/project scope resolution;
+- package and managed-file inventories;
+- ownership metadata and installed-state inspection;
+- atomic install/update/uninstall transactions;
+- read-only doctor diagnostics.
 
-## 6.3 `kyw-init`
+These modules do not import Skills or development validation. Installation
+inventory may copy packaged Task runtime bytes without depending on their
+logic.
 
-Responsibility: permanent-document initialization/adoption/re-baseline.
+### 4.4 Templates
 
-Dependencies:
+Project templates establish responsibilities for README, AGENTS, SPEC, and
+ARCHITECTURE. Task templates establish the paired contract and evidence fields.
+Templates are authoring inputs, not generated mirrors of current repository
+truth. Skills customize them from inspected facts and settled decisions, and
+deterministic validation prevents unresolved tokens or contract drift.
 
-- grilling protocol;
-- project-document responsibilities and templates.
+### 4.5 Development validation
 
-Mutation boundary:
+Tests and scripts own exhaustive fixture inventories, mutation cases,
+implementation constants, evaluator behavior, and release checks. Major groups
+are:
+
+- foundation and instruction-surface validation;
+- Task/runtime and installer unit/integration tests;
+- direct behavioral acceptance fixtures;
+- package and isolated marketplace checks;
+- optional model-backed grilling/audit evaluators;
+- verification planning and hosted CI.
+
+All are development-only unless a specific deterministic helper is explicitly
+listed in the package allowlist.
+
+### 4.6 External delivery ledger
+
+For `STANDARD`, GitHub PRs, reviews, merges, Actions runs, numeric job
+identities, and asserted checkout logs form the mutable ledger. Task/Test stores
+the repository outcome and reproducible behavior evidence, not a stale copy of
+that graph. `NONE` delivery stays local and records a reason.
+
+## 5. Control and data flows
+
+### 5.1 Initialization
 
 ```text
-README.md
-AGENTS.md
-docs/SPEC.md
-docs/ARCHITECTURE.md
+explicit init
+   → full durable-document inspection
+   → unresolved durable decisions
+   → confirmed shared understanding
+   → four-path materialization
+   → cross-document and changed-path verification
 ```
 
-It may create `docs/` but does not create implementation code or all numbered Tasks.
+Initialization and intentional rebaseline are full-read flows. Existing
+user-authored sections remain inputs to reconciliation, not disposable
+template residue.
 
-## 6.4 `kyw-task`
-
-Responsibility: new Task/Test pair-set authoring and compatible legacy DRAFT authoring or promotion only.
-
-Modes:
+### 5.2 Task authoring
 
 ```text
-create(goal)
-draft(task-id)
+explicit outcome
+   → applicable instructions + targeted durable truth + relevant code
+   → smallest independently verifiable dependency graph
+   → complete in-memory Task/Test pairs
+   → canonical pair and graph validation
+   → one ownership-proven atomic publication
+   → READY pair set + one exact next implementation command
+   → stop
 ```
 
-Mutation boundary includes:
+The authoring Skill owns intent and decomposition; the core owns allocation,
+validation, graph checks, and publication mechanics. Canonical readers reject
+an in-flight or unproven transaction, so a partial prefix cannot become
+dispatchable.
 
-- the complete new Task/Test pair set being atomically authored;
-- one explicitly selected existing `DRAFT/DRAFT` pair during compatible authoring or promotion.
-
-Permanent documents, implementation files, existing non-DRAFT pairs, Git, GitHub, and delivery state remain read-only. The authored Task may record expected Documentation Impact, but later durable-document mutation belongs to `kyw-impl`.
-
-During `create(goal)`, inspection, adaptive sizing, and Task-level grilling occur without writes. Once intent is settled, authoring may atomically publish only the smallest justified set of new Task/Test pairs. Every complete pair is prevalidated and becomes `READY/READY` together; no placeholder pair is exposed for post-publication customization. Success reports paths and dependencies plus exactly one next `$kyw-impl NNNN` for the first eligible pair, then stops. A create-only phrase is redundant, while create-and-execute intent still cannot cross this boundary or automatically invoke another Skill.
-
-The exact `$kyw-task NNNN` form resolves only `DRAFT/DRAFT` for compatible completion and promotion. Every non-DRAFT state receives state-appropriate migration guidance containing `$kyw-impl NNNN` and is not executed.
-
-Deterministic authoring helper needs:
-
-- list valid Task directories;
-- allocate one or a complete contiguous set of non-reused four-digit IDs and final paths;
-- create a safe slug;
-- preserve the compatible atomic one-pair DRAFT scaffold;
-- resolve full batch placeholders and explicit existing/intra-batch dependencies;
-- prevalidate every complete `READY/READY` pair plus missing-edge and cycle errors before publication;
-- publish the whole batch under one versioned identity/hash-chained ownership manifest/lock and roll back only exactly proven content on failure;
-- inspect retained transaction evidence read-only and recover it only through one explicit idempotent proof path;
-- make canonical queue inspection fail closed while a creation lock, release marker, or batch staging root exists, so an in-flight prefix is never dispatchable;
-- validate required sections, current-contract markers, delivery declarations, and paired statuses.
-
-The packaged `skills/kyw-task/scripts/task-artifacts.mjs` adapter exposes those existing core operations without duplicating them.
-
-## 6.5 `kyw-impl`
-
-Responsibility: exact existing-Task selection, automatic or continuous dispatch, implementation, resume, verification, durable-document synchronization, terminal state, and ordinary `STANDARD` delivery.
-
-Modes:
+### 5.3 Existing-Task implementation
 
 ```text
-exact(task-id)
-automatic-next()
-continuous()
+explicit existing-Task invocation
+   → repository, pair, dependency, preflight, and delivery validation
+   → IMPLEMENT | RESUME | DELIVER
+   → one current mutation boundary
+   → acceptance-specific verification + durable-owner synchronization
+   → final diff and coverage review
+   → repository DONE/PASSED or truthful BLOCKED
+   → declared delivery gate
 ```
 
-Mutation boundary includes:
+Resume treats recorded completion as a claim and continues from verified
+handoff state. A selected Task may change only its pair, required
+implementation/tests/configuration, and permanent owners whose meaning changes.
+Ordinary declared delivery authority does not cross publication, force,
+destructive, bypass, rerun, or unrelated-mutation boundaries.
 
-- the selected current Task and Test files;
-- implementation files and tests required by that Task;
-- permanent documents whose durable meaning changes;
-- explicitly named pre-created nonterminal Task pairs only when the selected Task requires a bounded contract migration.
+### 5.4 `STANDARD` delivery
 
-It must not allocate an ID, create a Task directory or pair, author or promote a DRAFT, implement future Tasks, or silently broaden scope. A goal-style, missing, or new-outcome request performs zero Task mutation and points to a new explicit `$kyw-task "<outcome>"`; an existing DRAFT points to `$kyw-task NNNN`.
-
-The portable existing-Task entry is `$kyw-impl NNNN`. A loaded managed `AGENTS.md` may route the anchored aliases as follows:
+`HARDENED_EXACT_HEAD` keeps four identities distinct:
 
 ```text
-task NNNN 실행해줘          → exact(NNNN)
-task 진행해줘               → automatic-next()
-남은 task 계속 실행해줘      → continuous()
+actual PR head
+   ├─ every required Stable job checks out and asserts the exact head
+   └─ packed job checks out and asserts the exact head
+
+synthetic merge compatibility
+   └─ separate job asserts synthetic SHA and exact base/head parents
+
+final reviewed merge
+   └─ expected PR head merges to the protected base
+
+post-merge main
+   ├─ every required Stable job asserts the merge SHA
+   └─ packed job asserts the merge SHA
 ```
 
-The router matches only those anchored forms, with any following current-user text retained as an appended override. It does not route incidental prose containing `task`. Because direct Skill installation does not modify project documents, repositories without the managed routing contract and surfaces that do not load it must use the portable form.
+Each role is bound to repository, workflow, run attempt, and distinct numeric
+job identities. Jobs emit a `KYWCIEVIDENCE` checkout assertion. A successful
+synthetic checkout proves compatibility only and cannot occupy an actual-head
+slot. Missing, stale, reused, role-confused, or mismatched evidence fails
+closed. Explicit pre-contract continuity can preserve an older completed
+delivery only while actual-head evidence remains visibly `UNVERIFIED`; it is
+not available to new outcomes.
 
-Exact mode resolves one existing four-digit Task; selecting a current-contract `READY/READY` pair confirms implementation and ordinary `STANDARD` delivery, while a different active Task blocks selection. Exact BLOCKED pairs may be selected only for condition recheck. Automatic mode resumes the sole `IN_PROGRESS/RUNNING` pair when its state is safe, otherwise selects the lowest-numbered `DONE/PASSED` pair with resumable `STANDARD` delivery before the lowest-numbered dependency-satisfied `READY/READY` pair. Continuous mode repeats that selection and authority only after each selected Task's repository and delivery transitions finish. It creates no Task, keeps at most one active pair, and stops when the host invocation ends.
+### 5.5 Independent audit
 
-Queue-aware pairs carry `<!-- kyw-task-contract: 2 -->` in both files. Their valid state pairs are:
+```text
+explicit Task audit
+   → locked read-only or literal fix mode
+   → independent baseline + targeted durable owners
+   → acceptance, scope, implementation, docs, and evidence comparison
+   → PASS or BLOCKED
+```
+
+The audit reference owns command grammar, finding shape, repair eligibility,
+rerun, and verdict procedure. The deterministic Task validator is one evidence
+source, not an alternative audit engine.
+
+### 5.6 Progressive document loading
+
+```text
+always: applicable AGENTS + selected/current TASK/TEST
+   → index/search README + SPEC + ARCHITECTURE
+   → map goal/scope/doc impact/changed code to owner sections
+   ├─ sufficient and consistent → targeted read
+   └─ broad, missing, ambiguous, or conflicting → full read
+          └─ unresolved conflict → stop
+```
+
+The loading decision changes context volume, not normative authority. A section
+that was not loaded cannot be silently contradicted.
+
+## 6. Task, Test, and evidence architecture
+
+### 6.1 Pair states and queue
+
+Current-contract pairs have one machine-readable contract identity and one of
+six closed state pairs:
 
 ```text
 DRAFT / DRAFT
@@ -339,635 +362,299 @@ BLOCKED / BLOCKED
 CANCELLED / BLOCKED
 ```
 
-Any marker mismatch, unsupported pair, or multiple active pair fails closed. Completed historical artifacts without the current marker retain their legacy validation meaning and are not rewritten or recursively reinterpreted as a current queue.
+Non-complete current Tasks use either the canonical no-dependency sentinel or
+distinct hard-dependency bullets. The queue rejects marker or status mismatch,
+duplicate IDs, missing dependencies, cycles, and multiple active pairs.
+Selection resumes the one active Task, then repository-complete delivery, then
+the lowest dependency-satisfied ready Task. Historical blockers that are
+neither active nor hard dependencies do not freeze unrelated work.
 
-An exact `$kyw-impl NNNN` may still select, recheck, or resume an unmarked legacy pair according to its recorded historical contract. Legacy artifacts are not mass-rewritten, and automatic queue ordering does not reinterpret their old prose as current state.
+Unmarked legacy pairs retain their historical reader. Repository-complete
+current pairs with older dependency prose remain readable for immutable
+compatibility. Neither path rewrites history into the current schema.
 
-The resolver reads literal `Task NNNN` references only from the Task `Dependencies` section. Those references form directed hard-dependency edges; other prose is an evidence or implementation input. It rejects duplicate Task IDs, missing references, current-graph cycles, and unsatisfied edges. A terminal legacy dependency is evaluated from its recorded repository outcome without importing historical evidence prose as new edges. This boundary keeps unrelated historical blockers outside the current queue while still stopping on a selected Task's active or hard-dependency blocker.
+### 6.2 Artifact shape and traceability
 
-The current queue frontier is the highest-numbered current-contract Task. If no active, resumable-delivery, or ready pair exists, a blocked or inconsistent frontier reports its exact blocker. A `DONE/PASSED` or `CANCELLED/BLOCKED` frontier produces the exact no-work response only after its static delivery requirement is satisfied.
+Canonical Task/Test templates own exact sections and default evidence fields.
+The template contract validates meaningful content, reasoned inapplicability,
+status pairs, acceptance-to-test mapping, and terminal evidence. It does not
+create short and long artifact types or impose a universal Task size.
 
-Only text appended by the current user to the dispatch form is an override. It applies to the first selected Task unless that user explicitly scopes it to every remaining Task. The semantic workflow may accept a bounded method, ordering, or check constraint, but reports a conflict rather than allowing an override to waive acceptance, truthful evidence, safety, user-work preservation, or separately gated external mutation. The active session's model and reasoning effort are inherited unchanged unless the current user explicitly overrides them; observable provenance is recorded and unavailable values are never guessed.
+Stable acceptance IDs and matrix IDs form a traceability graph. A terminal
+repository outcome requires mapped criteria, executed required checks,
+reproducible row evidence, synchronized durable owners, truthful handoff
+fields, and complete final-diff coverage. A generic suite cannot substitute for
+an unmapped behavior or branch.
 
-The semantic workflow treats an appended constraint as settled input instead of asking the user to repeat it. It emits a question only when one genuine user-owned decision blocks further safe progress; that turn contains exactly one decision question and one recommended answer. Repository evidence and safe reversible implementation choices resolve non-blocking uncertainty without a question, and recognized `READY/READY` selection never receives ceremonial reconfirmation.
+### 6.3 Evidence storage
 
-Execution mutations remain limited to the current pair, implementation/tests required by its acceptance criteria, and permanent documents whose durable meaning changed. The only other-pair exception is an explicitly scoped, contract-only migration of named pre-created nonterminal Tasks; their outcomes remain unimplemented. Resume verifies Completed work against repository evidence and begins at Resume Point or the first valid Remaining item instead of blindly repeating recorded actions.
+- The active pair owns current scope, decisions, risks, handoff, commands, and
+  reproducible results.
+- Completed pairs own immutable historical repository evidence.
+- Permanent documents own only current durable meaning.
+- Source/tests own deterministic mechanics and exhaustive compatibility cases.
+- GitHub owns mutable PR, review, run, job, checkout, and merge identities.
 
-Deterministic execution helper needs:
+This separation prevents permanent-document chronology and prevents a
+repository-complete pair from containing self-referential future delivery work.
 
-- extract hard dependencies and reject missing references or cycles;
-- reject verified conflict, unexplained-work, remote-drift, and user-decision preflight findings;
-- classify required delivery as `RESUMABLE`, `BLOCKED`, or `SATISFIED`;
-- resolve exact, active, delivery-resume, next-ready, blocked-frontier, and no-work local states with an explicit authority scope.
+### 6.4 Transaction invariants
 
-`kyw-impl` reuses the same packaged adapter and `src/core/task-artifact-*` graph as `kyw-task`; no owner-specific deterministic engine exists.
+Task-batch and Skill-installation transactions are purpose-built rather than a
+shared filesystem framework. Both are atomic, ownership-proven, bounded, and
+fail-closed:
 
-Every current Task declares one static delivery requirement:
+- validate complete intended state before publication;
+- confine every path beneath a physically proved root;
+- reject links, unsupported types, identity drift, and unknown content;
+- mutate only exact manifest-owned entries with expected hashes;
+- preserve evidence when safe rollback or cleanup cannot be proved;
+- never recursively remove a broad Skills or Task root.
 
-```text
-STANDARD → GitHub PR/Actions exact-SHA state is the canonical external ledger
-NONE     → the Task records a reason
-```
+Exact lock formats, hash chains, stage names, mutation ordering, rollback cases,
+and diagnostics belong in source and focused tests.
 
-Task/Test owns repository outcome and reproducible behavioral evidence. GitHub owns mutable pull-request head, review, merge, Actions job, and checkout-log facts. The resolver receives schema-v2 local repository/base/outcome/workflow/required-job expectations separately from the GitHub ledger. Hardened evidence has four bound nodes: every PR Stable/packed job at the actual head, one distinct synthetic merge-compatibility job with exact base/head parents, the reviewed final PR merge, and every post-merge `main` Stable/packed job at that merge SHA; aggregate gates and numeric workflow/run-attempt/job identities are part of the graph. A PR run's API head cannot substitute for the checkout asserted inside a job, and a synthetic job cannot occupy an actual-head slot. Missing final nodes, unknown versions, stale or conflicting identities, reused roles/jobs, and supplied failures block; an absent or valid explicitly pending graph remains resumable.
+## 7. CLI and installation boundaries
 
-Schema-v1 GitHub evidence remains eligible only through a schema-v2 trusted-local `LEGACY_PRE_CONTRACT` expectation that binds the exact local contract anchor and historical merge SHA. It returns `LEGACY_PRE_CONTRACT_CONTINUITY` with actual-head `UNVERIFIED`; optional observed synthetic and post-merge checkouts remain separately labeled. The collector may use this path only for an outcome proved repository-complete before the hardened anchor, never for the selected new delivery. `DONE/PASSED` may precede delivery, but the dispatcher cannot advance while `STANDARD` delivery is resumable or blocked. A fresh local, remote, and GitHub preflight occurs at every serial transition. CI success satisfies delivery only; it cannot replace Task acceptance evidence.
+### 7.1 Runtime and dispatch
 
-The static `STANDARD` field is policy, not ambient authority. The recognized current-user exact, automatic, or continuous invocation is the authority bridge when it selects a Task. The resolver returns `IMPLEMENT`, `RESUME`, or `DELIVER` with `STANDARD_LIFECYCLE` authority and no ceremonial reconfirmation. That ordinary scope covers exact-path commit, non-force push, non-draft PR, exact-head CI, review and mergeability inspection, expected-head protected merge, post-merge base CI, and terminal reporting. Publication, registry mutation, tags, releases, public submission, force push, destructive recovery, branch deletion, rerun, bypass, and unrelated mutation remain separate authority boundaries. Unsafe drift, unexplained user work, conflict, CI or review failure, or a new user-owned decision stops the invocation.
-
-## 6.6 `kyw-audit`
-
-Responsibility: independent consistency and evidence review.
-
-Inputs:
-
-- exact `$kyw-audit NNNN` or `$kyw-audit NNNN --fix` invocation;
-- permanent docs;
-- current code/diff/history and test artifacts.
-
-Outputs:
-
-- locked `read-only` or `repair` mode;
-- findings grouped by scope, behavior, architecture, docs, and test evidence;
-- conversation-only findings and limitations in read-only mode;
-- bounded in-scope fixes only in exact-`--fix` repair mode;
-- final `PASS` or `BLOCKED`.
-
-It does not invent new product requirements. Out-of-scope findings become recommendations for a new Task.
-
-The mode is locked before inspection. A bare invocation remains read-only through the final response and cannot be upgraded by natural-language repair wording or by an easy finding. It treats Task status, checked acceptance criteria, Test rows, command logs, and handoff summaries as claims and establishes a comparison baseline from non-mutating Git status/diff/history when available, or records a reproducible snapshot, patch, artifact, inventory, or hash fallback. If the available baseline cannot establish required scope or behavior, the audit blocks instead of implying recovered Git evidence.
-
-Findings receive stable `F-NN` IDs and exactly one category (`scope`, `behavior`, `architecture`, `docs`, or `test-evidence`), severity (`BLOCKER`, `ERROR`, or `WARNING`), evidence, expected/actual state, scope classification, action, and status. An unmapped acceptance criterion, unsupported PASS row, stale durable document, uncovered meaningful branch, or out-of-scope implementation is an error even when a generic suite passes.
-
-In read-only mode, the complete mutation boundary is empty: no tracked, untracked, generated, Task/Test, or durable-document byte changes; no repository report; and no attempted mutating command. The command boundary also covers temporary, control, cache, snapshot, and isolated-copy state. A rerun executes only when established byte-preserving; potentially writing checks use retained evidence or are skipped with limitations reported honestly. Preparing or cleaning a disposable copy belongs outside a bare audit and is never an in-invocation workaround.
-
-The accepted inspection language is intentionally smaller than either host shell. It consists of one literal executable plus a documented argument shape for repository-relative file reads and searches, guarded Git reads, or the packaged Task validator. It contains no wrapper, control operator, pipe, redirect, expansion, encoded/dynamic launcher, absolute/traversing path, or general script payload. `scripts/audit-readonly-boundary.mjs` owns this development-only deterministic policy and match-local diagnostics; the audit Skill reference owns its user-facing command recipes. Single-quoted search data is opaque. The repair baseline shares this boundary until the visible bounded plan, so exact `--fix` retains its existing mutation and verification contract without preserving a second broad shell parser.
-
-In repair mode, mutation begins only after the audit records an unambiguous finding already required by current Task and permanent truth and presents a bounded plan naming finding IDs, intended paths, and verification. Eligible changes remain within the audited Task/Test pair, its required implementation/tests/configuration, and permanent documents whose durable meaning is restored or changed. The audit preserves failed evidence, applies the smallest fix, reruns the affected acceptance-specific check plus required regressions, and re-audits the final diff. It never edits or absorbs out-of-scope work, allocates a follow-on ID, or writes a separate audit report artifact.
+The CLI uses Node.js 22 or newer, ESM, and built-in modules. It never changes
+the caller's working directory. The supported surface is:
 
 ```text
-explicit $kyw-audit NNNN
-        ↓
-read-only baseline + Task/Test validation
-        ↓
-acceptance/evidence + implementation/scope/docs review
-        ↓
-conversation-only findings + safe reruns + residual risk
-        ↓
-PASS or BLOCKED; repository bytes unchanged
-
-explicit $kyw-audit NNNN --fix
-        ↓
-read-only baseline + findings
-        ├─ clear in-scope error → bounded plan → repair → affected checks → re-audit
-        └─ out-of-scope/unsafe/unproven → record + follow-on recommendation only
-        ↓
-no open blocker/error and every evidence gate proven?
-        ├─ yes → PASS
-        └─ no  → BLOCKED
+install --scope user|project
+update --scope user|project
+uninstall --scope user|project [--force]
+doctor
+--help
+--version
 ```
 
-`PASS` requires a sufficient baseline, consistent sources, complete acceptance mapping, reproducible required evidence, meaningful branch/error-path coverage, synchronized scope and durable documents, verified repairs, complete final-diff coverage, and a valid final Task/Test pair. A non-blocking warning may remain only when it does not undermine those gates; there is no third audit verdict.
+Argument parsing rejects unsupported combinations before mutation. Stable
+numeric exit categories distinguish usage, runtime, scope, conflict, malformed
+state, filesystem failure, and recovery-required outcomes.
 
-## 7. Project document ownership model
+### 7.2 Scope and containment
 
-```text
-Behavior / requirement / business rule     → SPEC
-Component / boundary / dependency / flow   → ARCHITECTURE
-Setup / command / configuration / usage    → README
-Repository-wide Codex invariant            → AGENTS
-Current work scope / plan / handoff         → TASK
-Test intent / execution evidence            → TEST
-```
+User scope resolves below the user's `.agents/skills`. Project scope walks from
+the physical current directory to a real Git root and resolves the matching
+repository Skills directory. Roots, parents, sources, targets, metadata,
+transaction paths, and every recorded relative path are untrusted until
+portable identity and physical containment are proved.
 
-The owner document is updated first when a durable decision changes, followed by Task/Test alignment and implementation.
+Path validation is host-independent. Absolute, traversal, drive-relative,
+mixed-separator, duplicate, case/normalization-colliding, prefix-colliding, and
+platform-reserved forms fail before resolution. Managed parents and leaves must
+be real, supported, link-free objects.
 
-### Instruction authority and projections
+### 7.3 Ownership and mutation
 
-Each normative rule family has one owner. A surface that cannot load that owner may carry only an identified, minimal projection; deterministic tests keep the projection semantically aligned.
+Direct installation stores a versioned ownership manifest beside managed
+Skills. It binds package identity, scope, Skill paths, runtime support, and
+sorted file hashes. New writes use the current five-Skill inventory; exact
+legacy four-Skill metadata remains readable for ownership-safe transition.
 
-| Rule family | Canonical authority | Permitted projection |
+Install and update publish metadata last after staged bytes and ownership state
+are proved. Normal uninstall removes only unchanged owned files. Force may
+remove an existing modified regular file already named by valid ownership
+metadata, but preserves unknown entries, unrelated Skills, unsafe links, and
+unsupported types. Interrupted mutation is recoverable only from trustworthy
+journal and content identity.
+
+### 7.4 Doctor
+
+Doctor is byte-and-metadata read-only. It checks runtime/tool availability,
+direct user/project installations, ownership state, permissions, transactions,
+and installed plugin-cache Skill sources. Cache presence proves installed
+bytes, not enabled session state. Plugin cache traversal follows only the
+documented real-directory shape and never follows a linked or unsupported
+component.
+
+Duplicate Skill names across direct and plugin sources are reported, not
+automatically reconciled. Removal stays with the owning CLI or supported plugin
+browser.
+
+### 7.5 Residual filesystem race
+
+Portable standard-library APIs cannot provide the same directory-handle
+relative transaction primitive on every supported host. The implementation
+narrows same-user replacement races with physical roots, link-free ancestry,
+identity reads, exclusive markers, atomic same-root renames, and immediate
+mutation-time revalidation. An unprovable state stops and remains inspectable
+rather than being repaired optimistically.
+
+## 8. Installation and distribution
+
+### 8.1 Direct Skills
+
+Direct installation copies the five visible Skill directories plus namespaced
+runtime support to user or project scope. The hidden runtime carries the one
+Task adapter's required core and templates and is managed by the same ownership
+metadata. It is not discoverable as another Skill.
+
+### 8.2 Plugin package and cache
+
+The npm tarball is also a complete Codex plugin with a manifest and bundled
+Skills. A marketplace may acquire those bytes from npm or GitHub. Before public
+publication, isolated local-marketplace verification uses the real packed
+archive. Plugin and direct installation are alternatives; duplicate discovery
+is diagnosed rather than silently resolved.
+
+Plugins are supported by plugin-capable Codex surfaces. The IDE extension uses
+direct Skills. The public package identity, plugin identity, CLI version, and
+direct-install metadata derive from one package version.
+
+### 8.3 Package boundary
+
+A positive package allowlist includes runtime, Skills, templates, plugin
+metadata, README, and legal notices. It excludes repository Tasks, development
+tests/evaluators, local marketplace fixtures, archives, credentials, machine
+paths, and raw model output. The package has no production dependency and no
+installation or publication lifecycle script.
+
+### 8.4 Publication boundary
+
+Package metadata may be publishable while publication remains unauthorized.
+Candidate packing, CI, isolated installation, and registry dry-run are distinct
+non-publishing evidence boundaries. Actual registry publication, version
+change, tag, GitHub Release, or public plugin submission requires separate
+authority and fresh identity verification.
+
+## 9. Validation and CI architecture
+
+### 9.1 Foundation and permanent-document policy
+
+The existing foundation validator is the deterministic owner for package and
+plugin identity, five-Skill metadata, canonical templates, legal bytes, package
+selection, and permanent-document guardrails. One registry declares exactly
+four permanent paths, their roles, byte budgets, canonical rule owners, and
+allowed projections.
+
+The policy rejects:
+
+- a missing, renamed, duplicated, or generated permanent-document mirror;
+- hard budget overflow or warning overflow without required evidence;
+- mutable chronology or copied Task/Test evidence in permanent truth;
+- duplicated detailed procedures or an ownerless rule family;
+- stale documented npm or repository-relative Node commands;
+- permanent-document deltas that do not bind current TEST evidence to actual
+  bytes and lines.
+
+Growth thresholds use integer arithmetic. A material per-document increase or
+any positive combined increase requires mapped durable necessity and explicit
+replacement/absorption evidence. Budget changes are never inferred from
+observed bytes; warning or hard policy changes additionally require explicit
+acceptance and user approval. Static exact-string and bounded-pattern checks
+remain deterministic and do not introduce a fuzzy or model-backed grader.
+
+### 9.2 Verification planning
+
+The development-only planner accepts explicit repository-relative changed
+paths and returns, but does not execute, one ordered cumulative tier:
+
+- Focused for bounded documents, Skills, or behavior;
+- Stable for runtime, cross-cutting, unknown, or higher-risk changes;
+- Release for release-sensitive implementation or immutable candidates.
+
+Mixed or unknown inputs fail upward, never downward. Current Task/Test paths do
+not lower or inflate implementation risk. Planning cannot replace
+acceptance-specific checks or hosted exact-SHA delivery evidence.
+
+### 9.3 Hosted CI
+
+One credential-free workflow covers pull requests, `main` pushes, and manual
+dispatch with read-only repository permission, bounded timeouts, exact
+checkout assertions, and immutable external Action identities.
+
+Stable coverage runs Node.js 22 and 24 on Linux, macOS, and Windows, plus one
+bounded Linux Node.js 26 compatibility lane. A separate packed job inspects
+real archive bytes. Pull requests also run the distinct synthetic
+merge-compatibility job. An aggregate required job reports only after the
+event-appropriate roles succeed.
+
+Public CI contains no npm publication, tag, Release, merge automation, model
+authentication, or desktop-only requirement. Exact-head PR and post-merge
+`main` evidence remains required even when local checks pass.
+
+### 9.4 Release verification
+
+Stable verification checks the working tree and package selection. Candidate
+verification creates one real archive and binds its inventory, hygiene, legal
+content, CLI smoke, and digest. Isolated lifecycle verification exercises
+direct and plugin paths under owned temporary state while protecting normal
+user state. A registry dry-run is a later distinct boundary.
+
+The retained-evidence harness may wrap an explicitly approved release command
+and retain redacted evidence outside the repository. It is not a runtime
+component, release verdict, publication approval, or automatic cleanup system.
+Detailed path algorithms, provenance fields, retry behavior, and evidence
+format stay in source/tests.
+
+### 9.5 Optional evaluators
+
+Model-backed grilling and audit smoke are development-only and require an
+explicit model, reasoning effort, authentication source, and cost gate. They
+run in isolated temporary repositories, preserve normal user state, redact
+outputs, and never become required public CI. Deterministic unit tests cover
+their parsers and lifecycle without model calls.
+
+Exact signal handling, timeouts, retry delays, fixture catalogs, schema
+versions, and historical benchmark outcomes remain with evaluator source/tests
+and historical Task/Test evidence.
+
+## 10. Security and privacy
+
+- No telemetry or hosted project-data service exists.
+- Repository contents are not copied outside the user's requested scope.
+- Secrets and full sensitive file contents are not copied into reports.
+- Package, install metadata, journals, source trees, roots, and external
+  evidence are treated as untrusted inputs.
+- Containment is lexical and physical; links and unsupported types fail closed.
+- Diagnostics expose bounded relative identities and categories, not normal
+  absolute paths, credentials, or protected content.
+- Temporary/evaluator/release state is removed only when its exact owned root is
+  proved; a broad home, repository, Skills, or cache root is never a recursive
+  cleanup target.
+- GitHub delivery authority is limited to the selected Task's declared ordinary
+  lifecycle. It does not imply publication or administrative override.
+
+## 11. Portability and isolation trade-offs
+
+| Concern | Current design | Trade-off |
 |---|---|---|
-| User-visible Task behavior and evidence meaning | `docs/SPEC.md` | Concise commands and outcomes in `README.md`; short invocations in `CODEX_PROMPTS.md` |
-| Repository-wide workspace, routing, model/delivery preservation, change/document discipline, Task/Test lifecycle, stable-check, and completion invariants | Root or generated `AGENTS.md` | The canonical project `AGENTS.md` template, tested against this repository's routing invariant bullets |
-| Task creation and authoring phases | `skills/kyw-task/SKILL.md` | UI metadata may name the invocation but carries no procedure |
-| Detailed selected existing-Task preflight, mutation, evidence-recording, delivery-ledger, queue-advancement, and reporting procedure | `skills/kyw-impl/references/execution.md` | `kyw-impl/SKILL.md` contains only the dispatch handoff and reference link |
-| Artifact shape and default evidence fields | Canonical Task/Test templates | `src/core/template-contracts.mjs` enforces the template-defined contract; existing artifacts retain compatible historical state |
-| Current scope, discoveries, handoff, and reproducible evidence | The active `TASK.md` / `TEST.md` pair | None; mutable GitHub delivery remains in its external ledger |
-
-`CODEX_PROMPTS.md` is maintainer convenience, not normative authority. It must invoke repository-resident procedure rather than restate it. `README.md` remains a user projection and links to the owning sources instead of duplicating execution checklists.
-
-## 8. Task lifecycle architecture
-
-```text
-requested outcome
-      ↓
-inspect permanent docs + relevant code
-      ↓
-grill only a genuine unresolved Task decision
-      ↓
-adaptive decomposition → one outcome or smallest dependency-aware set
-      ↓
-preallocate all IDs/paths + render all complete pairs
-      ↓
-canonical pair validation + missing/cycle validation
-      ↓ one lock + whole-set publication
-READY / READY pair set
-      ↓
-report one exact next $kyw-impl NNNN and stop
-      ↓ later explicit invocation
-IN_PROGRESS / RUNNING
-      ├─ discovery → update docs / Task / Test
-      ├─ possible compaction → persist handoff fields
-      └─ verification + final diff coverage audit
-            ├─ evidence complete → DONE / PASSED
-            └─ unmet condition   → BLOCKED / BLOCKED
-```
-
-The later existing-Task invocation wraps the execution lifecycle:
-
-```text
-exact $kyw-impl ID / managed automatic alias
-              ↓
-current-contract inventory + status/dependency validation
-              ├─ one active → resume it
-              ├─ no active, incomplete DONE/PASSED delivery → resume delivery
-              ├─ otherwise  → lowest eligible READY/READY
-              └─ invalid, blocked, cancelled, or nonselectable current state → truthful stop
-              ↓
-selected Task receives ordinary lifecycle authority
-              ↓
-repository outcome, then Delivery NONE or exact-SHA STANDARD state
-              ├─ resumable → execute authorized delivery without reconfirmation
-              ├─ blocked   → stop with exact reason
-              └─ satisfied → report, or re-preflight next Task in continuous mode
-```
-
-Task status and Test status remain separate fields but current-contract pairings are closed and map through one exhaustive queue-state table. Implementation can be blocked while verification is unavailable; cancellation records `CANCELLED/BLOCKED` and produces a distinct terminal result rather than completion. The byte-exact all-complete response is eligible only after every applicable current pair is `DONE/PASSED` and every dependency and delivery gate is satisfied; queue truth is never inferred from only the highest-numbered pair. A current pair's static delivery requirement does not add a third repository lifecycle state.
-
-During execution, discoveries update Task intent and Test coverage together; durable meaning is routed to its permanent owner before implementation alignment. Before compaction or interruption, the workflow persists Completed, Remaining, Resume Point, Blockers, current decisions/document impact, repository state, commands, results, row evidence, and unverified risks in the existing pair. Terminal `DONE`/`PASSED` requires mapped acceptance criteria, executed required checks, synchronized durable documents, a complete final diff coverage review, reproducible evidence, final pair validation, and no repository work left in Plan, Remaining, or Resume Point. An unavailable required check produces recorded `BLOCKED` status instead of inferred success. Required external delivery is checked afterward from GitHub and never inserted as self-referential future repository work.
-
-Current-contract `DRAFT/DRAFT` scaffolds may retain authoring guidance, and `CANCELLED/BLOCKED` may preserve that incomplete history. From `READY/READY` onward, each required section must have substantive content or one exact `Not applicable — <reason>` entry; an empty/comment-only section, bare `None`, or reasonless N/A fails validation. Acceptance Criteria and the Intent-to-Test Matrix remain substantive graph nodes with at least one AC, one row, and complete mapping. This semantic completeness check does not impose a size profile or second artifact type: routine Tasks stay concise by guidance, while release/security evidence may expand as needed.
-
-For byte-preserving compatibility, pre-rule contract-v2 pairs without any reasoned-N/A entry retain their historical negative placeholders. Empty required content and missing AC/matrix graph nodes still fail. The updated canonical template includes reasoned N/A, so adopting any such entry activates strict bare-None and N/A-shape validation for the complete pair without creating another Task type or rewriting old evidence.
-
-For non-complete current pairs, `Dependencies` has one grammar: the exact no-dependency sentinel or one or more distinct `- Task NNNN.` bullets. Queue and pair validation reject negated or explanatory mentions, duplicate or mixed forms, missing targets, and cycles before selection. Repository-complete current artifacts with older free-form dependency sections fall back to the preceding literal-reference reader solely for immutable history; unmarked legacy pairs remain under their historical contract.
-
-Compatible one-pair scaffold creation retains its DRAFT two-file atomicity. Adaptive batch creation first resolves and rejects a symlinked tasks root, captures the valid queue and every existing Task/Test regular-file identity and hash, preallocates every contiguous ID and direct-child path, resolves complete model-authored Markdown plus explicit dependency references, and validates every `READY/READY` pair and the combined dependency graph before writing. It then acquires an exclusive regular-file lock whose append-only schema-v1 manifest starts with an unpredictable token, root/lock identities, bounded process/time/host diagnostics, queue and prepared-content fingerprints, exact relative stage/final paths, requested IDs/keys, and expected SHA-256 values. Hash-chained records add the staging and pair-file identities, lifecycle phase, and published IDs without replacing the acquired lock inode.
-
-The held transaction re-proves the root, complete queue/dependency-source snapshot, target absence, and prepared hashes after lock acquisition and immediately before the first final publication. Each final directory is claimed with exclusive `mkdir`; each final pair file is created with exclusive-create semantics and recorded before the staged copy is removed, so a last-moment target cannot be overwritten. Staged and final pair directories are accepted only when their directory identity, complete recorded entry set, regular-file identities, byte lengths, and hashes match the manifest. Publication is serialized under the lock, and canonical readers reject the creation lock, tokenized release marker, or batch staging root.
-
-Rollback first proves the complete mutation plan, including every recorded partial or complete final directory and every staged pair. Cleanup uses exact-file quarantine renames, repeated proofs, `unlink`, and empty-directory `rmdir`; it never recursively removes the batch staging tree. A changed file, extra entry, link, type change, missing identity, foreign replacement, or lock mismatch stops before unproven mutation and preserves the manifest plus observable content. Lock release closes the owned handle only after proof, atomically renames the original lock path to its token-specific release marker, re-proves identity/token/hash-chain there, refuses any replacement at the original path, and unlinks only that release marker.
-
-`inspect-transaction` is read-only and emits bounded relative paths, lifecycle and expected-versus-observed categories, owner diagnostics, and token/hash prefixes; it does not expose the Task-root absolute path or treat age, PID, or host as authority. `recover-transaction` opens the same proven marker and is explicit and idempotent: it rolls back a fully proven nonterminal transaction, completes cleanup for a fully proven committed or rolled-back transaction, or leaves every unproven byte and marker in place with a deterministic blocker. Normal success proves the complete final set and leaves no lock, release marker, staging root, or manifest residue.
-
-## 9. Test contract architecture
-
-The Task acceptance criteria and Test matrix form a traceability graph:
-
-```text
-Acceptance criterion AC-N
-        ├─ Test T-N1
-        └─ Test T-N2
-
-Final diff behavior B-N
-        └─ existing Test or newly added Test
-```
-
-Validation checks should detect:
-
-- selectable or active current sections that are empty, comment-only, bare `None`, or malformed reasoned N/A;
-- selectable or active current pairs with no acceptance criterion or no matrix row;
-- acceptance criterion with no test reference;
-- test row with no intent/source;
-- PASS without evidence;
-- DONE Task with non-PASSED required test rows;
-- missing final coverage review;
-- stale documented command after CLI behavior changes.
-
-The canonical Test scaffold includes `Model Provenance` with model identifier, requested alias, reasoning effort, concrete Codex surface, and Codex version. Every field carries its value and an `OBSERVED` or `UNAVAILABLE` basis. A known absent user override is observable as `NOT_REQUESTED`; hidden values remain `UNAVAILABLE`, and a CLI version cannot stand in for a different active surface. The validator requires this block in the canonical template and validates it whenever present on a current-contract pair, while leaving an unmarked legacy pair's same-named free-form section under its historical meaning and keeping already-created current pairs without the block readable. Execution adds the block to a pre-existing pair before recording model-dependent evidence, so provenance adds no path beyond the existing `TEST.md` in the runtime context contract.
-
-## 10. CLI architecture
-
-## 10.1 Runtime
-
-- Node.js 22 or newer using ESM.
-- Prefer Node built-in modules and built-in test runner.
-- Keep production dependencies at zero unless a dependency materially reduces cross-platform risk and is justified in the active Task.
-
-## 10.2 Command dispatch
-
-```text
-bin/kyw-dev.mjs
-      ↓
-argument parser
-      ├─ install
-      ├─ update
-      ├─ uninstall
-      ├─ doctor
-      ├─ --help
-      └─ --version
-```
-
-The dependency-free internal parser accepts exactly one mutating command and one required scope. Only uninstall accepts `--force`; `doctor` accepts no option. Dispatch calls `src/core/skill-installation.mjs` and never changes the process working directory.
-
-## 10.3 Scope resolution
-
-User scope:
-
-```text
-$HOME/.agents/skills/
-```
-
-Project scope:
-
-```text
-<git-root>/.agents/skills/
-```
-
-Project scope realpath-resolves the current directory and walks parents until it finds a real `.git` directory or file. User and project scope then resolve the existing scope root to its physical path; a scope-root leaf that is itself a symlink/junction is rejected. The derived `.agents` and `skills` components must be real directories whose real paths equal their expected physical paths. The CLI does not spawn Git or follow a symlinked marker. Project installation fails with a helpful message if no repository root is found; an explicit target path remains a future interface.
-
-## 10.4 Ownership metadata
-
-Direct installation writes ownership metadata at:
-
-```text
-<home-or-git-root>/.agents/skills/.kyw-dev-install.json
-```
-
-It records:
-
-- schema version 1 and package name/version;
-- user or project scope;
-- install and last-update timestamps;
-- the five installed Skill names and paths;
-- a sorted path/SHA-256 record for every managed file.
-
-New install and update metadata writes use the ordered five-Skill inventory. Readers used by doctor, update, and uninstall also accept the exact legacy ordered four-Skill schema-1 inventory, validate its recorded ownership and hashes without broadening paths, and let a successful update replace it with the current five-Skill state. Partial, reordered, mixed, or otherwise unknown inventories remain invalid.
-
-Metadata paths use non-empty normalized relative POSIX separators and may name only a recognized current or legacy managed Skill container or `.kyw-dev/runtime/`. Validation is host-independent: POSIX, drive, drive-relative, UNC, traversal, backslash/mixed-separator, Windows-reserved/malformed, exact duplicate, Unicode-normalization/case-colliding, and file-as-directory-prefix forms are rejected even on a case-sensitive host. Resolution reconfirms that each path is a strict descendant of the selected Skills root. The same manifest-identity rules apply to package inventory and transaction old/new lists, preventing malformed metadata or journals from authorizing access to unrelated Skills.
-
-## 10.5 Atomic update strategy
-
-1. Resolve the package root physically, reject linked or unsupported source entries, validate portable path identities, and build a sorted hash inventory without touching the target.
-2. Resolve and validate the physical scope/Skills chain, recover any trustworthy prior transaction, and compare installed bytes, types, links, case identities, and unknown paths with ownership metadata.
-3. Exclusively publish a journal naming the owning process, force policy, UUID-named sibling stage/backup directories, current and ownership hashes, then stage each source only after revalidating its link-free ancestry/type/hash. Revalidate source and staged bytes after copy. Another live owner is a conflict, not a recovery target.
-4. Create and hash-check the commit-started marker. Immediately before every destructive rename, revalidate the relevant root and parent chain, regular-file type, absence/presence expectation, ownership hash, and current content; validate the renamed copy again afterward.
-5. Move old metadata to backup and publish hash-checked new metadata last. Uninstall omits new metadata and moves only existing regular files named by valid ownership metadata; force records both the installed ownership hash and actual modified hash when they differ.
-6. Re-prove metadata ownership and the complete published state, publish an exact hash-checked commit-complete marker, then clean up. Recursive cleanup accepts only the UUID paths named by the journal and only when every present entry is an expected real directory or hash-matching regular file; an unknown/link/special entry leaves a diagnosable recovery state.
-7. Before commit, discard only validated staged content. During an incomplete commit, remove only journal-hash-matching new bytes and restore type/hash-proven backups. After commit-complete, retain the revalidated new state and finish cleanup. Journal and marker unlinks also revalidate exact type/content immediately before mutation.
-
-Install/update refuse unmanaged, missing, modified, unknown, colliding, or unsafe state. Normal uninstall does the same. Force may continue past missing/modified owned entries and preserved unknown entries, but its removal set remains existing regular files proven by ownership metadata; it never removes an unknown entry, unrelated Skill, known-path link/junction, or unsupported type. Empty known directories are pruned one at a time. Transaction cleanup never recursively deletes the broad `.agents/skills` directory or follows a link.
-
-Node's path-based standard-library API cannot provide a portable directory-handle-relative `openat` transaction, so a fully privileged same-user attacker continuously replacing components can still win a final check/use race. The implementation narrows this residual risk with physical trusted roots, link-free component checks, before/after identity reads, exclusive markers, atomic same-root renames, and immediate mutation-time revalidation; inability to prove the expected state fails closed and preserves the transaction for inspection.
-
-## 10.6 Doctor and error flow
-
-`doctor` builds and validates the packaged source inventory, checks Node and detectable npm/Codex versions, inspects user scope and the enclosing project scope when available, validates the physical scope chain, ownership metadata, portable path identities, filesystem types/links, and Skill front matter/UI policy, compares installed hashes and unknown paths, detects reserved transaction artifacts, and probes the nearest existing scope directory for read/write access. It also scans only the documented real-directory Codex plugin cache shape under configured `CODEX_HOME` or `<home>/.codex`: `plugins/cache/<marketplace>/<plugin>/<version>/skills/`. Before traversal, a selected Codex-home leaf proven to be a real non-link directory is resolved to its physical root, so a platform ancestor alias such as macOS `/var` does not masquerade as an internal cache link; a linked Codex-home leaf or linked cache component is still rejected without traversal. It reports each cache source containing `kyw-*` Skill names and detects duplicate names across direct user, direct project, and plugin-cache sources. Cache presence proves installed bytes, not enabled state; `doctor` never parses that as active-session proof or mutates plugin state. It performs no directory creation, recovery, cleanup, chmod, write, rename, deletion, enablement, or disablement; tests compare content plus type/mode/size/mtime/ctime snapshots before and after healthy and hostile diagnostics.
-
-The CLI uses stable numeric categories: 0 success, 1 usage, 2 unsupported runtime, 3 scope resolution, 4 conflict, 5 malformed package/install state, 6 filesystem/permission, and 7 recovery required. Doctor returns the highest applicable error category; warnings such as an undetected optional command or version drift do not alone make diagnostics fail.
-
-## 11. Installation and distribution architecture
-
-## 11.1 Direct npm CLI path
-
-```text
-npm registry
-   ↓ npx/npm exec explicitly runs bin
-kyw-dev CLI
-   ↓ copy managed Skill directories + namespaced support
-user or repository .agents/skills
-```
-
-This path is intended for Codex CLI/IDE users who want direct Skill discovery. The five visible `kyw-*` directories are copied byte-for-byte. The CLI also maps the seven canonical Task runtime modules—the public facade, its five cohesive internals, and the template contract—and six templates into `.agents/skills/.kyw-dev/runtime/`. That hidden namespace is ownership-managed support, not a discoverable Skill. The single `kyw-task` adapter reused by the authoring and implementation Skills prefers its package-root import and falls back to this runtime only after direct installation.
-
-## 11.2 Plugin marketplace path
-
-```text
-marketplace.json
-   ↓ source = npm or GitHub
-plugin package
-   ↓ .codex-plugin/plugin.json
-bundled skills/
-```
-
-The npm tarball itself must already contain all plugin files because marketplace npm downloads do not rely on lifecycle scripts.
-
-Before publication, `test/fixtures/distribution/marketplace-root/.agents/plugins/marketplace.json` is the canonical local catalog. It points at `./plugins/kyw-dev` and declares explicit availability, authentication timing, and category metadata. The distribution E2E delegates to the fail-closed release-isolation runner, copies the extracted npm tarball beneath its approved marketplace root, passes a fresh child-only `CODEX_HOME`, adds the marketplace through the Codex CLI, installs the plugin, and confirms that all five cached `SKILL.md` files match packed bytes. Plugin and marketplace removal complete before the exact temporary root is removed. Neither the fixture, runner, nor tests enter the npm tarball.
-
-## 11.3 Duplicate-install policy
-
-`doctor` reports a conflict when the same `kyw-*` Skill name exists in more than one discovered installation source:
-
-- project `.agents/skills`;
-- user `~/.agents/skills`;
-- installed plugin bytes under `$CODEX_HOME/plugins/cache/<marketplace>/<plugin>/<version>/skills` or the default `~/.codex` equivalent.
-
-Plugin-cache traversal never follows a linked or unsupported cache component; an uninspectable component is reported instead of guessed. The cache source is reported as installed bytes without claiming that its plugin is enabled. The tool does not automatically remove, disable, or repair another installation source. Duplicate diagnosis is read-only; users remove a direct managed copy through the kyw-dev CLI or a plugin through the supported Codex plugin browser rather than deleting broad Skill or cache directories.
-
-## 11.4 Release gate
-
-`package.json` is configured to permit a future public publication rather than blocked by `private`: `private` is false and `publishConfig` fixes public access to the npm public registry. That metadata state is not a release-readiness, approval, or publication verdict. The repository provides no npm lifecycle script that can install the plugin or publish the package. `npm run release:ci` runs the stable verification suite and then creates, allowlist-checks, extracts, and smoke-tests the real npm tarball in a validated temporary directory. `npm run release:check` reuses that packed gate and then runs `npm publish --dry-run --json`; the dry run is non-publishing local evidence and is not part of required CI. The actual `npm publish --access public` command remains outside automation and requires explicit approval after a fresh name, identity, tarball, and version check.
-
-The stricter local `node ./scripts/release-gate-isolation.mjs` gate requires Codex and runs the complete extracted-tarball user/project/force-preservation and marketplace lifecycle. Its lexical guard runs before target creation or child execution, its materialized guard rechecks realpaths and filesystem types before every spawn, and protected-state evidence is compared and attributed before attempt cleanup. A successful product lifecycle cannot override an unsafe path, a violation, persistent ambient/inconclusive state, unavailable required Codex CLI, another lifecycle failure, or unverified cleanup identity. Only a first ambient result receives the one unchanged fresh-attempt retry. Public CI keeps Codex optional, but the same runner still requires the complete direct lifecycle and all isolation/attribution gates.
-
-The development-only `scripts/release-evidence-harness.mjs` is the retained-evidence boundary around an explicitly approved `release:check`; it is not another release verdict or publication authority. Its harmless self-test and dry-validation modes run no release composite. Actual mode requires both `--run` and `--allow-release-command`, invokes the reviewed composite at most once, and has no retry or separate dry-run child. The harness, its tests, and external evidence roots remain outside package bytes.
-
-The first-release notes, approval checklist, exact commands, and rollback/deprecation procedure live in Task 0009 rather than a new permanent release document. A bad published version is corrected with a new semantic version and normally deprecated rather than removed; npm unpublish is an exceptional, policy-bound, irreversible response.
-
-## 11.5 Credential-free continuous integration
-
-`.github/workflows/ci.yml` is the only required CI workflow. It runs for pull requests, pushes to `main`, and optional manual dispatch with workflow-level `contents: read`, explicit job timeouts, disabled checkout credential persistence, and no secret reference. Its event-specific concurrency identity cancels only superseded runs for the same pull-request number, gives every `main` push a non-cancelling commit-SHA group, and isolates manual dispatch by run ID so neither can erase an unrelated exact-SHA `main` result. Every external Action use is pinned to an upstream-verified full commit SHA with a readable release comment. Root `.gitattributes` forces text checkout materialization to LF on every runner because foundation parsing, deterministic packing, and the repository format contract operate on LF bytes. The repository intentionally has no dependencies or lockfile, so jobs do not run `npm ci` or enable a package-manager cache.
-
-Every Stable and packed job explicitly checks out the PR head on `pull_request`, or the event SHA on `push`/manual dispatch, and immediately emits one `KYWCIEVIDENCE` line before repository verification after proving `git rev-parse HEAD`. On a PR, one separately named Ubuntu/Node 24 job instead checks out `github.sha`, proves it is the two-parent synthetic merge of the event base/head snapshot, emits the merge-compatibility role, and runs the complete Stable command set. The aggregate gate requires that job only for PRs and requires it to be skipped on other events. Numeric job IDs and conclusions come from the Actions API; the job log supplies the asserted checkout and parent identities.
-
-```text
-pull request / main push / manual dispatch
-        ├─ exact event checkout → stable matrix
-        │    ├─ Node 22 LTS × ubuntu/macos/windows
-        │    ├─ Node 24 LTS × ubuntu/macos/windows
-        │    └─ Node 26 Current × ubuntu compatibility
-        │         └─ test + lint + format:check + pack:check
-        ├─ exact event checkout → packed release: Node 24 LTS × ubuntu
-        │         └─ release:candidate → one real packed-byte inspection
-        ├─ PR only: synthetic merge compatibility, Node 24 LTS × ubuntu
-        │         └─ assert merge/base/head → complete Stable command set
-        └─ aggregate required result
-```
-
-The stable matrix runs native temporary-directory CLI and direct-install tests on each host. Codex marketplace coverage remains isolated and executes only where the CLI exists; its absence cannot skip the preceding packed user/project lifecycles or fail a public contributor for missing authentication. The packed job logs the real archive's file count, size, and SHA-256, rejects development/lifecycle content, and runs the extracted CLI. It cannot publish, create a tag or release, merge, or mutate branch-protection settings. Repository administrators may require only the aggregate credential-free result without making a model-backed job part of public PR admission.
-
-The packed job does not call the local `release:ci` composite because the stable matrix owns the exact event-checkout Stable proof. `release:candidate` creates and inspects the immutable real tarball once in that job. Merge compatibility repeats Stable commands because its base-combined bytes are a distinct evidence boundary, but it cannot satisfy an actual-head role. Local `release:ci` remains the deliberate full regression composite (`check` plus `release:candidate`) for release-sensitive implementation work where there is no separate hosted Stable result yet.
-
-## 11.6 Verification tier planner
-
-`scripts/verification-plan.mjs` is a development-only, dependency-free classifier and command registry. It accepts explicit repository-relative changed paths and returns an ordered local plan without executing commands or inspecting Git implicitly.
-
-```text
-changed paths + optional release-candidate escalation
-        ↓ normalize; reject absolute/traversing/empty input
-        ↓ ignore current Task/Test evidence paths for risk classification
-        ├─ documentation-only → Focused documentation tests + format
-        ├─ packaged Skill/template → Focused owning-Skill tests + format + pack selection
-        ├─ runtime/cross-cutting/unknown → Stable `npm run check`
-        └─ release-sensitive or explicit candidate → Release regression
-        ↓ always report mandatory exact-head PR/main Stable delivery
-```
-
-The classifier is conservative: a mixed class takes the highest tier, an unknown path selects Stable, and candidate intent only escalates. Path classification is a planning aid rather than acceptance evidence; Task-specific behavior or an introduced branch may require additional focused checks.
-
-The command registry assigns one owner tier and trigger to each supported maintainer command. Higher tiers may compose lower-tier evidence, but the same command is not counted twice in one plan. Model-backed audit/grilling commands are Focused only when an acceptance contract explicitly supplies the model, effort, authentication source, and cost gate.
-
-Package identity is retained at boundaries where identity can change:
-
-| Boundary | Owner | Required identity evidence |
-|---|---|---|
-| Working-tree package selection | Stable `pack:check` | Exact allowlisted paths for the checked-out SHA and native npm behavior |
-| Immutable candidate archive | Release `release:candidate` | Real archive size, file list, hygiene/legal checks, CLI smoke, and SHA-256 |
-| Isolated install/marketplace lifecycle | Release isolation gate | Candidate tarball SHA plus direct/plugin lifecycle and protected-state result |
-| Registry dry run | Release `release:check` | Registry-generated dry-run report bound to the intended version/candidate |
-| Published package | Separately approved publication verification | Downloaded registry bytes, license/notice contents, and published identity |
-
-Cross-platform Stable lanes still perform native package and link/junction evidence because those claims differ by OS/runtime. They are not duplicate immutable-candidate proofs.
-
-## 12. Template architecture
-
-Templates define section contracts, not final project content.
-
-### Project templates
-
-- `SPEC.md`: headings and guidance comments/placeholders;
-- `ARCHITECTURE.md`: headings and guidance comments/placeholders;
-- `AGENTS.md`: compact invariant rules, exact repository-local Task routing, and replaceable command slots;
-- `README.md`: project entry sections.
-
-### Task templates
-
-- `TASK.md`: paired current-contract marker, static delivery requirement, repository lifecycle, and handoff fields;
-- `TEST.md`: paired current-contract marker, traceability, and repository evidence fields.
-
-`kyw-init` and `kyw-task` must customize templates from inspected facts and settled decisions. They must not leave unexplained placeholders in completed documents.
-
-Task templates show `Not applicable — <reason>` as the only concise substitute for inapplicable required content. They do not define a short or long variant and do not enforce a global size threshold. Release/security Tasks use the same templates and validator while retaining whatever evidence is necessary.
-
-The six canonical files are `templates/project/{README,AGENTS,SPEC,ARCHITECTURE}.md` and `templates/task/{TASK,TEST}.md`. Project-name, verification-command, Task-ID, and Task-title tokens are explicit inputs. The reserved `<!-- kyw-task-contract: 2 -->` marker is durable machine-readable contract identity rather than authoring guidance; other explanatory HTML comments must be removed or resolved when final project-specific content is materialized.
-
-## 13. Validation architecture
-
-### Release-isolation lifecycle
-
-`scripts/release-gate-isolation.mjs` owns the development-only direct/marketplace release lifecycle. Each attempt creates one approved native temporary root, rejects every lifecycle target that is not an absolute, real, link-free strict descendant, and compares targets against normal profile `.agents`, default/configured Codex roots, and default/configured npm userconfig identities using native case rules. Windows comparison is case-insensitive and separator-normalized. The runner constructs isolated user, Codex, npm, process-temp, and XDG state without mutating its own environment; every child receives that state explicitly. Cleanup accepts only that attempt's original root identity directly below its approved parent after a complete link/type check.
-
-Protected snapshots are in-memory and attempt-local. They retain a protected label, normalized bounded relative path or category, added/removed/modified/type-changed kind, entry type, metadata identity or content digest where applicable, and only the names of exact known attribution markers. Normal agents/npm files and named Codex control trees use content digests without retaining or emitting contents; unreadable entries retain bounded metadata/error identity. Other Codex session/log/cache trees retain recursive path/type structure rather than full active payload hashes. Classification evaluates the complete difference set before diagnostic capping, while output contains only safe labels, relative paths, change kinds/types, known markers, and digest prefixes—never absolute normal paths, credential values, or protected contents.
-
-The attribution result is exactly `CLEAN`, `ISOLATION_VIOLATION`, or `AMBIENT_STATE_CHANGED`. `CLEAN` requires no protected delta, no parent protected-environment mutation, and no guard, snapshot, lifecycle, or cleanup failure. A violation requires positive deterministic evidence: an exact normal managed Skill/ownership path, an exact `kyw-dev`/`kyw-dev-local`/managed-Skill identifier in protected Codex or agents state, exact packed Skill bytes, or mutation of the runner process's protected environment keys. Generic Codex, unrelated agents, or unmarked npm-userconfig drift is ambient and remains fail-closed/inconclusive. A first ambient result alone triggers one unchanged immediate retry; the retry owns a fresh root and fresh snapshots and discards the first attempt's product result while retaining bounded outcome history. A violation or any guard, snapshot, child, package, marketplace, or cleanup failure is never retried.
-
-This boundary uses no daemon, watcher, filesystem/process/OS tracing, ambient process scan, snapshot database, event journal, telemetry, or normal-state repair. The standalone runner resolves and protects actual normal-state locations from its inherited environment. Deterministic distribution integration instead supplies a temporary synthetic protected-state fixture through the same inherited-environment/location resolver; that fixture remains outside every runner-created lifecycle root and does not weaken standalone defaults.
-
-The positive npm `files` allowlist excludes repository Tasks/docs, local marketplace fixtures, generated archives, credential/config files, and machine-local paths. Release validation compares an exact inventory, extracts a real tarball created in an isolated temporary directory, scans packed text for credential-shaped values and absolute local paths, and verifies the project and Matt Pocock legal notices by content and SHA-256.
-
-### Release evidence harness
-
-The release evidence harness separates two path roles. `validateEvidenceRoot` accepts an existing root that equals its own canonical identity only when that root is a real strict child of the allowed external parent and does not overlap the repository. `validateEvidenceOutput` separately requires every output to be a strict descendant of that canonical root. Both lexical and post-materialization canonical containment are checked. Existing objects use native realpath; Windows identity removes ordinary versus extended drive/UNC prefixes, normalizes separators and case, and accepts long/short aliases only when canonical object identity agrees. Links, junctions, reparse-style escapes, unsupported types, prefix-confused siblings, and repository overlap fail closed. Deterministic tests inject only a narrow canonical identity mapping rather than a filesystem-provider abstraction.
-
-Each invocation creates one unpredictable direct child beneath the caller-owned root and writes with exclusive creation. Before a gated child, it records source and package identity, repository/config/protected-state baselines, the exact command plan, Node identity/version, and requested npm launcher identity/hash/version. It selects a matching exact npm CLI, places an owned shim first in the supplied PATH, and uses a harmless nested npm probe to record and compare child `npm_execpath`, `npm_config_user_agent`, effective npm version, Node identity, and the first actually resolvable npm launcher. Any ambiguity is `NPM_PROVENANCE_MISMATCH` before the gated child.
-
-Child stdout and stderr are separated and redacted while streaming to external unparsed evidence files. Immediately after close, exit code, signal, end timestamp, and monotonic runtime are durably recorded before stream finalization, hashing, or summary parsing. Parser failure cannot remove those files. Summaries are recursively bounded, credential-redacted, written to a same-parent temporary file, and atomically renamed. Normal npm config is observed by path/metadata/content hash only; the child receives owned blank config and cache locations with credential-shaped inherited environment entries removed. Repository, package, userconfig, and protected state are observed before and after without repair or mutation.
-
-Duplicate child acquisition fails and the release retry maximum is zero. The harness never automatically cleans retained evidence. Cleanup requires the exact owned direct-child identity and token, a concrete preservation proof, a sealed complete inventory, and no later foreign entry; it can remove that run only, never the caller root, repository, sibling, or parent. This is a purpose-built development boundary, not a generic supervisor, filesystem layer, daemon, watcher, or package runtime dependency.
-
-### Grilling evaluation harness
-
-The `eval/grilling/` boundary owns an immutable upstream source pin, the exact vendored baseline bytes, frozen rubric v1, result schemas v1/v2/v3, predeclared bounded benchmark configurations, and synthetic scripted scenarios. Result schema v1 preserves Task 0011 evidence; v2 adds explicit reasoning-effort evidence; v3 additionally requires repository-local Skill-install scope and observable exact-source reading before scoring. The pinned `mattpocock/skills` commit, upstream source path, source SHA-256, MIT copyright, and byte-identical license checksum are validated offline. `skills/kyw-grilling/` remains production input to the harness; evaluation code does not rewrite or tune it.
-
-`scripts/grilling-eval.mjs` is an explicit model-cost gate over the dependency-free runner in `scripts/grilling-eval/`. Normal test execution imports only deterministic parsing, grading, schema, redaction, hashing, and fake-Codex integration paths. Public CI never invokes a model-backed command.
-
-```text
-pinned scenario + exactly one Skill variant
-        ↓ materialize + commit
-temporary Git repository/.agents/skills + temporary HOME
-        ↓
-temporary CODEX_HOME + explicit auth copy or single-run CODEX_API_KEY
-        ↓
-codex exec --json --sandbox read-only --ignore-user-config --ignore-rules
-  + strict explicit model reasoning effort
-        ↓ exact installed SKILL.md must be read on turn 1
-        ↓ thread.started.thread_id
-codex exec resume <thread_id> for each scripted reply
-        ↓
-redact events/final messages → verify fixture hash + Git status → grade rubric v1
-        ↓
-atomic publication under ignored eval/grilling/results/<run-id>/
-```
-
-The runner capability-checks the installed CLI rather than inferring behavior from its version. It installs one evaluated Skill below the temporary Git root's official repository-local `.agents/skills` discovery path, commits that evaluator input, excludes `.agents` from the scenario-content hash, and requires turn-one command output to contain the exact installed Skill source. Missing proof aborts publication instead of grading a fallback interview. The initial turn explicitly requests the read-only sandbox; resume inherits that session boundary and must emit the same thread ID. Every scored run passes the same explicit reasoning effort through strict configuration on the initial and resumed turns. Result schema v3 records timestamps, Codex version, exact requested model and reasoning effort, fixed config, repository Skill scope/read proof, per-turn JSONL/final messages and usage, aggregate usage, fixture hashes, Git cleanliness, Skill-install count, auth-source immutability, and rubric observations.
-
-Task 0012's frozen benchmark configuration fixes the exact CLI/model/effort, baseline and scenario revisions, rubric checksum, repetition count, execution controls, token definition, and thresholds before model execution. Its deterministic report reopens every completed run, reparses JSONL usage, regrades the retained final-message transcripts, verifies scenario/config/isolation parity, calculates aggregate and per-scenario medians, and records a SHA-256 for every `run.json` and complete run artifact tree. Reporting does not weaken the rubric or substitute for manual review of critical flags and material deltas.
-
-Normal `HOME`, user Skills, user config, and normal `CODEX_HOME` are never writable evaluation state. File-based auth is used only when the caller explicitly names a source; it is copied into the evaluator-owned temporary Codex home, never logged, and checked for source immutability. Tool subprocesses inherit no environment variables. Generated artifacts contain redacted synthetic transcripts, are Git-ignored, and are rejected before publication if credential-shaped values or raw local home paths remain.
-
-Only the long-running model-child path is asynchronous. Bounded Git, capability-preflight, fixture-test, and report helpers remain synchronous. From temporary-root acquisition through cleanup, `runEvaluation` owns one live child handle at a time through the development-only `scripts/evaluator-process.mjs` lifecycle. The helper installs no listener at module import: each live run installs POSIX `SIGINT`/`SIGTERM` listeners or one Windows `SIGINT` listener for console Ctrl+C and removes them on every finalized outcome. The first claimed terminal cause—normal failure, timeout, maximum output, spawn failure, interruption, cleanup failure, or success—remains authoritative.
-
-The model child is launched in its own POSIX process group or Windows process tree. Interruption first requests termination only for that evaluator-created group/tree, waits at most 1.5 seconds, then uses group `SIGKILL` or PID-rooted `taskkill /T /F` and waits at most another 1.5 seconds. It never enumerates processes or matches ambient command lines. POSIX interruption exits `130` for `SIGINT` and `143` for `SIGTERM`; Windows real console Ctrl+C exits `130`. Ctrl+Break/SIGBREAK, console-close/session-manager emulation, `SIGKILL` directed at the evaluator, OS crash, and power loss are outside the guarantee.
-
-Finalization is idempotent and removes only acquired evaluator-owned unpublished staging, the temporary root and its repository/HOME/`CODEX_HOME`/copied `auth.json`/last-message scratch files, and an empty result root created by that run. Recursive evaluator-owned removal uses the asynchronous standard-library filesystem operation and is awaited before the run promise becomes terminal. Retryable removal errors receive at most five retries with a 100-millisecond linear delay, for at most 1.5 seconds of scheduled delay; exhaustion remains a cleanup failure instead of becoming eventual background work. The explicitly named auth source is checked for byte immutability. A complete run is exposed only by same-parent atomic rename; an interrupted or otherwise incomplete run never appears as completed, while a result already atomically published remains by design, including when a later comparison or post-publication cleanup is interrupted. Cleanup failures preserve the primary non-zero cause and append only a sanitized operation, stable owned-path label, and reason/error code, never credential contents, auth-source paths, transcript secrets, or unrelated home paths.
-
-The package `files` allowlist and exact tarball allowlist exclude all `eval/`, root `scripts/`, `test/`, ignored results, and temporary state. The packed third-party notice and upstream MIT copy remain included because the production Skill is adapted from that source even though the comparison baseline itself is development-only.
-
-### Audit behavior smoke
-
-`scripts/audit-smoke.mjs` is a development-only, one-turn fresh-session contract check over `test/fixtures/kyw-audit/fresh-session-project`. It copies the fixture and current canonical audit Skill into a temporary Git repository, commits the evaluator input, then adds known unrelated tracked, untracked, and generated worktree state. The runner isolates and ignores normal user configuration behind a temporary home and `CODEX_HOME` containing only an explicitly copied authentication source and evaluator-owned outer-sandbox config, ignores execution rules, passes only an allowlisted process environment to the child, and fixes an exact model and reasoning effort with observable installed-Skill source reading. The read-only fixture remains OS-enforced read-only. Its event analyzer additionally applies `scripts/audit-readonly-boundary.mjs`: a dependency-free, single-line literal tokenizer plus command-specific argument validators. Unknown executables, wrapper shells, operators, redirects, expansions, dynamic or encoded forms, unsafe paths, and unsupported arguments fail closed at their original offset with match-local context. The analyzer never recursively parses a nested program or treats a single-quoted search pattern as executable syntax. In fix mode, the first file-change event or command outside this baseline boundary remains the mutation-capable edge that must follow the finding-specific plan.
-
-The model-facing `codex exec` automation bypasses its inner approval/sandbox layer only while the entire process is already enclosed by a separate native `codex sandbox` permission profile, matching the CLI's documented external-sandbox use case. That outer profile grants filesystem reads generally, keeps `.git` and the installed `.agents` Skill read-only, grants the isolated control directory write access, and grants the fixture root read-only or write access according to the smoke mode. Public egress is enabled for the nested model control plane during this controlled synthetic run; the fixture contains no network-requiring code. A temporary deduplicated PEM bundle made from Node's default and host-system public CA stores supplies TLS trust to the nested CLI and is deleted with control state. This arrangement avoids dependence on machine-local exec rules while preserving an OS-enforced repository boundary.
-
-Read-only mode runs `codex exec` with the OS-enforced read-only sandbox and fails on a worktree hash change, Git-status change, file-change event, or mutating-command attempt. A mutation failure prints only bounded redacted evidence: file-change kind or structural command reason, zero-based event index, and before/after tree and Git-status invariance. General-mutator, output-redirection, and unsupported-grammar reasons retain their matched token/operator/issue, original zero-based command offset, effective shell/quote and nested evaluation state, and at most 160 characters of original-command context. Source mapping keeps those fields attributable after nested quoted-script decoding without retaining a full command when the local evidence is sufficient. Fix mode uses a separate workspace-write fixture and fails unless a bounded plan message precedes the first mutation, every changed path belongs to the audited Task's declared repair set, unrelated baseline bytes remain identical, the focused fixture test passes, and the final report has one supported verdict. The smoke prints a redacted summary and publishes no repository result artifact; event JSONL is parsed from child output rather than retained as a result file.
-
-The audit runner uses the same run-scoped lifecycle, supported signals, exit codes, exact child-group/tree ownership, two 1.5-second termination bounds, first-cause rule, listener removal, and safe cleanup diagnostics as the grilling evaluator. Its idempotent finalizer removes only its single evaluator-owned `mkdtemp` root, including the temporary repository, isolated HOME/`CODEX_HOME`, copied authentication, control files, and last-message scratch file. The smoke has no result-publication path. Ctrl+Break/SIGBREAK, `SIGKILL` directed at the evaluator, OS crash, and power loss remain outside the guarantee. The harness never enters the npm package. Historical run-specific evidence and verdicts remain in their immutable Task/Test pairs rather than this permanent architecture description.
-
-### Direct SPEC behavioral acceptance fixtures
-
-`test/fixtures/spec-behavioral-e2e/` retains the exact 33-file S-01 through S-06 fixture set used by historical Tasks 0026 and 0027. The historical directory name and evidence remain unchanged, but the cancelled nested execution method is not a current component.
-
-`scripts/spec-behavioral-acceptance.mjs` is the development-only current-session support surface. It validates the exact fixture inventory, S-02 preservation marker, thin generated-agent inputs, passing generic suites, the independently proven S-05 casual-branch gap, direct mutation attribution, and per-scenario `CURRENT_SESSION_DIRECT` evidence contracts. Its only child executable is the current Node runtime running fixture tests. It has no Codex/model launch, Docker boundary, fixed-session cohort, capability probe, authentication copy, retained-report writer, or model/capability/cohort flag.
-
-`test/spec-behavioral-acceptance.test.mjs` covers each scenario contract independently, package-byte evidence requirements, init confirmation, unconditional adaptive authoring READY/stop and later implementation-invocation failures, gap/document routing, exact mutations, and the absence of the retired runner/test paths. The root `scripts/`, `test/`, and fixture tree remain development-only and outside the npm package; normal package validation continues to own packed-byte allowlist identity.
-
-### Static validation
-
-- A schema-v1 test-only completed-outcome registry names seven audited outcomes and their exact direct Node test declarations. Its validator checks sorted stable IDs, contained default-discoverable paths, unique declarations, and `.github/workflows/ci.yml` → `npm test` → unfiltered `node --test` reachability without parsing historical Task Markdown or entering the packed runtime.
-- JSON parsing and manifest required fields;
-- YAML metadata shape at a pragmatic level;
-- Skill directory and name consistency;
-- required Markdown sections;
-- current-contract Task/Test marker identity, paired status values, and static `STANDARD` or reasoned `NONE` delivery declaration;
-- legacy Task/Test readability without applying current queue or delivery rules retroactively;
-- canonical current hard-dependency bullets, completed-history compatibility, missing IDs, cycles, exhaustive status classification, active-count, deterministic next-ready selection, truthful cancellation, and all-current terminal outcomes;
-- relative plugin paths beginning with `./`;
-- version synchronization;
-- package file inclusion.
-- direct-install source/metadata path containment, Skill contract shape, and SHA-256 syntax.
-- public release metadata, absence of lifecycle publish/install scripts, implemented plugin copy, and canonical local marketplace policy/source shape.
-- CI triggers, least-privilege permissions, cancellation/timeouts, actual PR-head and event-SHA assertions, separate synthetic merge/parent assertions, exact OS/runtime lanes, stable command coverage, credential absence, aggregate event behavior, and package-script agreement.
-
-Development-only validation scripts use Node built-ins to check JavaScript syntax, canonical JSON formatting, text-file encoding and whitespace, and the npm tarball allowlist. These scripts stay outside the packed runtime boundary.
-
-### Unit tests
-
-- task number allocation;
-- slug generation;
-- exact and automatic Task resolution, exhaustive status-pair consistency, dependency grammars and graphs, historical-blocker isolation, cancellation, and all-current no-work outcomes;
-- repository-root detection;
-- scope path resolution;
-- ownership hashing;
-- conflict detection;
-- atomic staging, commit markers, rollback, and committed-cleanup behavior;
-- stable CLI grammar and error categories across user/project scopes.
-
-### Integration fixtures
-
-At minimum:
-
-```text
-empty-project
-existing-project-with-docs
-existing-project-with-custom-agents
-project-with-completed-tasks
-project-with-task-number-gaps
-project-with-duplicate-skills
-project-with-modified-managed-install
-project-with-partial-install-transaction
-distribution/marketplace-root
-distribution/fresh-session-project
-```
-
-Direct-install integration runs the actual CLI against isolated homes and nested Git repositories, exercises authoring and implementation through their one installed Task adapter and namespaced runtime fallback, injects staging/swap interruption in a child process, verifies recovery against prior hashes, and confirms doctor leaves both scopes byte-identical.
-
-Distribution integration creates a synthetic normal-user/protected-state fixture outside the runner's attempt roots, passes it through the ordinary inherited-environment resolver, and proves it unchanged. Inside an attempt root it packs and extracts the actual archive, scans packaged text for source paths or secret-shaped tokens, runs install/update/doctor/normal uninstall at both direct scopes, and verifies that normal uninstall refuses modified/unknown state while force removes only owned bytes and preserves unknown/unrelated hashes. It then materializes the canonical local marketplace around the same extracted bytes and exercises Codex marketplace add/list/install/remove with child-only user/Codex/npm/temp configuration when the CLI is available. Unit regressions use synthetic snapshots/fixtures to cover exact managed paths, kyw-dev identifiers and packed bytes, ambient Codex/agents/npm drift, parent-environment violations, diagnostic privacy/truncation, the one ambient retry with fresh roots/evidence, every nonretryable error, normal-path aliases before child call zero, Windows case/separator identity, and broad cleanup rejection.
-
-### Skill contract scenarios
-
-Use deterministic fixtures plus scripted/manual scenario checks to verify:
-
-- one question at a time;
-- recommendation included;
-- facts inspected instead of asked;
-- no document write before confirmation;
-- no Task for a normal small prompt;
-- Test created with Task;
-- final diff coverage audit performed.
-- audit rejects unmapped acceptance, unsupported PASS evidence, stale durable documents, and out-of-scope implementation;
-- bare audit preserves every fixture byte while retaining stable findings, evidence limitations, drift review, residual risks, and one verdict;
-- exact-`--fix` audit announces a bounded plan, repairs only clear in-scope findings, reruns affected checks, preserves unrelated work, and leaves ambiguous/out-of-scope findings report-only.
-
-### End-to-end release checks
-
-- `npm test`;
-- lint/format checks selected in Task 0001;
-- `npm pack --dry-run` and tarball inspection;
-- credential-free `npm run release:ci` with real archive extraction and packed CLI smoke tests;
-- direct user/project install in isolated temporary homes/repos;
-- update/uninstall safety;
-- isolated local marketplace add/list/install/remove and cached Skill discovery where the environment supports it;
-- manual invocation of each Skill in a fresh Codex session;
-- audit read-only/fix fresh-session smoke with fixture hash and Git-status evidence.
-- ordinary small-prompt documentation synchronization without Task creation.
-- `npm publish --dry-run --json`, followed by a separately approved manual publish only after identity and name revalidation.
-
-## 14. Error model
-
-CLI errors use stable categories and non-zero exit codes:
-
-- usage error;
-- unsupported runtime;
-- scope resolution failure;
-- unsafe overwrite/conflict;
-- malformed package or installed metadata;
-- filesystem/permission failure;
-- partial installation recovery required.
-
-User-facing errors must include the failed operation, affected path where safe, and recovery action.
-
-Skill-level blocked states must be written into Task/Test when the active workflow authorizes those files. A default read-only `$kyw-audit` reports `BLOCKED` only in its response and must not update Task/Test or any repository byte.
-
-## 15. Security and privacy
-
-- No telemetry in MVP.
-- No network call is required after package acquisition.
-- Do not copy repository contents outside the user's requested scope.
-- Do not log secrets or full sensitive file contents in reports.
-- Validate paths and portable identities before resolving them, then prove every managed candidate remains inside a physical selected install root.
-- Refuse symlinks, junctions/reparse-style directory links detectable through `lstat`/`realpath`, unsupported types, and redirected managed parents; never follow or unlink an unsafe link during mutation or recovery.
-- Treat package metadata, install metadata, transaction journals/markers, source trees, and user/project roots as untrusted filesystem inputs. Force changes conflict policy only; it grants no broader path ownership.
-
-## 16. Context-budget strategy
-
-- Keep root `AGENTS.md` under the project target size.
-- Keep each Skill focused and move long material to `references/`.
-- A running existing Task uses exactly the loaded repository instructions, four permanent documents, current Task/Test pair, `kyw-impl`, and its single execution reference, plus only explicit dependencies needed by that Task.
-- Before compaction, persist handoff fields.
-- Completed Task details required by future work are promoted to durable documents or summarized in the new Task dependency section.
-
-## 17. Deliberate scope boundaries
-
-These are current architecture decisions, not missing framework work:
-
-| Boundary | Current design | Deliberately excluded |
-|---|---|---|
-| `STANDARD` delivery | GitHub pull requests, review state, and Actions exact-SHA evidence bound to local Git expectations | Delivery-provider interface, alternate ledger backend, merge automation outside selected Task authority |
-| Skill distribution and discovery | Managed direct Skills at user/project scope, plus Codex marketplace/plugin installation and read-only plugin-cache discovery | Generic provider or install-backend framework, automatic source reconciliation, a third installation surface |
-| Mutation transactions | Separate purpose-built Task-batch and Skill-installation journals with their own ownership proofs | Shared generic transaction/filesystem framework or cross-domain recovery engine |
-| Evaluators | Development-only process-owned fixtures, explicit model/cost/auth gates, and credential-free deterministic public CI | Runtime evaluator dependency, mandatory model job, daemon, watcher, filesystem/process/OS tracing, ambient process scan, telemetry, or background repair |
-| Runtime evidence | Full Node.js 22/24 LTS matrix on Linux/macOS/Windows plus one bounded Ubuntu Node.js 26 Current compatibility lane | Treating the Node 26 lane as full support or weakening the public `>=22` floor without a revised compatibility decision |
-| Publication | Separately approved registry identity check, publish, tag, GitHub Release, and any later public plugin submission | Lifecycle-script publication, automatic publish/tag/Release/submission, or interpreting CI/dry-run success as approval |
-
-## 18. Deferred architecture
-
-The following require future Spec and Architecture changes:
-
-- npm/plugin lifecycle hooks that enforce checks during installation;
-- MCP integrations with issue trackers or repositories;
-- GitHub/Jira/Linear Task synchronization;
-- automatic PR generation outside a recognized current-user invocation and selected-Task `STANDARD` scope;
+| Task mechanics | One dependency-free adapter/core graph | Markdown remains human-readable; strict parsing rejects ambiguous forms |
+| Context | Targeted owner sections with full-read escalation | Smaller routine context; broad/conflicting work deliberately costs a full read |
+| Filesystem safety | Portable path rules, physical containment, hash/type/identity revalidation | Fail-closed behavior may require manual reconciliation on hostile state |
+| Distribution | Direct Skills and plugin package/cache | Two explicit surfaces; no generic provider framework |
+| Delivery | GitHub PR/Actions exact-SHA ledger | No alternate current `STANDARD` backend |
+| CI | Credential-free deterministic matrix | Desktop/model checks stay optional and isolated |
+| Transactions | Separate Task-batch and installation journals | No generic transaction/filesystem abstraction |
+| Evidence | Task/Test for repository truth; GitHub for mutable delivery | Fresh external collection is required to advance the queue |
+
+## 12. Deliberate scope boundaries
+
+The following exclusions are architectural decisions:
+
+- no delivery-provider interface or alternate current `STANDARD` ledger;
+- no generic install backend or automatic direct/plugin reconciliation;
+- no shared transaction/filesystem framework across Task and installation
+  domains;
+- no runtime evaluator dependency, mandatory model job, daemon, watcher,
+  filesystem/process/OS tracing, ambient process scan, or background repair;
+- no generated permanent-document summary, search database, or fuzzy/LLM
+  document grader;
+- no automatic registry publish, version/tag/Release creation, public
+  submission, force push, CI rerun, or branch-protection bypass;
+- no first-class non-Codex agent adapter in the current release.
+
+## 13. Deferred architecture
+
+Future product and architecture decisions are required before adding:
+
+- MCP or issue-tracker synchronization;
 - telemetry or hosted collaboration;
-- non-Codex agent adapters;
-- a schema-driven Markdown AST editor.
+- npm/plugin lifecycle hooks;
+- an alternate delivery ledger;
+- automatic PR generation outside selected Task authority;
+- a schema-driven Markdown AST editor;
+- another installation surface or agent runtime.

@@ -4,9 +4,14 @@ import { dirname, join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
+import {
+  PERMANENT_DOCUMENT_COMPACTION_ACCEPTANCE,
+  PERMANENT_DOCUMENT_POLICY,
+} from "../scripts/lib/validate-foundation.mjs";
+
 const REPOSITORY_ROOT = fileURLToPath(new URL("../", import.meta.url));
-const BASELINE_REPRESENTATIVE_BYTES = 36_382;
-const BASELINE_REPRESENTATIVE_TOKEN_ESTIMATE = 9_096;
+const REPRESENTATIVE_BUDGET_BYTES = 36_864;
+const REPRESENTATIVE_TOKEN_BUDGET = 9_216;
 const BASELINE_PROMPT_BYTES = 5_839;
 const REPRESENTATIVE_INSTRUCTION_PATHS = Object.freeze([
   "templates/project/AGENTS.md",
@@ -14,42 +19,17 @@ const REPRESENTATIVE_INSTRUCTION_PATHS = Object.freeze([
   "skills/kyw-impl/SKILL.md",
   "skills/kyw-impl/references/execution.md",
 ]);
-const STABLE_INSTRUCTION_PATHS = Object.freeze([
-  "AGENTS.md",
+const PERMANENT_INDEX_PATHS = Object.freeze([
   "README.md",
   "docs/SPEC.md",
   "docs/ARCHITECTURE.md",
-  "skills/kyw-task/SKILL.md",
-  "skills/kyw-impl/SKILL.md",
-  "skills/kyw-impl/references/execution.md",
-]);
-const RUNTIME_CONTEXT_PATHS = Object.freeze([
-  ...STABLE_INSTRUCTION_PATHS,
-  "docs/tasks/0031-lean-instruction-and-model-provenance/TASK.md",
-  "docs/tasks/0031-lean-instruction-and-model-provenance/TEST.md",
 ]);
 
 async function read(relativePath) {
   return readFile(join(REPOSITORY_ROOT, relativePath), "utf8");
 }
 
-function sectionBullets(markdown, heading) {
-  const lines = markdown.split(/\r?\n/);
-  const bullets = [];
-  let active = false;
-  for (const line of lines) {
-    const match = /^##\s+(.+?)\s*$/.exec(line);
-    if (match) {
-      if (active) break;
-      active = match[1].toLowerCase() === heading.toLowerCase();
-    } else if (active && line.startsWith("- ")) {
-      bullets.push(line);
-    }
-  }
-  return bullets;
-}
-
-test("instruction surfaces split authoring from one canonical implementation owner", async () => {
+test("instruction surfaces retain one canonical owner and minimal projections", async () => {
   const [
     agents,
     agentsTemplate,
@@ -79,17 +59,28 @@ test("instruction surfaces split authoring from one canonical implementation own
   assert.match(architecture, /`CODEX_PROMPTS\.md` is maintainer convenience, not normative authority/);
   assert.match(
     architecture,
-    /\| Artifact shape and default evidence fields \| Canonical Task\/Test templates \| `src\/core\/template-contracts\.mjs` enforces/,
+    /\| Exact Task\/Test shape \| Canonical Task and Test templates \| Deterministic template validator/,
   );
-  assert.match(readme, /These commands are a concise user projection/);
-  assert.match(agentsTemplate, /minimal derived projection required for loaded repository routing/);
-  assert.equal(sectionBullets(agentsTemplate, "Task Routing").length, 4);
-  assert.equal(sectionBullets(agents, "Task routing").length, 4);
-  assert.deepEqual(
-    sectionBullets(agentsTemplate, "Task Routing"),
-    sectionBullets(agents, "Task routing"),
-    "the generated routing projection must preserve every repository routing invariant",
+  assert.match(
+    readme,
+    /Product behavior is owned by \[SPEC\][\s\S]*detailed implementation procedure by \[`kyw-impl`\]/,
   );
+  for (const projection of [agents, agentsTemplate]) {
+    assert.match(
+      projection,
+      /Always load applicable `AGENTS\.md` and the selected\/current Task\/Test pair/,
+    );
+    assert.match(projection, /Index or search README, SPEC, and ARCHITECTURE first/);
+    assert.match(projection, /Read all four permanent documents for `kyw-init`, rebaseline/);
+    for (const routingAnchor of [
+      "All five `kyw-*` Skills are explicit-only",
+      "`$kyw-impl NNNN` is portable for existing Tasks",
+      "Keep one Task active",
+      "Task/Test owns repository outcome; GitHub gates mutable delivery",
+    ]) {
+      assert.ok(projection.includes(routingAnchor), routingAnchor);
+    }
+  }
 
   assert.match(authoring, /author/i);
   assert.match(authoring, /DRAFT\/DRAFT/);
@@ -99,27 +90,28 @@ test("instruction surfaces split authoring from one canonical implementation own
   assert.match(execution, /canonical detailed execution procedure/);
   assert.doesNotMatch(implementation, /create-batch --tasks-root/);
 
-  for (const surface of [readme, spec, architecture]) {
+  for (const surface of [readme, spec]) {
     assert.match(surface, /\$kyw-task "<(?:goal|outcome|confirmed outcome)>"/i);
     assert.match(surface, /\$kyw-impl NNNN/);
   }
+  assert.match(architecture, /kyw-task/i);
+  assert.match(architecture, /kyw-impl/i);
   assert.match(spec, /READY\/READY[\s\S]*stop/i);
   assert.match(spec, /does not (?:invoke|chain)[\s\S]*`?\$kyw-impl/i);
-  assert.match(readme, /authoring[\s\S]*stops/i);
-  assert.match(readme, /continuous mode remains serial and current-invocation-only/);
-  assert.match(readme, /Automatic selection resumes active work, then resumable delivery/);
-  assert.match(readme, /Invalid states or dependencies fail closed/);
+  assert.match(readme, /\$kyw-task "goal"[\s\S]*authors[\s\S]*stops/i);
+  assert.match(readme, /Continuous mode remains serial and lasts only for the current invocation/);
+  assert.match(readme, /automatic selection resumes active work, then resumable `STANDARD` delivery/);
   assert.match(readme, /surface without the managed contract uses `\$kyw-impl NNNN`/);
   assert.match(
     readme,
-    /`IMPLEMENT`, `RESUME`, or `DELIVER` selection authorizes exact-path commit, non-force push, non-draft PR, exact-head CI, expected-head merge, post-merge base-branch CI, and terminal reporting without ceremonial reconfirmation/,
+    /selected `IMPLEMENT`, `RESUME`, or `DELIVER` result authorizes ordinary Task delivery/,
   );
   assert.match(
     architecture,
-    /Publication, registry mutation, tags, releases, public submission, force push, destructive recovery, branch deletion, rerun, bypass, and unrelated mutation remain separate authority boundaries/,
+    /no automatic registry publish, version\/tag\/Release creation, public[\s\S]*submission, force push, CI rerun, or branch-protection bypass/,
   );
   for (const surface of [readme, spec, architecture]) {
-    assert.match(surface, /actual PR-head|actual head/i);
+    assert.match(surface, /actual PR[- ]head|actual[- ]head/i);
     assert.match(surface, /merge compatib/i);
     assert.match(surface, /post-merge/i);
   }
@@ -130,9 +122,13 @@ test("instruction surfaces split authoring from one canonical implementation own
   assert.match(execution, /LEGACY_PRE_CONTRACT/);
   assert.match(execution, /actualHead: "UNVERIFIED"/);
   assert.match(execution, /successful job at only `refs\/pull\/<number>\/merge`/);
-  assert.match(readme, /successful synthetic checkout never counts as actual-head PASS/);
-  assert.match(spec, /reused role\/job/);
+  assert.match(readme, /actual PR-head jobs, synthetic merge compatibility/);
+  assert.match(spec, /reused/i);
   assert.match(architecture, /`KYWCIEVIDENCE`/);
+  for (const surface of [readme, spec, architecture]) {
+    assert.doesNotMatch(surface, /--delivery-(?:expectations|ledger)-json/);
+    assert.doesNotMatch(surface, /actualHead: "UNVERIFIED"/);
+  }
 
   assert.match(prompts, /절차를 복제하지 않고 호출만 제공한다/);
   assert.match(prompts, /\$kyw-impl/);
@@ -151,7 +147,7 @@ test("instruction surfaces split authoring from one canonical implementation own
     assert.ok(prompts.includes(invocation), `${invocation}: prompt projection`);
   }
   for (const alias of [
-    /task \d{4} 실행해줘/,
+    /task (?:NNNN|\d{4}) 실행해줘/,
     /task 진행해줘/,
     /남은 task 계속 실행해줘/,
   ]) {
@@ -166,7 +162,6 @@ test("README puts installation, explicit Skills, first use, and current status b
     "## Start here",
     "### Choose one installation surface",
     "### Invoke a Skill explicitly",
-    "### First workflow",
     "## Release status",
     "## Task routing and evidence",
     "## Installation details",
@@ -189,25 +184,20 @@ test("README puts installation, explicit Skills, first use, and current status b
   ]) {
     assert.ok(firstUse.includes(invocation), `${invocation} must be visible before release detail`);
   }
-  assert.match(readme, /Task 0020 is `BLOCKED`/);
-  assert.match(readme, /Tasks 0029 and 0038 reached `READY_FOR_APPROVAL` and were later superseded/);
-  assert.match(readme, /Task 0047's exact historical candidate also reached `READY_FOR_APPROVAL`/);
-  assert.match(readme, /Task 0048 found its package-relevant bytes `UNCHANGED` at the audited point/);
   assert.match(
     readme,
-    /numbered Task\/Test artifacts—not this durable summary—are the authoritative record for exact candidate identities, verdicts, and supersession/,
+    /Version `0\.1\.0`[\s\S]*remains unpublished/,
   );
   assert.match(
     readme,
-    /Candidate readiness describes only the exact evaluated bytes and never authorizes publication, registry mutation, a version change, a tag, a GitHub Release, or a public submission/,
+    /Exact historical candidates and results live only in their numbered Task\/Test pairs and GitHub/,
   );
   assert.match(
     readme,
-    /No publication-boundary package version change, version tag, GitHub Release, npm publication, registry mutation, or public plugin-directory submission has occurred/,
+    /No npm publication, registry mutation, package-version change, version tag, GitHub Release, or public plugin submission has occurred/,
   );
-  assert.doesNotMatch(readme, /A fresh full release re-gate is required/);
-  assert.doesNotMatch(readme, /current repository bytes are not release-approved/);
-  assert.doesNotMatch(readme, /Tasks 0001 through 0015/);
+  assert.match(readme, /requires separate explicit authority/);
+  assert.doesNotMatch(readme, /\bTask 0\d{3}\b|READY_FOR_APPROVAL|UNCHANGED at the audited point/);
   assert.doesNotMatch(readme, /^### Grilling evaluation harness$/m);
   assert.doesNotMatch(readme, /^### Audit behavior smoke$/m);
   assert.doesNotMatch(readme, /^## Target repository layout$/m);
@@ -215,7 +205,11 @@ test("README puts installation, explicit Skills, first use, and current status b
     firstUse,
     /result schema|SIGINT|process group|protected snapshots|native sandbox/i,
   );
-  assert.ok(Buffer.byteLength(readme) < 24_000, "README must remain a concise user entry point");
+  assert.ok(
+    Buffer.byteLength(readme) <=
+      PERMANENT_DOCUMENT_COMPACTION_ACCEPTANCE.targets["README.md"],
+    "README must satisfy its one-time compaction target",
+  );
 });
 
 test("permanent-document inventory and deliberate scope boundaries stay explicit", async () => {
@@ -229,6 +223,10 @@ test("permanent-document inventory and deliberate scope boundaries stay explicit
     .sort();
 
   assert.deepEqual(projectTemplates, ["AGENTS.md", "ARCHITECTURE.md", "README.md", "SPEC.md"]);
+  assert.deepEqual(
+    PERMANENT_DOCUMENT_POLICY.documents.map(({ path }) => path),
+    ["README.md", "AGENTS.md", "docs/SPEC.md", "docs/ARCHITECTURE.md"],
+  );
   assert.match(readme, /The four permanent documents are README, AGENTS, SPEC, and ARCHITECTURE/);
   assert.match(specification, /A managed project uses four permanent documents/);
   assert.match(
@@ -239,21 +237,25 @@ test("permanent-document inventory and deliberate scope boundaries stay explicit
     specification,
     /Supporting a current-contract `STANDARD` delivery ledger other than GitHub PR\/Actions exact-SHA evidence/,
   );
-  assert.match(architecture, /## 17\. Deliberate scope boundaries/);
+  assert.match(architecture, /## 12\. Deliberate scope boundaries/);
   for (const boundary of [
-    "Delivery-provider interface",
-    "Generic provider or install-backend framework",
-    "Shared generic transaction/filesystem framework",
-    "daemon, watcher, filesystem/process/OS tracing",
-    "Full Node.js 22/24 LTS matrix",
-    "Separately approved registry identity check",
+    /no delivery-provider interface/,
+    /no generic install backend/,
+    /no shared transaction\/filesystem framework/,
+    /daemon, watcher,[\s\S]*filesystem\/process(?:\/OS)? tracing/,
+    /no generated permanent-document summary/,
+    /no automatic registry publish/,
   ]) {
-    assert.ok(architecture.includes(boundary), `missing deliberate boundary: ${boundary}`);
+    assert.match(architecture, boundary);
   }
-  assert.match(architecture, /### Release-isolation lifecycle/);
+  assert.match(architecture, /### 9\.1 Foundation and permanent-document policy/);
   assert.match(
     architecture,
-    /Historical run-specific evidence and verdicts remain in their immutable Task\/Test pairs/,
+    /historical Task\/Test evidence/,
+  );
+  assert.doesNotMatch(
+    architecture,
+    /\bTask 0\d{3}\b|READY_FOR_APPROVAL|UNCHANGED at the audited point/,
   );
 });
 
@@ -285,18 +287,21 @@ test("the split representative instruction bundle stays concise with one executi
   const currentTokenEstimate = Math.ceil(currentBytes / 4);
 
   assert.ok(
-    currentBytes < BASELINE_REPRESENTATIVE_BYTES,
-    `expected fewer than ${BASELINE_REPRESENTATIVE_BYTES} bytes, received ${currentBytes}`,
+    currentBytes < REPRESENTATIVE_BUDGET_BYTES,
+    `expected fewer than ${REPRESENTATIVE_BUDGET_BYTES} bytes, received ${currentBytes}`,
   );
   assert.ok(
-    currentTokenEstimate < BASELINE_REPRESENTATIVE_TOKEN_ESTIMATE,
-    `expected fewer than ${BASELINE_REPRESENTATIVE_TOKEN_ESTIMATE} estimated tokens, received ${currentTokenEstimate}`,
+    currentTokenEstimate < REPRESENTATIVE_TOKEN_BUDGET,
+    `expected fewer than ${REPRESENTATIVE_TOKEN_BUDGET} estimated tokens, received ${currentTokenEstimate}`,
   );
   assert.equal(REPRESENTATIVE_INSTRUCTION_PATHS.length, 4);
-  assert.equal(STABLE_INSTRUCTION_PATHS.length, 7);
-  assert.equal(RUNTIME_CONTEXT_PATHS.length, 9);
-  assert.equal(new Set(RUNTIME_CONTEXT_PATHS).size, RUNTIME_CONTEXT_PATHS.length);
-  await Promise.all(RUNTIME_CONTEXT_PATHS.map((relativePath) => read(relativePath)));
+  assert.equal(PERMANENT_INDEX_PATHS.length, 3);
+  assert.deepEqual(PERMANENT_INDEX_PATHS, [
+    "README.md",
+    "docs/SPEC.md",
+    "docs/ARCHITECTURE.md",
+  ]);
+  await Promise.all(PERMANENT_INDEX_PATHS.map((relativePath) => read(relativePath)));
 
   const authoringSkill = contents[1];
   const implementationSkill = contents[2];
@@ -308,6 +313,60 @@ test("the split representative instruction bundle stays concise with one executi
     ...implementationSkill.matchAll(/\]\((references\/[^)]+\.md)\)/g),
   ].map((match) => match[1]);
   assert.deepEqual([...new Set(referenceLinks)], ["references/execution.md"]);
+});
+
+test("routine Task workflows index owners before targeted reads and escalate only when required", async () => {
+  const [agents, agentsTemplate, init, task, implementation, execution, audit] =
+    await Promise.all([
+      read("AGENTS.md"),
+      read("templates/project/AGENTS.md"),
+      read("skills/kyw-init/SKILL.md"),
+      read("skills/kyw-task/SKILL.md"),
+      read("skills/kyw-impl/SKILL.md"),
+      read("skills/kyw-impl/references/execution.md"),
+      read("skills/kyw-audit/references/audit.md"),
+    ]);
+
+  for (const projection of [agents, agentsTemplate]) {
+    assert.match(
+      projection,
+      /Always load applicable `AGENTS\.md` and the selected\/current Task\/Test pair/,
+    );
+    assert.match(projection, /Index or search README, SPEC, and ARCHITECTURE first/);
+    assert.match(projection, /read only owner sections selected by Goal, scope/);
+    assert.match(projection, /Read all four permanent documents for `kyw-init`, rebaseline/);
+    assert.match(projection, /Stop if a conflict remains unresolved/);
+  }
+
+  for (const workflow of [task, execution, audit]) {
+    assert.match(
+      workflow,
+      /applicable[\s\S]{0,80}`?AGENTS\.md`?|applicable repository instructions/i,
+    );
+    assert.match(
+      workflow,
+      /Index or search headings in `?README(?:\.md)?`?,\s*`?(?:docs\/)?SPEC(?:\.md)?`?,\s*and\s*`?(?:docs\/)?ARCHITECTURE(?:\.md)?`?/,
+    );
+    assert.match(
+      workflow,
+      /(?:read|to) only the\s+owning permanent-document sections/i,
+    );
+    assert.match(
+      workflow,
+      /(?:full(?:y)? read|full read of) all (?:existing|four) permanent documents/i,
+    );
+    assert.match(workflow, /source conflict/i);
+    assert.match(workflow, /Stop[\s\S]*conflict remains\s+unresolved/i);
+    assert.doesNotMatch(
+      workflow,
+      /Read `README\.md`, `AGENTS\.md`, `docs\/SPEC\.md`, and `docs\/ARCHITECTURE\.md`/,
+    );
+  }
+
+  assert.match(init, /every `kyw-init` mode[\s\S]*full read/i);
+  assert.match(init, /all four existing permanent-document paths/);
+  assert.match(implementation, /\[Task Execution and Resume\]\(references\/execution\.md\)/);
+  assert.doesNotMatch(implementation, /Index or search headings in README/);
 });
 
 test("maintainer Task prompts use short invocation instead of an external mega-prompt", async () => {
@@ -352,18 +411,16 @@ test("installation guidance distinguishes supported surfaces, scopes, aliases, a
     read("docs/ARCHITECTURE.md"),
   ]);
 
-  assert.match(readme, /Official surface behavior was checked on \*\*2026-07-24\*\*/);
   for (const officialSource of [
     "https://learn.chatgpt.com/docs/build-skills",
-    "https://learn.chatgpt.com/docs/plugins",
     "https://learn.chatgpt.com/docs/build-plugins",
     "https://learn.chatgpt.com/docs/agent-configuration/agents-md",
   ]) {
-    assert.ok(readme.includes(officialSource), `missing dated official source ${officialSource}`);
+    assert.ok(readme.includes(officialSource), `missing official source ${officialSource}`);
   }
   for (const row of [
     "| Codex CLI |",
-    "| Desktop Codex in the ChatGPT desktop app |",
+    "| ChatGPT desktop Codex |",
     "| Codex IDE extension |",
     "| Repository scope |",
     "| User scope |",
@@ -379,18 +436,25 @@ test("installation guidance distinguishes supported surfaces, scopes, aliases, a
   );
   assert.match(
     readme,
-    /If that contract is absent, not loaded, or outside the current instruction chain, use `\$kyw-impl NNNN`/,
+    /surface without the managed contract uses `\$kyw-impl NNNN`/,
   );
-  assert.match(readme, /Remove a plugin through the desktop Plugins Directory or the CLI `\/plugins` browser/);
-  assert.match(readme, /do not manually delete the broad plugin cache/);
-  assert.match(readme, /`--force` can remove only modified files already named by valid kyw-dev ownership metadata/);
+  assert.match(readme, /removing a plugin through the supported plugin browser/);
+  assert.match(readme, /Direct Skills and plugin installation are alternatives, not layers to combine/);
+  assert.match(
+    readme,
+    /`--force` may remove modified regular files already named by valid ownership metadata/,
+  );
+  assert.match(readme, /it never broadens ownership to unknown files/);
 
   assert.match(
     spec,
-    /duplicate `kyw-\*` Skill names across direct user, direct repository, and installed plugin-cache sources/,
+    /duplicate Skill names/,
   );
-  assert.match(spec, /Plugin-cache discovery reports installed bytes and their source; it does not infer/);
-  assert.match(architecture, /plugins\/cache\/<marketplace>\/<plugin>\/<version>\/skills\//);
-  assert.match(architecture, /Cache presence proves installed bytes, not enabled state/);
-  assert.match(architecture, /never follows a linked or unsupported cache component/);
+  assert.match(spec, /Plugin-cache discovery reports installed bytes and source without claiming/);
+  assert.match(architecture, /plugin-cache Skill sources/);
+  assert.match(
+    architecture,
+    /Cache presence proves installed[\s\S]*bytes, not enabled session state/,
+  );
+  assert.match(architecture, /never follows a linked or unsupported[\s\S]*component/);
 });

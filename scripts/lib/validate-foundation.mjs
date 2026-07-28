@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 
@@ -131,6 +131,1492 @@ export const PRESERVED_LEGAL_HASHES = Object.freeze({
     "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5",
 });
 
+function deepFreeze(value) {
+  if (value && typeof value === "object" && !Object.isFrozen(value)) {
+    Object.freeze(value);
+    for (const nested of Object.values(value)) {
+      deepFreeze(nested);
+    }
+  }
+  return value;
+}
+
+const pattern = (source, flags = "m") => ({ source, flags });
+
+export const PERMANENT_DOCUMENT_POLICY = deepFreeze({
+  schemaVersion: 1,
+  documents: [
+    {
+      path: "README.md",
+      templatePath: "templates/project/README.md",
+      role: "setup-usage-and-contributor-entry",
+      warningBytes: 20_480,
+      hardBytes: 24_576,
+      requiredHeadings: [
+        pattern("^# kyw-dev$"),
+        pattern("^## Start here$"),
+        pattern("^## Installation details$"),
+        pattern("^## Development$"),
+      ],
+    },
+    {
+      path: "AGENTS.md",
+      templatePath: "templates/project/AGENTS.md",
+      role: "repository-wide-codex-rules",
+      warningBytes: 4_096,
+      hardBytes: 8_192,
+      requiredHeadings: [
+        pattern("^# kyw-dev Repository Rules$"),
+        pattern("^## Truth and context loading$"),
+        pattern("^## Scope and routing$"),
+        pattern("^## Evidence and completion$"),
+      ],
+    },
+    {
+      path: "docs/SPEC.md",
+      templatePath: "templates/project/SPEC.md",
+      role: "observable-product-behavior-and-acceptance",
+      warningBytes: 40_960,
+      hardBytes: 49_152,
+      requiredHeadings: [
+        pattern("^# kyw-dev Product Specification$"),
+        pattern("^## .*Goals", "mi"),
+        pattern("^## .*Acceptance", "mi"),
+      ],
+    },
+    {
+      path: "docs/ARCHITECTURE.md",
+      templatePath: "templates/project/ARCHITECTURE.md",
+      role: "system-boundaries-and-flows",
+      warningBytes: 57_344,
+      hardBytes: 65_536,
+      requiredHeadings: [
+        pattern("^# kyw-dev Architecture$"),
+        pattern("^## .*System context", "mi"),
+        pattern("^## .*component", "mi"),
+        pattern("^## .*flow", "mi"),
+        pattern("trade-offs?", "i"),
+      ],
+    },
+  ],
+  combined: {
+    path: "Combined",
+    role: "permanent-document-set",
+    warningBytes: 114_688,
+    hardBytes: 131_072,
+  },
+});
+
+export const PERMANENT_DOCUMENT_COMPACTION_ACCEPTANCE = deepFreeze({
+  schemaVersion: 1,
+  taskId: "0055",
+  targets: {
+    "README.md": 18_432,
+    "AGENTS.md": 4_096,
+    "docs/SPEC.md": 34_816,
+    "docs/ARCHITECTURE.md": 49_152,
+    Combined: 106_496,
+  },
+  before: {
+    "README.md": { bytes: 21_605, lines: 245 },
+    "AGENTS.md": { bytes: 4_489, lines: 75 },
+    "docs/SPEC.md": { bytes: 47_998, lines: 616 },
+    "docs/ARCHITECTURE.md": { bytes: 93_002, lines: 973 },
+    Combined: { bytes: 167_094, lines: 1_909 },
+  },
+});
+
+export const PERMANENT_DOCUMENT_POLICY_BASELINE = deepFreeze({
+  schemaVersion: 1,
+  documents: [
+    { path: "README.md", warningBytes: 20_480, hardBytes: 24_576 },
+    { path: "AGENTS.md", warningBytes: 4_096, hardBytes: 8_192 },
+    { path: "docs/SPEC.md", warningBytes: 40_960, hardBytes: 49_152 },
+    { path: "docs/ARCHITECTURE.md", warningBytes: 57_344, hardBytes: 65_536 },
+  ],
+  combined: {
+    path: "Combined",
+    warningBytes: 114_688,
+    hardBytes: 131_072,
+  },
+});
+
+export const PERMANENT_DOCUMENT_DELTA_MARKER =
+  "<!-- kyw-permanent-document-delta:v1 -->";
+export const PERMANENT_DOCUMENT_BUDGET_CHANGE_MARKER =
+  "<!-- kyw-permanent-document-budget-change:v1 -->";
+
+export const PERMANENT_RULE_FAMILIES = deepFreeze([
+  {
+    id: "five-skills-explicit-invocation",
+    owner: {
+      path: "docs/SPEC.md",
+      anchors: [pattern("five .*Skills", "i"), pattern("explicit", "i")],
+    },
+    projections: [
+      {
+        path: "README.md",
+        anchors: [pattern("All five packaged Skills disable implicit invocation")],
+      },
+      {
+        path: "AGENTS.md",
+        anchors: [pattern("All five `kyw-\\*` Skills are explicit-only")],
+      },
+    ],
+    forbiddenDetailedAnchors: [],
+  },
+  {
+    id: "task-authoring-procedure",
+    owner: {
+      path: "skills/kyw-task/SKILL.md",
+      anchors: [
+        pattern("This Skill owns inspection, adaptive decomposition"),
+        pattern("## Publish atomically"),
+      ],
+    },
+    projections: [
+      {
+        path: "README.md",
+        anchors: [pattern("\\$kyw-task \"goal\".*stops", "is")],
+      },
+      {
+        path: "docs/SPEC.md",
+        anchors: [pattern("\\$kyw-task")],
+      },
+      {
+        path: "docs/ARCHITECTURE.md",
+        anchors: [pattern("kyw-task", "i")],
+      },
+    ],
+    forbiddenDetailedAnchors: [
+      pattern("Expected failure rolls back batch-owned final paths only with complete ownership proof"),
+      pattern("create-batch --tasks-root"),
+    ],
+  },
+  {
+    id: "existing-task-execution-procedure",
+    owner: {
+      path: "skills/kyw-impl/references/execution.md",
+      anchors: [
+        pattern("canonical detailed execution procedure"),
+        pattern("HARDENED_EXACT_HEAD"),
+      ],
+    },
+    projections: [
+      {
+        path: "skills/kyw-impl/SKILL.md",
+        anchors: [pattern("\\[Task Execution and Resume\\]\\(references/execution\\.md\\)")],
+      },
+      {
+        path: "AGENTS.md",
+        anchors: [pattern("Detailed procedure: `skills/kyw-impl/references/execution\\.md`")],
+      },
+      {
+        path: "README.md",
+        anchors: [pattern("\\$kyw-impl` never allocates or authors a Task")],
+      },
+      {
+        path: "docs/SPEC.md",
+        anchors: [pattern("\\$kyw-impl")],
+      },
+      {
+        path: "docs/ARCHITECTURE.md",
+        anchors: [pattern("kyw-impl", "i")],
+      },
+    ],
+    forbiddenDetailedAnchors: [
+      pattern("--delivery-expectations-json"),
+      pattern("actualHead: \"UNVERIFIED\""),
+      pattern("claim: \"FINAL\""),
+    ],
+  },
+  {
+    id: "independent-audit-procedure",
+    owner: {
+      path: "skills/kyw-audit/references/audit.md",
+      anchors: [
+        pattern("^# Independent Task Audit$"),
+        pattern("Assign findings stable sequential IDs"),
+      ],
+    },
+    projections: [
+      {
+        path: "skills/kyw-audit/SKILL.md",
+        anchors: [pattern("\\[Independent Task Audit\\]\\(references/audit\\.md\\)")],
+      },
+      {
+        path: "README.md",
+        anchors: [pattern("\\$kyw-audit` is independent")],
+      },
+      {
+        path: "docs/SPEC.md",
+        anchors: [pattern("\\$kyw-audit")],
+      },
+      {
+        path: "docs/ARCHITECTURE.md",
+        anchors: [pattern("kyw-audit", "i")],
+      },
+    ],
+    forbiddenDetailedAnchors: [
+      pattern("Assign findings stable sequential IDs"),
+      pattern("Before any eligible repair, send a standalone conversation message"),
+    ],
+  },
+  {
+    id: "standard-delivery-evidence",
+    owner: {
+      path: "docs/SPEC.md",
+      anchors: [
+        pattern("STANDARD"),
+        pattern("actual PR-head|actual head", "i"),
+        pattern("merge compatib", "i"),
+        pattern("post-merge", "i"),
+      ],
+    },
+    projections: [
+      {
+        path: "README.md",
+        anchors: [
+          pattern("actual PR-head"),
+          pattern("synthetic merge compatibility"),
+          pattern("post-merge"),
+        ],
+      },
+      {
+        path: "AGENTS.md",
+        anchors: [pattern("Task/Test owns repository outcome; GitHub gates mutable delivery")],
+      },
+      {
+        path: "docs/ARCHITECTURE.md",
+        anchors: [pattern("merge compatib", "i"), pattern("post-merge", "i")],
+      },
+    ],
+    forbiddenDetailedAnchors: [],
+  },
+  {
+    id: "installation-safety",
+    owner: {
+      path: "docs/SPEC.md",
+      anchors: [
+        pattern("uninstall", "i"),
+        pattern("--force"),
+        pattern("lifecycle scripts?", "i"),
+      ],
+    },
+    projections: [
+      {
+        path: "README.md",
+        anchors: [pattern("--force"), pattern("lifecycle scripts?", "i")],
+      },
+      {
+        path: "docs/ARCHITECTURE.md",
+        anchors: [pattern("Direct.*install", "is"), pattern("Plugin.*install", "is")],
+      },
+    ],
+    forbiddenDetailedAnchors: [],
+  },
+  {
+    id: "publication-authority",
+    owner: {
+      path: "docs/SPEC.md",
+      anchors: [
+        pattern("npm publish", "i"),
+        pattern("separate explicit", "i"),
+      ],
+    },
+    projections: [
+      {
+        path: "README.md",
+        anchors: [
+          pattern("Version `0\\.1\\.0`"),
+          pattern("requires separate explicit authority"),
+        ],
+      },
+      {
+        path: "AGENTS.md",
+        anchors: [pattern("Publication, registry/version/tag/Release/public submission")],
+      },
+      {
+        path: "docs/ARCHITECTURE.md",
+        anchors: [pattern("Publication", "i"), pattern("separate", "i")],
+      },
+    ],
+    forbiddenDetailedAnchors: [],
+  },
+  {
+    id: "progressive-context-loading",
+    owner: {
+      path: "AGENTS.md",
+      anchors: [
+        pattern("Always load applicable `AGENTS\\.md` and the selected/current Task/Test pair"),
+        pattern("Index or search README, SPEC, and ARCHITECTURE first"),
+        pattern("Read all four permanent documents for `kyw-init`, rebaseline, major redesign"),
+      ],
+    },
+    projections: [
+      {
+        path: "templates/project/AGENTS.md",
+        anchors: [
+          pattern("Always load applicable `AGENTS\\.md` and the selected/current Task/Test pair"),
+          pattern("Index or search README, SPEC, and ARCHITECTURE first"),
+        ],
+      },
+    ],
+    forbiddenDetailedAnchors: [],
+  },
+]);
+
+const PERMANENT_DOCUMENT_PATHS = PERMANENT_DOCUMENT_POLICY.documents.map(
+  ({ path: relativePath }) => relativePath,
+);
+const EXPECTED_PROJECT_TEMPLATE_NAMES = PERMANENT_DOCUMENT_POLICY.documents
+  .map(({ templatePath }) => templatePath.split("/").at(-1))
+  .sort();
+const GUARDED_SURFACE_PATHS = new Set([
+  ...PERMANENT_DOCUMENT_PATHS,
+  "templates/project/AGENTS.md",
+  "skills/kyw-task/SKILL.md",
+  "skills/kyw-impl/SKILL.md",
+  "skills/kyw-impl/references/execution.md",
+  "skills/kyw-audit/SKILL.md",
+  "skills/kyw-audit/references/audit.md",
+]);
+const FORBIDDEN_PERMANENT_MIRROR_PATHS = [
+  "PLAN.md",
+  "PROGRESS.md",
+  "STATUS.md",
+  "SUMMARY.md",
+  "HANDOFF.md",
+  "VERIFICATION.md",
+  "TEST_PLAN.md",
+  "docs/PLAN.md",
+  "docs/PROGRESS.md",
+  "docs/STATUS.md",
+  "docs/SUMMARY.md",
+  "docs/HANDOFF.md",
+  "docs/VERIFICATION.md",
+  "docs/TEST_PLAN.md",
+];
+const MUTABLE_CHRONOLOGY_PATTERNS = [
+  ["numbered historical Task", /\bTask 0\d{3}\b/],
+  ["numbered pull request", /\b(?:PR|pull request)\s+#?\d+\b/i],
+  ["mutable Actions run identity", /\b(?:Actions )?run(?: ID)?\s+#?\d{4,}\b/i],
+  ["full Git SHA", /\b[0-9a-f]{40}\b/i],
+  ["historical candidate verdict", /\b(?:READY_FOR_APPROVAL|UNCHANGED at the audited point)\b/],
+];
+const EVIDENCE_LEAKAGE_PATTERNS = [
+  [
+    "Task/Test evidence heading",
+    /^## (?:Commands|Results|Completed|Remaining|Resume Point|Blockers|Model Provenance|Intent-to-Test Matrix|Final Coverage Review)\s*$/m,
+  ],
+  ["mutable delivery evidence field", /\b(?:runId|runAttempt|actualCheckoutSha)\b/],
+];
+const DETAILED_PROCEDURE_PATTERNS = [
+  ["internal Task adapter payload", /\bcreate-batch --tasks-root\b/],
+  ["internal delivery payload", /--delivery-(?:expectations|ledger)-json/],
+  ["ordered install algorithm", /^## \d+(?:\.\d+)? Atomic update strategy\s*$/m],
+  [
+    "development test catalog",
+    /^### (?:Static validation|Unit tests|Integration fixtures|Skill contract scenarios|End-to-end release checks)\s*$/m,
+  ],
+  [
+    "development evaluator procedure",
+    /^### (?:Release-isolation lifecycle|Release evidence harness|Grilling evaluation harness|Audit behavior smoke|Direct SPEC behavioral acceptance fixtures)\s*$/m,
+  ],
+  ["evaluator timing constant", /\b(?:1\.5 seconds|five retries|100-millisecond)\b/],
+  ["transaction hash-chain mechanics", /\b(?:hash-chained records|exclusive-create semantics)\b/],
+  ["audit tokenizer mechanics", /\bSingle-quoted search data is opaque\b/],
+];
+const CROSS_OWNER_HEADING_PATTERNS = {
+  "docs/SPEC.md": [
+    [
+      "ARCHITECTURE-owned structural heading",
+      /^## (?:Component groups|Authority and dependency direction|Control and data flow|Architecture trade-offs)\s*$/m,
+    ],
+  ],
+  "docs/ARCHITECTURE.md": [
+    [
+      "SPEC-owned product heading",
+      /^## (?:Product goals|Product non-goals|Observable product behavior|Product acceptance criteria)\s*$/m,
+    ],
+  ],
+};
+
+function compilePattern(candidate) {
+  return new RegExp(candidate.source, candidate.flags);
+}
+
+function matchesPattern(text, candidate) {
+  return compilePattern(candidate).test(text);
+}
+
+function meaningfulEvidence(value) {
+  return (
+    typeof value === "string" &&
+    value.trim().length > 0 &&
+    !/^Not applicable(?:\s|$)/i.test(value.trim()) &&
+    !/^(?:N\/A|None)$/i.test(value.trim())
+  );
+}
+
+function countTextLines(text) {
+  if (text.length === 0) {
+    return 0;
+  }
+  return text.split("\n").length - Number(text.endsWith("\n"));
+}
+
+export function measurePermanentDocuments(documents) {
+  const measured = {};
+  let combinedBytes = 0;
+  let combinedLines = 0;
+  for (const relativePath of PERMANENT_DOCUMENT_PATHS) {
+    const text = documents[relativePath];
+    if (typeof text !== "string") {
+      throw new TypeError(`Permanent document ${relativePath} must be supplied as text`);
+    }
+    const bytes = Buffer.byteLength(text, "utf8");
+    const lines = countTextLines(text);
+    measured[relativePath] = Object.freeze({ bytes, lines });
+    combinedBytes += bytes;
+    combinedLines += lines;
+  }
+  measured.Combined = Object.freeze({ bytes: combinedBytes, lines: combinedLines });
+  return Object.freeze(measured);
+}
+
+export function selectPermanentDocumentEvidence(
+  candidates,
+  { marker = PERMANENT_DOCUMENT_DELTA_MARKER } = {},
+) {
+  const errors = [];
+  if (!Array.isArray(candidates)) {
+    return {
+      selected: undefined,
+      errors: ["permanent-document evidence candidates must be an array"],
+    };
+  }
+  const marked = [];
+  for (const candidate of candidates) {
+    if (
+      !candidate ||
+      !/^\d{4}$/.test(candidate.taskId ?? "") ||
+      typeof candidate.testPath !== "string" ||
+      typeof candidate.markdown !== "string"
+    ) {
+      errors.push("permanent-document evidence candidate is malformed");
+      continue;
+    }
+    if (candidate.markdown.includes(marker)) {
+      marked.push(candidate);
+    }
+  }
+  const active = marked.filter(
+    ({ taskStatus, testStatus }) =>
+      taskStatus === "IN_PROGRESS" && testStatus === "RUNNING",
+  );
+  if (active.length > 1) {
+    errors.push("multiple active permanent-document evidence candidates exist");
+  }
+  const pool = active.length === 1 ? active : marked;
+  const selected = [...pool].sort(
+    (left, right) =>
+      Number(right.taskId) - Number(left.taskId) ||
+      right.testPath.localeCompare(left.testPath),
+  )[0];
+  return { selected, errors };
+}
+
+export function derivePermanentDocumentEvidenceBaseline(
+  candidates,
+  selected,
+  { acceptance = PERMANENT_DOCUMENT_COMPACTION_ACCEPTANCE } = {},
+) {
+  const errors = [];
+  if (!selected || !/^\d{4}$/.test(selected.taskId ?? "")) {
+    return {
+      baseline: undefined,
+      previous: undefined,
+      errors: ["selected permanent-document delta evidence is missing or malformed"],
+    };
+  }
+  if (selected.taskId === acceptance.taskId) {
+    return {
+      baseline: acceptance.before,
+      previous: undefined,
+      errors,
+    };
+  }
+  const earlier = (Array.isArray(candidates) ? candidates : [])
+    .filter(
+      (candidate) =>
+        candidate &&
+        /^\d{4}$/.test(candidate.taskId ?? "") &&
+        Number(candidate.taskId) < Number(selected.taskId) &&
+        typeof candidate.testPath === "string" &&
+        typeof candidate.markdown === "string" &&
+        candidate.markdown.includes(PERMANENT_DOCUMENT_DELTA_MARKER),
+    )
+    .sort(
+      (left, right) =>
+        Number(right.taskId) - Number(left.taskId) ||
+        right.testPath.localeCompare(left.testPath),
+    );
+  const previous = earlier[0];
+  if (!previous) {
+    return {
+      baseline: undefined,
+      previous: undefined,
+      errors: [
+        `${selected.testPath} has no earlier permanent-document delta evidence baseline`,
+      ],
+    };
+  }
+  const parsed = parsePermanentDocumentDeltaEvidence(previous.markdown);
+  errors.push(
+    ...parsed.errors.map(
+      (error) => `${previous.testPath} earlier permanent-document evidence: ${error}`,
+    ),
+  );
+  const expectedPaths = [...PERMANENT_DOCUMENT_PATHS, "Combined"];
+  expect(
+    sameJson([...parsed.rows.keys()].sort(), [...expectedPaths].sort()),
+    `${previous.testPath} earlier permanent-document delta rows are incomplete`,
+    errors,
+  );
+  const baseline = {};
+  for (const relativePath of expectedPaths) {
+    const row = parsed.rows.get(relativePath);
+    if (
+      !row ||
+      !Number.isSafeInteger(row.afterBytes) ||
+      row.afterBytes < 0 ||
+      !Number.isSafeInteger(row.afterLines) ||
+      row.afterLines < 0
+    ) {
+      errors.push(
+        `${previous.testPath} earlier ${relativePath} after bytes/lines are invalid`,
+      );
+      continue;
+    }
+    baseline[relativePath] = {
+      bytes: row.afterBytes,
+      lines: row.afterLines,
+    };
+  }
+  if (Object.keys(baseline).length === expectedPaths.length) {
+    const documentMeasurements = PERMANENT_DOCUMENT_PATHS.map(
+      (relativePath) => baseline[relativePath],
+    );
+    expect(
+      baseline.Combined.bytes ===
+        documentMeasurements.reduce(
+          (total, measurement) => total + measurement.bytes,
+          0,
+        ),
+      `${previous.testPath} earlier Combined after bytes do not equal its document rows`,
+      errors,
+    );
+    expect(
+      baseline.Combined.lines ===
+        documentMeasurements.reduce(
+          (total, measurement) => total + measurement.lines,
+          0,
+        ),
+      `${previous.testPath} earlier Combined after lines do not equal its document rows`,
+      errors,
+    );
+  }
+  return {
+    baseline:
+      Object.keys(baseline).length === expectedPaths.length &&
+      errors.length === 0
+        ? deepFreeze(baseline)
+        : undefined,
+    previous,
+    errors,
+  };
+}
+
+export function validatePermanentDocumentCompactionAcceptance({
+  measurements,
+  acceptance = PERMANENT_DOCUMENT_COMPACTION_ACCEPTANCE,
+}) {
+  const errors = [];
+  for (const [relativePath, target] of Object.entries(acceptance.targets)) {
+    const actual = measurements?.[relativePath]?.bytes;
+    expect(
+      Number.isSafeInteger(actual) && actual <= target,
+      `${relativePath} one-time compaction target exceeded: ${actual ?? "missing"} > ${target}`,
+      errors,
+    );
+  }
+  return errors;
+}
+
+export function evaluatePermanentDocumentBudget(
+  policyEntry,
+  bytes,
+  { hasGrowthEvidence = false } = {},
+) {
+  if (!Number.isSafeInteger(bytes) || bytes < 0) {
+    throw new TypeError("Permanent-document byte counts must be non-negative safe integers");
+  }
+  if (bytes > policyEntry.hardBytes) {
+    return Object.freeze({
+      status: "HARD_LIMIT_EXCEEDED",
+      acceptable: false,
+      evidenceRequired: true,
+    });
+  }
+  if (bytes > policyEntry.warningBytes && !hasGrowthEvidence) {
+    return Object.freeze({
+      status: "GROWTH_EVIDENCE_REQUIRED",
+      acceptable: false,
+      evidenceRequired: true,
+    });
+  }
+  return Object.freeze({
+    status:
+      bytes <= policyEntry.warningBytes
+        ? "WITHIN_WARNING_BUDGET"
+        : "WITHIN_HARD_LIMIT_WITH_EVIDENCE",
+    acceptable: true,
+    evidenceRequired: bytes > policyEntry.warningBytes,
+  });
+}
+
+export function requiresPermanentDocumentGrowthEvidence({
+  beforeBytes,
+  afterBytes,
+  combined = false,
+}) {
+  if (
+    !Number.isSafeInteger(beforeBytes) ||
+    beforeBytes < 0 ||
+    !Number.isSafeInteger(afterBytes) ||
+    afterBytes < 0
+  ) {
+    throw new TypeError("Permanent-document growth inputs must be non-negative safe integers");
+  }
+  const increase = afterBytes - beforeBytes;
+  return (
+    increase > 0 &&
+    (combined || increase >= 2_048 || increase * 100 >= beforeBytes * 10)
+  );
+}
+
+function formatPercentage(delta, before) {
+  if (before === 0) {
+    return delta === 0 ? "0.00%" : "N/A";
+  }
+  return `${((delta * 100) / before).toFixed(2)}%`;
+}
+
+function splitMarkdownRow(line) {
+  const trimmed = line.trim();
+  if (!trimmed.startsWith("|") || !trimmed.endsWith("|")) {
+    return undefined;
+  }
+  return trimmed
+    .slice(1, -1)
+    .split("|")
+    .map((cell) => cell.trim());
+}
+
+function parseEvidenceInteger(value) {
+  if (!/^[+-]?\d[\d,]*$/.test(value)) {
+    return undefined;
+  }
+  const parsed = Number(value.replaceAll(",", ""));
+  return Number.isSafeInteger(parsed) ? parsed : undefined;
+}
+
+export function parsePermanentDocumentDeltaEvidence(markdown) {
+  const errors = [];
+  if (typeof markdown !== "string") {
+    return { rows: new Map(), errors: ["permanent-document delta evidence must be Markdown text"] };
+  }
+  const resultsMatch = /^## Results\s*$/m.exec(markdown);
+  if (!resultsMatch) {
+    return { rows: new Map(), errors: ["current TEST is missing ## Results"] };
+  }
+  const resultsStart = resultsMatch.index + resultsMatch[0].length;
+  const nextHeading = /^## [^\n]+$/m.exec(markdown.slice(resultsStart));
+  const resultsEnd = nextHeading ? resultsStart + nextHeading.index : markdown.length;
+  const results = markdown.slice(resultsStart, resultsEnd);
+  const markerIndex = results.indexOf(PERMANENT_DOCUMENT_DELTA_MARKER);
+  if (markerIndex < 0) {
+    return {
+      rows: new Map(),
+      errors: ["current TEST Results is missing kyw-permanent-document-delta:v1 evidence"],
+    };
+  }
+
+  const lines = results.slice(markerIndex + PERMANENT_DOCUMENT_DELTA_MARKER.length).split(/\r?\n/);
+  const firstTableLine = lines.findIndex((line) => line.trim().startsWith("|"));
+  if (firstTableLine < 0) {
+    return { rows: new Map(), errors: ["permanent-document delta marker has no Markdown table"] };
+  }
+  const expectedHeader = [
+    "Path",
+    "Before bytes",
+    "After bytes",
+    "Before lines",
+    "After lines",
+    "Byte delta",
+    "Percent",
+    "Canonical owner",
+    "Durable necessity",
+    "Replacement or absorption",
+  ];
+  const header = splitMarkdownRow(lines[firstTableLine]);
+  expect(
+    sameJson(header, expectedHeader),
+    `permanent-document delta header must be: ${expectedHeader.join(" | ")}`,
+    errors,
+  );
+  const separator = splitMarkdownRow(lines[firstTableLine + 1] ?? "");
+  expect(
+    Array.isArray(separator) &&
+      separator.length === expectedHeader.length &&
+      separator.every((cell) => /^:?-{3,}:?$/.test(cell)),
+    "permanent-document delta table separator is invalid",
+    errors,
+  );
+
+  const rows = new Map();
+  for (const line of lines.slice(firstTableLine + 2)) {
+    const cells = splitMarkdownRow(line);
+    if (!cells) {
+      if (rows.size > 0 && line.trim().length > 0) {
+        break;
+      }
+      continue;
+    }
+    if (cells.length !== expectedHeader.length) {
+      errors.push("permanent-document delta row has the wrong column count");
+      continue;
+    }
+    const rowPath = cells[0].replace(/^`|`$/g, "");
+    if (rows.has(rowPath)) {
+      errors.push(`permanent-document delta has duplicate row ${rowPath}`);
+      continue;
+    }
+    rows.set(rowPath, {
+      path: rowPath,
+      beforeBytes: parseEvidenceInteger(cells[1]),
+      afterBytes: parseEvidenceInteger(cells[2]),
+      beforeLines: parseEvidenceInteger(cells[3]),
+      afterLines: parseEvidenceInteger(cells[4]),
+      byteDelta: parseEvidenceInteger(cells[5]),
+      percent: cells[6],
+      canonicalOwner: cells[7],
+      durableNecessity: cells[8],
+      replacementOrAbsorption: cells[9],
+    });
+  }
+  return { rows, errors };
+}
+
+export function validatePermanentDocumentGrowthEvidence({
+  markdown,
+  measurements,
+  baseline,
+  policy = PERMANENT_DOCUMENT_POLICY,
+}) {
+  const expectedPaths = [...PERMANENT_DOCUMENT_PATHS, "Combined"];
+  const { rows, errors } = parsePermanentDocumentDeltaEvidence(markdown);
+  const effectiveBaseline =
+    baseline ??
+    Object.fromEntries(
+      [...rows.entries()].map(([relativePath, row]) => [
+        relativePath,
+        { bytes: row.beforeBytes, lines: row.beforeLines },
+      ]),
+    );
+  const actualPaths = [...rows.keys()].sort();
+  expect(
+    sameJson(actualPaths, [...expectedPaths].sort()),
+    `permanent-document delta rows must be exactly ${expectedPaths.join(", ")}`,
+    errors,
+  );
+  const policies = new Map([
+    ...policy.documents.map((entry) => [entry.path, entry]),
+    [policy.combined.path, policy.combined],
+  ]);
+  for (const relativePath of expectedPaths) {
+    const row = rows.get(relativePath);
+    const before = effectiveBaseline[relativePath];
+    const after = measurements[relativePath];
+    if (!row || !before || !after) {
+      continue;
+    }
+    for (const [field, expectedValue] of [
+      ["beforeBytes", before.bytes],
+      ["afterBytes", after.bytes],
+      ["beforeLines", before.lines],
+      ["afterLines", after.lines],
+    ]) {
+      expect(
+        row[field] === expectedValue,
+        `${relativePath} delta evidence ${field} must be ${expectedValue}`,
+        errors,
+      );
+    }
+    const delta = after.bytes - before.bytes;
+    expect(
+      row.byteDelta === delta,
+      `${relativePath} byte delta must be ${delta}`,
+      errors,
+    );
+    expect(
+      row.percent === formatPercentage(delta, before.bytes),
+      `${relativePath} percentage must be ${formatPercentage(delta, before.bytes)}`,
+      errors,
+    );
+    expect(
+      typeof row.canonicalOwner === "string" && row.canonicalOwner.trim().length > 0,
+      `${relativePath} delta evidence must name its canonical owner`,
+      errors,
+    );
+    const growthRequired =
+      requiresPermanentDocumentGrowthEvidence({
+        beforeBytes: before.bytes,
+        afterBytes: after.bytes,
+        combined: relativePath === "Combined",
+      }) || after.bytes > policies.get(relativePath).warningBytes;
+    if (growthRequired) {
+      expect(
+        meaningfulEvidence(row.durableNecessity),
+        `${relativePath} growth requires durable-necessity evidence`,
+        errors,
+      );
+      expect(
+        meaningfulEvidence(row.replacementOrAbsorption),
+        `${relativePath} growth requires replacement/absorption evidence`,
+        errors,
+      );
+    }
+  }
+  const documentRows = PERMANENT_DOCUMENT_PATHS.map((relativePath) =>
+    rows.get(relativePath),
+  );
+  const combinedRow = rows.get("Combined");
+  if (documentRows.every(Boolean) && combinedRow) {
+    expect(
+      combinedRow.beforeBytes ===
+        documentRows.reduce((total, row) => total + row.beforeBytes, 0),
+      "Combined before bytes must equal the four document rows",
+      errors,
+    );
+    expect(
+      combinedRow.beforeLines ===
+        documentRows.reduce((total, row) => total + row.beforeLines, 0),
+      "Combined before lines must equal the four document rows",
+      errors,
+    );
+    expect(
+      combinedRow.afterBytes ===
+        documentRows.reduce((total, row) => total + row.afterBytes, 0),
+      "Combined after bytes must equal the four document rows",
+      errors,
+    );
+    expect(
+      combinedRow.afterLines ===
+        documentRows.reduce((total, row) => total + row.afterLines, 0),
+      "Combined after lines must equal the four document rows",
+      errors,
+    );
+  }
+  return errors;
+}
+
+export function parsePermanentDocumentBudgetChangeEvidence(markdown) {
+  const evidence = {};
+  const errors = [];
+  if (typeof markdown !== "string") {
+    return { evidence, errors: ["permanent-document budget evidence must be Markdown text"] };
+  }
+  const resultsMatch = /^## Results\s*$/m.exec(markdown);
+  if (!resultsMatch) {
+    return { evidence, errors: ["current TEST is missing ## Results"] };
+  }
+  const resultsStart = resultsMatch.index + resultsMatch[0].length;
+  const nextHeading = /^## [^\n]+$/m.exec(markdown.slice(resultsStart));
+  const resultsEnd = nextHeading ? resultsStart + nextHeading.index : markdown.length;
+  const results = markdown.slice(resultsStart, resultsEnd);
+  const markerIndex = results.indexOf(PERMANENT_DOCUMENT_BUDGET_CHANGE_MARKER);
+  if (markerIndex < 0) {
+    return {
+      evidence,
+      errors: ["current TEST Results is missing permanent-document budget-change evidence"],
+    };
+  }
+  const lines = results
+    .slice(markerIndex + PERMANENT_DOCUMENT_BUDGET_CHANGE_MARKER.length)
+    .split(/\r?\n/);
+  const firstTableLine = lines.findIndex((line) => line.trim().startsWith("|"));
+  const expectedHeader = [
+    "Path",
+    "Field",
+    "Before bytes",
+    "After bytes",
+    "Reason existing sections cannot absorb",
+    "New durable meaning",
+    "Removed or replaced duplication",
+    "Task acceptance",
+    "User approval",
+  ];
+  const header = splitMarkdownRow(lines[firstTableLine] ?? "");
+  expect(
+    sameJson(header, expectedHeader),
+    `permanent-document budget-change header must be: ${expectedHeader.join(" | ")}`,
+    errors,
+  );
+  const separator = splitMarkdownRow(lines[firstTableLine + 1] ?? "");
+  expect(
+    Array.isArray(separator) &&
+      separator.length === expectedHeader.length &&
+      separator.every((cell) => /^:?-{3,}:?$/.test(cell)),
+    "permanent-document budget-change table separator is invalid",
+    errors,
+  );
+  const seen = new Set();
+  for (const line of lines.slice(firstTableLine + 2)) {
+    const cells = splitMarkdownRow(line);
+    if (!cells) {
+      if (seen.size > 0 && line.trim().length > 0) break;
+      continue;
+    }
+    if (cells.length !== expectedHeader.length) {
+      errors.push("permanent-document budget-change row has the wrong column count");
+      continue;
+    }
+    const relativePath = cells[0].replace(/^`|`$/g, "");
+    const field = cells[1].replace(/^`|`$/g, "");
+    const key = `${relativePath}:${field}`;
+    if (seen.has(key)) {
+      errors.push(`permanent-document budget-change has duplicate row ${key}`);
+      continue;
+    }
+    seen.add(key);
+    evidence[relativePath] ??= {};
+    evidence[relativePath][field] = {
+      beforeBytes: parseEvidenceInteger(cells[2]),
+      afterBytes: parseEvidenceInteger(cells[3]),
+      reasonCannotAbsorb: cells[4],
+      newDurableMeaning: cells[5],
+      removedOrReplacedDuplication: cells[6],
+      taskAcceptance: cells[7],
+      userApproval: cells[8],
+    };
+  }
+  return { evidence, errors };
+}
+
+export function validatePermanentDocumentBudgetChange({
+  previousPolicy,
+  proposedPolicy,
+  evidence = {},
+}) {
+  const errors = [];
+  const previousEntries = new Map([
+    ...previousPolicy.documents.map((entry) => [entry.path, entry]),
+    [previousPolicy.combined.path, previousPolicy.combined],
+  ]);
+  const proposedEntries = new Map([
+    ...proposedPolicy.documents.map((entry) => [entry.path, entry]),
+    [proposedPolicy.combined.path, proposedPolicy.combined],
+  ]);
+  for (const [relativePath, proposed] of proposedEntries) {
+    const previous = previousEntries.get(relativePath);
+    if (!previous) {
+      continue;
+    }
+    for (const field of ["warningBytes", "hardBytes"]) {
+      if (proposed[field] === previous[field]) {
+        continue;
+      }
+      const record = evidence[relativePath]?.[field] ?? evidence[relativePath];
+      const prefix = `${relativePath} ${field} change`;
+      expect(
+        meaningfulEvidence(record?.reasonCannotAbsorb),
+        `${prefix} requires the reason existing sections cannot absorb the meaning`,
+        errors,
+      );
+      expect(
+        meaningfulEvidence(record?.newDurableMeaning),
+        `${prefix} requires the new durable meaning`,
+        errors,
+      );
+      expect(
+        record?.beforeBytes === previous[field] &&
+          record?.afterBytes === proposed[field],
+        `${prefix} requires exact before/after bytes ${previous[field]} -> ${proposed[field]}`,
+        errors,
+      );
+      expect(
+        meaningfulEvidence(record?.removedOrReplacedDuplication),
+        `${prefix} requires removed or replaced duplication`,
+        errors,
+      );
+      expect(
+        typeof record?.taskAcceptance === "string" &&
+          /\bAC-\d{2}\b/.test(record.taskAcceptance),
+        `${prefix} requires explicit Task acceptance`,
+        errors,
+      );
+      expect(
+        meaningfulEvidence(record?.userApproval),
+        `${prefix} requires explicit user approval`,
+        errors,
+      );
+    }
+  }
+  return errors;
+}
+
+export function planPermanentDocumentLoading({
+  workflow = "ordinary",
+  hasCurrentPair = false,
+  taskPath,
+  testPath,
+  goal = [],
+  scope = [],
+  documentationImpact = [],
+  changedCode = [],
+  dependencies = [],
+  rebaseline = false,
+  majorRedesign = false,
+  broadCrossOwner = false,
+  sourceConflict = false,
+  conflictResolved = false,
+  ambiguousOwner = false,
+  missingOwnerHeading = false,
+  targetedTruthInsufficient = false,
+  unresolvedAfterFullRead = false,
+} = {}) {
+  const alwaysRead = ["AGENTS.md"];
+  if (hasCurrentPair) {
+    alwaysRead.push(taskPath ?? "<selected TASK.md>", testPath ?? "<selected TEST.md>");
+  }
+  const indexed = ["README.md", "docs/SPEC.md", "docs/ARCHITECTURE.md"];
+  const targetedSections = [
+    ...new Set([
+      ...goal,
+      ...scope,
+      ...documentationImpact,
+      ...changedCode,
+      ...dependencies,
+    ]),
+  ].sort();
+  const fullReadReasons = [];
+  if (workflow === "kyw-init") fullReadReasons.push("kyw-init");
+  if (rebaseline) fullReadReasons.push("rebaseline");
+  if (majorRedesign) fullReadReasons.push("major-redesign");
+  if (broadCrossOwner) fullReadReasons.push("broad-cross-owner");
+  if (sourceConflict) fullReadReasons.push("source-conflict");
+  if (ambiguousOwner) fullReadReasons.push("ambiguous-owner");
+  if (missingOwnerHeading) fullReadReasons.push("missing-owner-heading");
+  if (targetedTruthInsufficient) fullReadReasons.push("targeted-truth-insufficient");
+  const blocked =
+    (sourceConflict && !conflictResolved) ||
+    (fullReadReasons.length > 0 && unresolvedAfterFullRead);
+  return deepFreeze({
+    mode: fullReadReasons.length > 0 ? "FULL" : "TARGETED",
+    alwaysRead,
+    indexOrSearch: indexed,
+    targetedSections,
+    fullRead:
+      fullReadReasons.length > 0
+        ? ["README.md", "AGENTS.md", "docs/SPEC.md", "docs/ARCHITECTURE.md"]
+        : [],
+    fullReadReasons,
+    blocked,
+  });
+}
+
+export function validatePermanentRuleFamilies(
+  registry,
+  texts,
+  { allowedSurfacePaths = GUARDED_SURFACE_PATHS } = {},
+) {
+  const errors = [];
+  const ids = new Set();
+  for (const family of registry) {
+    expect(
+      typeof family?.id === "string" && family.id.length > 0,
+      "guarded rule family is missing an ID",
+      errors,
+    );
+    if (ids.has(family?.id)) {
+      errors.push(`guarded rule family ID is duplicated: ${family.id}`);
+    }
+    ids.add(family?.id);
+    expect(
+      family?.owner &&
+        !Array.isArray(family.owner) &&
+        typeof family.owner.path === "string" &&
+        family.owner.path.length > 0,
+      `${family?.id ?? "<unknown>"} must declare exactly one canonical owner`,
+      errors,
+    );
+    if (!family?.owner || Array.isArray(family.owner) || !family.owner.path) {
+      continue;
+    }
+    expect(
+      allowedSurfacePaths.has(family.owner.path),
+      `${family.id} owner path is not a guarded surface: ${family.owner.path}`,
+      errors,
+    );
+    const ownerText = texts[family.owner.path];
+    expect(
+      typeof ownerText === "string",
+      `${family.id} canonical owner is missing: ${family.owner.path}`,
+      errors,
+    );
+    for (const anchor of family.owner.anchors ?? []) {
+      try {
+        expect(
+          typeof ownerText === "string" && matchesPattern(ownerText, anchor),
+          `${family.id} canonical owner is missing anchor ${anchor.source}`,
+          errors,
+        );
+      } catch (error) {
+        errors.push(`${family.id} has invalid owner anchor ${anchor.source}: ${error.message}`);
+      }
+    }
+
+    const projectionPaths = new Set();
+    for (const projection of family.projections ?? []) {
+      if (
+        projection.path === family.owner.path ||
+        projectionPaths.has(projection.path) ||
+        !allowedSurfacePaths.has(projection.path)
+      ) {
+        errors.push(`${family.id} has an unlisted or duplicate projection: ${projection.path}`);
+        continue;
+      }
+      projectionPaths.add(projection.path);
+      const projectionText = texts[projection.path];
+      expect(
+        typeof projectionText === "string",
+        `${family.id} projection is missing: ${projection.path}`,
+        errors,
+      );
+      for (const anchor of projection.anchors ?? []) {
+        try {
+          expect(
+            typeof projectionText === "string" && matchesPattern(projectionText, anchor),
+            `${family.id} projection ${projection.path} is stale at anchor ${anchor.source}`,
+            errors,
+          );
+        } catch (error) {
+          errors.push(
+            `${family.id} has invalid projection anchor ${anchor.source}: ${error.message}`,
+          );
+        }
+      }
+    }
+
+    for (const detail of family.forbiddenDetailedAnchors ?? []) {
+      for (const [relativePath, text] of Object.entries(texts)) {
+        if (
+          relativePath === family.owner.path ||
+          (projectionPaths.has(relativePath) &&
+            relativePath.startsWith("skills/")) ||
+          typeof text !== "string"
+        ) {
+          continue;
+        }
+        try {
+          if (matchesPattern(text, detail)) {
+            errors.push(
+              `${family.id} detailed procedure appears as an unlisted projection in ${relativePath}: ${detail.source}`,
+            );
+          }
+        } catch (error) {
+          errors.push(`${family.id} has invalid detailed anchor ${detail.source}: ${error.message}`);
+        }
+      }
+    }
+  }
+  return errors;
+}
+
+export function validatePermanentDocumentPolicy(policy = PERMANENT_DOCUMENT_POLICY) {
+  const errors = [];
+  expect(policy?.schemaVersion === 1, "permanent-document policy schema must be 1", errors);
+  const paths = policy?.documents?.map(({ path: relativePath }) => relativePath) ?? [];
+  expect(
+    sameJson(paths, PERMANENT_DOCUMENT_PATHS),
+    `permanent-document policy paths must be exactly ${PERMANENT_DOCUMENT_PATHS.join(", ")}`,
+    errors,
+  );
+  const roles = new Set();
+  for (const entry of policy?.documents ?? []) {
+    if (roles.has(entry.role)) {
+      errors.push(`permanent-document role is duplicated: ${entry.role}`);
+    }
+    roles.add(entry.role);
+    expect(
+      Number.isSafeInteger(entry.warningBytes) &&
+        Number.isSafeInteger(entry.hardBytes) &&
+        entry.warningBytes <= entry.hardBytes,
+      `${entry.path} byte policy must satisfy warning <= hard`,
+      errors,
+    );
+  }
+  const combined = policy?.combined;
+  expect(combined?.path === "Combined", "combined permanent-document policy is missing", errors);
+  expect(
+    Number.isSafeInteger(combined?.warningBytes) &&
+      Number.isSafeInteger(combined?.hardBytes) &&
+      combined.warningBytes <= combined.hardBytes,
+    "combined byte policy must satisfy warning <= hard",
+    errors,
+  );
+  return errors;
+}
+
+export function validatePermanentDocumentContents({
+  documents,
+  templateNames = EXPECTED_PROJECT_TEMPLATE_NAMES,
+  surfaceTexts = documents,
+  packageScripts = {},
+  pathExists = () => false,
+  policy = PERMANENT_DOCUMENT_POLICY,
+  ruleFamilies = PERMANENT_RULE_FAMILIES,
+}) {
+  const errors = [...validatePermanentDocumentPolicy(policy)];
+  const documentPaths = Object.keys(documents).sort();
+  expect(
+    sameJson(documentPaths, [...PERMANENT_DOCUMENT_PATHS].sort()),
+    `permanent-document inventory must be exactly ${PERMANENT_DOCUMENT_PATHS.join(", ")}`,
+    errors,
+  );
+  expect(
+    sameJson([...templateNames].sort(), EXPECTED_PROJECT_TEMPLATE_NAMES),
+    `project template inventory must be exactly ${EXPECTED_PROJECT_TEMPLATE_NAMES.join(", ")}`,
+    errors,
+  );
+  for (const mirrorPath of FORBIDDEN_PERMANENT_MIRROR_PATHS) {
+    expect(!pathExists(mirrorPath), `generated permanent-document mirror is forbidden: ${mirrorPath}`, errors);
+  }
+
+  for (const entry of policy.documents ?? []) {
+    const text = documents[entry.path];
+    expect(typeof text === "string", `permanent document is missing: ${entry.path}`, errors);
+    if (typeof text !== "string") {
+      continue;
+    }
+    for (const heading of entry.requiredHeadings ?? []) {
+      expect(
+        matchesPattern(text, heading),
+        `${entry.path} no longer satisfies its ${entry.role} role at ${heading.source}`,
+        errors,
+      );
+    }
+    for (const [label, candidate] of MUTABLE_CHRONOLOGY_PATTERNS) {
+      expect(!candidate.test(text), `${entry.path} leaks ${label}`, errors);
+    }
+    for (const [label, candidate] of EVIDENCE_LEAKAGE_PATTERNS) {
+      expect(!candidate.test(text), `${entry.path} leaks ${label}`, errors);
+    }
+    for (const [label, candidate] of DETAILED_PROCEDURE_PATTERNS) {
+      expect(!candidate.test(text), `${entry.path} retains ${label}`, errors);
+    }
+    for (const [label, candidate] of CROSS_OWNER_HEADING_PATTERNS[entry.path] ?? []) {
+      expect(!candidate.test(text), `${entry.path} retains ${label}`, errors);
+    }
+
+    for (const match of text.matchAll(/\bnpm run ([a-z0-9][a-z0-9:_-]*)\b/gi)) {
+      expect(
+        typeof packageScripts[match[1]] === "string",
+        `${entry.path} references stale npm command npm run ${match[1]}`,
+        errors,
+      );
+    }
+    for (const match of text.matchAll(/\bnode \.\/([A-Za-z0-9_./-]+\.mjs)\b/g)) {
+      const commandPath = match[1];
+      expect(
+        pathExists(commandPath),
+        `${entry.path} references stale Node command node ./${commandPath}`,
+        errors,
+      );
+    }
+  }
+  errors.push(...validatePermanentRuleFamilies(ruleFamilies, surfaceTexts));
+  return errors;
+}
+
+function readArtifactStatus(markdown) {
+  return /^## Status\s*\r?\n+\s*([A-Z_]+)\s*$/m.exec(markdown ?? "")?.[1];
+}
+
+function collectPermanentDocumentEvidenceCandidates(root) {
+  const tasksRoot = join(root, "docs", "tasks");
+  if (!existsSync(tasksRoot)) {
+    return [];
+  }
+  const candidates = [];
+  for (const entry of readdirSync(tasksRoot, { withFileTypes: true })) {
+    const taskId = /^(\d{4})-[a-z0-9-]+$/.exec(entry.name)?.[1];
+    if (!entry.isDirectory() || !taskId) {
+      continue;
+    }
+    const taskPath = `docs/tasks/${entry.name}/TASK.md`;
+    const testPath = `docs/tasks/${entry.name}/TEST.md`;
+    const absoluteTaskPath = join(root, taskPath);
+    const absoluteTestPath = join(root, testPath);
+    if (!existsSync(absoluteTestPath)) {
+      continue;
+    }
+    const markdown = readFileSync(absoluteTestPath, "utf8");
+    if (
+      !markdown.includes(PERMANENT_DOCUMENT_DELTA_MARKER) &&
+      !markdown.includes(PERMANENT_DOCUMENT_BUDGET_CHANGE_MARKER)
+    ) {
+      continue;
+    }
+    const taskMarkdown = existsSync(absoluteTaskPath)
+      ? readFileSync(absoluteTaskPath, "utf8")
+      : "";
+    candidates.push({
+      taskId,
+      taskPath,
+      testPath,
+      taskStatus: readArtifactStatus(taskMarkdown),
+      testStatus: readArtifactStatus(markdown),
+      markdown,
+    });
+  }
+  return candidates;
+}
+
+function collectPermanentDocumentState(root, packageJson, errors) {
+  const documents = {};
+  for (const relativePath of PERMANENT_DOCUMENT_PATHS) {
+    const absolutePath = join(root, relativePath);
+    if (!existsSync(absolutePath)) {
+      errors.push(`permanent document is missing: ${relativePath}`);
+      continue;
+    }
+    documents[relativePath] = readFileSync(absolutePath, "utf8");
+  }
+  const templateRoot = join(root, "templates", "project");
+  const templateNames = existsSync(templateRoot)
+    ? readdirSync(templateRoot).filter((name) => name.endsWith(".md"))
+    : [];
+  const surfaceTexts = { ...documents };
+  for (const relativePath of GUARDED_SURFACE_PATHS) {
+    if (relativePath in surfaceTexts) {
+      continue;
+    }
+    const absolutePath = join(root, relativePath);
+    if (existsSync(absolutePath)) {
+      surfaceTexts[relativePath] = readFileSync(absolutePath, "utf8");
+    }
+  }
+  return {
+    documents,
+    templateNames,
+    surfaceTexts,
+    packageScripts: packageJson?.scripts ?? {},
+    pathExists: (relativePath) => existsSync(join(root, relativePath)),
+    evidenceCandidates: collectPermanentDocumentEvidenceCandidates(root),
+  };
+}
+
+export function validatePermanentDocumentState({
+  documents,
+  templateNames,
+  surfaceTexts,
+  packageScripts,
+  pathExists,
+  evidenceCandidates = [],
+  policy = PERMANENT_DOCUMENT_POLICY,
+  ruleFamilies = PERMANENT_RULE_FAMILIES,
+}) {
+  const errors = validatePermanentDocumentContents({
+    documents,
+    templateNames,
+    surfaceTexts,
+    packageScripts,
+    pathExists,
+    policy,
+    ruleFamilies,
+  });
+  if (!PERMANENT_DOCUMENT_PATHS.every((relativePath) => typeof documents[relativePath] === "string")) {
+    return errors;
+  }
+  const measurements = measurePermanentDocuments(documents);
+  const deltaSelection = selectPermanentDocumentEvidence(evidenceCandidates);
+  errors.push(...deltaSelection.errors);
+  if (!deltaSelection.selected) {
+    errors.push("no permanent-document delta evidence exists in a current or retained TEST");
+    return errors;
+  }
+  const continuity = derivePermanentDocumentEvidenceBaseline(
+    evidenceCandidates,
+    deltaSelection.selected,
+  );
+  errors.push(...continuity.errors);
+  const growthErrors = continuity.baseline
+    ? validatePermanentDocumentGrowthEvidence({
+        markdown: deltaSelection.selected.markdown,
+        measurements,
+        baseline: continuity.baseline,
+        policy,
+      })
+    : [];
+  errors.push(...growthErrors);
+  const evidenceValid =
+    continuity.errors.length === 0 && growthErrors.length === 0;
+  if (
+    deltaSelection.selected.taskId ===
+    PERMANENT_DOCUMENT_COMPACTION_ACCEPTANCE.taskId
+  ) {
+    errors.push(
+      ...validatePermanentDocumentCompactionAcceptance({
+        measurements,
+      }),
+    );
+  }
+
+  const budgetSelection = selectPermanentDocumentEvidence(evidenceCandidates, {
+    marker: PERMANENT_DOCUMENT_BUDGET_CHANGE_MARKER,
+  });
+  errors.push(...budgetSelection.errors);
+  let budgetChangeEvidence = {};
+  if (budgetSelection.selected) {
+    const parsedBudgetEvidence = parsePermanentDocumentBudgetChangeEvidence(
+      budgetSelection.selected.markdown,
+    );
+    errors.push(...parsedBudgetEvidence.errors);
+    budgetChangeEvidence = parsedBudgetEvidence.evidence;
+  }
+  errors.push(
+    ...validatePermanentDocumentBudgetChange({
+      previousPolicy: PERMANENT_DOCUMENT_POLICY_BASELINE,
+      proposedPolicy: policy,
+      evidence: budgetChangeEvidence,
+    }),
+  );
+  for (const entry of [...policy.documents, policy.combined]) {
+    const result = evaluatePermanentDocumentBudget(entry, measurements[entry.path].bytes, {
+      hasGrowthEvidence: evidenceValid,
+    });
+    if (!result.acceptable) {
+      errors.push(
+        `${entry.path} permanent-document budget failed: ${result.status} (${measurements[entry.path].bytes} bytes)`,
+      );
+    }
+  }
+  return errors;
+}
+
 function readJson(root, relativePath, errors) {
   try {
     return JSON.parse(readFileSync(join(root, relativePath), "utf8"));
@@ -218,7 +1704,9 @@ function validateSkill(root, skillName, errors) {
         errors,
       );
       expect(
-        skill.includes("Expected failure rolls back batch-owned final paths only with complete ownership proof"),
+        /Failure rolls back (?:batch-)?owned final paths only with complete (?:ownership )?proof/i.test(
+          skill,
+        ),
         `${skillName} must require atomic batch publication`,
         errors,
       );
@@ -338,7 +1826,10 @@ function validateSkill(root, skillName, errors) {
   expect(!metadata.includes("dependencies:"), `${skillName} must not declare tool dependencies`, errors);
 }
 
-export function validateFoundation(root = REPOSITORY_ROOT) {
+export function validateFoundation(
+  root = REPOSITORY_ROOT,
+  { permanentDocumentPolicy = PERMANENT_DOCUMENT_POLICY } = {},
+) {
   const errors = [];
   const packageJson = readJson(root, "package.json", errors);
   const pluginJson = readJson(root, ".codex-plugin/plugin.json", errors);
@@ -456,6 +1947,14 @@ export function validateFoundation(root = REPOSITORY_ROOT) {
       expect(!(field in pluginJson), `plugin field ${field} is out of scope`, errors);
     }
   }
+
+  const permanentDocumentState = collectPermanentDocumentState(root, packageJson, errors);
+  errors.push(
+    ...validatePermanentDocumentState({
+      ...permanentDocumentState,
+      policy: permanentDocumentPolicy,
+    }),
+  );
 
   for (const skillName of SKILL_NAMES) {
     validateSkill(root, skillName, errors);

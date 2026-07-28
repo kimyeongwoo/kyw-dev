@@ -69,7 +69,7 @@ test("kyw-init inspects facts and uses the grilling confirmation boundary before
   assert.equal(adoptPackage.scripts.start, "node ./src/server");
   assert.equal(adoptPackage.scripts.test, "node --test");
   assert.match(adoptSource, /DEFAULT_PORT = 4318/);
-  assert.match(skill, /Inspect existing files with read-only operations before asking questions/);
+  assert.match(skill, /Inspect existing files with read-only operations before asking\s+questions/);
   assert.match(skill, /never ask the user to repeat a fact that inspection can establish/);
   assert.match(skill, /Apply the installed `\$kyw-grilling` protocol/);
   assert.match(skill, /one decision question per turn/);
@@ -122,7 +122,8 @@ test("kyw-init generated AGENTS contract stays thin and routes ordinary small ch
 
   assert.ok(Buffer.byteLength(canonicalAgents, "utf8") < 4096);
   assert.match(skill, /Keep a newly generated `AGENTS\.md` below 4 KiB/);
-  assert.match(skill, /before an edit would make `AGENTS\.md` exceed 8 KiB/);
+  assert.match(skill, /Reject an edit above the 8 KiB hard ceiling/);
+  assert.match(skill, /explicit Task acceptance and user approval/);
   assert.match(skill, /ordinary small changes/);
   for (const contract of [
     "source-of-truth routing",
