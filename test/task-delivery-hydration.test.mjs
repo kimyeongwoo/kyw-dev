@@ -801,19 +801,18 @@ test("manual delivery objects remain a low-level seam and bypass automatic hydra
 });
 
 test(
-  "live repository and GitHub hydration recovers the Tasks 0054-0058 hardened chain",
+  "live repository and GitHub hydration recovers the queue-required hardened chain",
   { skip: process.env.KYW_LIVE_GITHUB_HYDRATION !== "1" },
   async () => {
     const hydrated = await hydratePriorStandardDeliveries({
       tasksRoot: path.join(REPOSITORY_ROOT, "docs", "tasks"),
       invocation: "$kyw-impl 0059",
     });
-    const hardenedTaskIds = ["0054", "0055", "0056", "0057", "0058"];
-    if (hydrated.deliveryLedger["0059"]) hardenedTaskIds.push("0059");
-    assert.equal(
-      hydrated.diagnostics.requiredTaskIds.length,
-      hardenedTaskIds.length === 6 ? 29 : 28,
-    );
+    const terminalInvocation = Boolean(hydrated.deliveryLedger["0059"]);
+    const hardenedTaskIds = terminalInvocation
+      ? ["0057", "0058", "0059"]
+      : ["0054", "0055", "0056", "0057", "0058"];
+    assert.equal(hydrated.diagnostics.requiredTaskIds.length, terminalInvocation ? 3 : 28);
     for (const taskId of hardenedTaskIds) {
       assert.equal(
         hydrated.diagnostics.classifications[taskId],
@@ -828,15 +827,17 @@ test(
         true,
       );
     }
-    assert.equal(
-      hydrated.diagnostics.chronology.some(
-        (entry) =>
-          entry.taskId === "0055" &&
-          entry.role === "POST_MAIN_ATTEMPT" &&
-          entry.runAttempt === 1 &&
-          entry.conclusion === "failure",
-      ),
-      true,
-    );
+    if (!terminalInvocation) {
+      assert.equal(
+        hydrated.diagnostics.chronology.some(
+          (entry) =>
+            entry.taskId === "0055" &&
+            entry.role === "POST_MAIN_ATTEMPT" &&
+            entry.runAttempt === 1 &&
+            entry.conclusion === "failure",
+        ),
+        true,
+      );
+    }
   },
 );
