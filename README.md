@@ -185,9 +185,11 @@ Use the read-only planner with explicit repository-relative changed paths:
 publishing; `release:ci` combines Stable verification with that gate. `npm run release:check` additionally performs
 `npm publish --dry-run --json` and is a separate registry-evidence boundary, not publication permission.
 
-Hosted PR CI proves actual-head Stable/packed jobs separately from synthetic merge compatibility; `main` jobs prove the exact
-event SHA. Model-backed evaluators are development-only, explicit-cost checks and never required by public CI. Validation,
-evaluator, isolation, and credential boundaries are described in [ARCHITECTURE](docs/ARCHITECTURE.md).
+Hosted PR CI proves actual-head behavioral jobs across every supported OS/runtime, runs platform-independent lint, format, and
+package selection once in a quality job, and keeps packed bytes separate. Synthetic merge compatibility runs the complete
+combined-state check; `main` jobs prove the exact event SHA. Model-backed evaluators are development-only, explicit-cost checks
+and never required by public CI. Validation, evaluator, isolation, and credential boundaries are described in
+[ARCHITECTURE](docs/ARCHITECTURE.md).
 
 ## Repository map and contributing
 

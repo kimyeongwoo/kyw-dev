@@ -150,10 +150,19 @@ test("candidate intent only escalates without duplicating a separate isolation b
   assert.deepEqual(candidate.commands.map(({ command }) => command), ["npm run release:ci"]);
   assert.deepEqual(candidate.hosted, {
     required: true,
-    stableLanes: 7,
-    commandsPerStableLane: 4,
+    behavioralLanes: 7,
+    commandsPerBehavioralLane: 1,
+    qualityJobs: 1,
+    commandsPerQualityJob: 3,
     candidateJobs: 1,
-    leafCommandCount: 29,
+    commandsPerCandidateJob: 1,
+    mergeCompatibilityJobs: 1,
+    commandsPerMergeCompatibilityJob: 4,
+    requiredJobs: 1,
+    pullRequestJobInstances: 11,
+    pullRequestLeafCommandCount: 15,
+    mainJobInstances: 10,
+    mainLeafCommandCount: 11,
     pullRequest: "GitHub PR CI at the exact head SHA",
     main: "GitHub main CI at the exact merge SHA",
   });
@@ -224,7 +233,8 @@ test("CLI emits a reproducible JSON plan and rejects missing input", () => {
   assert.equal(plan.changeClass, "skill");
   assert.equal(plan.leafCommandCount, 3);
   assert.match(plan.commands[0].command, /test\/kyw-impl\.test\.mjs/);
-  assert.equal(plan.hosted.leafCommandCount, 29);
+  assert.equal(plan.hosted.pullRequestLeafCommandCount, 15);
+  assert.equal(plan.hosted.mainLeafCommandCount, 11);
 
   const missing = spawnSync(process.execPath, [scriptPath], { encoding: "utf8" });
   assert.equal(missing.status, 1);
@@ -272,18 +282,26 @@ test("permanent, Task, package, and hosted surfaces keep the tier contract align
     assert.match(ordinaryTestPath, /^test\/[^/]+\.test\.mjs$/);
     assert.match(readRepositoryText(ordinaryTestPath), /from "node:test"/);
   }
-  assert.equal((workflow.match(/- name: Test\s+run: npm test/g) ?? []).length, 2);
+  assert.equal((workflow.match(/- name: Test\s+run: npm test/g) ?? []).length, 1);
   assert.equal((workflow.match(/run: npm run release:candidate/g) ?? []).length, 1);
   assert.equal((workflow.match(/run: npm run release:ci/g) ?? []).length, 0);
+  assert.match(workflow, /^  behavioral:\s*$/mu);
+  assert.match(workflow, /^  quality:\s*$/mu);
   assert.match(workflow, /^  merge-compatibility:\s*$/mu);
-  for (const command of ["npm test", "npm run lint", "npm run format:check", "npm run pack:check"]) {
+  for (const command of [
+    "npm test",
+    "npm run lint",
+    "npm run format:check",
+    "npm run pack:check",
+    "npm run check",
+  ]) {
     assert.equal(
       (
         workflow.match(
           new RegExp(`run: ${command.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`, "g"),
         ) ?? []
       ).length,
-      2,
+      1,
     );
   }
 });

@@ -240,11 +240,12 @@ function deliveredEntry({
       runAttempt: 1,
       runHeadSha: outcomeSha,
       jobs: [
-        checkoutJob(1101, "Stable / fixture", "stable", outcomeSha),
-        checkoutJob(1102, "Packed release / fixture", "packed-release", outcomeSha),
+        checkoutJob(1101, "Behavioral / fixture", "behavioral", outcomeSha),
+        checkoutJob(1102, "Quality / fixture", "quality", outcomeSha),
+        checkoutJob(1103, "Packed release / fixture", "packed-release", outcomeSha),
       ],
       gateJob: {
-        id: 1103,
+        id: 1104,
         name: "Required / credential-free CI",
         key: "required",
         conclusion: "SUCCESS",
@@ -267,7 +268,7 @@ function deliveredEntry({
       expectedHeadSha: outcomeSha,
       actualHeadParentSha: outcomeSha,
       job: checkoutJob(
-        1104,
+        1105,
         "Merge compatibility / fixture",
         "merge-compatibility",
         syntheticMergeSha,
@@ -290,11 +291,12 @@ function deliveredEntry({
       runAttempt: 1,
       runHeadSha: mergeSha,
       jobs: [
-        checkoutJob(1201, "Stable / fixture", "stable", mergeSha),
-        checkoutJob(1202, "Packed release / fixture", "packed-release", mergeSha),
+        checkoutJob(1201, "Behavioral / fixture", "behavioral", mergeSha),
+        checkoutJob(1202, "Quality / fixture", "quality", mergeSha),
+        checkoutJob(1203, "Packed release / fixture", "packed-release", mergeSha),
       ],
       gateJob: {
-        id: 1203,
+        id: 1204,
         name: "Required / credential-free CI",
         key: "required",
         conclusion: "SUCCESS",
@@ -324,10 +326,18 @@ function deliveredExpectation({
         name: "CI",
         path: ".github/workflows/ci.yml",
       },
-      actualHeadJobs: ["Stable / fixture", "Packed release / fixture"],
+      actualHeadJobs: [
+        "Behavioral / fixture",
+        "Quality / fixture",
+        "Packed release / fixture",
+      ],
       mergeCompatibilityJob: "Merge compatibility / fixture",
       requiredGateJob: "Required / credential-free CI",
-      postMergeJobs: ["Stable / fixture", "Packed release / fixture"],
+      postMergeJobs: [
+        "Behavioral / fixture",
+        "Quality / fixture",
+        "Packed release / fixture",
+      ],
     },
   };
 }
@@ -1150,6 +1160,9 @@ test("exact GitHub ledger evidence gates terminal queue advancement and no-work 
     ["expected base SHA", (value) => { value.baseSha = "short"; }, /expectation.baseSha/],
     ["expected workflow", (value) => { value.deliveryContract.workflow.id = 0; }, /positive integer/],
     ["expected job set", (value) => { value.deliveryContract.actualHeadJobs.pop(); }, /required job set/],
+    ["expected post job set", (value) => {
+      value.deliveryContract.postMergeJobs.pop();
+    }, /required job set/],
   ]) {
     const invalidExpectation = structuredClone(expectation);
     mutate(invalidExpectation);
@@ -1179,13 +1192,34 @@ test("exact GitHub ledger evidence gates terminal queue advancement and no-work 
     ["PR review", (value) => { value.pullRequest.review = "CHANGES_REQUESTED"; }, /pullRequest.review/],
     ["actual role", (value) => { value.actualHead.role = "PR_MERGE_COMPATIBILITY"; }, /actualHead.role/],
     ["actual event", (value) => { value.actualHead.event = "push"; }, /actualHead.event/],
+    ["actual workflow ID", (value) => { value.actualHead.workflowId = 7; }, /actualHead.workflowId/],
+    ["actual workflow name", (value) => { value.actualHead.workflowName = "Other"; }, /actualHead.workflowName/],
+    ["actual workflow path", (value) => { value.actualHead.workflowPath = "other.yml"; }, /actualHead.workflowPath/],
     ["actual run", (value) => { value.actualHead.runId = 0; }, /actualHead.runId/],
     ["actual attempt", (value) => { value.actualHead.runAttempt = 0; }, /actualHead.runAttempt/],
     ["actual run head", (value) => { value.actualHead.runHeadSha = "c".repeat(40); }, /runHeadSha/],
     ["actual expected checkout", (value) => { value.actualHead.jobs[0].expectedSha = "c".repeat(40); }, /expectedSha/],
     ["actual checkout", (value) => { value.actualHead.jobs[0].actualCheckoutSha = "c".repeat(40); }, /actualCheckoutSha/],
+    ["actual job ID", (value) => { value.actualHead.jobs[0].id = 0; }, /positive integer/],
+    ["actual job name", (value) => { value.actualHead.jobs[0].name = "Other"; }, /required job set/],
+    ["actual job key", (value) => { value.actualHead.jobs[0].key = ""; }, /key/],
     ["actual missing lane", (value) => { value.actualHead.jobs.pop(); }, /required job set/],
+    ["actual partial lane", (value) => {
+      delete value.actualHead.jobs[0].actualCheckoutSha;
+    }, /actualCheckoutSha/],
+    ["actual missing gate", (value) => {
+      delete value.actualHead.gateJob;
+    }, /actualHead.gateJob evidence is required/],
+    ["actual skipped gate", (value) => {
+      value.actualHead.gateJob.conclusion = "SKIPPED";
+    }, /must be SUCCESS/],
     ["merge role", (value) => { value.mergeCompatibility.role = "PR_ACTUAL_HEAD"; }, /mergeCompatibility.role/],
+    ["merge attempt mismatch", (value) => {
+      value.mergeCompatibility.runAttempt = 2;
+    }, /mergeCompatibility.runAttempt/],
+    ["merge missing job", (value) => {
+      delete value.mergeCompatibility.job;
+    }, /mergeCompatibility.job must be an object/],
     ["synthetic equals head", (value) => {
       value.mergeCompatibility.syntheticMergeSha = value.outcomeSha;
       value.mergeCompatibility.job.expectedSha = value.outcomeSha;
@@ -1199,9 +1233,26 @@ test("exact GitHub ledger evidence gates terminal queue advancement and no-work 
     ["merge SHA", (value) => { value.merge.sha = "short"; }, /merge.sha/],
     ["post event", (value) => { value.postMerge.event = "pull_request"; }, /postMerge.event/],
     ["post branch", (value) => { value.postMerge.branch = "release"; }, /postMerge.branch/],
+    ["post workflow path", (value) => {
+      value.postMerge.workflowPath = ".github/workflows/other.yml";
+    }, /postMerge.workflowPath/],
+    ["post attempt", (value) => { value.postMerge.runAttempt = 0; }, /postMerge.runAttempt/],
     ["post head", (value) => { value.postMerge.runHeadSha = "c".repeat(40); }, /postMerge.runHeadSha/],
     ["post run reuse", (value) => { value.postMerge.runId = value.actualHead.runId; }, /distinct from the pull-request run/],
     ["post checkout", (value) => { value.postMerge.jobs[0].actualCheckoutSha = "c".repeat(40); }, /actualCheckoutSha/],
+    ["post missing lane", (value) => { value.postMerge.jobs.pop(); }, /required job set/],
+    ["post partial lane", (value) => {
+      delete value.postMerge.jobs[0].expectedSha;
+    }, /expectedSha/],
+    ["post missing gate", (value) => {
+      delete value.postMerge.gateJob;
+    }, /postMerge.gateJob evidence is required/],
+    ["reused required gate", (value) => {
+      value.postMerge.gateJob.id = value.actualHead.gateJob.id;
+    }, /must not reuse a job ID/],
+    ["reused post job", (value) => {
+      value.postMerge.jobs[0].id = value.actualHead.jobs[0].id;
+    }, /must not reuse a job ID/],
     ["unknown field", (value) => { value.syntheticOnly = true; }, /unknown field syntheticOnly/],
   ];
   for (const [label, mutate, pattern] of invalidEvidenceCases) {
@@ -1568,7 +1619,9 @@ test("supplied CI, review, and identity failures block delivery resume", async (
   const expectation = deliveredExpectation();
   const cases = [
     ["PR CI failure", "DELIVERY_BLOCKED", (entry) => { entry.actualHead.jobs[0].conclusion = "FAILURE"; }, /reports FAILURE/],
+    ["PR CI skipped", "DELIVERY_EVIDENCE_INVALID", (entry) => { entry.actualHead.jobs[0].conclusion = "SKIPPED"; }, /must be SUCCESS/],
     ["merge compatibility failure", "DELIVERY_BLOCKED", (entry) => { entry.mergeCompatibility.job.conclusion = "FAILURE"; }, /reports FAILURE/],
+    ["merge compatibility skipped", "DELIVERY_EVIDENCE_INVALID", (entry) => { entry.mergeCompatibility.job.conclusion = "SKIPPED"; }, /must be SUCCESS/],
     ["required PR gate failure", "DELIVERY_BLOCKED", (entry) => { entry.actualHead.gateJob.conclusion = "FAILURE"; }, /reports FAILURE/],
     ["review blocker", "DELIVERY_BLOCKED", (entry) => { entry.pullRequest.review = "CHANGES_REQUESTED"; }, /reports CHANGES_REQUESTED/],
     ["repository drift", "DELIVERY_EVIDENCE_INVALID", (entry) => { entry.repository = "other/repository"; }, /trusted local expectation/],
@@ -1577,6 +1630,7 @@ test("supplied CI, review, and identity failures block delivery resume", async (
     ["head drift", "DELIVERY_EVIDENCE_INVALID", (entry) => { entry.pullRequest.headSha = "c".repeat(40); }, /pullRequest.headSha/],
     ["merge drift", "DELIVERY_EVIDENCE_INVALID", (entry) => { entry.postMerge.runHeadSha = "c".repeat(40); }, /postMerge.runHeadSha/],
     ["post-merge CI failure", "DELIVERY_BLOCKED", (entry) => { entry.postMerge.jobs[0].conclusion = "FAILURE"; }, /reports FAILURE/],
+    ["post-merge CI skipped", "DELIVERY_EVIDENCE_INVALID", (entry) => { entry.postMerge.jobs[0].conclusion = "SKIPPED"; }, /must be SUCCESS/],
     ["required main gate failure", "DELIVERY_BLOCKED", (entry) => { entry.postMerge.gateJob.conclusion = "FAILURE"; }, /reports FAILURE/],
   ];
 
