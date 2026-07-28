@@ -296,18 +296,21 @@ destructive, bypass, rerun, or unrelated-mutation boundaries.
 
 ```text
 actual PR head
-   ├─ every required Stable job checks out and asserts the exact head
-   └─ packed job checks out and asserts the exact head
+   ├─ every required behavioral job checks out and asserts the exact head
+   ├─ one quality job asserts the exact head
+   └─ the packed job asserts the exact head
 
 synthetic merge compatibility
-   └─ separate job asserts synthetic SHA and exact base/head parents
+   └─ separate job asserts synthetic SHA, exactly two ordered base/head
+      parents, then runs the complete combined-state check
 
 final reviewed merge
    └─ expected PR head merges to the protected base
 
 post-merge main
-   ├─ every required Stable job asserts the merge SHA
-   └─ packed job asserts the merge SHA
+   ├─ every required behavioral job asserts the merge SHA
+   ├─ one quality job asserts the merge SHA
+   └─ the packed job asserts the merge SHA
 ```
 
 Each role is bound to repository, workflow, run attempt, and distinct numeric
@@ -566,11 +569,14 @@ One credential-free workflow covers pull requests, `main` pushes, and manual
 dispatch with read-only repository permission, bounded timeouts, exact
 checkout assertions, and immutable external Action identities.
 
-Stable coverage runs Node.js 22 and 24 on Linux, macOS, and Windows, plus one
-bounded Linux Node.js 26 compatibility lane. A separate packed job inspects
-real archive bytes. Pull requests also run the distinct synthetic
-merge-compatibility job. An aggregate required job reports only after the
-event-appropriate roles succeed.
+Behavioral coverage runs `npm test` on Node.js 22 and 24 across Linux, macOS,
+and Windows, plus one bounded Linux Node.js 26 compatibility lane. One Ubuntu
+Node.js 24 quality job owns platform-independent lint, format, and package
+selection; a separate packed job creates and inspects one real archive. Pull
+requests also run the distinct synthetic merge-compatibility job, which proves
+the exact synthetic/base/head identities and ordered two-parent shape before
+the complete combined-state check. An aggregate required job reports only
+after the event-appropriate roles succeed.
 
 Public CI contains no npm publication, tag, Release, merge automation, model
 authentication, or desktop-only requirement. Exact-head PR and post-merge

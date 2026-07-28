@@ -83,14 +83,14 @@ export const VERIFICATION_COMMAND_REGISTRY = Object.freeze([
     id: "stable.test",
     tier: VERIFICATION_TIERS.STABLE,
     command: "npm test",
-    trigger: "The complete local Stable suite or a hosted Stable lane runs.",
+    trigger: "The complete local Stable suite, a hosted Behavioral lane, or merge check runs.",
     leafCommandCount: 1,
   },
   {
     id: "stable.lint",
     tier: VERIFICATION_TIERS.STABLE,
     command: "npm run lint",
-    trigger: "The complete local Stable suite or a hosted Stable lane runs.",
+    trigger: "The complete local Stable suite, hosted Quality job, or merge check runs.",
     leafCommandCount: 1,
   },
   {
@@ -105,14 +105,14 @@ export const VERIFICATION_COMMAND_REGISTRY = Object.freeze([
     tier: VERIFICATION_TIERS.STABLE,
     command: "GitHub PR CI at the exact head SHA",
     trigger: "Every pull request, regardless of the local Focused plan.",
-    leafCommandCount: 29,
+    leafCommandCount: 15,
   },
   {
     id: "stable.main",
     tier: VERIFICATION_TIERS.STABLE,
     command: "GitHub main CI at the exact merge SHA",
     trigger: "Every push to main after merge.",
-    leafCommandCount: 29,
+    leafCommandCount: 11,
   },
   {
     id: "release.candidate",
@@ -331,10 +331,19 @@ export function planVerification({ changedPaths, releaseCandidate = false } = {}
     leafCommandCount,
     hosted: Object.freeze({
       required: true,
-      stableLanes: 7,
-      commandsPerStableLane: 4,
+      behavioralLanes: 7,
+      commandsPerBehavioralLane: 1,
+      qualityJobs: 1,
+      commandsPerQualityJob: 3,
       candidateJobs: 1,
-      leafCommandCount: 29,
+      commandsPerCandidateJob: 1,
+      mergeCompatibilityJobs: 1,
+      commandsPerMergeCompatibilityJob: 4,
+      requiredJobs: 1,
+      pullRequestJobInstances: 11,
+      pullRequestLeafCommandCount: 15,
+      mainJobInstances: 10,
+      mainLeafCommandCount: 11,
       pullRequest: "GitHub PR CI at the exact head SHA",
       main: "GitHub main CI at the exact merge SHA",
     }),
@@ -364,7 +373,7 @@ function formatText(plan) {
     lines.push(`${index + 1}. [${command.tier}] ${command.command}`);
   });
   lines.push(
-    `Hosted Stable remains required: ${plan.hosted.stableLanes} lanes × ${plan.hosted.commandsPerStableLane} commands + ${plan.hosted.candidateJobs} candidate job = ${plan.hosted.leafCommandCount} leaf commands before the aggregate gate.`,
+    `Hosted exact-SHA CI remains required: PR ${plan.hosted.pullRequestJobInstances} jobs / ${plan.hosted.pullRequestLeafCommandCount} leaf commands; main ${plan.hosted.mainJobInstances} jobs / ${plan.hosted.mainLeafCommandCount} leaf commands.`,
   );
   return lines.join("\n");
 }

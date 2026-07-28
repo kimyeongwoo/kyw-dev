@@ -110,11 +110,18 @@ function assertRetentionContract(candidate) {
   assert.equal(packageJson.scripts.test, "node --test", "npm test uses default discovery");
   assert.equal(
     (workflow.match(/^\s+run: npm test\s*$/gmu) ?? []).length,
-    2,
-    "hosted CI reaches npm test through actual-head and merge-compatibility boundaries",
+    1,
+    "the behavioral matrix reaches npm test directly",
   );
+  assert.equal(
+    packageJson.scripts.check,
+    "npm test && npm run lint && npm run format:check && npm run pack:check",
+    "the synthetic merge complete check reaches every retained test through npm run check",
+  );
+  assert.match(workflow, /^  behavioral:\s*$/mu);
   assert.match(workflow, /^  merge-compatibility:\s*$/mu);
   assert.match(workflow, /role=PR_MERGE_COMPATIBILITY/u);
+  assert.match(workflow, /^\s+run: npm run check\s*$/mu);
 
   const validatorPath = path
     .relative(repositoryRoot, fileURLToPath(import.meta.url))

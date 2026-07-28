@@ -26,7 +26,7 @@ const expectedActionPins = new Map([
     Object.freeze({
       sha: "d23441a48e516b6c34aea4fa41551a30e30af803",
       version: "v6.1.0",
-      uses: 3,
+      uses: 4,
     }),
   ],
   [
@@ -34,10 +34,29 @@ const expectedActionPins = new Map([
     Object.freeze({
       sha: "249970729cb0ef3589644e2896645e5dc5ba9c38",
       version: "v6.5.0",
-      uses: 3,
+      uses: 4,
     }),
   ],
 ]);
+const expectedBehavioralLanes = Object.freeze([
+  Object.freeze({ label: "Ubuntu / Node 22.x", os: "ubuntu-latest", node: "22.x" }),
+  Object.freeze({ label: "macOS / Node 22.x", os: "macos-latest", node: "22.x" }),
+  Object.freeze({ label: "Windows / Node 22.x", os: "windows-latest", node: "22.x" }),
+  Object.freeze({ label: "Ubuntu / Node 24.x", os: "ubuntu-latest", node: "24.x" }),
+  Object.freeze({ label: "macOS / Node 24.x", os: "macos-latest", node: "24.x" }),
+  Object.freeze({ label: "Windows / Node 24.x", os: "windows-latest", node: "24.x" }),
+  Object.freeze({
+    label: "Ubuntu / Node 26.x compatibility",
+    os: "ubuntu-latest",
+    node: "26.x",
+  }),
+]);
+const baselinePullRequestTopology = Object.freeze({
+  hostedJobInstances: 10,
+  leafRepositoryCommands: 33,
+  calculation:
+    "7 Stable lanes × 4 commands + 1 packed command + 4 merge commands + Required",
+});
 
 function jobBody(name, nextName, workflowText = workflow) {
   const startMarker = `  ${name}:\n`;
@@ -74,7 +93,7 @@ function assertImmutableOfficialActionPins(workflowText) {
       /^\s*uses:\s+([^@\s]+)@([^\s#]+)(?:\s+#\s+(\S+))?\s*$/gm,
     ),
   ].map(([, action, ref, version]) => ({ action, ref, version }));
-  assert.equal(references.length, 6, "every external Action use must be provenance-checked");
+  assert.equal(references.length, 8, "every external Action use must be provenance-checked");
 
   const usesByAction = new Map();
   for (const reference of references) {
@@ -94,8 +113,51 @@ function assertImmutableOfficialActionPins(workflowText) {
   }
 }
 
-function assertExactCheckoutEvidenceTopology(workflowText) {
-  const stable = jobBody("stable", "packed-release", workflowText);
+function repositoryRunCommands(jobText) {
+  return [...jobText.matchAll(/^        run: (npm (?:test|run [a-z][a-z:-]*))$/gm)].map(
+    ([, command]) => command,
+  );
+}
+
+function expandLeafCommands(commands, scripts = packageJson.scripts) {
+  return commands.flatMap((command) => {
+    if (command !== "npm run check") return [command];
+    return scripts.check.split(" && ");
+  });
+}
+
+function behavioralLanes(workflowText = workflow) {
+  const behavioral = jobBody("behavioral", "quality", workflowText);
+  return [...behavioral.matchAll(/- label: (.+)\n\s+os: (.+)\n\s+node: (.+)/g)].map(
+    ([, label, os, node]) => ({ label, os, node }),
+  );
+}
+
+function assertBehavioralMatrix(workflowText = workflow) {
+  assert.deepEqual(behavioralLanes(workflowText), expectedBehavioralLanes);
+}
+
+function calculatePullRequestTopology(workflowText = workflow, scripts = packageJson.scripts) {
+  const jobsText = workflowText.slice(workflowText.indexOf("\njobs:\n") + "\njobs:\n".length);
+  const jobNames = [...jobsText.matchAll(/^  ([a-z][a-z-]+):$/gm)].map(
+    ([, name]) => name,
+  );
+  const laneCount = behavioralLanes(workflowText).length;
+  const hostedJobInstances = jobNames.reduce(
+    (total, name) => total + (name === "behavioral" ? laneCount : 1),
+    0,
+  );
+  const leafRepositoryCommands = jobNames.reduce((total, name, index) => {
+    const body = jobBody(name, jobNames[index + 1], workflowText);
+    const multiplier = name === "behavioral" ? laneCount : 1;
+    return total + expandLeafCommands(repositoryRunCommands(body), scripts).length * multiplier;
+  }, 0);
+  return Object.freeze({ hostedJobInstances, leafRepositoryCommands });
+}
+
+function assertCommandTopology(workflowText = workflow, scripts = packageJson.scripts) {
+  const behavioral = jobBody("behavioral", "quality", workflowText);
+  const quality = jobBody("quality", "packed-release", workflowText);
   const packed = jobBody("packed-release", "merge-compatibility", workflowText);
   const mergeCompatibility = jobBody(
     "merge-compatibility",
@@ -103,10 +165,74 @@ function assertExactCheckoutEvidenceTopology(workflowText) {
     workflowText,
   );
   const required = jobBody("required", undefined, workflowText);
+  assert.deepEqual(repositoryRunCommands(behavioral), ["npm test"]);
+  assert.deepEqual(repositoryRunCommands(quality), [
+    "npm run lint",
+    "npm run format:check",
+    "npm run pack:check",
+  ]);
+  assert.deepEqual(repositoryRunCommands(packed), ["npm run release:candidate"]);
+  assert.deepEqual(repositoryRunCommands(mergeCompatibility), ["npm run check"]);
+  assert.deepEqual(repositoryRunCommands(required), []);
+  assert.equal(
+    scripts.check,
+    "npm test && npm run lint && npm run format:check && npm run pack:check",
+    "the complete combined-state wrapper must expose all four leaf commands",
+  );
+
+  const metrics = calculatePullRequestTopology(workflowText, scripts);
+  assert.deepEqual(metrics, {
+    hostedJobInstances: 11,
+    leafRepositoryCommands: 15,
+  });
+  const reduction =
+    ((baselinePullRequestTopology.leafRepositoryCommands -
+      metrics.leafRepositoryCommands) /
+      baselinePullRequestTopology.leafRepositoryCommands) *
+    100;
+  assert.ok(reduction >= 45, `leaf-command reduction ${reduction.toFixed(1)}% is below 45%`);
+  return metrics;
+}
+
+function assertRequiredGateTopology(workflowText = workflow) {
+  const required = jobBody("required", undefined, workflowText);
+  assert.match(
+    required,
+    /needs:\n      - behavioral\n      - quality\n      - packed-release\n      - merge-compatibility/,
+  );
+  for (const [variable, need] of [
+    ["BEHAVIORAL_RESULT", "behavioral"],
+    ["QUALITY_RESULT", "quality"],
+    ["PACKED_RESULT", "packed-release"],
+    ["MERGE_COMPATIBILITY_RESULT", "merge-compatibility"],
+  ]) {
+    assert.match(
+      required,
+      new RegExp(`${variable}: \\$\\{\\{ needs\\.${need}\\.result \\}\\}`),
+    );
+  }
+  for (const variable of ["BEHAVIORAL_RESULT", "QUALITY_RESULT", "PACKED_RESULT"]) {
+    assert.match(required, new RegExp(`test "\\$${variable}" = "success"`));
+  }
+  assert.match(required, /if test "\$EVENT_NAME" = "pull_request"; then/);
+  assert.match(required, /test "\$MERGE_COMPATIBILITY_RESULT" = "success"/);
+  assert.match(required, /test "\$MERGE_COMPATIBILITY_RESULT" = "skipped"/);
+}
+
+function assertExactCheckoutEvidenceTopology(workflowText) {
+  const behavioral = jobBody("behavioral", "quality", workflowText);
+  const quality = jobBody("quality", "packed-release", workflowText);
+  const packed = jobBody("packed-release", "merge-compatibility", workflowText);
+  const mergeCompatibility = jobBody(
+    "merge-compatibility",
+    "required",
+    workflowText,
+  );
   const actualHeadRef =
     "ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}";
   for (const [label, body] of [
-    ["stable", stable],
+    ["behavioral", behavioral],
+    ["quality", quality],
     ["packed-release", packed],
   ]) {
     const checkout = stepBody(
@@ -131,8 +257,16 @@ function assertExactCheckoutEvidenceTopology(workflowText) {
     );
     assert.match(body, /role=%s repository=%s event=%s pr=%s workflow=%s run_id=%s run_attempt=%s job=%s expected_sha=%s actual_sha=%s/);
     assert.match(body, /test "\$actual_sha" = "\$EXPECTED_SHA"/);
+    assert.match(
+      body,
+      /EXPECTED_SHA: \$\{\{ github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.sha \|\| github\.sha \}\}/,
+    );
     assert.match(body, /'PR_ACTUAL_HEAD'/);
     assert.match(body, /'POST_MERGE_MAIN'/);
+    assert.ok(
+      body.indexOf("Assert checkout identity") < body.search(/^        run: npm /m),
+      `${label} must prove checkout identity before its first repository command`,
+    );
   }
 
   assert.match(
@@ -165,7 +299,13 @@ function assertExactCheckoutEvidenceTopology(workflowText) {
     mergeAssertion,
     /EXPECTED_HEAD_SHA: \$\{\{ github\.event\.pull_request\.head\.sha \}\}/,
   );
-  assert.match(mergeAssertion, /git show --no-patch --format=%P HEAD/);
+  assert.match(
+    mergeAssertion,
+    /read -r -a actual_parents <<<"\$\(git show --no-patch --format=%P HEAD\)"/,
+  );
+  assert.match(mergeAssertion, /test "\$\{#actual_parents\[@\]\}" -eq 2/);
+  assert.match(mergeAssertion, /actual_base_sha="\$\{actual_parents\[0\]\}"/);
+  assert.match(mergeAssertion, /actual_head_sha="\$\{actual_parents\[1\]\}"/);
   assert.match(
     mergeAssertion,
     /test "\$actual_sha" = "\$EXPECTED_SYNTHETIC_SHA"/,
@@ -178,27 +318,13 @@ function assertExactCheckoutEvidenceTopology(workflowText) {
     mergeAssertion,
     /test "\$actual_head_sha" = "\$EXPECTED_HEAD_SHA"/,
   );
-  assert.match(mergeAssertion, /test -z "\$\{extra_parent:-\}"/);
-  for (const command of [
-    "npm test",
-    "npm run lint",
-    "npm run format:check",
-    "npm run pack:check",
-  ]) {
-    assert.equal(
-      mergeCompatibility.split(`run: ${command}`).length - 1,
-      1,
-      `merge compatibility must run ${command}`,
-    );
-  }
-
-  assert.match(required, /- merge-compatibility/);
-  assert.match(
-    required,
-    /MERGE_COMPATIBILITY_RESULT: \$\{\{ needs\.merge-compatibility\.result \}\}/,
+  assert.deepEqual(repositoryRunCommands(mergeCompatibility), ["npm run check"]);
+  assert.ok(
+    mergeCompatibility.indexOf("Assert synthetic merge identity and parents") <
+      mergeCompatibility.search(/^        run: npm /m),
+    "merge compatibility must prove synthetic identity before the complete check",
   );
-  assert.match(required, /test "\$MERGE_COMPATIBILITY_RESULT" = "success"/);
-  assert.match(required, /test "\$MERGE_COMPATIBILITY_RESULT" = "skipped"/);
+  assertRequiredGateTopology(workflowText);
 }
 
 test("CI triggers, permissions, concurrency, and credentials are safe for public pull requests", () => {
@@ -210,37 +336,93 @@ test("CI triggers, permissions, concurrency, and credentials are safe for public
   assertExactCheckoutEvidenceTopology(workflow);
   assert.doesNotMatch(workflow, /pull_request_target|\bsecrets\.|\bpermissions:[\s\S]*?\bwrite\b/);
   assert.doesNotMatch(workflow, /npm publish|npm token|NODE_AUTH_TOKEN|CODEX_(?:API_KEY|HOME)/i);
-  assert.equal((workflow.match(/persist-credentials: false/g) ?? []).length, 3);
-  assert.equal((workflow.match(/package-manager-cache: false/g) ?? []).length, 3);
+  assert.equal((workflow.match(/persist-credentials: false/g) ?? []).length, 4);
+  assert.equal((workflow.match(/package-manager-cache: false/g) ?? []).length, 4);
 });
 
-test("CI runs every stable command on the complete LTS matrix and one bounded Node 26 lane", () => {
+test("CI retains the complete behavioral matrix and isolates platform-independent quality", () => {
   assert.equal(packageJson.engines.node, ">=22");
-  const stable = jobBody("stable", "packed-release");
-  const lanes = [...stable.matchAll(/- label: (.+)\n\s+os: (.+)\n\s+node: (.+)/g)].map(
-    ([, label, os, node]) => ({ label, os, node }),
-  );
-  assert.deepEqual(lanes, [
-    { label: "Ubuntu / Node 22.x", os: "ubuntu-latest", node: "22.x" },
-    { label: "macOS / Node 22.x", os: "macos-latest", node: "22.x" },
-    { label: "Windows / Node 22.x", os: "windows-latest", node: "22.x" },
-    { label: "Ubuntu / Node 24.x", os: "ubuntu-latest", node: "24.x" },
-    { label: "macOS / Node 24.x", os: "macos-latest", node: "24.x" },
-    { label: "Windows / Node 24.x", os: "windows-latest", node: "24.x" },
-    {
-      label: "Ubuntu / Node 26.x compatibility",
-      os: "ubuntu-latest",
-      node: "26.x",
-    },
+  const behavioral = jobBody("behavioral", "quality");
+  const quality = jobBody("quality", "packed-release");
+  assertBehavioralMatrix();
+  assert.deepEqual(repositoryRunCommands(behavioral), ["npm test"]);
+  assert.deepEqual(repositoryRunCommands(quality), [
+    "npm run lint",
+    "npm run format:check",
+    "npm run pack:check",
   ]);
-  for (const command of ["npm test", "npm run lint", "npm run format:check", "npm run pack:check"]) {
-    assert.equal(stable.split(`run: ${command}`).length - 1, 1, `stable job must run ${command}`);
+  assert.match(behavioral, /uses: actions\/checkout@[0-9a-f]{40} # v6\.1\.0/);
+  assert.match(behavioral, /uses: actions\/setup-node@[0-9a-f]{40} # v6\.5\.0/);
+  assert.match(behavioral, /timeout-minutes: 20/);
+  assert.match(behavioral, /fail-fast: false/);
+  assert.match(quality, /name: Quality \/ Ubuntu \/ Node 24\.x/);
+  assert.match(quality, /runs-on: ubuntu-latest/);
+  assert.match(quality, /node-version: 24\.x/);
+  assert.match(quality, /timeout-minutes: 15/);
+  assert.doesNotMatch(`${behavioral}\n${quality}`, /npm (?:ci|install)/);
+
+  for (const lane of expectedBehavioralLanes) {
+    const laneBlock =
+      `          - label: ${lane.label}\n` +
+      `            os: ${lane.os}\n` +
+      `            node: ${lane.node}`;
+    for (const [field, replacement] of [
+      ["label", `${lane.label} changed`],
+      ["os", "unsupported-runner"],
+      ["node", "99.x"],
+    ]) {
+      const mutatedBlock = laneBlock.replace(
+        `${field}: ${lane[field]}`,
+        `${field}: ${replacement}`,
+      );
+      const variant = workflow.replace(laneBlock, mutatedBlock);
+      assert.notEqual(variant, workflow, `${lane.label} block must exist`);
+      assert.throws(() => assertBehavioralMatrix(variant), `${lane.label} ${field}`);
+    }
   }
-  assert.match(stable, /uses: actions\/checkout@[0-9a-f]{40} # v6\.1\.0/);
-  assert.match(stable, /uses: actions\/setup-node@[0-9a-f]{40} # v6\.5\.0/);
-  assert.match(stable, /timeout-minutes: 20/);
-  assert.match(stable, /fail-fast: false/);
-  assert.doesNotMatch(stable, /npm (?:ci|install)/);
+});
+
+test("CI command graph records the 10/33 baseline and reduces leaf duplication by 54.5%", () => {
+  assert.deepEqual(baselinePullRequestTopology, {
+    hostedJobInstances: 10,
+    leafRepositoryCommands: 33,
+    calculation:
+      "7 Stable lanes × 4 commands + 1 packed command + 4 merge commands + Required",
+  });
+  const metrics = assertCommandTopology();
+  assert.equal(metrics.hostedJobInstances, 11);
+  assert.equal(metrics.leafRepositoryCommands, 15);
+  assert.equal(
+    (
+      ((baselinePullRequestTopology.leafRepositoryCommands -
+        metrics.leafRepositoryCommands) /
+        baselinePullRequestTopology.leafRepositoryCommands) *
+      100
+    ).toFixed(1),
+    "54.5",
+  );
+
+  const invalidCommandGraphs = [
+    workflow.replace("        run: npm test\n", ""),
+    workflow.replace("        run: npm test\n", "        run: npm test\n        run: npm test\n"),
+    workflow.replace("        run: npm run lint\n", ""),
+    workflow.replace("        run: npm run format:check\n", ""),
+    workflow.replace("        run: npm run pack:check\n", ""),
+    workflow.replace("        run: npm run release:candidate\n", ""),
+    workflow.replace("        run: npm run release:candidate\n", "        run: npm run check\n"),
+    workflow.replace("        run: npm run check\n", "        run: npm test\n"),
+    workflow.replace(
+      "        run: npm run lint\n",
+      "        run: npm run lint\n        run: npm run lint\n",
+    ),
+  ];
+  for (const variant of invalidCommandGraphs) {
+    assert.throws(() => assertCommandTopology(variant));
+  }
+
+  const incompleteScripts = structuredClone(packageJson.scripts);
+  incompleteScripts.check = "npm test && npm run lint && npm run format:check";
+  assert.throws(() => assertCommandTopology(workflow, incompleteScripts));
 });
 
 test("CI regression guards reject movable Action refs and unsafe event concurrency", () => {
@@ -268,6 +450,14 @@ test("CI regression guards reject movable Action refs and unsafe event concurren
       "ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}",
       "ref: ${{ github.sha }}",
     ),
+    workflow.replace(
+      "EXPECTED_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}",
+      "EXPECTED_SHA: ${{ github.sha }}",
+    ),
+    workflow.replace(
+      "      - name: Assert checkout identity\n",
+      "      - name: Premature repository command\n        run: npm test\n      - name: Assert checkout identity\n",
+    ),
     workflow.replace('test "$actual_sha" = "$EXPECTED_SHA"', "true"),
     workflow.replace("role=PR_MERGE_COMPATIBILITY", "role=PR_ACTUAL_HEAD"),
     workflow.replace("          fetch-depth: 2\n", ""),
@@ -294,14 +484,25 @@ test("CI regression guards reject movable Action refs and unsafe event concurren
       'git show --no-patch --format=%P HEAD',
       'printf ""',
     ),
+    workflow.replace('test "${#actual_parents[@]}" -eq 2', "true"),
+    workflow.replace('actual_base_sha="${actual_parents[0]}"', "actual_base_sha="),
+    workflow.replace('actual_head_sha="${actual_parents[1]}"', "actual_head_sha="),
     workflow.replace(
       'test "$actual_sha" = "$EXPECTED_SYNTHETIC_SHA"',
       "true",
     ),
     workflow.replace('test "$actual_base_sha" = "$EXPECTED_BASE_SHA"', "true"),
     workflow.replace('test "$actual_head_sha" = "$EXPECTED_HEAD_SHA"', "true"),
-    workflow.replace('test -z "${extra_parent:-}"', "true"),
+    workflow.replace("      - behavioral\n", ""),
+    workflow.replace("      - quality\n", ""),
     workflow.replace("      - merge-compatibility\n", ""),
+    workflow.replace(
+      "QUALITY_RESULT: ${{ needs.quality.result }}",
+      "QUALITY_RESULT: ${{ needs.behavioral.result }}",
+    ),
+    workflow.replace('test "$BEHAVIORAL_RESULT" = "success"', "true"),
+    workflow.replace('test "$QUALITY_RESULT" = "success"', "true"),
+    workflow.replace('test "$PACKED_RESULT" = "success"', "true"),
     workflow.replace(
       'test "$MERGE_COMPATIBILITY_RESULT" = "success"',
       'test "$MERGE_COMPATIBILITY_RESULT" = "skipped"',
@@ -322,10 +523,10 @@ test("packed release and aggregate gates are credential-free and agree with pack
   assert.match(packed, /runs-on: ubuntu-latest/);
   assert.match(packed, /node-version: 24\.x/);
   assert.match(packed, /timeout-minutes: 25/);
-  assert.match(packed, /run: npm run release:candidate/);
+  assert.deepEqual(repositoryRunCommands(packed), ["npm run release:candidate"]);
   assert.doesNotMatch(packed, /run: npm run (?:check|release:ci)/);
   assert.match(required, /if: \$\{\{ always\(\) \}\}/);
-  assert.match(required, /- stable\n      - packed-release\n      - merge-compatibility/);
+  assertRequiredGateTopology();
   assert.match(required, /timeout-minutes: 5/);
   assert.equal(
     packageJson.scripts["release:candidate"],
@@ -339,5 +540,8 @@ test("packed release and aggregate gates are credential-free and agree with pack
     packageJson.scripts["release:check"],
     "npm run release:ci && npm publish --dry-run --json",
   );
-  assert.doesNotMatch(packed, /npm publish|secrets\./);
+  assert.doesNotMatch(
+    packed,
+    /npm publish|npm login|npm whoami|npm view|npm version|registry|NODE_AUTH_TOKEN|secrets\./i,
+  );
 });

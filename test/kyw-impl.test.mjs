@@ -251,6 +251,7 @@ test("kyw-impl collects hardened role-separated delivery evidence without legacy
   assert.match(execution, /`PR_MERGE_COMPATIBILITY`/);
   assert.match(execution, /`POST_MERGE_MAIN`/);
   assert.match(execution, /`KYWCIEVIDENCE`/);
+  assert.match(execution, /behavioral\/quality\/packed job-name sets/);
   assert.match(execution, /successful job at only `refs\/pull\/<number>\/merge`/);
   assert.match(execution, /do not rerun CI/i);
   assert.match(execution, /`LEGACY_PRE_CONTRACT`/);
