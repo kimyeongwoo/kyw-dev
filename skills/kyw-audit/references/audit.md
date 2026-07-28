@@ -25,11 +25,22 @@ Surrounding prose may narrow scope or provide evidence. It cannot upgrade a bare
 ## Establish an independent baseline
 
 1. Resolve the target repository and exactly one `docs/tasks/NNNN-*/` directory. A missing or duplicate ID is a blocking finding; never choose by title, timestamp, or apparent relevance.
-2. Read the audited `TASK.md` and `TEST.md`, the applicable `AGENTS.md`, the four permanent documents, explicitly named dependencies, and only the implementation, tests, manifests, or configuration needed to evaluate this Task. Do not load unrelated completed or future Tasks.
-3. Inspect version-control status with non-mutating options before any possible repair. Inspect the relevant staged and unstaged diff, Task baseline or comparison commit when recorded, and only the history needed to attribute current changes. Separate pre-existing or user-authored changes from work attributable to the audited Task. Disable optional Git locks or refresh writes when the environment supports it.
-4. If Git metadata or a recorded comparison point is unavailable, record the limitation and use the safest authorized reproducible substitute, such as a pre-change snapshot, supplied patch, release artifact, file inventory, or hashes. Return `BLOCKED` when the substitute cannot establish the scope and behavior needed for this audit; never imply that Git state or history was recovered.
-5. Run the repository's Task/Test contract validator when available. Independently compare status, acceptance criteria, scope, Decisions, Discoveries, Documentation Impact, Completed, Remaining, Resume Point, Blockers, matrix rows, Commands, Results, Unverified, and Final Coverage Review with the repository. A validator pass is useful evidence, not a substitute for this audit.
-6. Inventory the changed paths, observable behaviors, branches and error paths, permanent-document claims, test commands, package effects, and recorded limitations that the final verdict must cover.
+2. Always read the audited `TASK.md` and `TEST.md`, every applicable
+   `AGENTS.md`, and explicitly named dependencies. Do not load unrelated
+   completed or future Tasks.
+3. Index or search headings in README, SPEC, and ARCHITECTURE. Use the audited
+   Goal, scope, Documentation Impact, changed paths, and relevant code
+   dependencies to read only the owning permanent-document sections required
+   for comparison.
+4. Escalate to a full read of all four permanent documents for initialization
+   or rebaseline history, major redesign, broad cross-owner scope, source
+   conflict, ambiguous or missing ownership, or truth that targeted sections
+   cannot establish. Stop with `BLOCKED` when a source conflict remains
+   unresolved.
+5. Inspect version-control status with non-mutating options before any possible repair. Inspect the relevant staged and unstaged diff, Task baseline or comparison commit when recorded, and only the history needed to attribute current changes. Separate pre-existing or user-authored changes from work attributable to the audited Task. Disable optional Git locks or refresh writes when the environment supports it.
+6. If Git metadata or a recorded comparison point is unavailable, record the limitation and use the safest authorized reproducible substitute, such as a pre-change snapshot, supplied patch, release artifact, file inventory, or hashes. Return `BLOCKED` when the substitute cannot establish the scope and behavior needed for this audit; never imply that Git state or history was recovered.
+7. Run the repository's Task/Test contract validator when available. Independently compare status, acceptance criteria, scope, Decisions, Discoveries, Documentation Impact, Completed, Remaining, Resume Point, Blockers, matrix rows, Commands, Results, Unverified, and Final Coverage Review with the repository. A validator pass is useful evidence, not a substitute for this audit.
+8. Inventory the changed paths, observable behaviors, branches and error paths, permanent-document claims, test commands, package effects, and recorded limitations that the final verdict must cover.
 
 If permanent sources conflict materially, record the competing claims and return `BLOCKED`. Do not silently select one or repair code against an unsettled source.
 

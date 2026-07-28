@@ -1,6 +1,6 @@
 ---
 name: kyw-task
-description: Author a complete dependency-aware kyw-dev Task/Test set or finish one DRAFT pair. Use only for explicit $kyw-task authoring; do not use for implementation, delivery, ordinary prompts, audits, installation, or backlog creation.
+description: Author a complete dependency-aware kyw-dev Task/Test set or finish one DRAFT pair. Use only for explicit $kyw-task authoring; do not use for implementation, delivery.
 ---
 
 # kyw Task Authoring
@@ -9,27 +9,35 @@ description: Author a complete dependency-aware kyw-dev Task/Test set or finish 
 
 A goal-style explicit `$kyw-task` always publishes the smallest justified complete `READY/READY` pair set and stops.
 
-Accept `$kyw-task NNNN` only for one existing `DRAFT/DRAFT` pair. For any other state, make no change and return the exact `$kyw-impl NNNN` migration command. The three managed Korean execution aliases belong to `kyw-impl` repository routing and never invoke this Skill.
+Accept `$kyw-task NNNN` only for one `DRAFT/DRAFT` pair. For any other state, make no change and return the exact `$kyw-impl NNNN` migration command. The managed Korean execution aliases belong to `kyw-impl` and never invoke this Skill.
 
-Keep `allow_implicit_invocation: false`; incidental “task” prose remains ordinary. `create-only` is redundant. A create-and-execute request still stops after authoring and requires a new explicit `$kyw-impl NNNN`. Ask one question with one recommendation only for a real blocker.
+Keep `allow_implicit_invocation: false`; incidental “task” prose remains ordinary. A create-and-execute request stops after authoring and needs a new `$kyw-impl NNNN`.
 
 This Skill owns inspection, adaptive decomposition, genuine Task-level grilling, atomic allocation, complete pair validation/publication, reporting, and legacy DRAFT authoring.
 
-For a new outcome, mutate only the returned pair set. Do not edit implementation, tests, configuration, package metadata, permanent documents, existing Tasks, Git/PR/CI, or delivery state. Record expected documentation impact; `kyw-impl` owns actual synchronization. Never auto-invoke another Skill.
+For a new outcome, mutate only the returned pair set. Do not edit implementation, tests, configuration, permanent documents, existing Tasks, Git/PR/CI, or delivery. Record expected documentation impact; `kyw-impl` owns actual synchronization. Never auto-invoke another Skill.
 
 ## Inspect without writing
 
-1. Resolve the repository and applicable `AGENTS.md`.
-2. Read `README.md`, `AGENTS.md`, `docs/SPEC.md`, and `docs/ARCHITECTURE.md`; stop on conflict.
-3. Inspect only relevant code, tests, manifests, commands, Git state, Task inventory, and dependencies. Preserve user work; do not ask for inspectable facts.
-4. Check creation residue/lock, queue validity, and active-Task state.
-5. Separate settled facts and current-user decisions from genuine unresolved Task decisions.
+1. Read every applicable `AGENTS.md` and any selected/current Task/Test pair.
+2. Index or search headings in `README.md`, `docs/SPEC.md`, and
+   `docs/ARCHITECTURE.md`. Map the requested goal, existing Goal/scope,
+   Documentation Impact, changed code, and dependency direction to only the
+   owning permanent-document sections needed for authoring.
+3. Fully read all existing permanent documents for rebaseline, major redesign,
+   broad cross-owner scope, source conflict, ambiguous or missing ownership, or
+   insufficient targeted truth. Stop if a conflict remains unresolved.
+4. Inspect only relevant code, tests, manifests, commands, Git state, Task
+   inventory, and dependencies. Preserve user work; do not ask for inspectable facts.
+5. Check creation residue/lock, queue validity, and active-Task state.
+6. Separate settled facts and current-user decisions from genuine unresolved
+   Task decisions.
 
 Do not create `docs/`, `docs/tasks/`, a lock, a scratch file, or a Task artifact during inspection.
 
 ## Derive and settle the pair set
 
-Keep one pair for one independently verifiable outcome and coherent acceptance set. Split only for independently shippable outcomes, separate acceptance/decisions, dependency order, or unsafe session scope—never file count or guessed tokens.
+Keep one pair per independently verifiable outcome. Split only for independently shippable outcomes, separate acceptance/decisions, dependency order, or work likely to require more than one compaction—never file count or guessed tokens.
 
 Preserve explicit count, boundaries, order, titles, and dependencies when truthful, verifiable, consistent, and safe. Otherwise state the conflict and minimum safe alternative; ask only when the user must choose.
 
@@ -62,7 +70,7 @@ Call the single packaged adapter once for the complete set:
 node <kyw-task-skill-directory>/scripts/task-artifacts.mjs create-batch --tasks-root <repository>/docs/tasks (--batch-json <json> | --batch-file <existing external scratch path>)
 ```
 
-Use an external file for multi-pair or large input and never put it in the repository. The shared core prevalidates every pair/edge, allocates identities, acquires one versioned manifest/lock, rechecks queue, dependency sources, targets, and prepared hashes, and publishes the whole set. Expected failure rolls back batch-owned final paths only with complete ownership proof; otherwise it preserves evidence and readers fail closed.
+Use an external file for multi-pair or large input, never the repository. The core prevalidates pairs/edges, allocates IDs, acquires one manifest/lock, rechecks queue, sources, targets, and hashes, then publishes. Expected failure rolls back batch-owned final paths only with complete ownership proof; otherwise evidence remains and readers fail closed.
 
 On success, validate every returned path, prove one marker occurrence per file and no transaction residue, and do not post-edit. On failure, do not retry, reuse an ID, hand-create a replacement, or implement.
 

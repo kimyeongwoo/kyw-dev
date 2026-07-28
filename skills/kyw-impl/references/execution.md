@@ -23,11 +23,19 @@ This reference is the canonical detailed execution procedure. `AGENTS.md` owns r
 ## Establish the repository state
 
 1. Resolve the repository and use the packaged dispatch result for exactly one `docs/tasks/NNNN-*/` directory. Treat a missing or duplicate ID, inconsistent status pair, dependency error, cycle, or multiple active Tasks as a blocker; do not guess from titles or timestamps.
-2. Read the current `TASK.md`, matching `TEST.md`, the four permanent documents, explicitly named Task dependencies, applicable repository instructions, and only the implementation/tests needed for this Task. Do not load unrelated completed or future Task contents.
-3. Inspect version-control status and the relevant diff before mutation. Separate pre-existing changes from work owned by this execution. If version-control metadata is unavailable, record that limitation and establish the safest available baseline within the authorized scope without claiming Git state.
-4. Run the packaged validator against the pair. Compare its status, acceptance criteria, Plan, Decisions, Discoveries, Completed, Remaining, Resume Point, and Blockers with the files and repository state. Also compare every Test row, command, result, and unverified item with available evidence.
-5. Stop and reconcile a conflict among permanent sources, the Task/Test pair, or the repository before implementation. Never silently choose a convenient claim.
-6. Pass verified conflict, unexplained work, remote drift, or unresolved decisions as execution-preflight findings; empty means checked and clear.
+2. Read applicable repository instructions, the current `TASK.md` and
+   `TEST.md`, and named Task dependencies; omit unrelated completed/future
+   Tasks.
+3. Index or search headings in README, SPEC, and ARCHITECTURE. Map Goal, scope,
+   Documentation Impact, changed paths, and code dependencies to only the
+   owning permanent-document sections.
+4. Fully read all four permanent documents for rebaseline, major redesign,
+   broad cross-owner scope, source conflict, ambiguous or missing ownership, or
+   insufficient targeted truth. Stop if a conflict remains unresolved.
+5. Inspect version-control status and the relevant diff before mutation. Separate pre-existing changes from work owned by this execution. If version-control metadata is unavailable, record that limitation and establish the safest available baseline within the authorized scope without claiming Git state.
+6. Run the packaged validator against the pair. Compare its status, acceptance criteria, Plan, Decisions, Discoveries, Completed, Remaining, Resume Point, and Blockers with the files and repository state. Also compare every Test row, command, result, and unverified item with available evidence.
+7. Stop and reconcile a conflict among permanent sources, the Task/Test pair, or the repository before implementation. Never silently choose a convenient claim.
+8. Pass verified conflict, unexplained work, remote drift, or unresolved decisions as execution-preflight findings; empty means checked and clear.
 
 Refactors and large-file extractions derive changed bytes from verified current exact `main`. Record its `branch-base` SHA, the `PR-base` SHA at exact-head review, and the immediately pre-merge `main` SHA. Re-prove them and check each base advance for critical-path upstream movement; missing proof, unexplained identity drift, or such movement is `remoteDrift` and stops for reconciliation against then-current exact `main`. Stale branch snapshots, old whole-file copies, and broad cherry-picks are bounded comparison evidence only, never implementation sources.
 

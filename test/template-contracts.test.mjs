@@ -29,6 +29,16 @@ test("template contracts cover every canonical project, Task, and Test document"
   const readme = await readCanonicalTemplate("README");
   const missingPurpose = readme.replace(/^## Purpose[\s\S]*?(?=^## )/m, "");
   assert.match(validateCanonicalTemplate("README", missingPurpose).join("\n"), /missing required section "Purpose"/);
+
+  const agents = await readCanonicalTemplate("AGENTS");
+  const missingLoadingContract = agents.replace(
+    /^## Truth and context loading[\s\S]*?(?=^## )/m,
+    "",
+  );
+  assert.match(
+    validateCanonicalTemplate("AGENTS", missingLoadingContract).join("\n"),
+    /missing required section "Truth and context loading"/,
+  );
 });
 
 test("rendered Task templates form a valid DRAFT pair without unresolved tokens", async () => {
