@@ -23,6 +23,7 @@ const {
   TaskArtifactError,
   createTaskArtifactBatch,
   createTaskArtifacts,
+  hydratePriorStandardDeliveries,
   inspectTaskBatchTransaction,
   recoverTaskBatchTransaction,
   resolveTaskDispatch,
@@ -37,8 +38,7 @@ const usage =
   "   or: task-artifacts.mjs recover-transaction --tasks-root <path>\n" +
   "   or: task-artifacts.mjs validate --task-directory <path>\n" +
   "   or: task-artifacts.mjs dispatch --tasks-root <path> --invocation <text> " +
-  "--managed-routing <true|false> [--delivery-ledger <json-path> | --delivery-ledger-json <json>] " +
-  "[--delivery-expectations <json-path> | --delivery-expectations-json <json>] " +
+  "--managed-routing <true|false> " +
   "[--execution-preflight <json-path> | --execution-preflight-json <json>]";
 
 function parseOptions(args, requiredNames, optionalNames = []) {
@@ -132,8 +132,11 @@ async function readJsonObjectOption(options, {
   return value;
 }
 
-export async function runTaskArtifactCommand(argv) {
+export async function runTaskArtifactCommand(argv, runtime = {}) {
   const [command, ...args] = argv;
+  const hydrateDeliveries =
+    runtime.hydratePriorStandardDeliveries ?? hydratePriorStandardDeliveries;
+  const dispatchTask = runtime.resolveTaskDispatch ?? resolveTaskDispatch;
 
   if (command === "create") {
     const options = parseOptions(args, ["--tasks-root", "--title"]);
@@ -227,18 +230,6 @@ export async function runTaskArtifactCommand(argv) {
       );
     }
 
-    const deliveryLedger = await readJsonObjectOption(options, {
-      pathOption: "--delivery-ledger",
-      jsonOption: "--delivery-ledger-json",
-      label: "delivery ledger",
-      errorCode: "INVALID_DELIVERY_LEDGER",
-    });
-    const deliveryExpectations = await readJsonObjectOption(options, {
-      pathOption: "--delivery-expectations",
-      jsonOption: "--delivery-expectations-json",
-      label: "delivery expectations",
-      errorCode: "INVALID_DELIVERY_EXPECTATIONS",
-    });
     const executionPreflight = await readJsonObjectOption(options, {
       pathOption: "--execution-preflight",
       jsonOption: "--execution-preflight-json",
@@ -246,15 +237,55 @@ export async function runTaskArtifactCommand(argv) {
       errorCode: "INVALID_EXECUTION_PREFLIGHT",
     });
 
-    const result = await resolveTaskDispatch({
-      tasksRoot: resolve(options.get("--tasks-root")),
-      invocation: options.get("--invocation"),
-      managedRoutingAvailable: managedRoutingValue === "true",
+    const tasksRoot = resolve(options.get("--tasks-root"));
+    const invocation = options.get("--invocation");
+    const managedRoutingAvailable = managedRoutingValue === "true";
+    const manualDeliveryInput = [
+      "--delivery-ledger",
+      "--delivery-ledger-json",
+      "--delivery-expectations",
+      "--delivery-expectations-json",
+    ].some((name) => options.has(name));
+    let deliveryLedger;
+    let deliveryExpectations;
+    let hydrationDiagnostics;
+    if (manualDeliveryInput) {
+      deliveryLedger = await readJsonObjectOption(options, {
+        pathOption: "--delivery-ledger",
+        jsonOption: "--delivery-ledger-json",
+        label: "delivery ledger",
+        errorCode: "INVALID_DELIVERY_LEDGER",
+      });
+      deliveryExpectations = await readJsonObjectOption(options, {
+        pathOption: "--delivery-expectations",
+        jsonOption: "--delivery-expectations-json",
+        label: "delivery expectations",
+        errorCode: "INVALID_DELIVERY_EXPECTATIONS",
+      });
+    } else {
+      const hydrated = await hydrateDeliveries({
+        tasksRoot,
+        invocation,
+        managedRoutingAvailable,
+      });
+      deliveryLedger = hydrated.deliveryLedger;
+      deliveryExpectations = hydrated.deliveryExpectations;
+      hydrationDiagnostics = hydrated.diagnostics;
+    }
+
+    const result = await dispatchTask({
+      tasksRoot,
+      invocation,
+      managedRoutingAvailable,
       deliveryLedger,
       deliveryExpectations,
       executionPreflight,
     });
-    return { command, ...result };
+    return {
+      command,
+      ...result,
+      ...(hydrationDiagnostics ? { hydration: hydrationDiagnostics } : {}),
+    };
   }
 
   throw new TaskArtifactError(

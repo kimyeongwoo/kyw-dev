@@ -25,10 +25,10 @@ Read [Task Execution and Resume](references/execution.md) completely before insp
 Pass the exact current-user invocation separately:
 
 ```text
-node <kyw-impl-skill-directory>/../kyw-task/scripts/task-artifacts.mjs dispatch --tasks-root <repository>/docs/tasks --invocation <exact invocation text> --managed-routing <true|false> [--delivery-ledger-json <json>] [--delivery-expectations-json <json>] [--execution-preflight-json <json>]
+node <kyw-impl-skill-directory>/../kyw-task/scripts/task-artifacts.mjs dispatch --tasks-root <repository>/docs/tasks --invocation <exact invocation text> --managed-routing <true|false> [--execution-preflight-json <json>]
 ```
 
-Use `true` only for loaded managed routing. Pass freshly verified conflict, unexplained-work, drift, and user-decision findings through execution preflight; keep trusted local delivery expectations separate from fresh GitHub ledger evidence. Honor every fail-closed result.
+Use `true` only for loaded managed routing. Pass verified conflict, unexplained-work, drift, and user-decision findings through execution preflight. Before its one dispatcher call, the adapter automatically hydrates queue-required prior `STANDARD` outcomes from bounded Git/GitHub truth and production-evaluates them. Honor fail-closed results; never ask for delivery JSON or evidence IDs.
 
 ## Selection boundary
 

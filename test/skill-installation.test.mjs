@@ -357,6 +357,7 @@ function createSourceCopy(t, version, mutate) {
     "task-artifact-contract.mjs",
     "task-artifact-creation.mjs",
     "task-artifact-delivery.mjs",
+    "task-artifact-hydration.mjs",
     "task-artifact-queue.mjs",
     "task-artifact-shared.mjs",
     "task-artifacts.mjs",
@@ -582,15 +583,20 @@ test("user install writes complete hashed Skills and a runnable direct-install T
     now: () => new Date("2026-07-17T00:00:00.000Z"),
   });
   assert.equal(result.skillCount, 5);
-  assert.equal(result.fileCount, 26);
+  assert.equal(result.fileCount, 27);
   assert.equal(readFileSync(unrelated, "utf8"), "unrelated\n");
 
   const location = resolveInstallLocation({ scope: "user", home });
   const metadata = readInstallMetadata(location, { required: true });
   assert.deepEqual(validateInstallMetadata(metadata, { expectedScope: "user" }), []);
   assert.equal(metadata.version, "0.1.0");
-  assert.equal(metadata.files.length, 26);
+  assert.equal(metadata.files.length, 27);
   assert.ok(metadata.files.some((file) => file.path === ".kyw-dev/runtime/templates/task/TASK.md"));
+  assert.ok(
+    metadata.files.some(
+      (file) => file.path === ".kyw-dev/runtime/src/core/task-artifact-hydration.mjs",
+    ),
+  );
   for (const file of metadata.files) {
     assert.equal(hashFile(join(location.skillsRoot, ...file.path.split("/"))), file.sha256);
   }
@@ -662,6 +668,7 @@ test("user install writes complete hashed Skills and a runnable direct-install T
   assert.equal(dispatchOutput.outcome, "SELECTED");
   assert.equal(dispatchOutput.action, "IMPLEMENT");
   assert.equal(dispatchOutput.confirmation, true);
+  assert.deepEqual(dispatchOutput.hydration.requiredTaskIds, []);
   const transactionInspection = spawnSync(
     process.execPath,
     [
@@ -676,7 +683,7 @@ test("user install writes complete hashed Skills and a runnable direct-install T
   assert.equal(JSON.parse(transactionInspection.stdout).state, "NONE");
 
   const uninstall = uninstallManagedSkills({ scope: "user", home });
-  assert.equal(uninstall.removedFileCount, 26);
+  assert.equal(uninstall.removedFileCount, 27);
   assert.equal(readFileSync(unrelated, "utf8"), "unrelated\n");
   assert.equal(existsSync(location.metadataPath), false);
   for (const skillName of MANAGED_SKILL_NAMES) {
@@ -801,7 +808,7 @@ test("legacy schema-1 four-Skill metadata remains safe for doctor, update, and u
   const doctorLocation = resolveInstallLocation({ scope: "user", home: doctorHome });
   const doctorMetadata = convertCurrentInstallToLegacy(doctorLocation);
   assert.deepEqual(validateInstallMetadata(doctorMetadata, { expectedScope: "user" }), []);
-  assert.equal(doctorMetadata.files.length, 24);
+  assert.equal(doctorMetadata.files.length, 25);
   const doctorReport = diagnoseInstallations({ home: doctorHome, commandRunner });
   assert.equal(doctorReport.exitCode, 0);
   assert.deepEqual(
@@ -815,13 +822,13 @@ test("legacy schema-1 four-Skill metadata remains safe for doctor, update, and u
   convertCurrentInstallToLegacy(updateLocation);
   const updated = updateManagedSkills({ scope: "user", home: updateHome });
   assert.equal(updated.skillCount, 5);
-  assert.equal(updated.fileCount, 26);
+  assert.equal(updated.fileCount, 27);
   const updatedMetadata = readInstallMetadata(updateLocation, { required: true });
   assert.deepEqual(
     updatedMetadata.skills.map(({ name }) => name),
     MANAGED_SKILL_NAMES,
   );
-  assert.equal(updatedMetadata.files.length, 26);
+  assert.equal(updatedMetadata.files.length, 27);
   assert.ok(existsSync(join(updateLocation.skillsRoot, "kyw-impl", "SKILL.md")));
   assert.equal(
     existsSync(join(updateLocation.skillsRoot, "kyw-task", "references", "execution.md")),
@@ -834,7 +841,7 @@ test("legacy schema-1 four-Skill metadata remains safe for doctor, update, and u
   const uninstallLocation = resolveInstallLocation({ scope: "user", home: uninstallHome });
   convertCurrentInstallToLegacy(uninstallLocation);
   const uninstalled = uninstallManagedSkills({ scope: "user", home: uninstallHome });
-  assert.equal(uninstalled.removedFileCount, 24);
+  assert.equal(uninstalled.removedFileCount, 25);
   assert.equal(existsSync(uninstallLocation.metadataPath), false);
   for (const skillName of legacyManagedSkillNames) {
     assert.equal(existsSync(join(uninstallLocation.skillsRoot, skillName)), false);
@@ -1633,7 +1640,7 @@ test("packaged managed source inventory is stable and fully hashed", () => {
     "kyw-audit",
   ]);
   assert.equal(inventory.version, "0.1.0");
-  assert.equal(inventory.files.length, 26);
+  assert.equal(inventory.files.length, 27);
   assert.deepEqual(
     inventory.files.map((file) => file.path),
     [...inventory.files].map((file) => file.path).sort((left, right) => left.localeCompare(right)),
@@ -1665,7 +1672,7 @@ test("actual npm tarball installs, diagnoses, runs its installed adapter, and un
   }
   assert.equal(packed.status, 0, packed.stderr);
   const report = JSON.parse(packed.stdout)[0];
-  assert.equal(report.entryCount, 41);
+  assert.equal(report.entryCount, 42);
   const extractRoot = join(root, "extract");
   mkdirSync(extractRoot);
   const extracted = spawnSync("tar", ["-xf", join(root, report.filename), "-C", extractRoot], {
@@ -1743,6 +1750,25 @@ test("actual npm tarball installs, diagnoses, runs its installed adapter, and un
   const dispatchOutput = JSON.parse(dispatchResult.stdout);
   assert.equal(dispatchOutput.outcome, "FALLBACK_REQUIRED");
   assert.equal(dispatchOutput.portableFallback, "$kyw-impl 0001");
+  const portableDispatch = spawnSync(
+    process.execPath,
+    [
+      adapter,
+      "dispatch",
+      "--tasks-root",
+      join(target, "docs", "tasks"),
+      "--invocation",
+      "$kyw-impl 0001",
+      "--managed-routing",
+      "false",
+    ],
+    { encoding: "utf8" },
+  );
+  assert.equal(portableDispatch.status, 0, portableDispatch.stderr);
+  const portableOutput = JSON.parse(portableDispatch.stdout);
+  assert.equal(portableOutput.outcome, "SELECTED");
+  assert.equal(portableOutput.action, "IMPLEMENT");
+  assert.deepEqual(portableOutput.hydration.requiredTaskIds, []);
 
   const uninstall = spawnSync(process.execPath, [cli, "uninstall", "--scope", "user"], {
     cwd: work,

@@ -140,6 +140,7 @@ Required behavior:
 - on resume, verify recorded completed work against files and version control and continue from the valid resume point instead of repeating externally visible or destructive actions;
 - use current-user appended text as a settled first-selected-Task override without letting it waive acceptance, safety, evidence honesty, preservation, or separate authority;
 - preserve the configured model and effort unless the current user explicitly overrides them, and label unavailable model provenance rather than inferring it;
+- before its one dispatcher call, derive every prior `STANDARD` delivery needed by the requested queue transition, reconstruct trusted local expectations and fresh GitHub evidence automatically, and fail before selection or mutation if hydration or the production evaluator is not satisfied;
 - run acceptance-specific and risk-proportionate verification, record failures as well as later passes, and block when required evidence cannot run;
 - synchronize only permanent owners whose durable meaning changed;
 - compare the complete final diff with scope and the intent-to-test matrix before terminal success;
@@ -272,6 +273,8 @@ A current Task declares one static delivery policy:
 - `NONE — <reason>` — no external delivery gate applies.
 
 The Task/Test pair owns repository outcome and reproducible local evidence; GitHub owns mutable PR, review, run, merge, and post-merge state. Static `STANDARD` text alone authorizes no ambient mutation. A recognized `$kyw-impl` selection grants ordinary delivery for that selected outcome after repository completion.
+
+The normal `$kyw-impl NNNN` path accepts only the invocation: it derives the required prior-delivery set from queue and dependency truth, proves the pre-contract boundary from local Git ancestry, and collects bounded fresh GitHub evidence before one dispatcher call. Historical numbering never grants legacy status. Collection and normalization are invocation-local and non-persistent; unavailable access, partial pagination, malformed responses, missing logs, attempt mixing, or evaluator rejection fails closed before implementation mutation.
 
 The current hardened contract is `HARDENED_EXACT_HEAD`. Trusted local expectations bind repository, base ref and SHA, outcome SHA, workflow identity, and required job-name sets. GitHub evidence keeps these roles distinct:
 

@@ -20,6 +20,18 @@ export {
   parseTaskInvocation,
 } from "./task-artifact-delivery.mjs";
 export {
+  classifyLocalDeliveryContracts,
+  createGitHubEvidenceClient,
+  createInvocationCommandCache,
+  discoverLocalDeliveryOutcomes,
+  discoverRequiredStandardDeliveries,
+  hydratePriorStandardDeliveries,
+  normalizeHardenedDeliveryEvidence,
+  normalizeLegacyDeliveryEvidence,
+  parseHardenedWorkflowContract,
+  parseKywCiEvidence,
+} from "./task-artifact-hydration.mjs";
+export {
   allocateNextTaskId,
   allocateNextTaskNumber,
   inspectTaskQueue,

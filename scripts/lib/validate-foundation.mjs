@@ -76,6 +76,7 @@ export const EXPECTED_TARBALL_FILES = [
   "src/core/task-artifact-contract.mjs",
   "src/core/task-artifact-creation.mjs",
   "src/core/task-artifact-delivery.mjs",
+  "src/core/task-artifact-hydration.mjs",
   "src/core/task-artifact-queue.mjs",
   "src/core/task-artifact-shared.mjs",
   "src/core/task-artifacts.mjs",
