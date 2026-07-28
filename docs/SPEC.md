@@ -107,6 +107,7 @@ Required behavior:
 - ask only for a genuine unresolved Task-level decision;
 - keep one pair for one independently verifiable outcome and create the smallest dependency-aware set only when acceptance boundaries, hard dependencies, or safe session scope require it;
 - honor a valid user-specified Task count, boundary, ordering, title, and dependency;
+- derive each portable internal authoring key deterministically from the outcome title, without requiring callers to know or shorten that key;
 - allocate unique final IDs and paths, author both files with mapped acceptance, validate every pair and the full dependency graph, and publish the set atomically as `READY/READY`;
 - leave application files and permanent documents unchanged while recording expected documentation impact for execution;
 - fail closed without claiming a clean partial queue when publication ownership or rollback safety is uncertain;

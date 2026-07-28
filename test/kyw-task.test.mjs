@@ -197,7 +197,7 @@ function batchSpec(tasks) {
   return {
     schemaVersion: 1,
     tasks: tasks.map(({ key, title, dependencies = [] }) => ({
-      key,
+      ...(key === undefined ? {} : { key }),
       title,
       taskMarkdown: batchTaskMarkdown(),
       testMarkdown: batchTestMarkdown(),
@@ -482,11 +482,10 @@ test("kyw-task adapter publishes complete READY batches from file or inline JSON
   const root = await temporaryDirectory(t);
   const fileRoot = join(root, "file", "docs", "tasks");
   const specification = batchSpec([
-    { key: "foundation", title: "Foundation" },
+    { title: "Foundation" },
     {
-      key: "dependent",
       title: "Dependent",
-      dependencies: [{ taskKey: "foundation" }],
+      dependencies: [{ taskTitle: "Foundation" }],
     },
   ]);
   const specificationPath = join(root, "batch.json");
@@ -506,10 +505,10 @@ test("kyw-task adapter publishes complete READY batches from file or inline JSON
   assert.equal(fileBatch.firstId, "0001");
   assert.equal(fileBatch.lastId, "0002");
   assert.deepEqual(
-    fileBatch.tasks.map(({ id, dependencies }) => ({ id, dependencies })),
+    fileBatch.tasks.map(({ key, id, dependencies }) => ({ key, id, dependencies })),
     [
-      { id: "0001", dependencies: [] },
-      { id: "0002", dependencies: ["0001"] },
+      { key: "foundation", id: "0001", dependencies: [] },
+      { key: "dependent", id: "0002", dependencies: ["0001"] },
     ],
   );
   for (const task of fileBatch.tasks) {
@@ -521,11 +520,10 @@ test("kyw-task adapter publishes complete READY batches from file or inline JSON
 
   const largeRoot = join(root, "large", "docs", "tasks");
   const largeSpecification = batchSpec([
-    { key: "large-foundation", title: "Large foundation" },
+    { title: "Large foundation" },
     {
-      key: "large-dependent",
       title: "Large dependent",
-      dependencies: [{ taskKey: "large-foundation" }],
+      dependencies: [{ taskTitle: "Large foundation" }],
     },
   ]);
   largeSpecification.tasks[0].taskMarkdown =
@@ -562,13 +560,37 @@ test("kyw-task adapter publishes complete READY batches from file or inline JSON
     "--tasks-root",
     inlineRoot,
     "--batch-json",
-    JSON.stringify(batchSpec([{ key: "single", title: "Single" }])),
+    JSON.stringify(batchSpec([{ title: "Single" }])),
   ]);
   assert.equal(inlineResult.status, 0, inlineResult.stderr);
   const inlineBatch = JSON.parse(inlineResult.stdout);
   assert.equal(inlineBatch.firstId, "0001");
   assert.equal(inlineBatch.lastId, "0001");
   assert.equal(inlineBatch.tasks.length, 1);
+  assert.equal(inlineBatch.tasks[0].key, "single");
+
+  const compatibilityRoot = join(root, "compatibility", "docs", "tasks");
+  const compatibilityResult = runAdapter([
+    "create-batch",
+    "--tasks-root",
+    compatibilityRoot,
+    "--batch-json",
+    JSON.stringify(
+      batchSpec([
+        {
+          key: "caller-controlled-key",
+          title: "A title with a different derived key",
+        },
+      ]),
+    ),
+  ]);
+  assert.equal(compatibilityResult.status, 0, compatibilityResult.stderr);
+  const compatibilityBatch = JSON.parse(compatibilityResult.stdout);
+  assert.equal(compatibilityBatch.tasks[0].key, "caller-controlled-key");
+  assert.match(
+    compatibilityBatch.tasks[0].directory,
+    /0001-a-title-with-a-different-derived-key$/,
+  );
 
   const noTransaction = runAdapter([
     "inspect-transaction",
@@ -630,7 +652,10 @@ test("kyw-task adapter publishes complete READY batches from file or inline JSON
   ]);
   assert.equal(invalidResult.status, 1);
   assert.match(invalidResult.stderr, /INVALID_TASK_BATCH_PAIR/);
-  assert.deepEqual(await readdir(invalidRoot), []);
+  await assert.rejects(
+    readdir(invalidRoot),
+    (error) => error.code === "ENOENT",
+  );
 
   for (const [args, expectedError] of [
     [

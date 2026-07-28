@@ -260,16 +260,16 @@ explicit outcome
    → applicable instructions + targeted durable truth + relevant code
    → smallest independently verifiable dependency graph
    → complete in-memory Task/Test pairs
-   → canonical pair and graph validation
-   → one ownership-proven atomic publication
+   → deterministic internal keys + complete side-effect-free validation
+   → transaction acquisition + atomic ID/path allocation and publication
    → READY pair set + one exact next implementation command
    → stop
 ```
 
 The authoring Skill owns intent and decomposition; the core owns allocation,
-validation, graph checks, and publication mechanics. Canonical readers reject
-an in-flight or unproven transaction, so a partial prefix cannot become
-dispatchable.
+key derivation, validation, graph checks, and publication mechanics. Explicit
+keys remain a low-level compatibility input. Canonical readers reject an
+in-flight or unproven transaction, so a partial prefix cannot become dispatchable.
 
 ### 5.3 Existing-Task implementation
 

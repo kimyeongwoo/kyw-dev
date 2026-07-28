@@ -85,6 +85,30 @@ test("instruction surfaces retain one canonical owner and minimal projections", 
   assert.match(authoring, /author/i);
   assert.match(authoring, /DRAFT\/DRAFT/);
   assert.doesNotMatch(authoring, /\]\(references\/execution\.md\)/);
+  const ordinaryBatchBlock = authoring.match(
+    /The ordinary production batch[\s\S]*?```json\r?\n([\s\S]*?)\r?\n```/,
+  );
+  assert.ok(ordinaryBatchBlock, "kyw-task must show its ordinary production batch");
+  const ordinaryBatch = JSON.parse(ordinaryBatchBlock[1]);
+  const ordinaryTask = ordinaryBatch.tasks[0];
+  assert.equal(Object.hasOwn(ordinaryTask, "key"), false);
+  assert.equal(ordinaryTask.title, "First outcome");
+  assert.deepEqual(ordinaryTask.dependencies, [
+    { taskId: "0039" },
+    { taskTitle: "Earlier outcome" },
+  ]);
+  assert.match(
+    authoring,
+    /adapter[\s\S]{0,120}delegates[\s\S]{0,120}internal-key derivation[\s\S]{0,120}canonical owner/i,
+  );
+  assert.match(authoring, /`key`\/`taskKey`[\s\S]{0,80}low-level compatibility/i);
+  assert.doesNotMatch(authoring, /Give each new outcome[^\n]*taskKey/i);
+  assert.doesNotMatch(
+    authoring,
+    /\b48(?:-|\s)*(?:character|char|자)|INVALID_TASK_BATCH[\s\S]{0,100}(?:short|key)/i,
+  );
+  assert.match(authoring, /READY\/READY[\s\S]{0,40}(?:pair set and stops|authoring)/i);
+  assert.match(authoring, /needs a new `\$kyw-impl NNNN`/);
   assert.match(implementation, /\[Task Execution and Resume\]\(references\/execution\.md\)/);
   assert.match(implementation, /existing Task/i);
   assert.match(execution, /canonical detailed execution procedure/);
@@ -136,6 +160,7 @@ test("instruction surfaces retain one canonical owner and minimal projections", 
   assert.match(plugin.interface.defaultPrompt[1], /\$kyw-task "goal"/);
   assert.match(plugin.interface.defaultPrompt[1], /author[\s\S]*stop/i);
   assert.doesNotMatch(plugin.interface.defaultPrompt[1], /execute|implement|deliver/i);
+  assert.doesNotMatch(plugin.interface.defaultPrompt[1], /taskKey|\b48\b/);
   assert.match(plugin.interface.defaultPrompt[2], /\$kyw-impl 0001/);
   for (const invocation of [
     '$kyw-task "<outcome>"',

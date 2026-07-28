@@ -176,7 +176,7 @@ function writeJson(filePath, value) {
   writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
 }
 
-function readyBatchSpecification(key = "installed-ready", title = "Installed ready batch") {
+function readyBatchSpecification(title = "Installed ready batch") {
   const fixtureRoot = join(
     PACKAGE_ROOT,
     "test",
@@ -197,7 +197,7 @@ function readyBatchSpecification(key = "installed-ready", title = "Installed rea
   );
   return {
     schemaVersion: 1,
-    tasks: [{ key, title, taskMarkdown, testMarkdown, dependencies: [] }],
+    tasks: [{ title, taskMarkdown, testMarkdown, dependencies: [] }],
   };
 }
 
@@ -640,6 +640,7 @@ test("user install writes complete hashed Skills and a runnable direct-install T
   assert.equal(batchOutput.firstId, "0002");
   assert.equal(batchOutput.lastId, "0002");
   assert.equal(batchOutput.tasks.length, 1);
+  assert.equal(batchOutput.tasks[0].key, "installed-ready-batch");
   assert.match(readFileSync(batchOutput.tasks[0].taskPath, "utf8"), /## Status\n\nREADY/);
   assert.match(readFileSync(batchOutput.tasks[0].testPath, "utf8"), /## Status\n\nREADY/);
   const dispatchResult = spawnSync(
@@ -1701,7 +1702,7 @@ test("actual npm tarball installs, diagnoses, runs its installed adapter, and un
       "--tasks-root",
       join(target, "docs", "tasks"),
       "--batch-json",
-      JSON.stringify(readyBatchSpecification("packed-ready", "Packed ready batch")),
+      JSON.stringify(readyBatchSpecification("Packed ready batch")),
     ],
     { encoding: "utf8" },
   );
@@ -1709,6 +1710,7 @@ test("actual npm tarball installs, diagnoses, runs its installed adapter, and un
   const created = JSON.parse(adapterResult.stdout);
   assert.equal(created.firstId, "0001");
   assert.equal(created.lastId, "0001");
+  assert.equal(created.tasks[0].key, "packed-ready-batch");
   assert.ok(existsSync(created.tasks[0].taskPath));
   assert.ok(existsSync(created.tasks[0].testPath));
   const transactionInspection = spawnSync(

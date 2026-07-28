@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { existsSync, realpathSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -19,6 +19,7 @@ if (!existsSync(fileURLToPath(coreUrl))) {
 }
 
 const {
+  MAX_TASK_BATCH_PAYLOAD_BYTES,
   TaskArtifactError,
   createTaskArtifactBatch,
   createTaskArtifacts,
@@ -75,6 +76,7 @@ async function readJsonObjectOption(options, {
   jsonOption,
   label,
   errorCode,
+  maxBytes,
 }) {
   const filePath = options.get(pathOption);
   const inlineJson = options.get(jsonOption);
@@ -88,11 +90,33 @@ async function readJsonObjectOption(options, {
     return {};
   }
 
+  const resolvedPath = filePath ? resolve(filePath) : undefined;
+  if (Number.isSafeInteger(maxBytes) && maxBytes > 0) {
+    let observedBytes;
+    try {
+      observedBytes = inlineJson === undefined
+        ? (await stat(resolvedPath)).size
+        : Buffer.byteLength(inlineJson, "utf8");
+    } catch (error) {
+      throw new TaskArtifactError(
+        errorCode,
+        `Cannot inspect ${label} ${resolvedPath}: ${error.message}`,
+        { cause: error },
+      );
+    }
+    if (observedBytes > maxBytes) {
+      throw new TaskArtifactError(
+        "TASK_BATCH_PAYLOAD_TOO_LARGE",
+        `${label} must not exceed ${maxBytes} UTF-8 bytes`,
+      );
+    }
+  }
+
   let value;
   try {
-    value = JSON.parse(inlineJson ?? (await readFile(resolve(filePath), "utf8")));
+    value = JSON.parse(inlineJson ?? (await readFile(resolvedPath, "utf8")));
   } catch (error) {
-    const source = filePath ? resolve(filePath) : "inline JSON";
+    const source = resolvedPath ?? "inline JSON";
     throw new TaskArtifactError(
       errorCode,
       `Cannot read ${label} ${source}: ${error.message}`,
@@ -131,6 +155,7 @@ export async function runTaskArtifactCommand(argv) {
       jsonOption: "--batch-json",
       label: "Task batch specification",
       errorCode: "INVALID_TASK_BATCH",
+      maxBytes: MAX_TASK_BATCH_PAYLOAD_BYTES,
     });
     const batchKeys = Object.keys(batchSpec).sort();
     if (

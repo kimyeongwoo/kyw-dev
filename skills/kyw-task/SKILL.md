@@ -45,7 +45,7 @@ Reuse `$kyw-grilling` only for unresolved intent or a user-owned blocker: one qu
 
 ## Prepare complete READY pairs
 
-Give each new outcome a unique lowercase ASCII `taskKey`. Prepare complete project-specific Task and Test Markdown in memory:
+For each outcome, provide a title and complete project-specific Task/Test Markdown in memory. The packaged adapter delegates deterministic portable internal-key derivation to the core's sole canonical owner; ordinary authoring never asks the user or model to invent or shorten one.
 
 - include `{{TASK_ID}}` and `{{TASK_TITLE}}` in both headers and `{{TASK_DEPENDENCIES}}` in Task Dependencies;
 - include the current contract marker exactly once per artifact and set both statuses to `READY`;
@@ -54,13 +54,13 @@ Give each new outcome a unique lowercase ASCII `taskKey`. Prepare complete proje
 - use reasoned N/A entries only; never leave empty required content, bare None, comments, or template guidance;
 - do not repeat the contract identity in examples, comments, quotations, criteria, or test prose.
 
-The batch has exactly this outer schema:
+The ordinary production batch has exactly this outer schema:
 
 ```json
-{"schemaVersion":1,"tasks":[{"key":"first-outcome","title":"First outcome","taskMarkdown":"<complete Markdown>","testMarkdown":"<complete Markdown>","dependencies":[{"taskId":"0039"},{"taskKey":"earlier-outcome"}]}]}
+{"schemaVersion":1,"tasks":[{"title":"First outcome","taskMarkdown":"<complete Markdown>","testMarkdown":"<complete Markdown>","dependencies":[{"taskId":"0039"},{"taskTitle":"Earlier outcome"}]}]}
 ```
 
-Each dependency object has exactly one field. Omit dependencies or use an empty array when none exist. Never guess final IDs or hand-create directories.
+Each dependency object has exactly one field. Omit dependencies or use an empty array when none exist. Explicit `key`/`taskKey` fields are low-level compatibility only and remain caller-controlled. Never guess final IDs or hand-create directories.
 
 ## Publish atomically
 
@@ -70,7 +70,7 @@ Call the single packaged adapter once for the complete set:
 node <kyw-task-skill-directory>/scripts/task-artifacts.mjs create-batch --tasks-root <repository>/docs/tasks (--batch-json <json> | --batch-file <existing external scratch path>)
 ```
 
-Use an external file for multi-pair or large input, never the repository. The core prevalidates pairs/edges, allocates IDs, acquires one manifest/lock, rechecks queue, sources, targets, and hashes, then publishes. Expected failure rolls back batch-owned final paths only with complete ownership proof; otherwise evidence remains and readers fail closed.
+Use an external file for multi-pair or large input, never the repository. Before any transaction, lock, staging, or ID/path allocation, the core derives keys and completely prevalidates the batch; one transaction then atomically allocates and publishes all pairs. Expected failure rolls back batch-owned final paths only with complete ownership proof; otherwise evidence remains and readers fail closed.
 
 On success, validate every returned path, prove one marker occurrence per file and no transaction residue, and do not post-edit. On failure, do not retry, reuse an ID, hand-create a replacement, or implement.
 
