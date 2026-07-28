@@ -22,6 +22,7 @@ import {
   buildTaskDirectoryName,
   createTaskArtifactBatch,
   createTaskArtifacts,
+  deriveTaskKey,
   inspectTaskBatchTransaction,
   inspectTaskDirectories,
   inspectTaskQueue,
@@ -38,6 +39,7 @@ const coreRoot = fileURLToPath(new URL("../src/core/", import.meta.url));
 test("task artifact facade preserves its public export inventory", () => {
   assert.deepEqual(Object.keys(taskArtifactsFacade), [
     "ALL_TASKS_COMPLETE_MESSAGE",
+    "MAX_TASK_BATCH_PAYLOAD_BYTES",
     "MAX_TASK_NUMBER",
     "MAX_TASK_SLUG_LENGTH",
     "TaskArtifactError",
@@ -48,6 +50,7 @@ test("task artifact facade preserves its public export inventory", () => {
     "createTaskArtifactBatch",
     "createTaskArtifacts",
     "createTaskSlug",
+    "deriveTaskKey",
     "evaluateDeliveryEvidence",
     "evaluateTaskExecutionPreflight",
     "formatTaskId",
@@ -309,7 +312,8 @@ test("task number inventory diagnoses malformed and duplicate-ID repositories", 
 });
 
 test("task slug generation is bounded, ASCII-safe, and deterministic for Unicode fallback", () => {
-  assert.equal(slugifyTaskTitle("Crème brûlée API"), "creme-brulee-api");
+  assert.equal(deriveTaskKey("Crème brûlée API"), "creme-brulee-api-66716e2d");
+  assert.equal(slugifyTaskTitle("Crème brûlée API"), deriveTaskKey("Crème brûlée API"));
   assert.equal(slugifyTaskTitle("../../escape"), "escape");
   assert.equal(slugifyTaskTitle("C:\\temp\\CON"), "c-temp-con");
   assert.equal(normalizeTaskTitle("  line one\nline two  "), "line one line two");
@@ -511,7 +515,10 @@ test("atomic batch creation rejects invalid pairs, missing dependencies, cycles,
     createTaskArtifactBatch({ tasksRoot: invalidRoot, tasks: [invalidPair] }),
     (error) => error.code === "INVALID_TASK_BATCH_PAIR",
   );
-  assert.deepEqual(await readdir(invalidRoot), []);
+  await assert.rejects(
+    readdir(invalidRoot),
+    (error) => error.code === "ENOENT",
+  );
 
   const misplacedTokenRoot = path.join(
     await temporaryDirectory(t),
@@ -545,7 +552,10 @@ test("atomic batch creation rejects invalid pairs, missing dependencies, cycles,
     }),
     (error) => error.code === "MISSING_TASK_DEPENDENCY",
   );
-  assert.deepEqual(await readdir(missingRoot), []);
+  await assert.rejects(
+    readdir(missingRoot),
+    (error) => error.code === "ENOENT",
+  );
 
   const cycleRoot = path.join(await temporaryDirectory(t), "cycle", "tasks");
   await assert.rejects(
@@ -558,7 +568,10 @@ test("atomic batch creation rejects invalid pairs, missing dependencies, cycles,
     }),
     (error) => error.code === "TASK_DEPENDENCY_CYCLE",
   );
-  assert.deepEqual(await readdir(cycleRoot), []);
+  await assert.rejects(
+    readdir(cycleRoot),
+    (error) => error.code === "ENOENT",
+  );
 
   const exhaustedRoot = path.join(await temporaryDirectory(t), "exhausted", "tasks");
   const exhaustedDirectory = path.join(exhaustedRoot, "9999-last");
@@ -670,7 +683,7 @@ test("batch allocation race preserves the competing directory and publishes no b
         batchDefinition("second", "Second"),
       ],
       hooks: {
-        async afterPrevalidation({ tasks }) {
+        async afterAllocation({ tasks }) {
           await mkdir(tasks[0].directory);
         },
       },

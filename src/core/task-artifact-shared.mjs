@@ -10,6 +10,8 @@ export const batchTransactionKind = "kyw-task-batch-transaction";
 export const batchTransactionSchemaVersion = 1;
 export const batchTransactionTokenPattern = /^[a-f0-9]{32}$/;
 export const batchTransactionHashPattern = /^[a-f0-9]{64}$/;
+export const MAX_TASK_BATCH_PAYLOAD_BYTES = 16 * 1024 * 1024;
+export const maxBatchPayloadBytes = MAX_TASK_BATCH_PAYLOAD_BYTES;
 export const maxBatchJournalBytes = 16 * 1024 * 1024;
 export const maxBatchDiagnosticObservations = 64;
 

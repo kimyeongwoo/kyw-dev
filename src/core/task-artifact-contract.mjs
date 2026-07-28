@@ -18,6 +18,7 @@ import {
 
 export const MAX_TASK_NUMBER = 9999;
 export const MAX_TASK_SLUG_LENGTH = 48;
+const TASK_KEY_SUFFIX_HEX_LENGTH = 8;
 export const ALL_TASKS_COMPLETE_MESSAGE =
   "현재 만들어진 Task는 모두 완료됐습니다. 더 이상 진행할 작업이 없습니다. 추가로 하고 싶은 작업이 있나요?";
 
@@ -219,24 +220,41 @@ export function normalizeTaskTitle(title) {
   return normalized;
 }
 
-export function slugifyTaskTitle(title) {
+export function deriveTaskKey(title) {
   if (typeof title !== "string") {
     throw new TypeError("Task title must be a string");
   }
-  const source = title.normalize("NFKC").trim();
-  const ascii = source
+  const source = normalizeTaskTitle(title.normalize("NFKC")).toLowerCase().normalize("NFKC");
+  const normalizedBase = source
     .normalize("NFKD")
     .replace(/\p{Mark}+/gu, "")
-    .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .replace(/-+/g, "-");
-  const bounded = ascii.slice(0, MAX_TASK_SLUG_LENGTH).replace(/-+$/g, "");
-  if (bounded) {
-    return bounded;
+  const portableBase =
+    normalizedBase && !/^[a-z]/.test(normalizedBase)
+      ? `task-${normalizedBase}`
+      : normalizedBase;
+
+  const requiresStableSuffix =
+    portableBase.length === 0 ||
+    portableBase.length > MAX_TASK_SLUG_LENGTH ||
+    /[^\u0000-\u007f]/u.test(source);
+  if (!requiresStableSuffix) {
+    return portableBase;
   }
-  const digest = createHash("sha256").update(source).digest("hex").slice(0, 8);
-  return `task-${digest}`;
+
+  const digest = createHash("sha256")
+    .update(source)
+    .digest("hex")
+    .slice(0, TASK_KEY_SUFFIX_HEX_LENGTH);
+  const prefixBudget = MAX_TASK_SLUG_LENGTH - digest.length - 1;
+  const prefix = portableBase.slice(0, prefixBudget).replace(/-+$/g, "") || "task";
+  return `${prefix}-${digest}`;
+}
+
+export function slugifyTaskTitle(title) {
+  return deriveTaskKey(title);
 }
 
 export const createTaskSlug = slugifyTaskTitle;

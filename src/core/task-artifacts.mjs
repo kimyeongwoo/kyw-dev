@@ -4,6 +4,7 @@ export {
   MAX_TASK_SLUG_LENGTH,
   buildTaskDirectoryName,
   createTaskSlug,
+  deriveTaskKey,
   formatTaskId,
   inspectTaskDirectories,
   normalizeTaskTitle,
@@ -30,4 +31,7 @@ export {
   inspectTaskBatchTransaction,
   recoverTaskBatchTransaction,
 } from "./task-artifact-creation.mjs";
-export { TaskArtifactError } from "./task-artifact-shared.mjs";
+export {
+  MAX_TASK_BATCH_PAYLOAD_BYTES,
+  TaskArtifactError,
+} from "./task-artifact-shared.mjs";
