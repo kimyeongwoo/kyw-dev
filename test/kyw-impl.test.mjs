@@ -111,7 +111,10 @@ test("kyw-impl has no authoring engine and calls the one shared packaged adapter
   assert.match(skill, /sole packaged Task adapter in the sibling `kyw-task` Skill/);
   assert.match(skill, /\.\.\/kyw-task\/scripts\/task-artifacts\.mjs dispatch/);
   assert.match(skill, /owns no copied parser, state, dependency, queue, transaction, or delivery engine/);
-  assert.match(skill, /validates the exact prior `STANDARD` set from the fixed-bounded checkpoint/);
+  assert.match(
+    skill,
+    /validates prior `STANDARD` continuity[\s\S]{0,100}fixed-bounded checkpoint/,
+  );
   assert.match(skill, /freshly production-evaluates at most one uncovered GitHub outcome/);
   assert.match(skill, /no whole-history fallback/);
   assert.doesNotMatch(skill, /--delivery-(?:ledger|expectations)(?:-json)?/);
@@ -127,10 +130,14 @@ test("kyw-impl rejects creation and DRAFT authoring while preserving execution m
   assert.match(skill, /`\$kyw-task "<outcome>"`/);
   assert.match(skill, /Never infer or allocate an ID, create a directory\/pair, author or promote DRAFT/);
   assert.match(skill, /`DRAFT\/DRAFT` stops with exact `\$kyw-task NNNN` authoring guidance/);
-  assert.match(skill, /`READY\/READY` may return `IMPLEMENT`/);
-  assert.match(skill, /`IN_PROGRESS\/RUNNING` may return `RESUME`/);
-  assert.match(skill, /`BLOCKED\/BLOCKED` permits only condition recheck/);
-  assert.match(skill, /`DONE\/PASSED` may return `DELIVER`/);
+  for (const [state, action] of [
+    ["READY/READY", "IMPLEMENT"],
+    ["IN_PROGRESS/RUNNING", "RESUME"],
+    ["DONE/PASSED", "DELIVER"],
+  ]) {
+    assert.match(skill, new RegExp(`\`${state}\`[^\\n]*\`${action}\``));
+  }
+  assert.match(skill, /`BLOCKED\/BLOCKED`[^.\n]*condition recheck/);
   assert.match(skill, /Automatic and continuous forms never allocate/);
   assert.match(skill, /never runs in parallel, in the background, or beyond this host invocation/);
 });
@@ -155,17 +162,14 @@ test("kyw-impl routes durable changes and enforces the current-Task boundary", a
     "AGENTS.md",
   );
   assert.equal(routes["A local variable is renamed without changing behavior or structure."], null);
+  assert.match(execution, /product\/acceptance -> `docs\/SPEC\.md`/);
   assert.match(
     execution,
-    /product behavior, requirements, business rules, or acceptance meaning -> `docs\/SPEC\.md`/,
+    /components\/dependencies\/flows\/storage\/distribution -> `docs\/ARCHITECTURE\.md`/,
   );
   assert.match(
     execution,
-    /components, boundaries, dependencies, data flow, storage, or distribution structure -> `docs\/ARCHITECTURE\.md`/,
-  );
-  assert.match(
-    execution,
-    /setup, installation, commands, configuration, usage, or contributor entry -> `README\.md`/,
+    /setup\/install\/commands\/configuration\/usage\/contributing -> `README\.md`/,
   );
   assert.match(execution, /Edit another numbered Task only for a bounded contract migration/);
   assert.match(execution, /If it is independently shippable or belongs to a future Task, leave it out of scope/);
@@ -283,7 +287,7 @@ test("kyw-impl uses bounded durable continuity without weakening uncovered harde
   assert.match(execution, /contracts 1\/2 are grandfathered/);
   assert.match(
     skill,
-    /drift or redelivery fails with Task\/path and routes to a new hard-dependent `\$kyw-task "<correction outcome>"`/,
+    /drift or redelivery stops with Task\/path[\s\S]{0,80}hard-dependent `\$kyw-task "<correction outcome>"` guidance/,
   );
 });
 

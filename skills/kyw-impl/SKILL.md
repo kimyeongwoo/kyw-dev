@@ -20,7 +20,7 @@ A goal, missing ID, or new outcome causes zero mutation and exact `$kyw-task "<o
 
 ## Shared entry and procedure
 
-Read [Task Execution and Resume](references/execution.md) completely before inspection or action. Use the sole packaged Task adapter in the sibling `kyw-task` Skill. It is a shared bridge to one package/direct-install runtime; this Skill calls only validation and dispatch and owns no copied parser, state, dependency, queue, transaction, or delivery engine.
+Read [Task Execution and Resume](references/execution.md) completely before inspection or action; it owns the execution, evidence, documentation, terminal, and delivery procedure. Use the sole packaged Task adapter in the sibling `kyw-task` Skill. This entry calls only validation and dispatch and owns no copied parser, state, dependency, queue, transaction, or delivery engine.
 
 Pass the exact current-user invocation separately:
 
@@ -28,24 +28,20 @@ Pass the exact current-user invocation separately:
 node <kyw-impl-skill-directory>/../kyw-task/scripts/task-artifacts.mjs dispatch --tasks-root <repository>/docs/tasks --invocation <exact invocation text> --managed-routing <true|false> [--execution-preflight-json <json>]
 ```
 
-Use `true` only for loaded managed routing. Pass verified conflict, unexplained-work, drift, and user-decision findings through execution preflight. Before its one dispatcher call, the adapter validates the exact prior `STANDARD` set from the fixed-bounded checkpoint on aligned `main` and freshly production-evaluates at most one uncovered GitHub outcome; there is no whole-history fallback. Fail closed and never ask for delivery JSON, checkpoint content, transition tokens, or evidence IDs.
+Use `true` only for loaded managed routing. Pass verified conflict, unexplained-work, drift, and user-decision findings through execution preflight. Before the sole dispatcher call, the adapter validates prior `STANDARD` continuity from aligned `main`'s fixed-bounded checkpoint and freshly production-evaluates at most one uncovered GitHub outcome; there is no whole-history fallback. Never ask for delivery JSON, checkpoint content, transition tokens, or evidence IDs.
 
-For delivered contract-3 Tasks, pre-dispatch binds the first complete hardened graph and pair bytes. Unchanged invocation reports only; drift or redelivery fails with Task/path and routes to a new hard-dependent `$kyw-task "<correction outcome>"`.
+Delivered contract-3 Tasks are bound to their first complete hardened graph and pair bytes: unchanged invocation reports only; drift or redelivery stops with Task/path and new hard-dependent `$kyw-task "<correction outcome>"` guidance.
 
 A selected result may carry an opaque continuity transition token. After establishing the selected Task branch and active pair, pass it unchanged once to `apply-continuity`. Never construct, decode, edit, retain, or apply it after a terminal result; exact resume replay is idempotent and any mismatch stops.
 
-## Selection boundary
+## Dispatch handoff
 
-- `READY/READY` may return `IMPLEMENT`; `IN_PROGRESS/RUNNING` may return `RESUME`.
-- `BLOCKED/BLOCKED` permits only condition recheck until the blocker is proven clear.
-- `DONE/PASSED` may return `DELIVER` for resumable ordinary delivery or a terminal result.
-- `DRAFT/DRAFT` stops with exact `$kyw-task NNNN` authoring guidance.
-- Cancelled, missing, inconsistent, dependency-blocked, multi-active, drifted, unsafe, or unsupported state stops with the adapter result.
+`READY/READY` may return `IMPLEMENT`; `IN_PROGRESS/RUNNING`, `RESUME`; and repository-complete `DONE/PASSED`, resumable `DELIVER` or a terminal result. `BLOCKED/BLOCKED` permits only condition recheck, and `DRAFT/DRAFT` stops with exact `$kyw-task NNNN` authoring guidance. Cancelled, missing, inconsistent, dependency-blocked, multi-active, drifted, unsafe, or unsupported state stops with the adapter result.
 
-Automatic and continuous forms never allocate. Continuous processes only pre-created eligible Tasks one at a time, re-preflights after every repository and delivery transition, and never runs in parallel, in the background, or beyond this host invocation.
+Automatic and continuous forms never allocate. Continuous mode re-preflights and processes only pre-created eligible Tasks serially; it never runs in parallel, in the background, or beyond this host invocation.
 
-Only `IMPLEMENT`, `RESUME`, or `DELIVER` enters the execution reference and its one-current-Task mutation boundary. Recognized selection preserves existing ordinary authority for implementation, acceptance verification, live evidence, minimal durable-doc synchronization, terminal status, exact-path commit, non-force push, non-draft PR, exact-head CI, expected-head protected merge, post-merge main CI, and reporting without ceremonial confirmation.
+Only `IMPLEMENT`, `RESUME`, or `DELIVER` enters the reference's one-current-Task mutation and ordinary `STANDARD` lifecycle without ceremonial confirmation.
 
-Publication, registry/version/tag/Release/public submission, force or destructive recovery, branch deletion, CI rerun, bypass/admin override, and unrelated mutation remain separate. Conflict, unexplained user work, critical remote drift, failed or missing required evidence, review blockage, or a genuine user-owned decision stops.
+Publication, registry/version/tag/Release/public submission, force/destructive recovery, branch deletion, CI rerun, bypass/admin override, and unrelated mutation stay separate. Conflict, unexplained work, remote drift, failed required evidence, review blockage, or a user-owned decision stops.
 
 Never perform the independent audit owned by `$kyw-audit`.
