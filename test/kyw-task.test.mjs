@@ -66,7 +66,7 @@ function runAdapter(args) {
 function batchTaskMarkdown() {
   return `# TASK {{TASK_ID}} — {{TASK_TITLE}}
 
-<!-- kyw-task-contract: 2 -->
+<!-- kyw-task-contract: 3 -->
 
 ## Status
 
@@ -141,7 +141,7 @@ Deliver one independently verifiable outcome.
 function batchTestMarkdown() {
   return `# TEST {{TASK_ID}} — {{TASK_TITLE}}
 
-<!-- kyw-task-contract: 2 -->
+<!-- kyw-task-contract: 3 -->
 
 ## Status
 
@@ -306,6 +306,14 @@ test("kyw-task adaptive authoring materializes the smallest dependency-aware set
   assert.match(skill, /independently shippable outcomes/);
   assert.match(skill, /smallest justified complete `READY\/READY` pair set/);
   assert.match(skill, /Preserve explicit count, boundaries, order, titles, and dependencies/);
+  assert.match(
+    skill,
+    /Corrections to delivered contract-3 Tasks use new hard-dependent pairs/,
+  );
+  assert.match(
+    skill,
+    /A correction depends on the delivered Task with `\{"taskId":"NNNN"\}`/,
+  );
 });
 
 test("kyw-task adaptive authoring publishes traced READY pairs and preserves DRAFT resume", async () => {
@@ -473,8 +481,8 @@ test("kyw-task authoring adapter scaffolds and validates one DRAFT-to-READY pair
   const readyTestMarkdown = await readFile(created.testPath, "utf8");
   assert.match(readyTaskMarkdown, /## Status\n\nREADY/);
   assert.match(readyTestMarkdown, /## Status\n\nREADY/);
-  assert.equal(readyTaskMarkdown.match(/<!-- kyw-task-contract: 2 -->/g)?.length, 1);
-  assert.equal(readyTestMarkdown.match(/<!-- kyw-task-contract: 2 -->/g)?.length, 1);
+  assert.equal(readyTaskMarkdown.match(/<!-- kyw-task-contract: 3 -->/g)?.length, 1);
+  assert.equal(readyTestMarkdown.match(/<!-- kyw-task-contract: 3 -->/g)?.length, 1);
   assert.equal(await readFile(existingMarker, "utf8"), "preserve me\n");
 });
 

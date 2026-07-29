@@ -41,6 +41,8 @@ Keep one pair per independently verifiable outcome. Split only for independently
 
 Preserve explicit count, boundaries, order, titles, and dependencies when truthful, verifiable, consistent, and safe. Otherwise state the conflict and minimum safe alternative; ask only when the user must choose.
 
+Corrections to delivered contract-3 Tasks use new hard-dependent pairs. Preserve the old pair bytes; never reopen them.
+
 Reuse `$kyw-grilling` only for unresolved intent or a user-owned blocker: one question and recommendation. Do not write while a required answer is unknown.
 
 ## Prepare complete READY pairs
@@ -60,7 +62,7 @@ The ordinary production batch has exactly this outer schema:
 {"schemaVersion":1,"tasks":[{"title":"First outcome","taskMarkdown":"<complete Markdown>","testMarkdown":"<complete Markdown>","dependencies":[{"taskId":"0039"},{"taskTitle":"Earlier outcome"}]}]}
 ```
 
-Each dependency object has exactly one field. Omit dependencies or use an empty array when none exist. Explicit `key`/`taskKey` fields are low-level compatibility only and remain caller-controlled. Never guess final IDs or hand-create directories.
+Each dependency object has exactly one field. Omit dependencies or use an empty array when none exist. A correction depends on the delivered Task with `{"taskId":"NNNN"}`. Explicit `key`/`taskKey` fields are low-level compatibility only and remain caller-controlled. Never guess final IDs or hand-create directories.
 
 ## Publish atomically
 

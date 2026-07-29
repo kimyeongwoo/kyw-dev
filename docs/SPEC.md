@@ -109,6 +109,7 @@ Required behavior:
 - honor a valid user-specified Task count, boundary, ordering, title, and dependency;
 - derive each portable internal authoring key deterministically from the outcome title, without requiring callers to know or shorten that key;
 - allocate unique final IDs and paths, author both files with mapped acceptance, validate every pair and the full dependency graph, and publish the set atomically as `READY/READY`;
+- when the requested outcome corrects an already canonically delivered future-contract Task, preserve that pair and make the new correction pair hard-depend on it;
 - leave application files and permanent documents unchanged while recording expected documentation impact for execution;
 - fail closed without claiming a clean partial queue when publication ownership or rollback safety is uncertain;
 - retain existing `DRAFT/DRAFT` and legacy readers for compatibility without making new adaptive authoring depend on placeholders;
@@ -141,6 +142,7 @@ Required behavior:
 - use current-user appended text as a settled first-selected-Task override without letting it waive acceptance, safety, evidence honesty, preservation, or separate authority;
 - preserve the configured model and effort unless the current user explicitly overrides them, and label unavailable model provenance rather than inferring it;
 - before its one dispatcher call, derive the exact prior `STANDARD` set, validate repository-owned continuity only from aligned `main`, production-evaluate fresh GitHub evidence for at most one uncovered prior outcome, and fail before selection or mutation on a missing, malformed, stale, over-gap, or evaluator-rejected proof;
+- treat a canonically delivered future-contract Task as report-only, reject later terminal-pair or delivery-identity drift before dispatch, and route correction intent to a new explicit hard-dependent Task;
 - run acceptance-specific and risk-proportionate verification, record failures as well as later passes, and block when required evidence cannot run;
 - synchronize only permanent owners whose durable meaning changed;
 - compare the complete final diff with scope and the intent-to-test matrix before terminal success;
@@ -193,7 +195,7 @@ docs/tasks/NNNN-kebab-slug/
 
 IDs are four-digit, ascending, and never reused, including after cancellation. Directory names, not timestamps, determine allocation. Completed paths are stable unless the user explicitly authorizes a rename.
 
-Current queue-aware pairs carry the marker `<!-- kyw-task-contract: 2 -->`. The supported Task/Test status pairs are:
+New queue-aware pairs carry the marker `<!-- kyw-task-contract: 3 -->`. Contract 2 remains a readable queue-aware compatibility contract, and unmarked contract 1 remains legacy history. The supported Task/Test status pairs are:
 
 - `DRAFT/DRAFT` — compatible authoring is incomplete;
 - `READY/READY` — complete authoring is selectable;
@@ -202,7 +204,9 @@ Current queue-aware pairs carry the marker `<!-- kyw-task-contract: 2 -->`. The 
 - `BLOCKED/BLOCKED` — a required condition remains unmet and may be rechecked;
 - `CANCELLED/BLOCKED` — explicit cancellation is terminal.
 
-Every other combination fails closed. Existing unmarked legacy pairs retain their historical meaning and readers. Repository-complete current artifacts that predate later content grammar remain readable without historical rewrites; new or active artifacts use the current contract.
+Every other combination fails closed. Existing unmarked legacy and contract-2 pairs retain their recorded meaning and readers without migration or retroactive immutability checks; new pairs use contract 3. This repository's still-nonterminal cutover pair may migrate from contract 2 to 3 before delivery, but terminal history is never rewritten.
+
+For contract 3, the first complete production-evaluator-satisfied `HARDENED_EXACT_HEAD` `STANDARD` delivery is canonical. Its exact outcome, protected merge, post-main roles, canonical pair paths, and terminal `TASK.md`/`TEST.md` bytes become immutable. An unchanged later invocation is report-only. Any product, code, test, documentation, or evidence correction is a new explicit Task/Test pair with a hard dependency on the delivered Task; the original pair is not reopened, demoted, edited, renamed, deleted, replaced, or delivered again.
 
 A selectable or active pair contains canonical sections with meaningful scope, acceptance, risk, handoff, mapped tests, executed evidence, unverified work, and final coverage. Templates own exact shape. `Not applicable — <reason>` is allowed only for an empty operational section; acceptance and its mapping remain substantive.
 
@@ -213,6 +217,8 @@ Model-dependent evidence records the model identifier, requested alias, reasonin
 For each non-complete current pair, `Dependencies` is either the canonical no-dependency sentinel or one or more distinct canonical `- Task NNNN.` bullets. Explanatory mentions, negated dependencies, duplicates, mixed forms, missing references, and cycles fail closed.
 
 A hard dependency is satisfied only when its repository outcome is `DONE/PASSED` and any required external delivery is satisfied. Draft, ready, active, blocked, cancelled, missing, or delivery-incomplete dependencies do not satisfy it.
+
+A correction of a canonically delivered contract-3 Task must name that Task as a canonical hard dependency. Normal repository and external delivery satisfaction therefore gates correction selection without inventing a second delivery under the original Task.
 
 At most one pair may be `IN_PROGRESS/RUNNING`. Exact selection cannot bypass another active Task. Automatic selection prefers:
 
@@ -291,6 +297,8 @@ Explicit trusted pre-contract continuity may preserve already completed historic
 
 Checkpoint-covered continuity preserves a previously complete evaluator result without relabeling it legacy or fresh. Expired covered Actions logs do not invalidate that durable result, while missing or mismatched evidence for the one uncovered or current outcome still fails closed. Repository `DONE/PASSED` acceptance and terminal pair-state integrity remain prerequisites, so checkpoint or CI success cannot substitute for behavioral acceptance.
 
+For contract 3, the first satisfied hardened graph is also the sole delivery graph for that Task. The protected merge tree binds the exact terminal pair paths and bytes; aligned-main history, rolling continuity, and worktree checks reject later edits, deletion, rename, replacement, identity drift, or another Task-scoped delivery before dispatcher mutation. The diagnostic names the Task and affected path and directs correction through `$kyw-task "<correction outcome>"`. No PR chain, correction-receipt list, second checkpoint, or alternate ledger is created. Contract-1/2 history—including legitimate later historical merges—keeps its existing meaning.
+
 Ordinary `STANDARD` authority covers exact-path commit, non-force push, non-draft PR creation, exact-head CI observation, review and mergeability inspection, expected-head protected merge, post-merge base CI observation, and terminal reporting. Publication, registry/version/tag/Release/public submission, force push, destructive recovery, branch deletion, workflow rerun, bypass, and unrelated mutation remain separate authority boundaries.
 
 ## 8. CLI and installation behavior
@@ -354,7 +362,7 @@ Stable exit categories are:
 - The plugin root contains `.codex-plugin/plugin.json` and uses plugin-relative Skill paths.
 - The runtime floor is Node.js 22 or newer. Required stable evidence covers Node.js 22 and 24 on Linux, macOS, and Windows, with a bounded Linux compatibility lane for the current next major runtime.
 - Native path, permission, link, and junction behavior is verified on supported operating systems. An unavailable required capability is blocked evidence, not a passing skip.
-- Current-contract and legacy Task readers remain compatible without rewriting historical artifacts.
+- Contract-3, contract-2 compatibility, and unmarked legacy Task readers remain compatible without rewriting historical artifacts.
 
 ### 9.2 Package boundary
 
@@ -423,7 +431,7 @@ The product is accepted when the following observable results are demonstrated:
 - **AC-08:** An ordinary bounded change updates only affected code, tests, and durable owner documents without creating a numbered Task by default.
 - **AC-09:** `$kyw-audit` detects stale permanent truth, unsupported pass claims, scope drift, and missing acceptance mapping while remaining byte-stable unless exact `--fix` authority is present.
 - **AC-10:** Update, doctor, and uninstall preserve unrelated files, detect duplicates and unsafe state, and keep `--force` within valid recorded ownership.
-- **AC-11:** Current and legacy Task readers, one-active selection, hard dependencies, terminal queue verdicts, and current `STANDARD` delivery classifications remain deterministic and fail closed.
+- **AC-11:** Contract-3, contract-2, and legacy Task readers, one-active selection, hard dependencies, immutable future terminal evidence, terminal queue verdicts, and current `STANDARD` delivery classifications remain deterministic and fail closed.
 - **AC-12:** Hosted CI distinguishes actual PR-head evidence, synthetic merge compatibility, protected merge, and post-merge base evidence at exact identities without using CI as behavioral or publication approval.
 - **AC-13:** Direct and plugin installation load the same five Skill contracts on supported surfaces without lifecycle scripts or a duplicate engine.
 - **AC-14:** Progressive loading selects the durable owner from explicit scope signals and escalates broad, conflicting, ambiguous, missing, or insufficient truth to a full read.

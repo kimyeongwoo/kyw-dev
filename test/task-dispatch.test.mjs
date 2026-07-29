@@ -1,5 +1,13 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  mkdtemp,
+  mkdir,
+  readFile,
+  readdir,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -41,10 +49,13 @@ function taskMarkdown({
   dependencies = "- Not applicable — no hard dependency is required for this outcome.",
   delivery = "STANDARD",
   legacy = false,
+  contractVersion,
   blocker = "- None known.",
 }) {
   const done = status === "DONE";
-  const marker = legacy ? "" : `\n${TASK_CONTRACT_MARKER}\n`;
+  const marker = legacy
+    ? ""
+    : `\n${contractVersion ? `<!-- kyw-task-contract: ${contractVersion} -->` : TASK_CONTRACT_MARKER}\n`;
   const deliverySection = legacy
     ? ""
     : `\n## Delivery\n\n${
@@ -124,13 +135,16 @@ function testMarkdown({
   title = `Task ${id}`,
   taskStatus = "READY",
   legacy = false,
+  contractVersion,
 }) {
   const status = pairStatus(taskStatus);
   const passed = status === "PASSED";
   const blocked = status === "BLOCKED";
   const rowStatus = passed ? "PASS" : blocked ? "BLOCKED" : "TODO";
   const evidence = passed ? "Focused fixture passed." : blocked ? "Fixture is blocked." : "Not run.";
-  const marker = legacy ? "" : `\n${TASK_CONTRACT_MARKER}\n`;
+  const marker = legacy
+    ? ""
+    : `\n${contractVersion ? `<!-- kyw-task-contract: ${contractVersion} -->` : TASK_CONTRACT_MARKER}\n`;
   return `# TEST ${id} — ${title}
 ${marker}
 ## Status
@@ -189,6 +203,7 @@ async function writePair(root, definition) {
       title: definition.title,
       taskStatus: definition.status,
       legacy: definition.legacy,
+      contractVersion: definition.contractVersion,
     }), "utf8"),
   ]);
 }
@@ -805,6 +820,44 @@ test("automatic dispatch uses canonical hard dependencies and the lowest satisfi
   assert.deepEqual(result.task.dependencies, ["0001"]);
 });
 
+test("a future correction stays a new hard-dependent Task and preserves the delivered pair", async (t) => {
+  const root = await createQueue(t, [
+    { id: "0001", status: "DONE" },
+    {
+      id: "0002",
+      status: "READY",
+      dependencies: "- Task 0001.",
+      title: "Correct Task 0001 behavior",
+    },
+  ]);
+  const deliveredDirectory = path.join(root, "0001-task-0001");
+  const deliveredTaskPath = path.join(deliveredDirectory, "TASK.md");
+  const deliveredTestPath = path.join(deliveredDirectory, "TEST.md");
+  const before = await Promise.all([
+    readFile(deliveredTaskPath),
+    readFile(deliveredTestPath),
+  ]);
+
+  const blocked = await resolveTaskDispatch({
+    tasksRoot: root,
+    invocation: "$kyw-impl 0002",
+  });
+  assert.equal(blocked.outcome, "BLOCKED");
+  assert.match(blocked.message, /Task 0001 delivery is resumable/);
+
+  const selected = await resolveTaskDispatch({
+    tasksRoot: root,
+    invocation: "$kyw-impl 0002",
+    deliveryLedger: { "0001": deliveredEntry() },
+    deliveryExpectations: { "0001": deliveredExpectation() },
+  });
+  assert.equal(selected.outcome, "SELECTED");
+  assert.equal(selected.action, "IMPLEMENT");
+  assert.deepEqual(selected.task.dependencies, ["0001"]);
+  assert.deepEqual(await readFile(deliveredTaskPath), before[0]);
+  assert.deepEqual(await readFile(deliveredTestPath), before[1]);
+});
+
 test("current dependency grammar accepts only the canonical sentinel or canonical bullets", async (t) => {
   const accepted = [
     {
@@ -1288,7 +1341,37 @@ test("exact GitHub ledger evidence gates terminal queue advancement and no-work 
   assert.equal(exactComplete.code, "TASK_COMPLETE");
   assert.equal(exactComplete.deliveryDisposition, "SATISFIED");
   assert.equal(exactComplete.mutationRequired, false);
+  assert.equal(exactComplete.terminalPairImmutable, true);
+  assert.equal(exactComplete.correctionDependencyTaskId, "0001");
+  assert.match(exactComplete.message, /report-only/);
+  assert.match(exactComplete.correctionRoute, /^\$kyw-task/);
   assert.equal("action" in exactComplete, false);
+
+  const correction = await resolveTaskDispatch({
+    tasksRoot: root,
+    invocation: "$kyw-impl 0001 correct the terminal evidence",
+    deliveryLedger: { "0001": entry },
+    deliveryExpectations: { "0001": expectation },
+  });
+  assert.equal(correction.outcome, "TERMINAL");
+  assert.equal(correction.code, "TASK_CORRECTION_REQUIRES_NEW_TASK");
+  assert.equal(correction.mutationRequired, false);
+  assert.equal(correction.correctionDependencyTaskId, "0001");
+  assert.match(correction.message, /\$kyw-task "<correction outcome>"/);
+  assert.match(correction.message, /hard-depend on Task 0001/);
+
+  const previousContractRoot = await createQueue(t, [
+    { id: "0001", status: "DONE", contractVersion: 2 },
+  ]);
+  const previousContract = await resolveTaskDispatch({
+    tasksRoot: previousContractRoot,
+    invocation: "$kyw-impl 0001 correction text remains grandfathered",
+    deliveryLedger: { "0001": entry },
+    deliveryExpectations: { "0001": expectation },
+  });
+  assert.equal(previousContract.outcome, "TERMINAL");
+  assert.equal(previousContract.code, "TASK_COMPLETE");
+  assert.equal("terminalPairImmutable" in previousContract, false);
 
   const staleEntry = structuredClone(entry);
   staleEntry.pullRequest.headSha = "c".repeat(40);

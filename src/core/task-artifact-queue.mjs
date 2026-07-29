@@ -2,8 +2,9 @@ import { lstat, readFile } from "node:fs/promises";
 import path from "node:path";
 
 import {
-  CURRENT_TASK_CONTRACT_VERSION,
   getTaskContractVersion,
+  isImmutableTerminalTaskContractVersion,
+  isQueueAwareTaskContractVersion,
   validateTaskTestContract,
 } from "./template-contracts.mjs";
 import {
@@ -33,6 +34,70 @@ import {
   listBatchTransactionArtifacts,
   taskLayoutError,
 } from "./task-artifact-shared.mjs";
+
+export function parseTaskQueueMarkdownPair({
+  tasksRoot,
+  entry,
+  taskMarkdown,
+  testMarkdown,
+}) {
+  const directory = resolveTaskDirectory(tasksRoot, entry.id, entry.slug);
+  const taskPath = path.join(directory, "TASK.md");
+  const testPath = path.join(directory, "TEST.md");
+  const errors = validateTaskTestContract({ taskMarkdown, testMarkdown }).map(
+    (message) => `${entry.name}: ${message}`,
+  );
+  const taskId = /^# TASK (\d{4}) — (.+)$/m.exec(taskMarkdown);
+  const testId = /^# TEST (\d{4}) — (.+)$/m.exec(testMarkdown);
+  if (taskId?.[1] !== entry.id || testId?.[1] !== entry.id) {
+    errors.push(
+      `${entry.name}: directory ID ${entry.id} must match TASK.md and TEST.md headers (${taskId?.[1] ?? "<missing>"}/${testId?.[1] ?? "<missing>"})`,
+    );
+  }
+  const contractVersion = getTaskContractVersion(taskMarkdown);
+  const taskStatus = firstSectionLine(taskMarkdown, "Status");
+  const testStatus = firstSectionLine(testMarkdown, "Status");
+  const deliveryRequirement = parseDeliveryRequirement(
+    taskMarkdown,
+    contractVersion,
+  );
+  const baseTask = {
+    id: entry.id,
+    number: entry.number,
+    name: entry.name,
+    directory,
+    taskPath,
+    testPath,
+    title: taskId?.[2]?.trim() ?? entry.name,
+    taskStatus,
+    testStatus,
+    contractVersion,
+    dependencies: Object.freeze([]),
+    deliveryRequirement,
+    blocker:
+      firstSectionLine(taskMarkdown, "Blockers") ??
+      "No blocker reason recorded.",
+  };
+  const dependencyParse = parseHardDependencies(
+    taskMarkdown,
+    contractVersion,
+    { completedCompatibility: completeTask(baseTask) },
+  );
+  errors.push(
+    ...dependencyParse.errors.map(
+      (message) => `${entry.name}: TASK.md: ${message}`,
+    ),
+  );
+  return {
+    entry,
+    errors,
+    taskMarkdown,
+    task: Object.freeze({
+      ...baseTask,
+      dependencies: dependencyParse.dependencies,
+    }),
+  };
+}
 
 async function readTaskQueueEntry(tasksRoot, entry) {
   const directory = resolveTaskDirectory(tasksRoot, entry.id, entry.slug);
@@ -86,45 +151,17 @@ async function readTaskQueueEntry(tasksRoot, entry) {
     };
   }
 
-  const errors = validateTaskTestContract({ taskMarkdown, testMarkdown }).map(
-    (message) => `${entry.name}: ${message}`,
-  );
-  const taskId = /^# TASK (\d{4}) — (.+)$/m.exec(taskMarkdown);
-  const testId = /^# TEST (\d{4}) — (.+)$/m.exec(testMarkdown);
-  if (taskId?.[1] !== entry.id || testId?.[1] !== entry.id) {
-    errors.push(
-      `${entry.name}: directory ID ${entry.id} must match TASK.md and TEST.md headers (${taskId?.[1] ?? "<missing>"}/${testId?.[1] ?? "<missing>"})`,
-    );
-  }
-  const contractVersion = getTaskContractVersion(taskMarkdown);
-  const taskStatus = firstSectionLine(taskMarkdown, "Status");
-  const testStatus = firstSectionLine(testMarkdown, "Status");
-  const deliveryRequirement = parseDeliveryRequirement(taskMarkdown, contractVersion);
-  return {
+  return parseTaskQueueMarkdownPair({
+    tasksRoot,
     entry,
-    errors,
     taskMarkdown,
-    task: Object.freeze({
-      id: entry.id,
-      number: entry.number,
-      name: entry.name,
-      directory,
-      taskPath,
-      testPath,
-      title: taskId?.[2]?.trim() ?? entry.name,
-      taskStatus,
-      testStatus,
-      contractVersion,
-      dependencies: Object.freeze([]),
-      deliveryRequirement,
-      blocker: firstSectionLine(taskMarkdown, "Blockers") ?? "No blocker reason recorded.",
-    }),
-  };
+    testMarkdown,
+  });
 }
 
 export function dependencyGraphErrors(tasks, byId) {
   const currentTasks = tasks.filter(
-    (task) => task.contractVersion === CURRENT_TASK_CONTRACT_VERSION,
+    (task) => isQueueAwareTaskContractVersion(task.contractVersion),
   );
   const errors = [];
   for (const task of currentTasks) {
@@ -181,22 +218,7 @@ export async function inspectTaskQueueContents(tasksRoot) {
   for (const record of records) {
     errors.push(...record.errors);
     if (record.task) {
-      const dependencyParse = parseHardDependencies(
-        record.taskMarkdown,
-        record.task.contractVersion,
-        { completedCompatibility: completeTask(record.task) },
-      );
-      errors.push(
-        ...dependencyParse.errors.map(
-          (message) => `${record.entry.name}: TASK.md: ${message}`,
-        ),
-      );
-      tasks.push(
-        Object.freeze({
-          ...record.task,
-          dependencies: dependencyParse.dependencies,
-        }),
-      );
+      tasks.push(record.task);
     }
   }
   const byId = new Map(tasks.map((task) => [task.id, task]));
@@ -205,7 +227,7 @@ export async function inspectTaskQueueContents(tasksRoot) {
     tasks: Object.freeze(tasks),
     errors: Object.freeze(errors),
     currentTasks: Object.freeze(
-      tasks.filter((task) => task.contractVersion === CURRENT_TASK_CONTRACT_VERSION),
+      tasks.filter((task) => isQueueAwareTaskContractVersion(task.contractVersion)),
     ),
   });
 }
@@ -324,7 +346,7 @@ function terminalGateBlockers(task, byId, deliveryState) {
 }
 
 function priorTransitionBlockers(task, currentTasks, byId, deliveryState) {
-  if (task.contractVersion !== CURRENT_TASK_CONTRACT_VERSION) {
+  if (!isQueueAwareTaskContractVersion(task.contractVersion)) {
     return [];
   }
   const blockers = [];
@@ -441,10 +463,22 @@ function terminalTaskResult(task, byId, deliveryState, parsedInvocation) {
     if (classification.disposition === "BLOCKED") {
       return deliveryEvidenceBlockedResult(task, classification);
     }
+    const immutableTerminal = isImmutableTerminalTaskContractVersion(
+      task.contractVersion,
+    );
+    const correctionIntent =
+      immutableTerminal && Boolean(parsedInvocation.overrideText?.trim());
+    const correctionRoute = '$kyw-task "<correction outcome>"';
     return Object.freeze({
       outcome: "TERMINAL",
-      code: "TASK_COMPLETE",
-      message: `Task ${task.id} is repository-complete and required delivery is satisfied.`,
+      code: correctionIntent
+        ? "TASK_CORRECTION_REQUIRES_NEW_TASK"
+        : "TASK_COMPLETE",
+      message: immutableTerminal
+        ? correctionIntent
+          ? `Task ${task.id} is canonically delivered and its terminal Task/Test pair is immutable. Use ${correctionRoute}; the new correction Task must hard-depend on Task ${task.id}.`
+          : `Task ${task.id} is canonically delivered; this invocation is report-only and the immutable terminal Task/Test pair remains unchanged. Later corrections use ${correctionRoute} with a hard dependency on Task ${task.id}.`
+        : `Task ${task.id} is repository-complete and required delivery is satisfied.`,
       task: taskSummary(task),
       deliveryDisposition: "SATISFIED",
       deliveryClassification: classification.classification,
@@ -452,6 +486,13 @@ function terminalTaskResult(task, byId, deliveryState, parsedInvocation) {
       mergeCompatibilityEvidence: classification.mergeCompatibility,
       postMergeEvidence: classification.postMerge,
       mutationRequired: false,
+      ...(immutableTerminal
+        ? {
+            terminalPairImmutable: true,
+            correctionRoute,
+            correctionDependencyTaskId: task.id,
+          }
+        : {}),
     });
   }
   if (blockedTask(task)) {

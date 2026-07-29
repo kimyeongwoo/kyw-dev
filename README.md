@@ -91,6 +91,12 @@ Hardened `STANDARD` delivery keeps actual PR-head jobs, synthetic merge compatib
 jobs as distinct exact-SHA roles. Missing, stale, mismatched, reused, or incomplete evidence fails closed, and CI success never
 substitutes for behavioral acceptance.
 
+A future-contract `STANDARD` Task has one canonical delivery. Its first complete hardened exact-head graph binds the exact
+terminal `TASK.md` and `TEST.md` bytes; later invocations are report-only, and a correction starts with an explicit
+`$kyw-task "<correction outcome>"` whose new pair hard-depends on the delivered Task. Editing, deleting, renaming, replacing, or
+redelivering the old pair fails before dispatch. Unmarked and prior-contract history remains readable and is not retroactively
+rewritten or reclassified.
+
 A selected `IMPLEMENT`, `RESUME`, or `DELIVER` result authorizes ordinary Task delivery: exact-path commit, non-force push,
 non-draft PR, exact-head CI observation, expected-head protected merge, post-merge CI observation, and terminal reporting.
 Publication, registry mutation, version/tag/Release changes, public submission, force or destructive operations, workflow reruns,

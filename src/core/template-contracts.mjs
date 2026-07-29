@@ -14,7 +14,19 @@ export const TASK_STATUSES = Object.freeze([
 ]);
 export const TEST_STATUSES = Object.freeze(["DRAFT", "READY", "RUNNING", "PASSED", "BLOCKED"]);
 export const TEST_ROW_STATUSES = Object.freeze(["TODO", "PASS", "FAIL", "BLOCKED", "N/A"]);
-export const CURRENT_TASK_CONTRACT_VERSION = 2;
+export const LEGACY_TASK_CONTRACT_VERSION = 1;
+export const PREVIOUS_TASK_CONTRACT_VERSION = 2;
+export const CURRENT_TASK_CONTRACT_VERSION = 3;
+export const QUEUE_AWARE_TASK_CONTRACT_VERSIONS = Object.freeze([
+  PREVIOUS_TASK_CONTRACT_VERSION,
+  CURRENT_TASK_CONTRACT_VERSION,
+]);
+export const SUPPORTED_TASK_CONTRACT_VERSIONS = Object.freeze([
+  LEGACY_TASK_CONTRACT_VERSION,
+  ...QUEUE_AWARE_TASK_CONTRACT_VERSIONS,
+]);
+export const IMMUTABLE_TERMINAL_TASK_CONTRACT_VERSION =
+  CURRENT_TASK_CONTRACT_VERSION;
 export const TASK_CONTRACT_MARKER = `<!-- kyw-task-contract: ${CURRENT_TASK_CONTRACT_VERSION} -->`;
 export const MODEL_PROVENANCE_FIELDS = Object.freeze([
   "Model identifier",
@@ -31,6 +43,14 @@ export const TASK_TEST_STATUS_PAIRS = Object.freeze([
   Object.freeze(["BLOCKED", "BLOCKED"]),
   Object.freeze(["CANCELLED", "BLOCKED"]),
 ]);
+
+export function isQueueAwareTaskContractVersion(version) {
+  return QUEUE_AWARE_TASK_CONTRACT_VERSIONS.includes(version);
+}
+
+export function isImmutableTerminalTaskContractVersion(version) {
+  return version === IMMUTABLE_TERMINAL_TASK_CONTRACT_VERSION;
+}
 
 export const DOCUMENT_CONTRACTS = Object.freeze({
   README: Object.freeze({
@@ -558,7 +578,7 @@ export function validateTaskTestContract({ taskMarkdown, testMarkdown }) {
     .map((line) => line.trim())
     .some((line) => reasonedNotApplicableEntry.test(line));
 
-  if (testContractVersion === CURRENT_TASK_CONTRACT_VERSION) {
+  if (isQueueAwareTaskContractVersion(testContractVersion)) {
     errors.push(...validateModelProvenance(testMarkdown));
   }
 
@@ -581,7 +601,7 @@ export function validateTaskTestContract({ taskMarkdown, testMarkdown }) {
   }
   if (
     taskContractVersion !== undefined &&
-    ![1, CURRENT_TASK_CONTRACT_VERSION].includes(taskContractVersion)
+    !SUPPORTED_TASK_CONTRACT_VERSIONS.includes(taskContractVersion)
   ) {
     errors.push(`TASK.md: unsupported Task contract version ${taskContractVersion}`);
   }
@@ -593,7 +613,7 @@ export function validateTaskTestContract({ taskMarkdown, testMarkdown }) {
     errors.push(`TEST.md: invalid Status "${testStatus ?? "<missing>"}"; allowed: ${TEST_STATUSES.join(", ")}`);
   }
   if (
-    taskContractVersion === CURRENT_TASK_CONTRACT_VERSION &&
+    isQueueAwareTaskContractVersion(taskContractVersion) &&
     TASK_STATUSES.includes(taskStatus) &&
     TEST_STATUSES.includes(testStatus) &&
     !TASK_TEST_STATUS_PAIRS.some(([task, test]) => task === taskStatus && test === testStatus)
@@ -601,7 +621,7 @@ export function validateTaskTestContract({ taskMarkdown, testMarkdown }) {
     errors.push(`TASK.md/TEST.md: inconsistent status pair ${taskStatus}/${testStatus}`);
   }
 
-  if (taskContractVersion === CURRENT_TASK_CONTRACT_VERSION) {
+  if (isQueueAwareTaskContractVersion(taskContractVersion)) {
     const taskHeadings = [...DOCUMENT_CONTRACTS.TASK.requiredSections, "Risks", "Delivery"];
     const testHeadings = DOCUMENT_CONTRACTS.TEST.requiredSections;
     for (const heading of taskHeadings) {
@@ -709,7 +729,7 @@ export function validateTaskTestContract({ taskMarkdown, testMarkdown }) {
     }
   }
   if (
-    taskContractVersion === CURRENT_TASK_CONTRACT_VERSION &&
+    isQueueAwareTaskContractVersion(taskContractVersion) &&
     !["DRAFT", "CANCELLED"].includes(taskStatus)
   ) {
     if (acceptanceIds.length === 0) {
@@ -751,7 +771,7 @@ export function validateTaskTestContract({ taskMarkdown, testMarkdown }) {
     if (acceptanceIds.length === 0) {
       errors.push("TASK.md: DONE requires at least one acceptance criterion");
     }
-    if (taskContractVersion === CURRENT_TASK_CONTRACT_VERSION) {
+    if (isQueueAwareTaskContractVersion(taskContractVersion)) {
       if (uncheckedItems(sectionText(taskSections, "Plan")).length > 0) {
         errors.push("TASK.md: current-contract DONE requires every Plan checklist item to be checked");
       }
