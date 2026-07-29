@@ -3,26 +3,26 @@
   "kind": "KYW_STANDARD_DELIVERY_CONTINUITY",
   "repository": "kimyeongwoo/kyw-dev",
   "baseRef": "main",
-  "sourceMainSha": "4aa0d7dfea29b8980677a870d48a57b39f8092ef",
-  "coveredMainSha": "4aa0d7dfea29b8980677a870d48a57b39f8092ef",
+  "sourceMainSha": "d5bd9400943165d5e160103f1209910c77e8d05b",
+  "coveredMainSha": "d5bd9400943165d5e160103f1209910c77e8d05b",
   "deliveryContract": {
     "kind": "HARDENED_EXACT_HEAD",
     "version": 2
   },
   "coverage": {
-    "taskCount": 30,
-    "lastTaskId": "0060",
-    "orderedTaskSetSha256": "98b7164581417de8d5c2e1e1a0fb86f5a86e4f800dd512eaa2af7f0de66acf55",
-    "terminalPairStateSha256": "4c5b3bca8d646fa1c72bf961066bdcbe4042fef1eb0026b33d66646cd6909984",
-    "cumulativeEvidenceSha256": "537b5c8e70197ce23cec3c528f8f3fa74d7fc06b1fd2aec63d7ec3b2fe4586de"
+    "taskCount": 31,
+    "lastTaskId": "0061",
+    "orderedTaskSetSha256": "03d9e355cb9dc6e151eb80976c3dfea614aca8becd2d135afb6ea626c2573f31",
+    "terminalPairStateSha256": "3387cc90bf367301c2f126fd62379a158fef13b1dfb1b206b03ed1c0a5759505",
+    "cumulativeEvidenceSha256": "349f1d44183eac99bf913f87b5bd0bdce516776ed34fae620a974fd81fc1aeee"
   },
-  "previousCheckpointDigest": "fef8957af34edc29152ab93bac920ede19c2d3a5ef70c5afa3701a528225be77",
+  "previousCheckpointDigest": "5ed4f0cf3e82dc77ce6c22ba06660e4abf3a3e006bf7feeb5f0e6cc1eab1fb1a",
   "transition": {
-    "taskId": "0060",
+    "taskId": "0061",
     "classification": "HARDENED_EXACT_HEAD",
-    "outcomeSha": "61d9f0b0682efb06151b30fcf119a5847021ad8f",
-    "mergeSha": "4aa0d7dfea29b8980677a870d48a57b39f8092ef",
-    "evidenceSha256": "84f73c98307cddba6ea99e3286849966c95d871fc4450ec241320ea6713cc7b4"
+    "outcomeSha": "6d8f6a5470ae22c9a10446ff77f3576f811d0d42",
+    "mergeSha": "d5bd9400943165d5e160103f1209910c77e8d05b",
+    "evidenceSha256": "5b9afa2b25636c6692f3f01d68ba27bea3e5dbfd8ef9d5fa95b81ff92c3b26f6"
   },
-  "checkpointDigest": "5ed4f0cf3e82dc77ce6c22ba06660e4abf3a3e006bf7feeb5f0e6cc1eab1fb1a"
+  "checkpointDigest": "178ce087bc71c109d389cfabb2d1605b3be2f58998e659a7d9c76bd7b42b4366"
 }

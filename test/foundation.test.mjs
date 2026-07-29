@@ -1,11 +1,17 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 import {
+  INSTRUCTION_SURFACE_PATHS,
   PERMANENT_DOCUMENT_BUDGET_CHANGE_MARKER,
   PERMANENT_DOCUMENT_COMPACTION_ACCEPTANCE,
   PERMANENT_DOCUMENT_DELTA_MARKER,
   PERMANENT_DOCUMENT_POLICY,
+  PERMANENT_RULE_FAMILIES,
+  REPOSITORY_ROOT,
+  REQUIRED_INSTRUCTION_RULE_FAMILY_IDS,
   derivePermanentDocumentEvidenceBaseline,
   evaluatePermanentDocumentBudget,
   measurePermanentDocuments,
@@ -893,7 +899,10 @@ test("owner/projection registry rejects every ownership and projection failure c
   };
   const allowedSurfacePaths = new Set(Object.keys(texts));
   assert.deepEqual(
-    validatePermanentRuleFamilies(registry, texts, { allowedSurfacePaths }),
+    validatePermanentRuleFamilies(registry, texts, {
+      allowedSurfacePaths,
+      requiredFamilyIds: ["demo"],
+    }),
     [],
   );
 
@@ -905,6 +914,7 @@ test("owner/projection registry rejects every ownership and projection failure c
   assert.match(
     validatePermanentRuleFamilies(duplicateOwner, texts, {
       allowedSurfacePaths,
+      requiredFamilyIds: ["demo"],
     }).join("\n"),
     /exactly one canonical owner/,
   );
@@ -914,6 +924,7 @@ test("owner/projection registry rejects every ownership and projection failure c
   assert.match(
     validatePermanentRuleFamilies(missingOwner, texts, {
       allowedSurfacePaths,
+      requiredFamilyIds: ["demo"],
     }).join("\n"),
     /exactly one canonical owner/,
   );
@@ -926,6 +937,7 @@ test("owner/projection registry rejects every ownership and projection failure c
   assert.match(
     validatePermanentRuleFamilies(unlistedProjection, texts, {
       allowedSurfacePaths,
+      requiredFamilyIds: ["demo"],
     }).join("\n"),
     /unlisted or duplicate projection/,
   );
@@ -937,6 +949,7 @@ test("owner/projection registry rejects every ownership and projection failure c
   assert.match(
     validatePermanentRuleFamilies(registry, copiedProcedure, {
       allowedSurfacePaths,
+      requiredFamilyIds: ["demo"],
     }).join("\n"),
     /detailed procedure appears as an unlisted projection/,
   );
@@ -948,6 +961,7 @@ test("owner/projection registry rejects every ownership and projection failure c
   assert.match(
     validatePermanentRuleFamilies(registry, copiedPermanentProjection, {
       allowedSurfacePaths,
+      requiredFamilyIds: ["demo"],
     }).join("\n"),
     /detailed procedure appears as an unlisted projection in README\.md/,
   );
@@ -959,8 +973,71 @@ test("owner/projection registry rejects every ownership and projection failure c
   assert.match(
     validatePermanentRuleFamilies(registry, staleProjection, {
       allowedSurfacePaths,
+      requiredFamilyIds: ["demo"],
     }).join("\n"),
     /projection .* is stale/,
+  );
+
+  assert.match(
+    validatePermanentRuleFamilies([], texts, {
+      allowedSurfacePaths,
+      requiredFamilyIds: ["demo"],
+    }).join("\n"),
+    /ownerless or unregistered: demo/,
+  );
+});
+
+test("every named instruction owner and required projection is mutation-guarded", () => {
+  const texts = Object.fromEntries(
+    INSTRUCTION_SURFACE_PATHS.map((relativePath) => [
+      relativePath,
+      readFileSync(join(REPOSITORY_ROOT, relativePath), "utf8"),
+    ]),
+  );
+  const options = {
+    allowedSurfacePaths: new Set(INSTRUCTION_SURFACE_PATHS),
+    requiredFamilyIds: REQUIRED_INSTRUCTION_RULE_FAMILY_IDS,
+  };
+  assert.deepEqual(
+    PERMANENT_RULE_FAMILIES.map(({ id }) => id),
+    REQUIRED_INSTRUCTION_RULE_FAMILY_IDS,
+  );
+  assert.deepEqual(
+    validatePermanentRuleFamilies(PERMANENT_RULE_FAMILIES, texts, options),
+    [],
+  );
+
+  for (const family of PERMANENT_RULE_FAMILIES) {
+    const missingOwner = { ...texts, [family.owner.path]: "" };
+    assert.match(
+      validatePermanentRuleFamilies(
+        PERMANENT_RULE_FAMILIES,
+        missingOwner,
+        options,
+      ).join("\n"),
+      new RegExp(`${family.id} canonical owner is missing anchor`),
+      family.id,
+    );
+    for (const projection of family.projections) {
+      const staleProjection = { ...texts, [projection.path]: "" };
+      assert.match(
+        validatePermanentRuleFamilies(
+          PERMANENT_RULE_FAMILIES,
+          staleProjection,
+          options,
+        ).join("\n"),
+        new RegExp(`${family.id} projection .* is stale`),
+        `${family.id}:${projection.path}`,
+      );
+    }
+  }
+
+  const ownerless = PERMANENT_RULE_FAMILIES.filter(
+    ({ id }) => id !== "test-evidence-shape",
+  );
+  assert.match(
+    validatePermanentRuleFamilies(ownerless, texts, options).join("\n"),
+    /ownerless or unregistered: test-evidence-shape/,
   );
 });
 

@@ -269,7 +269,10 @@ test("permanent, Task, package, and hosted surfaces keep the tier contract align
     /### 9\.4 Release verification[\s\S]*Candidate\s+verification creates one real archive/,
   );
   assert.match(readme, /npm run verify:plan -- <changed-path>/);
-  assert.match(execution, /Classify verification proportionally; use the repository planner/);
+  assert.match(
+    execution,
+    /Use the planner when present: \*\*Focused\*\*[\s\S]*\*\*Stable\*\*[\s\S]*\*\*Release\*\*/,
+  );
 
   assert.equal(packageJson.scripts.test, "node --test");
   assert.equal(packageJson.scripts["verify:plan"], "node ./scripts/verification-plan.mjs");

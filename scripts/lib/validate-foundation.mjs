@@ -248,6 +248,23 @@ export const PERMANENT_DOCUMENT_DELTA_MARKER =
 export const PERMANENT_DOCUMENT_BUDGET_CHANGE_MARKER =
   "<!-- kyw-permanent-document-budget-change:v1 -->";
 
+export const REQUIRED_INSTRUCTION_RULE_FAMILY_IDS = Object.freeze([
+  "five-skills-explicit-invocation",
+  "grilling-procedure",
+  "initialization-procedure",
+  "task-authoring-procedure",
+  "existing-task-execution-procedure",
+  "independent-audit-procedure",
+  "task-artifact-shape",
+  "test-evidence-shape",
+  "standard-delivery-evidence",
+  "stable-system-structure",
+  "installation-safety",
+  "publication-authority",
+  "progressive-context-loading",
+  "repository-routing-and-completion",
+]);
+
 export const PERMANENT_RULE_FAMILIES = deepFreeze([
   {
     id: "five-skills-explicit-invocation",
@@ -264,8 +281,70 @@ export const PERMANENT_RULE_FAMILIES = deepFreeze([
         path: "AGENTS.md",
         anchors: [pattern("All five `kyw-\\*` Skills are explicit-only")],
       },
+      ...SKILL_NAMES.map((skillName) => ({
+        path: `skills/${skillName}/SKILL.md`,
+        anchors: [pattern(`\\$${skillName.replace("-", "\\-")}`)],
+      })),
     ],
     forbiddenDetailedAnchors: [],
+  },
+  {
+    id: "grilling-procedure",
+    owner: {
+      path: "skills/kyw-grilling/SKILL.md",
+      anchors: [
+        pattern("^## Interview protocol$"),
+        pattern("ask exactly one decision question"),
+        pattern("^## State and mutation boundary$"),
+      ],
+    },
+    projections: [
+      {
+        path: "README.md",
+        anchors: [pattern("\\$kyw-grilling"), pattern("without creating files")],
+      },
+      {
+        path: "docs/SPEC.md",
+        anchors: [pattern("detailed interview state machine belongs to")],
+      },
+      {
+        path: "docs/ARCHITECTURE.md",
+        anchors: [pattern("kyw-grilling.*conversation-only", "is")],
+      },
+    ],
+    forbiddenDetailedAnchors: [
+      pattern("Question: <one decision question>"),
+      pattern("Once terminal cancellation is established"),
+    ],
+  },
+  {
+    id: "initialization-procedure",
+    owner: {
+      path: "skills/kyw-init/SKILL.md",
+      anchors: [
+        pattern("Limit final mutations to:"),
+        pattern("^## Phase 1 - Inspect without writing$"),
+        pattern("^## Phase 3 - Materialize the confirmed baseline$"),
+      ],
+    },
+    projections: [
+      {
+        path: "README.md",
+        anchors: [pattern("\\$kyw-init"), pattern("four permanent documents")],
+      },
+      {
+        path: "docs/SPEC.md",
+        anchors: [pattern("\\$kyw-init"), pattern("shared-understanding confirmation")],
+      },
+      {
+        path: "docs/ARCHITECTURE.md",
+        anchors: [pattern("### 5\\.1 Initialization")],
+      },
+    ],
+    forbiddenDetailedAnchors: [
+      pattern("templates/project/\\{README,AGENTS,SPEC,ARCHITECTURE\\}\\.md"),
+      pattern("If any inspected document changed during the interview"),
+    ],
   },
   {
     id: "task-authoring-procedure",
@@ -365,6 +444,77 @@ export const PERMANENT_RULE_FAMILIES = deepFreeze([
     ],
   },
   {
+    id: "task-artifact-shape",
+    owner: {
+      path: "templates/task/TASK.md",
+      anchors: [
+        pattern("<!-- kyw-task-contract: 3 -->"),
+        pattern("^## Acceptance Criteria$"),
+        pattern("^## Delivery$"),
+        pattern("^## Resume Point$"),
+      ],
+    },
+    projections: [
+      {
+        path: "skills/kyw-task/SKILL.md",
+        anchors: [pattern("canonical Task/Test templates"), pattern("set both statuses to `READY`")],
+      },
+      {
+        path: "skills/kyw-impl/references/execution.md",
+        anchors: [pattern("Keep Plan and handoff factual")],
+      },
+      {
+        path: "docs/SPEC.md",
+        anchors: [pattern("Templates own exact shape")],
+      },
+      {
+        path: "docs/ARCHITECTURE.md",
+        anchors: [pattern("Canonical Task/Test templates own exact sections")],
+      },
+    ],
+    forbiddenDetailedAnchors: [
+      pattern("State one independently testable outcome"),
+      pattern("For DONE, use `- None — repository outcome complete\\.`"),
+    ],
+  },
+  {
+    id: "test-evidence-shape",
+    owner: {
+      path: "templates/task/TEST.md",
+      anchors: [
+        pattern("^## Model Provenance$"),
+        pattern("\\| ID \\| Intent / acceptance criterion \\| Method \\| Level \\| Status \\| Evidence \\|"),
+        pattern("^## Final Coverage Review$"),
+      ],
+    },
+    projections: [
+      {
+        path: "skills/kyw-task/SKILL.md",
+        anchors: [pattern("five-field model provenance"), pattern("stable unchecked `AC-NN`")],
+      },
+      {
+        path: "skills/kyw-impl/references/execution.md",
+        anchors: [pattern("canonical five fields in `templates/task/TEST\\.md`")],
+      },
+      {
+        path: "skills/kyw-audit/references/audit.md",
+        anchors: [pattern("Confirm each row states a meaningful intent, method, level, status, and evidence")],
+      },
+      {
+        path: "docs/SPEC.md",
+        anchors: [pattern("Model-dependent evidence records the model identifier")],
+      },
+      {
+        path: "docs/ARCHITECTURE.md",
+        anchors: [pattern("Stable acceptance IDs and matrix IDs form a traceability graph")],
+      },
+    ],
+    forbiddenDetailedAnchors: [
+      pattern("not recorded yet"),
+      pattern("Add one row for every acceptance criterion"),
+    ],
+  },
+  {
     id: "standard-delivery-evidence",
     owner: {
       path: "docs/SPEC.md",
@@ -392,8 +542,40 @@ export const PERMANENT_RULE_FAMILIES = deepFreeze([
         path: "docs/ARCHITECTURE.md",
         anchors: [pattern("merge compatib", "i"), pattern("post-merge", "i")],
       },
+      {
+        path: "skills/kyw-impl/references/execution.md",
+        anchors: [
+          pattern("HARDENED_EXACT_HEAD"),
+          pattern("PR_MERGE_COMPATIBILITY"),
+          pattern("POST_MERGE_MAIN"),
+        ],
+      },
     ],
     forbiddenDetailedAnchors: [],
+  },
+  {
+    id: "stable-system-structure",
+    owner: {
+      path: "docs/ARCHITECTURE.md",
+      anchors: [
+        pattern("### Instruction authority and projections"),
+        pattern("### Code dependency direction"),
+        pattern("## 5\\. Control and data flows"),
+      ],
+    },
+    projections: [
+      {
+        path: "README.md",
+        anchors: [pattern("## Repository map and contributing"), pattern("docs/ARCHITECTURE\\.md")],
+      },
+      {
+        path: "docs/SPEC.md",
+        anchors: [pattern("docs/ARCHITECTURE\\.md` owns stable structure and boundaries")],
+      },
+    ],
+    forbiddenDetailedAnchors: [
+      pattern("one packaged Task adapter[\\s\\S]{0,120}Task artifact facade"),
+    ],
   },
   {
     id: "installation-safety",
@@ -439,8 +621,20 @@ export const PERMANENT_RULE_FAMILIES = deepFreeze([
         anchors: [pattern("Publication, registry/version/tag/Release/public submission")],
       },
       {
+        path: "templates/project/AGENTS.md",
+        anchors: [pattern("Publication, registry/version/tag/Release/public submission")],
+      },
+      {
         path: "docs/ARCHITECTURE.md",
         anchors: [pattern("Publication", "i"), pattern("separate", "i")],
+      },
+      {
+        path: "skills/kyw-impl/SKILL.md",
+        anchors: [pattern("Publication, registry/version/tag/Release/public submission")],
+      },
+      {
+        path: "skills/kyw-impl/references/execution.md",
+        anchors: [pattern("Publication/registry/version/tag/Release/public submission")],
       },
     ],
     forbiddenDetailedAnchors: [],
@@ -463,6 +657,49 @@ export const PERMANENT_RULE_FAMILIES = deepFreeze([
           pattern("Index or search README, SPEC, and ARCHITECTURE first"),
         ],
       },
+      {
+        path: "skills/kyw-task/SKILL.md",
+        anchors: [
+          pattern("Index or search headings in `README\\.md`, `docs/SPEC\\.md`, and `docs/ARCHITECTURE\\.md`"),
+          pattern("read only the owning permanent-document sections"),
+        ],
+      },
+      {
+        path: "skills/kyw-impl/references/execution.md",
+        anchors: [
+          pattern("Index or search headings in README, SPEC, and ARCHITECTURE"),
+          pattern("read only the owning permanent-document sections"),
+        ],
+      },
+      {
+        path: "skills/kyw-audit/references/audit.md",
+        anchors: [
+          pattern("Index or search headings in README, SPEC, and ARCHITECTURE"),
+          pattern("read only the owning permanent-document sections"),
+        ],
+      },
+    ],
+    forbiddenDetailedAnchors: [],
+  },
+  {
+    id: "repository-routing-and-completion",
+    owner: {
+      path: "AGENTS.md",
+      anchors: [
+        pattern("Work on one Task at a time"),
+        pattern("Keep one Task active"),
+        pattern("Before completion, compare the final diff"),
+      ],
+    },
+    projections: [
+      {
+        path: "templates/project/AGENTS.md",
+        anchors: [
+          pattern("Work on one Task"),
+          pattern("Keep one Task active"),
+          pattern("Before completion, compare diff to scope/matrix"),
+        ],
+      },
     ],
     forbiddenDetailedAnchors: [],
   },
@@ -474,15 +711,20 @@ const PERMANENT_DOCUMENT_PATHS = PERMANENT_DOCUMENT_POLICY.documents.map(
 const EXPECTED_PROJECT_TEMPLATE_NAMES = PERMANENT_DOCUMENT_POLICY.documents
   .map(({ templatePath }) => templatePath.split("/").at(-1))
   .sort();
-const GUARDED_SURFACE_PATHS = new Set([
+export const INSTRUCTION_SURFACE_PATHS = Object.freeze([
   ...PERMANENT_DOCUMENT_PATHS,
   "templates/project/AGENTS.md",
+  "templates/task/TASK.md",
+  "templates/task/TEST.md",
+  "skills/kyw-grilling/SKILL.md",
+  "skills/kyw-init/SKILL.md",
   "skills/kyw-task/SKILL.md",
   "skills/kyw-impl/SKILL.md",
   "skills/kyw-impl/references/execution.md",
   "skills/kyw-audit/SKILL.md",
   "skills/kyw-audit/references/audit.md",
 ]);
+const GUARDED_SURFACE_PATHS = new Set(INSTRUCTION_SURFACE_PATHS);
 const FORBIDDEN_PERMANENT_MIRROR_PATHS = [
   "PLAN.md",
   "PROGRESS.md",
@@ -1242,7 +1484,10 @@ export function planPermanentDocumentLoading({
 export function validatePermanentRuleFamilies(
   registry,
   texts,
-  { allowedSurfacePaths = GUARDED_SURFACE_PATHS } = {},
+  {
+    allowedSurfacePaths = GUARDED_SURFACE_PATHS,
+    requiredFamilyIds = [],
+  } = {},
 ) {
   const errors = [];
   const ids = new Set();
@@ -1344,6 +1589,17 @@ export function validatePermanentRuleFamilies(
       }
     }
   }
+  const requiredIds = new Set(requiredFamilyIds);
+  for (const requiredId of requiredIds) {
+    if (!ids.has(requiredId)) {
+      errors.push(`guarded rule family is ownerless or unregistered: ${requiredId}`);
+    }
+  }
+  for (const id of ids) {
+    if (requiredIds.size > 0 && !requiredIds.has(id)) {
+      errors.push(`guarded rule family is outside the required inventory: ${id}`);
+    }
+  }
   return errors;
 }
 
@@ -1390,6 +1646,10 @@ export function validatePermanentDocumentContents({
   pathExists = () => false,
   policy = PERMANENT_DOCUMENT_POLICY,
   ruleFamilies = PERMANENT_RULE_FAMILIES,
+  requiredRuleFamilyIds =
+    ruleFamilies === PERMANENT_RULE_FAMILIES
+      ? REQUIRED_INSTRUCTION_RULE_FAMILY_IDS
+      : [],
 }) {
   const errors = [...validatePermanentDocumentPolicy(policy)];
   const documentPaths = Object.keys(documents).sort();
@@ -1449,7 +1709,11 @@ export function validatePermanentDocumentContents({
       );
     }
   }
-  errors.push(...validatePermanentRuleFamilies(ruleFamilies, surfaceTexts));
+  errors.push(
+    ...validatePermanentRuleFamilies(ruleFamilies, surfaceTexts, {
+      requiredFamilyIds: requiredRuleFamilyIds,
+    }),
+  );
   return errors;
 }
 
@@ -1540,6 +1804,10 @@ export function validatePermanentDocumentState({
   evidenceCandidates = [],
   policy = PERMANENT_DOCUMENT_POLICY,
   ruleFamilies = PERMANENT_RULE_FAMILIES,
+  requiredRuleFamilyIds =
+    ruleFamilies === PERMANENT_RULE_FAMILIES
+      ? REQUIRED_INSTRUCTION_RULE_FAMILY_IDS
+      : [],
 }) {
   const errors = validatePermanentDocumentContents({
     documents,
@@ -1549,6 +1817,7 @@ export function validatePermanentDocumentState({
     pathExists,
     policy,
     ruleFamilies,
+    requiredRuleFamilyIds,
   });
   if (!PERMANENT_DOCUMENT_PATHS.every((relativePath) => typeof documents[relativePath] === "string")) {
     return errors;

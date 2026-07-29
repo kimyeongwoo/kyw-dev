@@ -12,6 +12,10 @@ import {
 const REPOSITORY_ROOT = fileURLToPath(new URL("../", import.meta.url));
 const REPRESENTATIVE_BUDGET_BYTES = 36_864;
 const REPRESENTATIVE_TOKEN_BUDGET = 9_216;
+const REPRESENTATIVE_TARGET_BYTES = 32_768;
+const REPRESENTATIVE_TARGET_TOKENS = 8_192;
+const REQUIRED_BYTE_HEADROOM = 4_096;
+const REQUIRED_TOKEN_HEADROOM = 1_024;
 const BASELINE_PROMPT_BYTES = 5_839;
 const REPRESENTATIVE_INSTRUCTION_PATHS = Object.freeze([
   "templates/project/AGENTS.md",
@@ -157,7 +161,7 @@ test("instruction surfaces retain one canonical owner and minimal projections", 
   assert.match(execution, /actualHead: "UNVERIFIED"/);
   assert.match(execution, /contracts 1\/2 are grandfathered/);
   assert.match(authoring, /delivered contract-3 Tasks use new hard-dependent pairs/);
-  assert.match(implementation, /Unchanged invocation reports only/);
+  assert.match(implementation, /unchanged invocation reports only/i);
   for (const projection of [agents, agentsTemplate]) {
     assert.match(
       projection,
@@ -338,6 +342,23 @@ test("the split representative instruction bundle stays concise with one executi
   assert.ok(
     currentTokenEstimate < REPRESENTATIVE_TOKEN_BUDGET,
     `expected fewer than ${REPRESENTATIVE_TOKEN_BUDGET} estimated tokens, received ${currentTokenEstimate}`,
+  );
+  assert.ok(
+    currentBytes <= REPRESENTATIVE_TARGET_BYTES,
+    `expected at most ${REPRESENTATIVE_TARGET_BYTES} bytes, received ${currentBytes}`,
+  );
+  assert.ok(
+    currentTokenEstimate <= REPRESENTATIVE_TARGET_TOKENS,
+    `expected at most ${REPRESENTATIVE_TARGET_TOKENS} estimated tokens, received ${currentTokenEstimate}`,
+  );
+  assert.ok(
+    REPRESENTATIVE_BUDGET_BYTES - currentBytes >= REQUIRED_BYTE_HEADROOM,
+    "representative instructions must retain at least 4 KiB below the unchanged byte guard",
+  );
+  assert.ok(
+    REPRESENTATIVE_TOKEN_BUDGET - currentTokenEstimate >=
+      REQUIRED_TOKEN_HEADROOM,
+    "representative instructions must retain at least 1,024 estimated tokens below the unchanged token guard",
   );
   assert.equal(REPRESENTATIVE_INSTRUCTION_PATHS.length, 4);
   assert.equal(PERMANENT_INDEX_PATHS.length, 3);
