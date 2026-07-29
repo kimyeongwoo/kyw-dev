@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   classifyLocalDeliveryContracts,
+  createStandardDeliveryContinuityCheckpoint,
   createGitHubEvidenceClient,
   createInvocationCommandCache,
   discoverRequiredStandardDeliveries,
@@ -401,6 +402,117 @@ test("complete hardened graph reaches the existing production evaluator", () => 
   );
 });
 
+test("checkpoint hydration freshly evaluates only one uncovered hardened outcome", async () => {
+  const fixture = hardenedFixture();
+  const normalized = normalizeFixture(fixture);
+  const checkpoint = createStandardDeliveryContinuityCheckpoint({
+    repository: fixture.repository,
+    sourceMainSha: "f".repeat(40),
+    coveredRecords: [
+      {
+        taskId: "0057",
+        taskSha256: "1".repeat(64),
+        testSha256: "2".repeat(64),
+        taskStatus: "DONE",
+        testStatus: "PASSED",
+        classification: "HARDENED_EXACT_HEAD",
+        outcomeSha: "3".repeat(40),
+        mergeSha: "4".repeat(40),
+        evidenceSha256: "5".repeat(64),
+      },
+    ],
+  }).checkpoint;
+  const coveredTask = task({ id: "0057" });
+  const uncoveredTask = task({ id: "0058" });
+  const selectedTask = task({ id: "0059", status: "READY" });
+  let localDiscoveryCalls = 0;
+  let collectionCalls = 0;
+  const hydrated = await hydratePriorStandardDeliveries({
+    tasksRoot: path.join(REPOSITORY_ROOT, "docs", "tasks"),
+    invocation: "$kyw-impl 0059",
+    queueInspector: async () => ({
+      tasks: [coveredTask, uncoveredTask, selectedTask],
+      errors: [],
+    }),
+    continuityLoader: async ({ requiredTasks }) => {
+      assert.deepEqual(requiredTasks.map(({ id }) => id), ["0057", "0058"]);
+      return {
+        checkpoint,
+        partition: {
+          coveredTasks: [coveredTask],
+          uncoveredTasks: [uncoveredTask],
+        },
+        source: "ALIGNED_MAIN",
+        identity: {
+          repository: fixture.repository,
+          repositoryRoot: REPOSITORY_ROOT,
+          currentMainSha: "f".repeat(40),
+          upstreamSha: "f".repeat(40),
+          cachedMainSha: "f".repeat(40),
+          directRemoteSha: "f".repeat(40),
+          githubMainSha: "f".repeat(40),
+          githubClient: {},
+        },
+      };
+    },
+    localDiscovery: async ({ requiredTasks, contractTasks }) => {
+      localDiscoveryCalls += 1;
+      assert.deepEqual(requiredTasks.map(({ id }) => id), ["0058"]);
+      assert.deepEqual(contractTasks.map(({ id }) => id), ["0058"]);
+      return {
+        repository: fixture.repository,
+        repositoryRoot: REPOSITORY_ROOT,
+        currentMainSha: "f".repeat(40),
+        upstreamSha: "f".repeat(40),
+        cachedMainSha: "f".repeat(40),
+        directRemoteSha: "f".repeat(40),
+        contractAnchorSha: fixture.outcome.baseSha,
+        outcomes: [fixture.outcome],
+      };
+    },
+    deliveryCollector: async () => {
+      collectionCalls += 1;
+      return {
+        deliveryLedger: { "0058": normalized.entry },
+        deliveryExpectations: { "0058": normalized.expectation },
+        classifications: { "0058": "HARDENED_EXACT_HEAD" },
+        chronology: normalized.chronology,
+        githubMainSha: "f".repeat(40),
+      };
+    },
+    continuityRecordBuilder: async () => ({
+      taskId: "0058",
+      taskSha256: "6".repeat(64),
+      testSha256: "7".repeat(64),
+      taskStatus: "DONE",
+      testStatus: "PASSED",
+      classification: "HARDENED_EXACT_HEAD",
+      outcomeSha: fixture.outcome.outcomeSha,
+      mergeSha: fixture.outcome.mergeSha,
+      evidenceSha256: "8".repeat(64),
+    }),
+  });
+  assert.equal(localDiscoveryCalls, 1);
+  assert.equal(collectionCalls, 1);
+  assert.equal(hydrated.diagnostics.continuity.coveredTaskCount, 1);
+  assert.deepEqual(hydrated.diagnostics.continuity.uncoveredTaskIds, ["0058"]);
+  assert.equal(hydrated.diagnostics.continuity.freshEvidenceTaskCount, 1);
+  assert.equal(hydrated.preparedCheckpoint.coverage.taskCount, 2);
+  assert.equal(hydrated.preparedCheckpoint.coverage.lastTaskId, "0058");
+  assert.equal(
+    hydrated.preparedCheckpoint.previousCheckpointDigest,
+    checkpoint.checkpointDigest,
+  );
+  assert.equal(
+    evaluateDeliveryEvidence(
+      "0058",
+      hydrated.deliveryLedger["0058"],
+      hydrated.deliveryExpectations["0058"],
+    ).satisfied,
+    true,
+  );
+});
+
 function assertFixtureRejected(mutate, pattern) {
   const fixture = hardenedFixture();
   mutate(fixture);
@@ -685,6 +797,7 @@ test("no-prior hydration performs no local Git or GitHub collection", async () =
   const result = await hydratePriorStandardDeliveries({
     tasksRoot: path.join(REPOSITORY_ROOT, "docs", "tasks"),
     invocation: "$kyw-impl 0001",
+    allowUncheckpointedCompatibility: true,
     queueInspector: async () => ({
       tasks: [task({ id: "0001", status: "READY" })],
       errors: [],
@@ -704,6 +817,7 @@ test("an old exact Task derives the legacy anchor from all completed STANDARD co
     hydratePriorStandardDeliveries({
       tasksRoot: path.join(REPOSITORY_ROOT, "docs", "tasks"),
       invocation: "$kyw-impl 0030",
+      allowUncheckpointedCompatibility: true,
       queueInspector: async () => ({
         tasks: [
           task({ id: "0030" }),

@@ -28,7 +28,9 @@ Pass the exact current-user invocation separately:
 node <kyw-impl-skill-directory>/../kyw-task/scripts/task-artifacts.mjs dispatch --tasks-root <repository>/docs/tasks --invocation <exact invocation text> --managed-routing <true|false> [--execution-preflight-json <json>]
 ```
 
-Use `true` only for loaded managed routing. Pass verified conflict, unexplained-work, drift, and user-decision findings through execution preflight. Before its one dispatcher call, the adapter automatically hydrates queue-required prior `STANDARD` outcomes from bounded Git/GitHub truth and production-evaluates them. Honor fail-closed results; never ask for delivery JSON or evidence IDs.
+Use `true` only for loaded managed routing. Pass verified conflict, unexplained-work, drift, and user-decision findings through execution preflight. Before its one dispatcher call, the adapter validates the exact prior `STANDARD` set from the fixed-bounded checkpoint on aligned `main` and freshly production-evaluates at most one uncovered GitHub outcome; there is no whole-history fallback. Fail closed and never ask for delivery JSON, checkpoint content, transition tokens, or evidence IDs.
+
+A selected result may carry an opaque continuity transition token. After establishing the selected Task branch and active pair, pass it unchanged once to `apply-continuity`. Never construct, decode, edit, retain, or apply it after a terminal result; exact resume replay is idempotent and any mismatch stops.
 
 ## Selection boundary
 

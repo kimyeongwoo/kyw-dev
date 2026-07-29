@@ -44,6 +44,10 @@ delivery classification, install containment, hashing, and CLI dispatch.
 
 Permanent documents do not copy those algorithms. They state only stable
 product or architecture meaning and link to the canonical procedural owner.
+The Task runtime also owns a closed rolling continuity checkpoint: Skills
+decide when separately authorized migration or selected-branch application is
+permitted, while deterministic code owns canonical bytes, digests, trust,
+coverage, and atomic replacement.
 
 ### A-02 — Explicit heavyweight workflows
 
@@ -137,7 +141,8 @@ Skills
        └─ Task artifact facade and cohesive core modules
             ├─ canonical template contracts
             ├─ queue and production delivery evaluator
-            └─ bounded local-Git / GitHub hydration inputs
+            ├─ bounded local-Git / GitHub hydration inputs
+            └─ fixed-bounded STANDARD continuity checkpoint
 
 CLI entry
   └─ installation facade and cohesive core modules
@@ -184,6 +189,9 @@ The Task runtime is grouped by responsibility:
 - queue logic validates the dependency graph and deterministic selection;
 - creation logic publishes complete authored sets under ownership proof;
 - delivery logic parses invocation, preflight, and exact-SHA evidence roles;
+- continuity logic owns the canonical rolling checkpoint, ordered coverage and
+  terminal-state digests, aligned-main trust, opaque transition, and atomic
+  idempotent replacement;
 - one facade and one process adapter expose the combined public surface.
 
 The process adapter accepts explicit validated arguments and delegates all
@@ -235,11 +243,17 @@ listed in the package allowlist.
 For `STANDARD`, GitHub PRs, reviews, merges, Actions runs, numeric job
 identities, and asserted checkout logs form the mutable ledger. Task/Test stores
 the repository outcome and reproducible behavior evidence, not a stale copy of
-that graph. The shared hydration module derives required outcomes from the
-queue, proves local terminal merges and the hardened anchor, and normalizes
-fresh GitHub observations for the existing evaluator. Its cache and pagination
-bounds live for one invocation only; credentials and raw logs are never stored
-as repository evidence. `NONE` delivery stays local and records a reason.
+that graph. One repository-owned checkpoint stores only a fixed-bounded
+cryptographic continuity summary derived from complete evaluator results. It is
+read from exact aligned `main`, binds repository/main ancestry plus the exact
+ordered covered prefix and terminal pair state, and is neither a mutable ledger
+nor fresh/current delivery evidence.
+
+The shared hydration module derives required outcomes from the queue, validates
+checkpoint coverage, and normalizes fresh GitHub observations only for the
+single permitted uncovered suffix. Invocation cache and pagination bounds still
+apply to that fresh graph; credentials and raw logs are never persisted.
+`NONE` delivery stays local and records a reason.
 
 ## 5. Control and data flows
 
@@ -282,10 +296,12 @@ in-flight or unproven transaction, so a partial prefix cannot become dispatchabl
 explicit existing-Task invocation
    → repository, pair, dependency, and preflight validation
    → queue-derived prior STANDARD set
-   → local ancestry/contract proof
-   → bounded cached GitHub collection + production delivery evaluation
+   → aligned-main checkpoint trust + exact covered-prefix evaluation
+   → zero or one local ancestry / fresh GitHub hardened evaluation
+   → read-only checkpoint transition preparation
    → one dispatcher call
    → IMPLEMENT | RESUME | DELIVER
+   → selected active Task branch + atomic/idempotent transition application
    → one current mutation boundary
    → acceptance-specific verification + durable-owner synchronization
    → final diff and coverage review
@@ -329,6 +345,15 @@ slot. Missing, stale, reused, role-confused, or mismatched evidence fails
 closed. Explicit pre-contract continuity can preserve an older completed
 delivery only while actual-head evidence remains visibly `UNVERIFIED`; it is
 not available to new outcomes.
+
+After one complete evaluator result is no longer current, a later selected
+Task may roll it into durable continuity. The checkpoint carries only an exact
+ordered-set digest, terminal-pair digest, cumulative evidence digest, ancestry
+identities, previous digest/genesis, and one sanitized receipt. Preparation is
+read-only before dispatch. Application requires the selected Task's
+`IN_PROGRESS/RUNNING` branch and can cover only already delivered predecessors,
+preserving one-delivery causal lag. Missing/corrupt checkpoints and gaps larger
+than one stop for explicit migration/rebaseline rather than replaying history.
 
 ### 5.5 Independent audit
 
@@ -406,6 +431,9 @@ an unmapped behavior or branch.
 - Permanent documents own only current durable meaning.
 - Source/tests own deterministic mechanics and exhaustive compatibility cases.
 - GitHub owns mutable PR, review, run, job, checkout, and merge identities.
+- `docs/tasks/.kyw-dev-standard-delivery-continuity.json` owns one
+  machine-generated, fixed-bounded continuity summary derived from previously
+  complete GitHub evaluation; Git history retains its earlier versions.
 
 This separation prevents permanent-document chronology and prevents a
 repository-complete pair from containing self-referential future delivery work.
@@ -425,6 +453,13 @@ fail-closed:
 
 Exact lock formats, hash chains, stage names, mutation ordering, rollback cases,
 and diagnostics belong in source and focused tests.
+
+Checkpoint replacement is a third narrow single-file boundary, not a shared
+transaction framework. A canonical opaque transition is prepared without
+writes, validated again against active Task ownership and unchanged `main`,
+then atomically replaces only the checkpoint. Exact repeat is idempotent;
+staging occupation, prior-digest mismatch, branch drift, or write uncertainty
+stops with bounded recovery evidence.
 
 ## 7. CLI and installation boundaries
 
@@ -519,10 +554,11 @@ direct-install metadata derive from one package version.
 ### 8.3 Package boundary
 
 A positive package allowlist includes runtime, Skills, templates, plugin
-metadata, README, and legal notices. It excludes repository Tasks, development
-tests/evaluators, local marketplace fixtures, archives, credentials, machine
-paths, and raw model output. The package has no production dependency and no
-installation or publication lifecycle script.
+metadata, README, and legal notices. It excludes repository Tasks and their
+continuity checkpoint state, development tests/evaluators, local marketplace
+fixtures, archives, credentials, machine paths, and raw model output. The
+package has no production dependency and no installation or publication
+lifecycle script.
 
 ### 8.4 Publication boundary
 
@@ -647,7 +683,7 @@ and historical Task/Test evidence.
 | Delivery | GitHub PR/Actions exact-SHA ledger | No alternate current `STANDARD` backend |
 | CI | Credential-free deterministic matrix | Desktop/model checks stay optional and isolated |
 | Transactions | Separate Task-batch and installation journals | No generic transaction/filesystem abstraction |
-| Evidence | Task/Test for repository truth; GitHub for mutable delivery | Fresh external collection is required to advance the queue |
+| Evidence | Task/Test for acceptance; GitHub for mutable delivery; one aligned-main rolling checkpoint for prior continuity | Covered expired logs no longer block; uncovered/current proof still fails closed |
 
 ## 12. Deliberate scope boundaries
 
