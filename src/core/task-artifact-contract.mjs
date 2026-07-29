@@ -3,9 +3,9 @@ import { lstat, readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 
 import {
-  CURRENT_TASK_CONTRACT_VERSION,
   TASK_TEST_STATUS_PAIRS,
   getTaskContractVersion,
+  isQueueAwareTaskContractVersion,
   validateTaskTestContract,
 } from "./template-contracts.mjs";
 import {
@@ -79,7 +79,7 @@ export function firstSectionLine(markdown, heading) {
 }
 
 export function parseDeliveryRequirement(taskMarkdown, contractVersion) {
-  if (contractVersion !== CURRENT_TASK_CONTRACT_VERSION) {
+  if (!isQueueAwareTaskContractVersion(contractVersion)) {
     return Object.freeze({ kind: "LEGACY" });
   }
   const requirement = stripMarkdownComments(markdownSection(taskMarkdown, "Delivery"))
@@ -145,7 +145,7 @@ export function parseCanonicalHardDependencies(taskMarkdown) {
 }
 
 export function parseHardDependencies(taskMarkdown, contractVersion, { completedCompatibility = false } = {}) {
-  if (contractVersion !== CURRENT_TASK_CONTRACT_VERSION) {
+  if (!isQueueAwareTaskContractVersion(contractVersion)) {
     return Object.freeze({
       dependencies: Object.freeze([]),
       errors: Object.freeze([]),

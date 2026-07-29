@@ -76,8 +76,11 @@ A Task/Test directory is one resumable implementation packet. Authoring may
 atomically create a dependency-aware set, but later implementation activates
 at most one pair. Continuous execution is serial, advances only after the
 current repository and delivery gates finish, and never becomes background
-work. Completed pairs remain historical evidence; durable meaning is promoted
-to a permanent owner rather than recovered by rereading history.
+work. A future-contract pair becomes immutable after its first complete
+hardened delivery; a correction receives a new hard-dependent Task identity.
+Prior contracts stay grandfathered. Completed pairs remain historical evidence;
+durable meaning is promoted to a permanent owner rather than recovered by
+rereading history.
 
 ### A-05 — Preserve unknown and user-authored state
 
@@ -189,6 +192,9 @@ The Task runtime is grouped by responsibility:
 - queue logic validates the dependency graph and deterministic selection;
 - creation logic publishes complete authored sets under ownership proof;
 - delivery logic parses invocation, preflight, and exact-SHA evidence roles;
+- hydration binds a future terminal pair's canonical path and bytes to its
+  first evaluator-satisfied hardened merge and rejects later history/worktree
+  drift before dispatch;
 - continuity logic owns the canonical rolling checkpoint, ordered coverage and
   terminal-state digests, aligned-main trust, opaque transition, and atomic
   idempotent replacement;
@@ -294,7 +300,7 @@ in-flight or unproven transaction, so a partial prefix cannot become dispatchabl
 
 ```text
 explicit existing-Task invocation
-   → repository, pair, dependency, and preflight validation
+   → repository, pair, dependency, immutable-terminal, and preflight validation
    → queue-derived prior STANDARD set
    → aligned-main checkpoint trust + exact covered-prefix evaluation
    → zero or one local ancestry / fresh GitHub hardened evaluation
@@ -355,6 +361,15 @@ read-only before dispatch. Application requires the selected Task's
 preserving one-delivery causal lag. Missing/corrupt checkpoints and gaps larger
 than one stop for explicit migration/rebaseline rather than replaying history.
 
+For artifact contract 3, the first evaluator-satisfied hardened graph is the
+only delivery graph for its Task. The protected merge tree binds the exact
+terminal Task/Test paths and bytes. Fresh uncovered evaluation and later
+checkpoint reads compare that binding with aligned-main history, filesystem
+type, and worktree bytes before dispatch. A mismatch names the Task/path and
+routes the correction to a new hard-dependent Task. The graph, rolling
+checkpoint, and Git history provide the binding; there is no PR-chain array,
+correction receipt collection, second checkpoint, or alternate ledger.
+
 ### 5.5 Independent audit
 
 ```text
@@ -387,8 +402,9 @@ that was not loaded cannot be silently contradicted.
 
 ### 6.1 Pair states and queue
 
-Current-contract pairs have one machine-readable contract identity and one of
-six closed state pairs:
+New pairs use machine-readable artifact contract 3; contract 2 remains
+queue-aware compatibility and unmarked contract 1 remains legacy. Queue-aware
+pairs use one of six closed state pairs:
 
 ```text
 DRAFT / DRAFT
@@ -406,9 +422,10 @@ Selection resumes the one active Task, then repository-complete delivery, then
 the lowest dependency-satisfied ready Task. Historical blockers that are
 neither active nor hard dependencies do not freeze unrelated work.
 
-Unmarked legacy pairs retain their historical reader. Repository-complete
-current pairs with older dependency prose remain readable for immutable
-compatibility. Neither path rewrites history into the current schema.
+Contract-2 and unmarked legacy pairs retain their historical readers and
+delivery meaning, including pre-cutover multi-merge history. Only contract 3
+acquires the post-delivery path/byte invariant. No reader rewrites history into
+the current schema.
 
 ### 6.2 Artifact shape and traceability
 
@@ -427,7 +444,9 @@ an unmapped behavior or branch.
 
 - The active pair owns current scope, decisions, risks, handoff, commands, and
   reproducible results.
-- Completed pairs own immutable historical repository evidence.
+- Contract-3 completed pairs own byte-immutable canonical repository evidence
+  after first complete hardened delivery; prior completed contracts retain
+  grandfathered historical evidence.
 - Permanent documents own only current durable meaning.
 - Source/tests own deterministic mechanics and exhaustive compatibility cases.
 - GitHub owns mutable PR, review, run, job, checkout, and merge identities.
@@ -690,6 +709,8 @@ and historical Task/Test evidence.
 The following exclusions are architectural decisions:
 
 - no delivery-provider interface or alternate current `STANDARD` ledger;
+- no per-Task PR chain, correction receipt list, second continuity checkpoint,
+  or reopening of a canonically delivered future Task;
 - no generic install backend or automatic direct/plugin reconciliation;
 - no shared transaction/filesystem framework across Task and installation
   domains;

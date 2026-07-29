@@ -17,9 +17,17 @@ import {
   writeStandardDeliveryContinuityCheckpoint,
 } from "./task-artifact-continuity.mjs";
 import { evaluateDeliveryEvidence, parseTaskInvocation } from "./task-artifact-delivery.mjs";
-import { inspectTaskQueue } from "./task-artifact-queue.mjs";
+import {
+  inspectTaskQueue,
+  parseTaskQueueMarkdownPair,
+} from "./task-artifact-queue.mjs";
 import { TaskArtifactError } from "./task-artifact-shared.mjs";
-import { CURRENT_TASK_CONTRACT_VERSION } from "./template-contracts.mjs";
+import {
+  getTaskContractVersion,
+  IMMUTABLE_TERMINAL_TASK_CONTRACT_VERSION,
+  isImmutableTerminalTaskContractVersion,
+  isQueueAwareTaskContractVersion,
+} from "./template-contracts.mjs";
 
 const SHA_PATTERN = /^[a-f0-9]{40}$/;
 const MAX_REQUIRED_DELIVERIES = 128;
@@ -32,11 +40,22 @@ const MAX_COMMANDS = 512;
 const MAX_LOG_BYTES = 8 * 1024 * 1024;
 const COMMAND_TIMEOUT_MS = 30_000;
 const WORKFLOW_PATH = ".github/workflows/ci.yml";
+const FUTURE_TERMINAL_CORRECTION_ROUTE = '$kyw-task "<correction outcome>"';
 
 function hydrationError(taskId, role, message, code = "DELIVERY_HYDRATION_FAILED") {
   const taskLabel = taskId ? `Task ${taskId}` : "delivery hydration";
   const roleLabel = role ? ` ${role}` : "";
   return new TaskArtifactError(code, `${taskLabel}${roleLabel}: ${message}`);
+}
+
+function immutableTerminalPairError(taskId, relativePath, detail) {
+  const pathLabel = relativePath?.replaceAll("\\", "/") ?? `docs/tasks/${taskId}-*/`;
+  return hydrationError(
+    taskId,
+    "TERMINAL_PAIR_IMMUTABILITY",
+    `${pathLabel}: ${detail}. Preserve the delivered pair byte-for-byte and use ${FUTURE_TERMINAL_CORRECTION_ROUTE}; the correction Task must hard-depend on Task ${taskId}`,
+    "FUTURE_TERMINAL_PAIR_IMMUTABLE",
+  );
 }
 
 async function tasksRootMatchesRepository(requestedRoot, repositoryRoot) {
@@ -86,7 +105,7 @@ function addSelectionPrerequisites(task, currentTasks, byId, selected) {
   for (const dependencyId of task.dependencies ?? []) {
     addCompletionClosure(byId.get(dependencyId), byId, selected);
   }
-  if (task.contractVersion !== CURRENT_TASK_CONTRACT_VERSION) return;
+  if (!isQueueAwareTaskContractVersion(task.contractVersion)) return;
   for (const prior of currentTasks) {
     if (
       prior.number >= task.number ||
@@ -112,7 +131,7 @@ export function discoverRequiredStandardDeliveries({
 
   const byId = new Map(tasks.map((task) => [task.id, task]));
   const currentTasks = tasks
-    .filter((task) => task.contractVersion === CURRENT_TASK_CONTRACT_VERSION)
+    .filter((task) => isQueueAwareTaskContractVersion(task.contractVersion))
     .sort((left, right) => left.number - right.number);
   const active = tasks.filter(activeTask);
   const selected = new Map();
@@ -486,13 +505,299 @@ async function showGitFile(cache, repositoryRoot, sha, relativePath, taskId) {
   return result.status === 0 ? result.stdout : undefined;
 }
 
-async function discoverTaskOutcome(cache, repositoryRoot, currentMainSha, task, indexBySha) {
+function taskPairPathMatch(taskId, relativePath, { allowCaseConfusion = false } = {}) {
+  const normalized = relativePath.replaceAll("\\", "/");
+  const match = new RegExp(
+    `^docs/tasks/(${taskId}-[a-z0-9]+(?:-[a-z0-9]+)*)/(TASK|TEST)\\.md$`,
+    allowCaseConfusion ? "i" : "",
+  ).exec(normalized);
+  return match
+    ? Object.freeze({
+        directory: match[1],
+        kind: match[2].toUpperCase(),
+        relativePath: normalized,
+      })
+    : undefined;
+}
+
+function anyTaskPairPathMatch(relativePath) {
+  const normalized = relativePath.replaceAll("\\", "/");
+  const match =
+    /^docs\/tasks\/(\d{4})-([a-z0-9]+(?:-[a-z0-9]+)*)\/(TASK|TEST)\.md$/.exec(
+      normalized,
+    );
+  return match
+    ? Object.freeze({
+        id: match[1],
+        number: Number(match[1]),
+        directory: `${match[1]}-${match[2]}`,
+        kind: match[3],
+        relativePath: normalized,
+      })
+    : undefined;
+}
+
+function immutableTerminalTaskFromMarkdown({
+  tasksRoot,
+  pair,
+  taskMarkdown,
+  testMarkdown,
+}) {
+  const taskContractVersion = getTaskContractVersion(taskMarkdown);
+  if (
+    !isImmutableTerminalTaskContractVersion(taskContractVersion) ||
+    getTaskContractVersion(testMarkdown) !== taskContractVersion ||
+    sectionStatus(taskMarkdown) !== "DONE" ||
+    sectionStatus(testMarkdown) !== "PASSED"
+  ) {
+    return undefined;
+  }
+  const parsed = parseTaskQueueMarkdownPair({
+    tasksRoot,
+    entry: {
+      id: pair.id,
+      number: pair.number,
+      name: pair.directory,
+      slug: pair.directory.slice(5),
+    },
+    taskMarkdown,
+    testMarkdown,
+  });
+  return parsed.errors.length === 0 &&
+    parsed.task.deliveryRequirement.kind === "STANDARD"
+    ? parsed.task
+    : undefined;
+}
+
+async function discoverHistoricalImmutableTerminalTasks({
+  commandCache,
+  repositoryRoot,
+  currentMainSha,
+  tasksRoot,
+}) {
+  const contractMarker = `<!-- kyw-task-contract: ${IMMUTABLE_TERMINAL_TASK_CONTRACT_VERSION} -->`;
+  const [treeResult, historyPaths] = await Promise.all([
+    git(
+      commandCache,
+      repositoryRoot,
+      [
+        "grep",
+        "-l",
+        "-F",
+        contractMarker,
+        currentMainSha,
+        "--",
+        ":(glob)docs/tasks/*/TASK.md",
+        ":(glob)docs/tasks/*/TEST.md",
+      ],
+      { role: "TERMINAL_PAIR_CATALOG", allowFailure: true },
+    ),
+    gitText(
+      commandCache,
+      repositoryRoot,
+      [
+        "log",
+        "--first-parent",
+        "--diff-merges=first-parent",
+        `--max-count=${MAX_FIRST_PARENT_COMMITS + 1}`,
+        "--format=",
+        "--name-only",
+        `-S${contractMarker}`,
+        currentMainSha,
+        "--",
+        ":(glob)docs/tasks/*/TASK.md",
+        ":(glob)docs/tasks/*/TEST.md",
+      ],
+      { role: "TERMINAL_PAIR_CATALOG" },
+    ),
+  ]);
+  if (treeResult.status !== 0 && treeResult.status !== 1) {
+    throw hydrationError(
+      undefined,
+      "TERMINAL_PAIR_CATALOG",
+      "future terminal path catalog could not be read",
+      "DELIVERY_HYDRATION_EXTERNAL_FAILURE",
+    );
+  }
+  const treePaths = treeResult.status === 0 ? treeResult.stdout.trim() : "";
+  const byDirectory = new Map();
+  for (const value of `${treePaths}\n${historyPaths}`.split(/\r?\n/)) {
+    const normalized = value.trim().replace(
+      new RegExp(`^${currentMainSha}:`),
+      "",
+    );
+    const matched = anyTaskPairPathMatch(normalized);
+    if (!matched) continue;
+    const pair = byDirectory.get(matched.directory) ?? {
+      id: matched.id,
+      number: matched.number,
+      directory: matched.directory,
+    };
+    pair[matched.kind === "TASK" ? "taskRelative" : "testRelative"] =
+      matched.relativePath;
+    byDirectory.set(matched.directory, pair);
+  }
+  if (byDirectory.size > MAX_REQUIRED_DELIVERIES) {
+    throw hydrationError(
+      undefined,
+      "TERMINAL_PAIR_CATALOG",
+      `future terminal path count ${byDirectory.size} exceeds bound ${MAX_REQUIRED_DELIVERIES}`,
+      "DELIVERY_HYDRATION_BOUND_EXCEEDED",
+    );
+  }
+  const candidates = [];
+  for (const pair of [...byDirectory.values()].sort((left, right) =>
+    left.directory.localeCompare(right.directory),
+  )) {
+    if (!pair.taskRelative || !pair.testRelative) continue;
+    const history = await gitText(
+      commandCache,
+      repositoryRoot,
+      [
+        "log",
+        "--first-parent",
+        "--diff-merges=first-parent",
+        "--no-patch",
+        `--max-count=${MAX_TASK_PATH_COMMITS + 1}`,
+        "--format=%H",
+        currentMainSha,
+        "--",
+        pair.taskRelative,
+        pair.testRelative,
+      ],
+      { taskId: pair.id, role: "TERMINAL_PAIR_CATALOG" },
+    );
+    const commits = [
+      currentMainSha,
+      ...(history ? history.split(/\r?\n/).filter(Boolean) : []),
+    ].filter((value, index, values) => values.indexOf(value) === index);
+    if (commits.length > MAX_TASK_PATH_COMMITS) {
+      throw hydrationError(
+        pair.id,
+        "TERMINAL_PAIR_CATALOG",
+        `Task path history exceeds bound ${MAX_TASK_PATH_COMMITS}`,
+        "DELIVERY_HYDRATION_BOUND_EXCEEDED",
+      );
+    }
+    let candidate;
+    for (let index = 0; index < commits.length; index += 1) {
+      const [taskMarkdown, testMarkdown] = await Promise.all([
+        showGitFile(
+          commandCache,
+          repositoryRoot,
+          commits[index],
+          pair.taskRelative,
+          pair.id,
+        ),
+        showGitFile(
+          commandCache,
+          repositoryRoot,
+          commits[index],
+          pair.testRelative,
+          pair.id,
+        ),
+      ]);
+      if (taskMarkdown === undefined || testMarkdown === undefined) continue;
+      const task = immutableTerminalTaskFromMarkdown({
+        tasksRoot,
+        pair,
+        taskMarkdown,
+        testMarkdown,
+      });
+      if (task) {
+        candidate = Object.freeze({ task, historyIndex: index });
+      }
+    }
+    if (candidate) candidates.push(candidate);
+  }
+  const byId = new Map();
+  for (const candidate of candidates) {
+    const previous = byId.get(candidate.task.id);
+    if (
+      !previous ||
+      candidate.historyIndex > previous.historyIndex ||
+      (candidate.historyIndex === previous.historyIndex &&
+        candidate.task.name.localeCompare(previous.task.name) < 0)
+    ) {
+      byId.set(candidate.task.id, candidate);
+    }
+  }
+  return Object.freeze(
+    [...byId.values()]
+      .map(({ task }) => task)
+      .sort((left, right) => left.number - right.number),
+  );
+}
+
+async function discoverFutureTaskPairPaths(
+  cache,
+  repositoryRoot,
+  currentMainSha,
+  task,
+) {
   const taskRelative = path
     .relative(repositoryRoot, task.taskPath)
     .replaceAll("\\", "/");
   const testRelative = path
     .relative(repositoryRoot, task.testPath)
     .replaceAll("\\", "/");
+  const discovered = await gitText(
+    cache,
+    repositoryRoot,
+    [
+      "log",
+      "--first-parent",
+      `--max-count=${MAX_TASK_PATH_COMMITS + 1}`,
+      "--format=",
+      "--name-only",
+      "--no-renames",
+      `-S<!-- kyw-task-contract: ${task.contractVersion} -->`,
+      currentMainSha,
+      "--",
+      `:(glob)docs/tasks/${task.id}-*/TASK.md`,
+      `:(glob)docs/tasks/${task.id}-*/TEST.md`,
+    ],
+    { taskId: task.id, role: "TERMINAL_PAIR_HISTORY" },
+  );
+  const paths = [taskRelative, testRelative, ...(discovered ? discovered.split(/\r?\n/) : [])];
+  const byDirectory = new Map();
+  for (const relativePath of paths) {
+    const matched = taskPairPathMatch(task.id, relativePath.trim());
+    if (!matched) continue;
+    const pair = byDirectory.get(matched.directory) ?? {};
+    pair[matched.kind === "TASK" ? "taskRelative" : "testRelative"] =
+      matched.relativePath;
+    byDirectory.set(matched.directory, pair);
+  }
+  const pairs = [...byDirectory.entries()]
+    .filter(([, pair]) => pair.taskRelative && pair.testRelative)
+    .map(([directory, pair]) =>
+      Object.freeze({
+        directory,
+        taskRelative: pair.taskRelative,
+        testRelative: pair.testRelative,
+      }),
+    )
+    .sort((left, right) => left.directory.localeCompare(right.directory));
+  if (pairs.length === 0) {
+    throw hydrationError(
+      task.id,
+      "TERMINAL_PAIR_HISTORY",
+      "no canonical Task/Test path could be derived for the future contract",
+    );
+  }
+  return Object.freeze(pairs);
+}
+
+async function discoverTaskOutcomeCandidatesAtPair({
+  cache,
+  repositoryRoot,
+  currentMainSha,
+  task,
+  indexBySha,
+  pair,
+}) {
+  const { taskRelative, testRelative } = pair;
   const log = await gitText(
     cache,
     repositoryRoot,
@@ -518,6 +823,7 @@ async function discoverTaskOutcome(cache, repositoryRoot, currentMainSha, task, 
     );
   }
 
+  const candidates = [];
   for (const record of records) {
     const [mergeSha, parentText, ...subjectParts] = record.split("\t");
     const parents = parentText?.split(" ").filter(Boolean) ?? [];
@@ -548,6 +854,15 @@ async function discoverTaskOutcome(cache, repositoryRoot, currentMainSha, task, 
     ) {
       continue;
     }
+    const taskContractVersion = getTaskContractVersion(taskMarkdown);
+    const testContractVersion = getTaskContractVersion(testMarkdown);
+    if (taskContractVersion !== testContractVersion) {
+      throw hydrationError(
+        task.id,
+        "LOCAL_GIT",
+        `terminal pair contract versions disagree at ${pair.directory}`,
+      );
+    }
     const firstParentIndex = indexBySha.get(mergeSha);
     if (firstParentIndex === undefined) {
       throw hydrationError(
@@ -563,9 +878,65 @@ async function discoverTaskOutcome(cache, repositoryRoot, currentMainSha, task, 
       WORKFLOW_PATH,
       task.id,
     );
-    return Object.freeze({
+    let terminalPair;
+    if (isImmutableTerminalTaskContractVersion(taskContractVersion)) {
+      const [
+        mergeTaskMarkdown,
+        mergeTestMarkdown,
+        taskBlobSha,
+        testBlobSha,
+      ] = await Promise.all([
+        showGitFile(cache, repositoryRoot, mergeSha, taskRelative, task.id),
+        showGitFile(cache, repositoryRoot, mergeSha, testRelative, task.id),
+        gitText(
+          cache,
+          repositoryRoot,
+          ["rev-parse", `${mergeSha}:${taskRelative}`],
+          { taskId: task.id, role: "TERMINAL_PAIR_BINDING" },
+        ),
+        gitText(
+          cache,
+          repositoryRoot,
+          ["rev-parse", `${mergeSha}:${testRelative}`],
+          { taskId: task.id, role: "TERMINAL_PAIR_BINDING" },
+        ),
+      ]);
+      if (
+        mergeTaskMarkdown !== taskMarkdown ||
+        mergeTestMarkdown !== testMarkdown ||
+        sectionStatus(mergeTaskMarkdown ?? "") !== "DONE" ||
+        sectionStatus(mergeTestMarkdown ?? "") !== "PASSED"
+      ) {
+        throw hydrationError(
+          task.id,
+          "TERMINAL_PAIR_BINDING",
+          `protected merge ${mergeSha} does not preserve the exact terminal pair from outcome ${outcomeSha}`,
+        );
+      }
+      terminalPair = Object.freeze({
+        contractVersion: taskContractVersion,
+        directory: pair.directory,
+        taskPath: taskRelative,
+        testPath: testRelative,
+        taskSha256: sha256Text(mergeTaskMarkdown),
+        testSha256: sha256Text(mergeTestMarkdown),
+        taskBlobSha: requireSha(
+          taskBlobSha,
+          task.id,
+          "TERMINAL_PAIR_BINDING",
+          "TASK.md blob",
+        ),
+        testBlobSha: requireSha(
+          testBlobSha,
+          task.id,
+          "TERMINAL_PAIR_BINDING",
+          "TEST.md blob",
+        ),
+      });
+    }
+    candidates.push(Object.freeze({
       taskId: task.id,
-      directory: task.name,
+      directory: pair.directory,
       baseRef: "main",
       baseSha,
       outcomeSha,
@@ -576,6 +947,217 @@ async function discoverTaskOutcome(cache, repositoryRoot, currentMainSha, task, 
       hardenedWorkflow: workflowText
         ? parseHardenedWorkflowContract(workflowText)
         : false,
+      ...(terminalPair ? { terminalPair } : {}),
+    }));
+  }
+  return Object.freeze(candidates);
+}
+
+function futureTaskMergeSubject(taskId, subject) {
+  return new RegExp(
+    `^Merge pull request #\\d+ from .*?(?:agent/)?task(?:/|-)${taskId}(?:-|$)`,
+  ).test(subject);
+}
+
+function changedFutureTaskArtifactPaths(taskId, nameStatus) {
+  const paths = [];
+  for (const line of nameStatus.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    for (const candidate of line.split("\t").slice(1)) {
+      const matched = taskPairPathMatch(taskId, candidate.trim(), {
+        allowCaseConfusion: true,
+      });
+      if (matched && !paths.includes(matched.relativePath)) {
+        paths.push(matched.relativePath);
+      }
+    }
+  }
+  return Object.freeze(paths);
+}
+
+async function inspectFutureTerminalPairDrift({
+  cache,
+  repositoryRoot,
+  currentMainSha,
+  task,
+  outcome,
+  firstParentHistory,
+}) {
+  const pair = outcome.terminalPair;
+  if (!pair) return undefined;
+  const mainNameStatus = await gitText(
+    cache,
+    repositoryRoot,
+    [
+      "log",
+      "--format=",
+      "--name-status",
+      "--no-renames",
+      `${outcome.mergeSha}..${currentMainSha}`,
+      "--",
+      "docs/tasks",
+    ],
+    { taskId: task.id, role: "TERMINAL_PAIR_HISTORY" },
+  );
+  const mainChanges = changedFutureTaskArtifactPaths(task.id, mainNameStatus);
+  const worktreeStatus = await gitText(
+    cache,
+    repositoryRoot,
+    [
+      "status",
+      "--porcelain=v1",
+      "--untracked-files=all",
+      "--",
+      "docs/tasks",
+    ],
+    { taskId: task.id, role: "TERMINAL_PAIR_WORKTREE" },
+  );
+  const worktreeChanges = Object.freeze(
+    worktreeStatus
+      .split(/\r?\n/)
+      .flatMap((line) => {
+        if (!line.trim()) return [];
+        const value = line.slice(3).replace(/^"|"$/g, "");
+        return value
+          .split(" -> ")
+          .map((candidate) =>
+            taskPairPathMatch(task.id, candidate.trim(), {
+              allowCaseConfusion: true,
+            }),
+          )
+          .filter(Boolean)
+          .map((matched) => matched.relativePath);
+      })
+      .filter((value, index, values) => values.indexOf(value) === index),
+  );
+  const worktreePairIssues = [];
+  for (const [relativePath, expectedBlobSha] of [
+    [pair.taskPath, pair.taskBlobSha],
+    [pair.testPath, pair.testBlobSha],
+  ]) {
+    const absolutePath = path.resolve(repositoryRoot, relativePath);
+    let state;
+    try {
+      state = await lstat(absolutePath);
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+    }
+    if (!state) {
+      worktreePairIssues.push(
+        Object.freeze({ path: relativePath, detail: "terminal artifact is missing from the worktree" }),
+      );
+      continue;
+    }
+    if (state.isSymbolicLink() || !state.isFile()) {
+      worktreePairIssues.push(
+        Object.freeze({
+          path: relativePath,
+          detail: "terminal artifact was replaced by a link or unsupported filesystem type",
+        }),
+      );
+      continue;
+    }
+    const worktreeBlobSha = await gitText(
+      cache,
+      repositoryRoot,
+      ["hash-object", `--path=${relativePath}`, absolutePath],
+      { taskId: task.id, role: "TERMINAL_PAIR_WORKTREE" },
+    );
+    if (worktreeBlobSha !== expectedBlobSha) {
+      worktreePairIssues.push(
+        Object.freeze({ path: relativePath, detail: "terminal artifact bytes differ from the canonical merge" }),
+      );
+    }
+  }
+  const additionalDeliveries = Object.freeze(
+    firstParentHistory
+      .filter(
+        (record) =>
+          record.index > outcome.firstParentIndex &&
+          futureTaskMergeSubject(task.id, record.subject),
+      )
+      .map((record) =>
+        Object.freeze({
+          mergeSha: record.sha,
+          path: pair.taskPath,
+        }),
+      ),
+  );
+  return Object.freeze({
+    mainChanges,
+    worktreeChanges,
+    worktreePairIssues: Object.freeze(worktreePairIssues),
+    additionalDeliveries,
+  });
+}
+
+async function discoverTaskOutcome(
+  cache,
+  repositoryRoot,
+  currentMainSha,
+  task,
+  indexBySha,
+  firstParentHistory,
+) {
+  const currentPair = Object.freeze({
+    directory: task.name,
+    taskRelative: path
+      .relative(repositoryRoot, task.taskPath)
+      .replaceAll("\\", "/"),
+    testRelative: path
+      .relative(repositoryRoot, task.testPath)
+      .replaceAll("\\", "/"),
+  });
+  const pairs = isImmutableTerminalTaskContractVersion(task.contractVersion)
+    ? await discoverFutureTaskPairPaths(
+        cache,
+        repositoryRoot,
+        currentMainSha,
+        task,
+      )
+    : Object.freeze([currentPair]);
+  const candidates = [];
+  for (const pair of pairs) {
+    candidates.push(
+      ...(await discoverTaskOutcomeCandidatesAtPair({
+        cache,
+        repositoryRoot,
+        currentMainSha,
+        task,
+        indexBySha,
+        pair,
+      })),
+    );
+  }
+  const relevantCandidates = isImmutableTerminalTaskContractVersion(
+    task.contractVersion,
+  )
+    ? candidates.filter((candidate) => candidate.terminalPair)
+    : candidates;
+  if (
+    isImmutableTerminalTaskContractVersion(task.contractVersion) &&
+    relevantCandidates.length > 1
+  ) {
+    throw hydrationError(
+      task.id,
+      "TERMINAL_PAIR_BINDING",
+      `multiple canonical terminal delivery candidates were found at ${relevantCandidates.map((candidate) => candidate.directory).join(", ")}`,
+      "FUTURE_TERMINAL_DELIVERY_AMBIGUOUS",
+    );
+  }
+  const outcome = relevantCandidates[0];
+  if (outcome) {
+    const immutableDrift = await inspectFutureTerminalPairDrift({
+      cache,
+      repositoryRoot,
+      currentMainSha,
+      task,
+      outcome,
+      firstParentHistory,
+    });
+    return Object.freeze({
+      ...outcome,
+      ...(immutableDrift ? { immutableDrift } : {}),
     });
   }
   throw hydrationError(
@@ -583,6 +1165,96 @@ async function discoverTaskOutcome(cache, repositoryRoot, currentMainSha, task, 
     "LOCAL_GIT",
     "could not map the terminal pair to an exact two-parent Task delivery merge",
   );
+}
+
+function assertFutureTerminalOutcomeImmutable(task, outcome) {
+  if (
+    !isImmutableTerminalTaskContractVersion(task.contractVersion) ||
+    !outcome?.terminalPair
+  ) {
+    return;
+  }
+  const drift = outcome.immutableDrift;
+  const pair = outcome.terminalPair;
+  if (!drift) {
+    throw immutableTerminalPairError(
+      task.id,
+      pair.taskPath,
+      "canonical terminal binding could not be revalidated",
+    );
+  }
+  if (drift.mainChanges.length > 0) {
+    throw immutableTerminalPairError(
+      task.id,
+      drift.mainChanges[0],
+      "aligned main changed, deleted, renamed, or replaced the canonical terminal artifact",
+    );
+  }
+  if (drift.worktreePairIssues.length > 0) {
+    const [issue] = drift.worktreePairIssues;
+    throw immutableTerminalPairError(task.id, issue.path, issue.detail);
+  }
+  if (drift.worktreeChanges.length > 0) {
+    throw immutableTerminalPairError(
+      task.id,
+      drift.worktreeChanges[0],
+      "worktree state shadows the canonical terminal artifact",
+    );
+  }
+  if (drift.additionalDeliveries.length > 0) {
+    throw immutableTerminalPairError(
+      task.id,
+      drift.additionalDeliveries[0].path,
+      `another Task-scoped protected merge ${drift.additionalDeliveries[0].mergeSha} follows the canonical delivery`,
+    );
+  }
+}
+
+async function collectFirstParentHistory({
+  commandCache,
+  repositoryRoot,
+  currentMainSha,
+  role,
+}) {
+  const firstParentText = await gitText(
+    commandCache,
+    repositoryRoot,
+    [
+      "log",
+      "--first-parent",
+      `--max-count=${MAX_FIRST_PARENT_COMMITS + 1}`,
+      "--format=%H%x09%P%x09%s",
+      currentMainSha,
+    ],
+    { role },
+  );
+  const newestFirst = firstParentText
+    ? firstParentText.split(/\r?\n/).map((record) => {
+        const [sha, parentText, ...subjectParts] = record.split("\t");
+        return Object.freeze({
+          sha,
+          parents: Object.freeze(parentText?.split(" ").filter(Boolean) ?? []),
+          subject: subjectParts.join("\t"),
+        });
+      })
+    : [];
+  if (newestFirst.length > MAX_FIRST_PARENT_COMMITS) {
+    throw hydrationError(
+      undefined,
+      role,
+      `first-parent history exceeds bound ${MAX_FIRST_PARENT_COMMITS}`,
+      "DELIVERY_HYDRATION_BOUND_EXCEEDED",
+    );
+  }
+  const history = Object.freeze(
+    [...newestFirst]
+      .reverse()
+      .map((record, index) => Object.freeze({ ...record, index })),
+  );
+  return Object.freeze({
+    history,
+    indexBySha: new Map(history.map((record) => [record.sha, record.index])),
+  });
 }
 
 export async function discoverLocalDeliveryOutcomes({
@@ -646,29 +1318,13 @@ export async function discoverLocalDeliveryOutcomes({
     }
   }
 
-  const firstParentText = await gitText(
-    commandCache,
-    repositoryRoot,
-    [
-      "rev-list",
-      "--first-parent",
-      `--max-count=${MAX_FIRST_PARENT_COMMITS + 1}`,
+  const { history: firstParentHistory, indexBySha } =
+    await collectFirstParentHistory({
+      commandCache,
+      repositoryRoot,
       currentMainSha,
-    ],
-    { role: "LOCAL_GIT" },
-  );
-  const newestFirst = firstParentText ? firstParentText.split(/\r?\n/) : [];
-  if (newestFirst.length > MAX_FIRST_PARENT_COMMITS) {
-    throw hydrationError(
-      undefined,
-      "LOCAL_GIT",
-      `first-parent history exceeds bound ${MAX_FIRST_PARENT_COMMITS}`,
-      "DELIVERY_HYDRATION_BOUND_EXCEEDED",
-    );
-  }
-  const indexBySha = new Map(
-    [...newestFirst].reverse().map((sha, index) => [sha, index]),
-  );
+      role: "LOCAL_GIT",
+    });
   if (contractTasks.length > MAX_REQUIRED_DELIVERIES) {
     throw hydrationError(
       undefined,
@@ -686,6 +1342,7 @@ export async function discoverLocalDeliveryOutcomes({
         currentMainSha,
         task,
         indexBySha,
+        firstParentHistory,
       ),
     );
   }
@@ -950,11 +1607,37 @@ export async function loadTrustedStandardDeliveryContinuity({
       "bootstrap checkpoint source main is stale",
     );
   }
+  const originalCoverageTaskIds = new Set(
+    coverageTasks.map((task) => task.id),
+  );
+  const historicalImmutableTasks =
+    await discoverHistoricalImmutableTerminalTasks({
+      commandCache,
+      repositoryRoot: identity.repositoryRoot,
+      currentMainSha: identity.currentMainSha,
+      tasksRoot: path.resolve(tasksRoot),
+    });
+  const effectiveCoverageById = new Map(
+    coverageTasks.map((task) => [task.id, task]),
+  );
+  for (const task of historicalImmutableTasks) {
+    effectiveCoverageById.set(task.id, task);
+  }
+  const effectiveCoverageTasks = Object.freeze(
+    [...effectiveCoverageById.values()].sort(
+      (left, right) => left.number - right.number,
+    ),
+  );
+  const recoveredImmutableTaskIds = Object.freeze(
+    historicalImmutableTasks
+      .filter((task) => !originalCoverageTaskIds.has(task.id))
+      .map((task) => task.id),
+  );
   let coveragePartition;
   try {
     coveragePartition = partitionStandardDeliveryContinuity({
       checkpoint,
-      requiredTasks: coverageTasks,
+      requiredTasks: effectiveCoverageTasks,
     });
   } catch (error) {
     throw hydrationError(
@@ -964,7 +1647,32 @@ export async function loadTrustedStandardDeliveryContinuity({
       error?.code ?? "DELIVERY_CONTINUITY_INVALID",
     );
   }
-  const coverageTaskIds = new Set(coverageTasks.map((task) => task.id));
+  const immutableCoveredTasks = coveragePartition.coveredTasks.filter((task) =>
+    isImmutableTerminalTaskContractVersion(task.contractVersion),
+  );
+  if (immutableCoveredTasks.length > 0) {
+    const { history: firstParentHistory, indexBySha } =
+      await collectFirstParentHistory({
+        commandCache,
+        repositoryRoot: identity.repositoryRoot,
+        currentMainSha: identity.currentMainSha,
+        role: "CHECKPOINT_PAIR_IMMUTABILITY",
+      });
+    for (const task of immutableCoveredTasks) {
+      const outcome = await discoverTaskOutcome(
+        commandCache,
+        identity.repositoryRoot,
+        identity.currentMainSha,
+        task,
+        indexBySha,
+        firstParentHistory,
+      );
+      assertFutureTerminalOutcomeImmutable(task, outcome);
+    }
+  }
+  const coverageTaskIds = new Set(
+    effectiveCoverageTasks.map((task) => task.id),
+  );
   const checkpointCoveredTaskIds = new Set(
     coveragePartition.coveredTasks.map((task) => task.id),
   );
@@ -1021,8 +1729,10 @@ export async function loadTrustedStandardDeliveryContinuity({
   ]);
   if (coveredPaths.length > 0) {
     const terminalPairs = [];
+    const immutableCoveredPaths = new Map();
     for (const covered of coveredPairs) {
-      const [taskMarkdown, testMarkdown] = await Promise.all([
+      const [taskMarkdown, testMarkdown, sourceTaskMarkdown, sourceTestMarkdown] =
+        await Promise.all([
         showGitFile(
           commandCache,
           identity.repositoryRoot,
@@ -1033,6 +1743,18 @@ export async function loadTrustedStandardDeliveryContinuity({
           commandCache,
           identity.repositoryRoot,
           identity.currentMainSha,
+          covered.testPath,
+        ),
+        showGitFile(
+          commandCache,
+          identity.repositoryRoot,
+          checkpoint.sourceMainSha,
+          covered.taskPath,
+        ),
+        showGitFile(
+          commandCache,
+          identity.repositoryRoot,
+          checkpoint.sourceMainSha,
           covered.testPath,
         ),
       ]);
@@ -1047,6 +1769,85 @@ export async function loadTrustedStandardDeliveryContinuity({
           "CHECKPOINT_PAIR_STATE",
           "aligned main terminal Task/Test bytes are missing or nonterminal",
         );
+      }
+      if (
+        isImmutableTerminalTaskContractVersion(
+          getTaskContractVersion(sourceTaskMarkdown),
+        )
+      ) {
+        if (
+          getTaskContractVersion(sourceTestMarkdown) !==
+            getTaskContractVersion(sourceTaskMarkdown) ||
+          sectionStatus(sourceTaskMarkdown ?? "") !== "DONE" ||
+          sectionStatus(sourceTestMarkdown ?? "") !== "PASSED"
+        ) {
+          throw immutableTerminalPairError(
+            covered.task.id,
+            covered.taskPath,
+            "checkpoint source main does not contain one valid canonical terminal pair",
+          );
+        }
+        for (const [relativePath, currentBytes, canonicalBytes] of [
+          [covered.taskPath, taskMarkdown, sourceTaskMarkdown],
+          [covered.testPath, testMarkdown, sourceTestMarkdown],
+        ]) {
+          immutableCoveredPaths.set(relativePath, covered.task.id);
+          if (currentBytes !== canonicalBytes) {
+            throw immutableTerminalPairError(
+              covered.task.id,
+              relativePath,
+              "aligned main bytes differ from the checkpoint-bound canonical terminal artifact",
+            );
+          }
+          const absolutePath = path.resolve(
+            identity.repositoryRoot,
+            relativePath,
+          );
+          let worktreeState;
+          try {
+            worktreeState = await lstat(absolutePath);
+          } catch (error) {
+            if (error.code !== "ENOENT") throw error;
+          }
+          if (
+            !worktreeState ||
+            worktreeState.isSymbolicLink() ||
+            !worktreeState.isFile()
+          ) {
+            throw immutableTerminalPairError(
+              covered.task.id,
+              relativePath,
+              "worktree artifact is missing, linked, or an unsupported type",
+            );
+          }
+          const [canonicalBlobSha, worktreeBlobSha] = await Promise.all([
+            gitText(
+              commandCache,
+              identity.repositoryRoot,
+              ["rev-parse", `${checkpoint.sourceMainSha}:${relativePath}`],
+              {
+                taskId: covered.task.id,
+                role: "CHECKPOINT_PAIR_STATE",
+              },
+            ),
+            gitText(
+              commandCache,
+              identity.repositoryRoot,
+              ["hash-object", `--path=${relativePath}`, absolutePath],
+              {
+                taskId: covered.task.id,
+                role: "CHECKPOINT_PAIR_STATE",
+              },
+            ),
+          ]);
+          if (worktreeBlobSha !== canonicalBlobSha) {
+            throw immutableTerminalPairError(
+              covered.task.id,
+              relativePath,
+              "worktree bytes shadow the checkpoint-bound canonical terminal artifact",
+            );
+          }
+        }
       }
       terminalPairs.push({
         taskId: covered.task.id,
@@ -1070,16 +1871,28 @@ export async function loadTrustedStandardDeliveryContinuity({
       commandCache,
       identity.repositoryRoot,
       [
-        "diff",
+        "log",
+        "--format=",
         "--name-only",
-        checkpoint.sourceMainSha,
-        identity.currentMainSha,
+        `${checkpoint.sourceMainSha}..${identity.currentMainSha}`,
         "--",
         ...coveredPaths,
       ],
       { role: "CHECKPOINT_PAIR_STATE" },
     );
     if (historicalChanges) {
+      const changedPath = historicalChanges
+        .split(/\r?\n/)
+        .map((value) => value.trim().replaceAll("\\", "/"))
+        .find(Boolean);
+      const immutableTaskId = immutableCoveredPaths.get(changedPath);
+      if (immutableTaskId) {
+        throw immutableTerminalPairError(
+          immutableTaskId,
+          changedPath,
+          "terminal artifact history changed after the checkpoint binding",
+        );
+      }
       throw hydrationError(
         undefined,
         "CHECKPOINT_PAIR_STATE",
@@ -1093,6 +1906,18 @@ export async function loadTrustedStandardDeliveryContinuity({
       { role: "CHECKPOINT_PAIR_STATE" },
     );
     if (worktreeChanges) {
+      const changedPath = worktreeChanges
+        .split(/\r?\n/)
+        .map((value) => value.trim().replaceAll("\\", "/"))
+        .find(Boolean);
+      const immutableTaskId = immutableCoveredPaths.get(changedPath);
+      if (immutableTaskId) {
+        throw immutableTerminalPairError(
+          immutableTaskId,
+          changedPath,
+          "working-tree substitution changed a canonical terminal artifact",
+        );
+      }
       throw hydrationError(
         undefined,
         "CHECKPOINT_PAIR_STATE",
@@ -1104,6 +1929,8 @@ export async function loadTrustedStandardDeliveryContinuity({
     checkpoint,
     partition,
     coveragePartition,
+    coverageTasks: effectiveCoverageTasks,
+    recoveredImmutableTaskIds,
     identity,
     source,
   });
@@ -2713,7 +3540,7 @@ export async function bootstrapStandardDeliveryContinuity({
   const contractTasks = queue.tasks
     .filter(
       (task) =>
-        task.contractVersion === CURRENT_TASK_CONTRACT_VERSION &&
+        isQueueAwareTaskContractVersion(task.contractVersion) &&
         completeTask(task) &&
         requiresStandardDelivery(task),
     )
@@ -2766,6 +3593,15 @@ export async function bootstrapStandardDeliveryContinuity({
     const outcome = outcomeByTask.get(task.id);
     const entry = collected.deliveryLedger[task.id];
     const expectation = collected.deliveryExpectations[task.id];
+    const evaluation = evaluateDeliveryEvidence(task.id, entry, expectation);
+    if (!evaluation.satisfied) {
+      throw hydrationError(
+        task.id,
+        "CHECKPOINT_BOOTSTRAP",
+        `production evaluator rejected bootstrap evidence: ${evaluation.issues.join("; ")}`,
+      );
+    }
+    assertFutureTerminalOutcomeImmutable(task, outcome);
     coveredRecords.push(
       await buildContinuityCoveredRecord({
         task,
@@ -3026,6 +3862,58 @@ export async function applyStandardDeliveryContinuityTransition({
   });
 }
 
+async function buildImmutableTerminalFallbackQueue({
+  tasksRoot,
+  queue,
+  commandRunner,
+}) {
+  const commandCache = createInvocationCommandCache({ runner: commandRunner });
+  const requestedRoot = path.resolve(tasksRoot);
+  const repositoryRoot = await gitText(
+    commandCache,
+    requestedRoot,
+    ["rev-parse", "--show-toplevel"],
+    { role: "TERMINAL_PAIR_FALLBACK" },
+  );
+  if (!(await tasksRootMatchesRepository(requestedRoot, repositoryRoot))) {
+    return undefined;
+  }
+  const currentMainSha = await gitText(
+    commandCache,
+    repositoryRoot,
+    ["rev-parse", "refs/heads/main"],
+    { role: "TERMINAL_PAIR_FALLBACK" },
+  );
+  requireSha(
+    currentMainSha,
+    undefined,
+    "TERMINAL_PAIR_FALLBACK",
+    "local main",
+  );
+  const historicalTasks = await discoverHistoricalImmutableTerminalTasks({
+    commandCache,
+    repositoryRoot,
+    currentMainSha,
+    tasksRoot: requestedRoot,
+  });
+  if (historicalTasks.length === 0) return undefined;
+  const byId = new Map(queue.tasks.map((task) => [task.id, task]));
+  for (const task of historicalTasks) byId.set(task.id, task);
+  return Object.freeze({
+    tasks: Object.freeze(
+      [...byId.values()].sort((left, right) => left.number - right.number),
+    ),
+    errors: Object.freeze([]),
+    currentTasks: Object.freeze(
+      [...byId.values()]
+        .filter((task) =>
+          isQueueAwareTaskContractVersion(task.contractVersion),
+        )
+        .sort((left, right) => left.number - right.number),
+    ),
+  });
+}
+
 export async function hydratePriorStandardDeliveries({
   tasksRoot,
   invocation,
@@ -3040,6 +3928,7 @@ export async function hydratePriorStandardDeliveries({
   emptyContinuityPreparer = prepareEmptyHistoryStandardDeliveryContinuity,
   deliveryCollector = collectNormalizedDeliveryOutcomes,
   continuityRecordBuilder = buildContinuityCoveredRecord,
+  _skipImmutableTerminalFallback = false,
 } = {}) {
   const queue = await queueInspector(path.resolve(tasksRoot));
   if (!isRecord(queue) || !Array.isArray(queue.tasks) || !Array.isArray(queue.errors)) {
@@ -3049,7 +3938,47 @@ export async function hydratePriorStandardDeliveries({
       "queue inspection returned a malformed response",
     );
   }
+  const rethrowProvenImmutableTerminalDrift = async () => {
+    if (_skipImmutableTerminalFallback) return;
+    let fallbackQueue;
+    try {
+      fallbackQueue = await buildImmutableTerminalFallbackQueue({
+        tasksRoot,
+        queue,
+        commandRunner,
+      });
+    } catch {
+      return;
+    }
+    if (!fallbackQueue) return;
+    try {
+      await hydratePriorStandardDeliveries({
+        tasksRoot,
+        invocation,
+        managedRoutingAvailable,
+        commandRunner,
+        queueInspector: async () => fallbackQueue,
+        localDiscovery,
+        githubClient,
+        allowBootstrapWorktreeCheckpoint,
+        allowUncheckpointedCompatibility,
+        continuityLoader,
+        emptyContinuityPreparer,
+        deliveryCollector,
+        continuityRecordBuilder,
+        _skipImmutableTerminalFallback: true,
+      });
+    } catch (error) {
+      if (
+        error?.code === "FUTURE_TERMINAL_PAIR_IMMUTABLE" ||
+        error?.code === "FUTURE_TERMINAL_DELIVERY_AMBIGUOUS"
+      ) {
+        throw error;
+      }
+    }
+  };
   if (queue.errors.length > 0) {
+    await rethrowProvenImmutableTerminalDrift();
     throw hydrationError(
       undefined,
       "QUEUE",
@@ -3062,6 +3991,7 @@ export async function hydratePriorStandardDeliveries({
     managedRoutingAvailable,
   });
   if (requiredTasks.length === 0) {
+    await rethrowProvenImmutableTerminalDrift();
     if (!allowUncheckpointedCompatibility) {
       const commandCache = createInvocationCommandCache({
         runner: commandRunner,
@@ -3138,7 +4068,7 @@ export async function hydratePriorStandardDeliveries({
     const coverageTasks = queue.tasks
       .filter(
         (task) =>
-          task.contractVersion === CURRENT_TASK_CONTRACT_VERSION &&
+          isQueueAwareTaskContractVersion(task.contractVersion) &&
           completeTask(task) &&
           requiresStandardDelivery(task),
       )
@@ -3154,7 +4084,7 @@ export async function hydratePriorStandardDeliveries({
     const coveredState = buildStandardDeliveryContinuityState({
       checkpoint: continuity.checkpoint,
       coveredTasks: continuity.partition.coveredTasks,
-      coverageTasks,
+      coverageTasks: continuity.coverageTasks ?? coverageTasks,
     });
     for (const task of continuity.partition.coveredTasks) {
       const evaluation = evaluateDeliveryEvidence(
@@ -3180,11 +4110,32 @@ export async function hydratePriorStandardDeliveries({
     };
     let freshLocal;
     let preparedCheckpoint;
-    if (continuity.partition.uncoveredTasks.length === 1) {
+    const recoveredImmutableTaskIds = new Set(
+      continuity.recoveredImmutableTaskIds ?? [],
+    );
+    const uncoveredTasks = Object.freeze([
+      ...continuity.partition.uncoveredTasks,
+      ...(continuity.coveragePartition?.uncoveredTasks ?? []).filter(
+        (task) =>
+          recoveredImmutableTaskIds.has(task.id) &&
+          !continuity.partition.uncoveredTasks.some(
+            (requiredTask) => requiredTask.id === task.id,
+          ),
+      ),
+    ]);
+    if (uncoveredTasks.length > 1) {
+      throw hydrationError(
+        undefined,
+        "CHECKPOINT",
+        `checkpoint gap ${uncoveredTasks.length} requires explicit migration/rebaseline`,
+        "DELIVERY_CONTINUITY_REBASELINE_REQUIRED",
+      );
+    }
+    if (uncoveredTasks.length === 1) {
       freshLocal = await localDiscovery({
         tasksRoot: path.resolve(tasksRoot),
-        requiredTasks: continuity.partition.uncoveredTasks,
-        contractTasks: continuity.partition.uncoveredTasks,
+        requiredTasks: uncoveredTasks,
+        contractTasks: uncoveredTasks,
         commandCache,
       });
       if (
@@ -3203,7 +4154,7 @@ export async function hydratePriorStandardDeliveries({
         commandCache,
         githubClient: continuity.identity.githubClient,
       });
-      const uncoveredTask = continuity.partition.uncoveredTasks[0];
+      const uncoveredTask = uncoveredTasks[0];
       const outcome = freshLocal.outcomes[0];
       const freshEvaluation = evaluateDeliveryEvidence(
         uncoveredTask.id,
@@ -3217,6 +4168,7 @@ export async function hydratePriorStandardDeliveries({
           `production evaluator rejected uncovered evidence: ${freshEvaluation.issues.join("; ")}`,
         );
       }
+      assertFutureTerminalOutcomeImmutable(uncoveredTask, outcome);
       const coveredRecord = await continuityRecordBuilder({
         task: uncoveredTask,
         outcome,
@@ -3277,9 +4229,9 @@ export async function hydratePriorStandardDeliveries({
             continuity.partition.coveredTasks.map((task) => task.id),
           ),
           uncoveredTaskIds: Object.freeze(
-            continuity.partition.uncoveredTasks.map((task) => task.id),
+            uncoveredTasks.map((task) => task.id),
           ),
-          freshEvidenceTaskCount: continuity.partition.uncoveredTasks.length,
+          freshEvidenceTaskCount: uncoveredTasks.length,
           preparedAdvancement: Boolean(preparedCheckpoint),
           fullHistoryFallback: false,
         }),
@@ -3311,7 +4263,7 @@ export async function hydratePriorStandardDeliveries({
   const contractTasks = queue.tasks
     .filter(
       (task) =>
-        task.contractVersion === CURRENT_TASK_CONTRACT_VERSION &&
+        isQueueAwareTaskContractVersion(task.contractVersion) &&
         completeTask(task) &&
         requiresStandardDelivery(task),
     )
@@ -3333,11 +4285,24 @@ export async function hydratePriorStandardDeliveries({
       "local discovery returned a partial or malformed outcome set",
     );
   }
-  const collected = await collectNormalizedDeliveryOutcomes({
+  const collected = await deliveryCollector({
     local,
     commandCache,
     githubClient,
   });
+  const outcomeByTask = new Map(
+    local.outcomes.map((outcome) => [outcome.taskId, outcome]),
+  );
+  for (const task of requiredTasks) {
+    const evaluation = evaluateDeliveryEvidence(
+      task.id,
+      collected.deliveryLedger[task.id],
+      collected.deliveryExpectations[task.id],
+    );
+    if (evaluation.satisfied) {
+      assertFutureTerminalOutcomeImmutable(task, outcomeByTask.get(task.id));
+    }
+  }
 
   return freezeHydrationResult({
     deliveryLedger: collected.deliveryLedger,

@@ -30,6 +30,8 @@ node <kyw-impl-skill-directory>/../kyw-task/scripts/task-artifacts.mjs dispatch 
 
 Use `true` only for loaded managed routing. Pass verified conflict, unexplained-work, drift, and user-decision findings through execution preflight. Before its one dispatcher call, the adapter validates the exact prior `STANDARD` set from the fixed-bounded checkpoint on aligned `main` and freshly production-evaluates at most one uncovered GitHub outcome; there is no whole-history fallback. Fail closed and never ask for delivery JSON, checkpoint content, transition tokens, or evidence IDs.
 
+For delivered contract-3 Tasks, pre-dispatch binds the first complete hardened graph and pair bytes. Unchanged invocation reports only; drift or redelivery fails with Task/path and routes to a new hard-dependent `$kyw-task "<correction outcome>"`.
+
 A selected result may carry an opaque continuity transition token. After establishing the selected Task branch and active pair, pass it unchanged once to `apply-continuity`. Never construct, decode, edit, retain, or apply it after a terminal result; exact resume replay is idempotent and any mismatch stops.
 
 ## Selection boundary

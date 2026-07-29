@@ -500,6 +500,33 @@ test("current contract validates static delivery policy and repository-only term
     validateTaskTestContract({ taskMarkdown: currentTask, testMarkdown: currentTest }),
     [],
   );
+  assert.deepEqual(
+    validateTaskTestContract({
+      taskMarkdown: currentTask.replace(
+        TASK_CONTRACT_MARKER,
+        "<!-- kyw-task-contract: 2 -->",
+      ),
+      testMarkdown: currentTest.replace(
+        TASK_CONTRACT_MARKER,
+        "<!-- kyw-task-contract: 2 -->",
+      ),
+    }),
+    [],
+    "pre-cutover contract 2 remains readable without migration",
+  );
+  assert.match(
+    validateTaskTestContract({
+      taskMarkdown: currentTask.replace(
+        TASK_CONTRACT_MARKER,
+        "<!-- kyw-task-contract: 4 -->",
+      ),
+      testMarkdown: currentTest.replace(
+        TASK_CONTRACT_MARKER,
+        "<!-- kyw-task-contract: 4 -->",
+      ),
+    }).join("\n"),
+    /unsupported Task contract version 4/,
+  );
 
   assert.match(
     validateTaskTestContract({

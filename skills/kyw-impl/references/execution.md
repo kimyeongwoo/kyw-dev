@@ -47,7 +47,7 @@ Recognized selection supplies the authority stated below; inspect-only, ambiguou
 
 Keep the Skill explicit-only. `$kyw-impl NNNN` is portable anywhere the Skill is available. The three natural-language aliases work only when the applicable managed `AGENTS.md` routing contract is loaded; otherwise return the portable `$kyw-impl NNNN` fallback. Match the complete anchored command plus optional appended current-user text. Ordinary prose containing “task” is not a dispatch command.
 
-The current contract is identified by the paired `<!-- kyw-task-contract: 2 -->` marker. It uses only these Task/Test pairs:
+New pairs use the paired `<!-- kyw-task-contract: 3 -->` marker. Contract 2 remains queue-aware compatibility and unmarked contract 1 remains legacy history. Queue-aware pairs use only these Task/Test pairs:
 
 - `DRAFT/DRAFT`;
 - `READY/READY`;
@@ -56,7 +56,7 @@ The current contract is identified by the paired `<!-- kyw-task-contract: 2 -->`
 - `BLOCKED/BLOCKED`;
 - `CANCELLED/BLOCKED`.
 
-Legacy unmarked Task/Test evidence remains readable and valid under its historical contract. Do not recursively reinterpret a terminal legacy Task's old free-form dependencies, handoff prose, or delivery sequence as current queue state.
+Contract-2 and unmarked Task/Test evidence remains readable and valid under its recorded contract. Do not migrate terminal pairs or recursively reinterpret historical free-form dependencies, handoff prose, or delivery sequence under contract 3.
 
 Each non-complete current Task uses either the exact no-dependency sentence or distinct `- Task NNNN.` bullets. Reject prose, duplicates/mixing, missing references, and cycles. Completed artifacts retain their historical literal-reference reader. Only `DONE/PASSED` plus required external delivery satisfies a hard dependency.
 
@@ -75,7 +75,9 @@ Current-contract `## Delivery` contains static policy only:
 - `STANDARD` uses GitHub PR/Actions exact-SHA state as the canonical ledger.
 - `NONE — <reason>` requires a concrete reason and has no external delivery gate.
 
-For normal `$kyw-impl NNNN`, pass no delivery payload. Before its sole dispatcher call, derive the exact prior `STANDARD` set and load one fixed-bounded rolling continuity checkpoint only from aligned local/upstream/cached/direct/GitHub `main`. Its exact ordered prefix, terminal pairs, and covered ancestry must still match. Covered results use production-evaluated `DURABLE_STANDARD_CONTINUITY`, never fresh/legacy/current-ledger relabeling.
+For normal `$kyw-impl NNNN`, pass no delivery payload. Before its sole dispatcher call, derive the exact prior `STANDARD` set and load one fixed-bounded rolling continuity checkpoint only from aligned local/upstream/cached/direct/GitHub `main`; exact ordered prefix, terminal pairs, and ancestry must match. Covered results use production-evaluated `DURABLE_STANDARD_CONTINUITY`, never fresh/legacy/current-ledger relabeling.
+
+For contract 3, the first evaluator-satisfied `HARDENED_EXACT_HEAD` graph binds pair paths/bytes. Pre-dispatch rejects drift/redelivery with Task/path and `$kyw-task "<correction outcome>"`; unchanged invocation reports only. Corrections hard-depend; contracts 1/2 are grandfathered.
 
 At most one prior `STANDARD` outcome may remain uncovered; collect its full GitHub graph through an invocation-local command cache and the unchanged evaluator. Never read covered GitHub objects or logs. Empty history may prepare genesis without GitHub. Existing history with missing, corrupt, stale, forked, mismatched, or over-gap continuity requires explicit migration/rebaseline: normal dispatch has no automatic whole-history fallback. External failure, drift, partial evidence, or bound exhaustion stops before mutation and retry. Persist no raw logs, secrets, API responses, mutable graph, or growing receipts. Manual delivery flags are test/compatibility seams only.
 
@@ -220,7 +222,7 @@ Validate the updated pair and report the checkpoint. A fresh session must be abl
 
 Set `TEST.md` to `PASSED` and `TASK.md` to `DONE` only when every AC is checked/mapped; required rows pass or have evidenced `N/A`; required checks ran; final coverage review is checked; affected permanent truth is synchronized; no unsafe drift/blocker remains; handoff/results are accurate; and the pair validates.
 
-For the current contract, every Plan item must also be checked and both Remaining and Resume Point must record reasoned `None` when the repository outcome is complete. External delivery state is not a ninth repository terminal condition; it is the separate queue-advancement gate in the GitHub ledger.
+For queue-aware contracts, every Plan item must also be checked and both Remaining and Resume Point must record reasoned `None` when the repository outcome is complete. External delivery state is not a ninth repository terminal condition; it is the separate queue-advancement gate in the GitHub ledger.
 
 Use `BLOCKED` / `BLOCKED` when a required condition remains unmet and record the recovery path. Use `CANCELLED` only on explicit user cancellation and preserve the pair's history. Never mark terminal success because implementation merely looks complete or because time/context is low.
 

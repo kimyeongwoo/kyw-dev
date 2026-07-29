@@ -1,18 +1,33 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rename,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import {
+  buildStandardDeliveryContinuityState,
   classifyLocalDeliveryContracts,
   createStandardDeliveryContinuityCheckpoint,
   createGitHubEvidenceClient,
   createInvocationCommandCache,
+  discoverLocalDeliveryOutcomes,
   discoverRequiredStandardDeliveries,
   evaluateDeliveryEvidence,
   hydratePriorStandardDeliveries,
   normalizeHardenedDeliveryEvidence,
   parseKywCiEvidence,
+  STANDARD_DELIVERY_CONTINUITY_FILE,
 } from "../src/core/task-artifacts.mjs";
 import { runTaskArtifactCommand } from "../skills/kyw-task/scripts/task-artifacts.mjs";
 
@@ -37,6 +52,323 @@ function task({
       delivery === "STANDARD"
         ? { kind: "STANDARD" }
         : { kind: "NONE", reason: "fixture has no external delivery" },
+  };
+}
+
+function git(repositoryRoot, args) {
+  const result = spawnSync("git", args, {
+    cwd: repositoryRoot,
+    encoding: "utf8",
+    windowsHide: true,
+    shell: false,
+  });
+  assert.equal(result.status, 0, result.stderr);
+  return result.stdout.trim();
+}
+
+function sha256(value) {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+async function futureTerminalFixture(t) {
+  const root = await mkdtemp(path.join(tmpdir(), "kyw-future-terminal-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const tasksRoot = path.join(root, "docs", "tasks");
+  const directory = path.join(tasksRoot, "0001-immutable");
+  const taskPath = path.join(directory, "TASK.md");
+  const testPath = path.join(directory, "TEST.md");
+  const workflowPath = path.join(root, ".github", "workflows", "ci.yml");
+  const taskBytes = `# TASK 0001 — Immutable
+
+<!-- kyw-task-contract: 3 -->
+
+## Status
+
+DONE
+
+## Goal
+
+Prove immutable terminal delivery behavior.
+
+## Dependencies
+
+- Not applicable — no hard dependency is required for this outcome.
+
+## In Scope
+
+- Exercise terminal pair enforcement.
+
+## Out of Scope
+
+- Do not mutate external state.
+
+## Acceptance Criteria
+
+- [x] AC-01: The immutable fixture is delivered.
+
+## Plan
+
+- [x] Deliver and verify the fixture.
+
+## Decisions
+
+- Keep the fixture deterministic.
+
+## Risks
+
+- Preserve exact terminal bytes.
+
+## Discoveries and Changes
+
+- The fixture uses one protected merge.
+
+## Documentation Impact
+
+- SPEC: Unaffected.
+- ARCHITECTURE: Unaffected.
+- README: Unaffected.
+- AGENTS: Unaffected.
+
+## Delivery
+
+- Requirement: STANDARD
+- Canonical ledger: GitHub PR/Actions exact-SHA state.
+
+## Completed
+
+- Repository outcome verified.
+
+## Remaining
+
+- None — repository outcome complete.
+
+## Resume Point
+
+- None — repository outcome complete.
+
+## Blockers
+
+- Not applicable — no blocker is known.
+`;
+  const testBytes = `# TEST 0001 — Immutable
+
+<!-- kyw-task-contract: 3 -->
+
+## Status
+
+PASSED
+
+## Test Basis
+
+- Task: \`./TASK.md\`
+
+## Intent-to-Test Matrix
+
+| ID | Intent / acceptance criterion | Method | Level | Status | Evidence |
+|---|---|---|---|---|---|
+| T-01 | AC-01 — immutable fixture delivery | Run the focused fixture. | Integration | PASS | Focused fixture passed. |
+
+## Regression Coverage
+
+- Preserve terminal delivery behavior.
+
+## Commands
+
+- Focused fixture.
+
+## Results
+
+- Focused fixture passed.
+
+## Unverified
+
+- Not applicable — no residual risk remains.
+
+## Final Coverage Review
+
+- [x] Compare the final diff to the matrix.
+- [x] Map every acceptance criterion to one or more test rows.
+`;
+  await mkdir(path.dirname(workflowPath), { recursive: true });
+  await writeFile(
+    workflowPath,
+    await readFile(path.join(REPOSITORY_ROOT, ".github", "workflows", "ci.yml"), "utf8"),
+    "utf8",
+  );
+  await writeFile(path.join(root, "README.md"), "# Fixture\n", "utf8");
+  await writeFile(path.join(root, ".gitattributes"), "*.md text eol=lf\n", "utf8");
+  git(root, ["init", "--initial-branch=main"]);
+  git(root, ["config", "user.name", "Future Terminal Fixture"]);
+  git(root, ["config", "user.email", "future-terminal@example.invalid"]);
+  git(root, ["config", "core.autocrlf", "false"]);
+  git(root, ["add", "README.md", ".gitattributes", ".github/workflows/ci.yml"]);
+  git(root, ["commit", "-m", "Initialize immutable delivery fixture"]);
+  git(root, ["switch", "-c", "task/0001-immutable"]);
+  await mkdir(directory, { recursive: true });
+  await Promise.all([
+    writeFile(taskPath, taskBytes, "utf8"),
+    writeFile(testPath, testBytes, "utf8"),
+  ]);
+  git(root, ["add", "docs/tasks/0001-immutable"]);
+  git(root, ["commit", "-m", "Complete immutable Task"]);
+  const outcomeSha = git(root, ["rev-parse", "HEAD"]);
+  git(root, ["switch", "main"]);
+  git(root, [
+    "merge",
+    "--no-ff",
+    "task/0001-immutable",
+    "-m",
+    "Merge pull request #1 from owner/task/0001-immutable",
+  ]);
+  let alignedMainSha = git(root, ["rev-parse", "HEAD"]);
+  git(root, [
+    "remote",
+    "add",
+    "origin",
+    "https://github.com/owner/repository.git",
+  ]);
+  git(root, ["update-ref", "refs/remotes/origin/main", alignedMainSha]);
+  git(root, ["config", "branch.main.remote", "origin"]);
+  git(root, ["config", "branch.main.merge", "refs/heads/main"]);
+  const queueTask = {
+    ...task({ id: "0001", contractVersion: 3 }),
+    name: "0001-immutable",
+    directory,
+    taskPath,
+    testPath,
+  };
+  const commandRunner = ({ command, args, cwd, timeoutMs, maxBuffer }) => {
+    if (command === "git" && args[0] === "ls-remote") {
+      return {
+        status: 0,
+        signal: null,
+        stdout: `${alignedMainSha}\trefs/heads/main\n`,
+        stderr: "",
+      };
+    }
+    const result = spawnSync(command, args, {
+      cwd,
+      encoding: "utf8",
+      windowsHide: true,
+      timeout: timeoutMs,
+      maxBuffer,
+      shell: false,
+    });
+    return {
+      status: result.status,
+      signal: result.signal,
+      stdout: result.stdout ?? "",
+      stderr: result.stderr ?? "",
+      error: result.error,
+    };
+  };
+  const deliveryCollector = async ({ local }) => {
+    const outcome = local.outcomes[0];
+    const created = createStandardDeliveryContinuityCheckpoint({
+      repository: local.repository,
+      sourceMainSha: local.currentMainSha,
+      coveredRecords: [
+        {
+          taskId: queueTask.id,
+          taskSha256: sha256(taskBytes),
+          testSha256: sha256(testBytes),
+          taskStatus: "DONE",
+          testStatus: "PASSED",
+          classification: "HARDENED_EXACT_HEAD",
+          outcomeSha: outcome.outcomeSha,
+          mergeSha: outcome.mergeSha,
+          evidenceSha256: "a".repeat(64),
+        },
+      ],
+    });
+    const state = buildStandardDeliveryContinuityState({
+      checkpoint: created.checkpoint,
+      coveredTasks: [queueTask],
+      coverageTasks: [queueTask],
+    });
+    return {
+      ...state,
+      classifications: Object.freeze({
+        [queueTask.id]: "HARDENED_EXACT_HEAD",
+      }),
+      chronology: Object.freeze([]),
+      githubMainSha: local.currentMainSha,
+    };
+  };
+  const hydrate = () =>
+    hydratePriorStandardDeliveries({
+      tasksRoot,
+      invocation: "$kyw-impl 0001",
+      commandRunner,
+      queueInspector: async () => ({ tasks: [queueTask], errors: [] }),
+      deliveryCollector,
+      allowUncheckpointedCompatibility: true,
+    });
+  const hydrateFromQueue = () =>
+    hydratePriorStandardDeliveries({
+      tasksRoot,
+      invocation: "$kyw-impl 0001",
+      commandRunner,
+      deliveryCollector,
+      allowUncheckpointedCompatibility: true,
+    });
+  return {
+    root,
+    tasksRoot,
+    directory,
+    taskPath,
+    testPath,
+    taskBytes,
+    testBytes,
+    outcomeSha,
+    queueTask,
+    hydrate,
+    hydrateFromQueue,
+    async checkpointDelivery() {
+      const checkpoint = createStandardDeliveryContinuityCheckpoint({
+        repository: "owner/repository",
+        sourceMainSha: alignedMainSha,
+        coveredRecords: [
+          {
+            taskId: queueTask.id,
+            taskSha256: sha256(taskBytes),
+            testSha256: sha256(testBytes),
+            taskStatus: "DONE",
+            testStatus: "PASSED",
+            classification: "HARDENED_EXACT_HEAD",
+            outcomeSha,
+            mergeSha: alignedMainSha,
+            evidenceSha256: "b".repeat(64),
+          },
+        ],
+      }).checkpoint;
+      await writeFile(
+        path.join(tasksRoot, STANDARD_DELIVERY_CONTINUITY_FILE),
+        `${JSON.stringify(checkpoint, null, 2)}\n`,
+        "utf8",
+      );
+      git(root, ["add", `docs/tasks/${STANDARD_DELIVERY_CONTINUITY_FILE}`]);
+      git(root, ["commit", "-m", "Record immutable delivery continuity"]);
+      alignedMainSha = git(root, ["rev-parse", "HEAD"]);
+      git(root, ["update-ref", "refs/remotes/origin/main", alignedMainSha]);
+      const githubClient = {
+        async getMainRef() {
+          return { object: { sha: alignedMainSha } };
+        },
+      };
+      return () =>
+        hydratePriorStandardDeliveries({
+          tasksRoot,
+          invocation: "$kyw-impl 0001",
+          commandRunner,
+          githubClient,
+        });
+    },
+    advanceMain() {
+      alignedMainSha = git(root, ["rev-parse", "HEAD"]);
+      git(root, ["update-ref", "refs/remotes/origin/main", alignedMainSha]);
+      return alignedMainSha;
+    },
   };
 }
 
@@ -69,6 +401,389 @@ test("required delivery discovery follows queue transition and dependency truth"
     }).map(({ id }) => id),
     ["0001", "0004"],
   );
+});
+
+test("future terminal delivery binds canonical pair bytes and rejects worktree mutation before dispatch", async (t) => {
+  const fixture = await futureTerminalFixture(t);
+  const unchanged = await fixture.hydrate();
+  assert.equal(
+    evaluateDeliveryEvidence(
+      "0001",
+      unchanged.deliveryLedger["0001"],
+      unchanged.deliveryExpectations["0001"],
+    ).satisfied,
+    true,
+  );
+
+  for (const scenario of [
+    {
+      name: "TASK.md bytes",
+      path: fixture.taskPath,
+      mutate: () => writeFile(fixture.taskPath, `${fixture.taskBytes}\nchanged\n`, "utf8"),
+      restore: () => writeFile(fixture.taskPath, fixture.taskBytes, "utf8"),
+    },
+    {
+      name: "TEST.md bytes",
+      path: fixture.testPath,
+      mutate: () => writeFile(fixture.testPath, `${fixture.testBytes}\nchanged\n`, "utf8"),
+      restore: () => writeFile(fixture.testPath, fixture.testBytes, "utf8"),
+    },
+    {
+      name: "TASK.md deletion",
+      path: fixture.taskPath,
+      mutate: () => rm(fixture.taskPath),
+      restore: () => writeFile(fixture.taskPath, fixture.taskBytes, "utf8"),
+    },
+    {
+      name: "TASK.md rename",
+      path: fixture.taskPath,
+      mutate: () => rename(fixture.taskPath, `${fixture.taskPath}.moved`),
+      restore: () => rename(`${fixture.taskPath}.moved`, fixture.taskPath),
+    },
+    {
+      name: "TASK.md unsupported replacement",
+      path: fixture.taskPath,
+      mutate: async () => {
+        await rm(fixture.taskPath);
+        await mkdir(fixture.taskPath);
+      },
+      restore: async () => {
+        await rm(fixture.taskPath, { recursive: true });
+        await writeFile(fixture.taskPath, fixture.taskBytes, "utf8");
+      },
+    },
+  ]) {
+    await scenario.mutate();
+    await assert.rejects(
+      fixture.hydrate(),
+      (error) =>
+        error.code === "FUTURE_TERMINAL_PAIR_IMMUTABLE" &&
+        error.message.includes("Task 0001") &&
+        error.message.includes(
+          path.relative(fixture.root, scenario.path).replaceAll("\\", "/"),
+        ) &&
+        error.message.includes('$kyw-task "<correction outcome>"'),
+      scenario.name,
+    );
+    await scenario.restore();
+  }
+
+  const shadowDirectory = path.join(fixture.tasksRoot, "0001-shadow");
+  await mkdir(shadowDirectory);
+  await Promise.all([
+    writeFile(path.join(shadowDirectory, "TASK.md"), fixture.taskBytes, "utf8"),
+    writeFile(path.join(shadowDirectory, "TEST.md"), fixture.testBytes, "utf8"),
+  ]);
+  await assert.rejects(
+    fixture.hydrate(),
+    (error) =>
+      error.code === "FUTURE_TERMINAL_PAIR_IMMUTABLE" &&
+      /0001-shadow\/(?:TASK|TEST)\.md/.test(error.message),
+  );
+});
+
+test("production queue validation cannot mask delivered pair deletion or rename", async (t) => {
+  const fixture = await futureTerminalFixture(t);
+  const unchanged = await fixture.hydrateFromQueue();
+  assert.equal(
+    evaluateDeliveryEvidence(
+      "0001",
+      unchanged.deliveryLedger["0001"],
+      unchanged.deliveryExpectations["0001"],
+    ).satisfied,
+    true,
+  );
+
+  await rm(fixture.taskPath);
+  await assert.rejects(
+    fixture.hydrateFromQueue(),
+    (error) =>
+      error.code === "FUTURE_TERMINAL_PAIR_IMMUTABLE" &&
+      /docs\/tasks\/0001-immutable\/TASK\.md/.test(error.message) &&
+      error.message.includes('$kyw-task "<correction outcome>"'),
+  );
+  await writeFile(fixture.taskPath, fixture.taskBytes, "utf8");
+
+  const movedDirectory = path.join(fixture.tasksRoot, "0001-moved");
+  await rename(fixture.directory, movedDirectory);
+  await assert.rejects(
+    fixture.hydrateFromQueue(),
+    (error) =>
+      error.code === "FUTURE_TERMINAL_PAIR_IMMUTABLE" &&
+      /docs\/tasks\/0001-immutable\/TASK\.md/.test(error.message),
+  );
+  await rename(movedDirectory, fixture.directory);
+
+  const confusedDirectory = path.join(
+    fixture.tasksRoot,
+    "0001-IMMUTABLE-SHADOW",
+  );
+  await mkdir(confusedDirectory);
+  await Promise.all([
+    writeFile(path.join(confusedDirectory, "TASK.md"), fixture.taskBytes, "utf8"),
+    writeFile(path.join(confusedDirectory, "TEST.md"), fixture.testBytes, "utf8"),
+  ]);
+  await assert.rejects(
+    fixture.hydrateFromQueue(),
+    (error) =>
+      error.code === "FUTURE_TERMINAL_PAIR_IMMUTABLE" &&
+      /0001-IMMUTABLE-SHADOW\/(?:TASK|TEST)\.md/.test(error.message),
+  );
+});
+
+test("production queue validation cannot mask a delivered pair link", async (t) => {
+  const fixture = await futureTerminalFixture(t);
+  await rm(fixture.taskPath);
+  try {
+    await symlink(path.basename(fixture.testPath), fixture.taskPath, "file");
+  } catch (error) {
+    if (error.code === "EPERM" || error.code === "EACCES") {
+      t.skip("file symlink creation is unavailable on this host");
+      return;
+    }
+    throw error;
+  }
+  await assert.rejects(
+    fixture.hydrateFromQueue(),
+    (error) =>
+      error.code === "FUTURE_TERMINAL_PAIR_IMMUTABLE" &&
+      /docs\/tasks\/0001-immutable\/TASK\.md/.test(error.message) &&
+      /link|symbolic/i.test(error.message),
+  );
+});
+
+test("checkpoint-covered future pairs remain exact without newline-normalization false positives", async (t) => {
+  const fixture = await futureTerminalFixture(t);
+  const hydrateCovered = await fixture.checkpointDelivery();
+  const unchanged = await hydrateCovered();
+  assert.equal(
+    unchanged.diagnostics.classifications["0001"],
+    "DURABLE_STANDARD_CONTINUITY",
+  );
+
+  await writeFile(
+    fixture.taskPath,
+    fixture.taskBytes.replaceAll("\n", "\r\n"),
+    "utf8",
+  );
+  await hydrateCovered();
+  await writeFile(fixture.taskPath, fixture.taskBytes, "utf8");
+
+  await rm(fixture.testPath);
+  await assert.rejects(
+    hydrateCovered(),
+    (error) =>
+      error.code === "FUTURE_TERMINAL_PAIR_IMMUTABLE" &&
+      /docs\/tasks\/0001-immutable\/TEST\.md/.test(error.message),
+  );
+  await writeFile(fixture.testPath, fixture.testBytes, "utf8");
+
+  await writeFile(fixture.testPath, `${fixture.testBytes}\nchanged\n`, "utf8");
+  git(fixture.root, ["add", "docs/tasks/0001-immutable/TEST.md"]);
+  git(fixture.root, ["commit", "-m", "Mutate checkpoint-covered evidence"]);
+  fixture.advanceMain();
+  await assert.rejects(
+    hydrateCovered(),
+    (error) =>
+      error.code === "FUTURE_TERMINAL_PAIR_IMMUTABLE" &&
+      /terminal artifact/.test(error.message),
+  );
+});
+
+test("future terminal history rejects committed mutation even after byte reversion", async (t) => {
+  const fixture = await futureTerminalFixture(t);
+  await writeFile(fixture.taskPath, `${fixture.taskBytes}\nchanged\n`, "utf8");
+  git(fixture.root, ["add", "docs/tasks/0001-immutable/TASK.md"]);
+  git(fixture.root, ["commit", "-m", "Mutate delivered Task evidence"]);
+  fixture.advanceMain();
+  await assert.rejects(
+    fixture.hydrate(),
+    (error) =>
+      error.code === "FUTURE_TERMINAL_PAIR_IMMUTABLE" &&
+      /docs\/tasks\/0001-immutable\/TASK\.md/.test(error.message),
+  );
+
+  await writeFile(fixture.taskPath, fixture.taskBytes, "utf8");
+  git(fixture.root, ["add", "docs/tasks/0001-immutable/TASK.md"]);
+  git(fixture.root, ["commit", "-m", "Revert delivered Task evidence bytes"]);
+  fixture.advanceMain();
+  await assert.rejects(
+    fixture.hydrate(),
+    (error) =>
+      error.code === "FUTURE_TERMINAL_PAIR_IMMUTABLE" &&
+      /terminal artifact/.test(error.message),
+  );
+});
+
+test("future terminal history rejects a second Task-scoped delivery graph", async (t) => {
+  const fixture = await futureTerminalFixture(t);
+  git(fixture.root, ["switch", "-c", "task/0001-immutable-followup"]);
+  await writeFile(path.join(fixture.root, "followup.txt"), "second delivery\n", "utf8");
+  git(fixture.root, ["add", "followup.txt"]);
+  git(fixture.root, ["commit", "-m", "Attempt a second delivery"]);
+  git(fixture.root, ["switch", "main"]);
+  git(fixture.root, [
+    "merge",
+    "--no-ff",
+    "task/0001-immutable-followup",
+    "-m",
+    "Merge pull request #2 from owner/task/0001-immutable-followup",
+  ]);
+  fixture.advanceMain();
+  await assert.rejects(
+    fixture.hydrate(),
+    (error) =>
+      error.code === "FUTURE_TERMINAL_PAIR_IMMUTABLE" &&
+      /another Task-scoped protected merge/.test(error.message),
+  );
+});
+
+test("future terminal history rejects ambiguous canonical delivery candidates", async (t) => {
+  const fixture = await futureTerminalFixture(t);
+  git(fixture.root, ["switch", "-c", "task/0001-second"]);
+  const secondDirectory = path.join(fixture.tasksRoot, "0001-second");
+  await mkdir(secondDirectory);
+  await Promise.all([
+    writeFile(path.join(secondDirectory, "TASK.md"), fixture.taskBytes, "utf8"),
+    writeFile(path.join(secondDirectory, "TEST.md"), fixture.testBytes, "utf8"),
+  ]);
+  git(fixture.root, ["add", "docs/tasks/0001-second"]);
+  git(fixture.root, ["commit", "-m", "Add ambiguous terminal pair"]);
+  git(fixture.root, ["switch", "main"]);
+  git(fixture.root, [
+    "merge",
+    "--no-ff",
+    "task/0001-second",
+    "-m",
+    "Merge pull request #3 from owner/task/0001-second",
+  ]);
+  fixture.advanceMain();
+  await assert.rejects(
+    fixture.hydrate(),
+    (error) =>
+      error.code === "FUTURE_TERMINAL_DELIVERY_AMBIGUOUS" &&
+      /0001-immutable, 0001-second|0001-second, 0001-immutable/.test(error.message),
+  );
+});
+
+test("real Task 0059 multi-merge history remains grandfathered under contract 2", async (t) => {
+  const name = "0059-automatically-hydrate-prior-standard-de-0e0a8659";
+  const tasksRoot = path.join(REPOSITORY_ROOT, "docs", "tasks");
+  const directory = path.join(tasksRoot, name);
+  const taskPath = path.join(directory, "TASK.md");
+  const testPath = path.join(directory, "TEST.md");
+  const mainResult = spawnSync(
+    "git",
+    ["rev-parse", "--verify", "refs/heads/main^{commit}"],
+    {
+      cwd: REPOSITORY_ROOT,
+      encoding: "utf8",
+      windowsHide: true,
+      shell: false,
+    },
+  );
+  if (mainResult.status !== 0) {
+    t.skip("complete local main history is unavailable in this exact-SHA checkout");
+    return;
+  }
+  const mainSha = mainResult.stdout.trim();
+  const queueTask = {
+    ...task({ id: "0059", contractVersion: 2 }),
+    name,
+    directory,
+    taskPath,
+    testPath,
+  };
+  const commandRunner = ({ command, args, cwd, timeoutMs, maxBuffer }) => {
+    if (command === "git" && args[0] === "ls-remote") {
+      return {
+        status: 0,
+        signal: null,
+        stdout: `${mainSha}\trefs/heads/main\n`,
+        stderr: "",
+      };
+    }
+    const result = spawnSync(command, args, {
+      cwd,
+      encoding: "utf8",
+      windowsHide: true,
+      timeout: timeoutMs,
+      maxBuffer,
+      shell: false,
+    });
+    return {
+      status: result.status,
+      signal: result.signal,
+      stdout: result.stdout ?? "",
+      stderr: result.stderr ?? "",
+      error: result.error,
+    };
+  };
+  let observedOutcome;
+  const hydrated = await hydratePriorStandardDeliveries({
+    tasksRoot,
+    invocation: "$kyw-impl 0059",
+    commandRunner,
+    queueInspector: async () => ({ tasks: [queueTask], errors: [] }),
+    localDiscovery: discoverLocalDeliveryOutcomes,
+    deliveryCollector: async ({ local }) => {
+      [observedOutcome] = local.outcomes;
+      const [taskBytes, testBytes] = await Promise.all([
+        readFile(taskPath, "utf8"),
+        readFile(testPath, "utf8"),
+      ]);
+      const checkpoint = createStandardDeliveryContinuityCheckpoint({
+        repository: local.repository,
+        sourceMainSha: local.currentMainSha,
+        coveredRecords: [
+          {
+            taskId: queueTask.id,
+            taskSha256: sha256(taskBytes),
+            testSha256: sha256(testBytes),
+            taskStatus: "DONE",
+            testStatus: "PASSED",
+            classification: "HARDENED_EXACT_HEAD",
+            outcomeSha: observedOutcome.outcomeSha,
+            mergeSha: observedOutcome.mergeSha,
+            evidenceSha256: "c".repeat(64),
+          },
+        ],
+      }).checkpoint;
+      return {
+        ...buildStandardDeliveryContinuityState({
+          checkpoint,
+          coveredTasks: [queueTask],
+          coverageTasks: [queueTask],
+        }),
+        classifications: Object.freeze({
+          [queueTask.id]: "HARDENED_EXACT_HEAD",
+        }),
+        chronology: Object.freeze([]),
+        githubMainSha: local.currentMainSha,
+      };
+    },
+    allowUncheckpointedCompatibility: true,
+  });
+  const mergeSubjects = git(REPOSITORY_ROOT, [
+    "log",
+    "--first-parent",
+    "--format=%s",
+    "refs/heads/main",
+    "--",
+    `docs/tasks/${name}`,
+  ]).split(/\r?\n/);
+  assert.equal(observedOutcome.mergeSha, "ffe51058a7e1adad1035a8fd2b9cde7215877d07");
+  assert.equal(observedOutcome.terminalPair, undefined);
+  assert.equal(
+    evaluateDeliveryEvidence(
+      "0059",
+      hydrated.deliveryLedger["0059"],
+      hydrated.deliveryExpectations["0059"],
+    ).satisfied,
+    true,
+  );
+  assert.ok(mergeSubjects.some((subject) => subject.includes("#46")));
+  assert.ok(mergeSubjects.some((subject) => subject.includes("#47")));
 });
 
 test("legacy eligibility comes from ancestry around the hardened boundary, not Task numbers", async () => {

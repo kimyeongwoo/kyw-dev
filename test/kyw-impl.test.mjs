@@ -275,6 +275,16 @@ test("kyw-impl uses bounded durable continuity without weakening uncovered harde
   assert.match(execution, /`LEGACY_PRE_CONTRACT`/);
   assert.match(execution, /actualHead: "UNVERIFIED"/);
   assert.match(execution, /forbidden for the selected new outcome/);
+  assert.match(
+    execution,
+    /For contract 3, the first evaluator-satisfied `HARDENED_EXACT_HEAD` graph binds pair paths\/bytes/,
+  );
+  assert.match(execution, /unchanged invocation reports only/);
+  assert.match(execution, /contracts 1\/2 are grandfathered/);
+  assert.match(
+    skill,
+    /drift or redelivery fails with Task\/path and routes to a new hard-dependent `\$kyw-task "<correction outcome>"`/,
+  );
 });
 
 test("shared adapter dispatches kyw-impl and leaves rejected authoring inputs byte-stable", async (t) => {

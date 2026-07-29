@@ -21,7 +21,7 @@ import { runTaskArtifactCommand } from "../skills/kyw-task/scripts/task-artifact
 function readyTaskMarkdown() {
   return `# TASK {{TASK_ID}} — {{TASK_TITLE}}
 
-<!-- kyw-task-contract: 2 -->
+<!-- kyw-task-contract: 3 -->
 
 ## Status
 
@@ -96,7 +96,7 @@ Deliver one independently verifiable batch-authored outcome.
 function readyTestMarkdown() {
   return `# TEST {{TASK_ID}} — {{TASK_TITLE}}
 
-<!-- kyw-task-contract: 2 -->
+<!-- kyw-task-contract: 3 -->
 
 ## Status
 

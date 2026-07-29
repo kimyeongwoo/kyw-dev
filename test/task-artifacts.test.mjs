@@ -181,7 +181,7 @@ function fixtureTasks(name) {
 function readyBatchTaskMarkdown() {
   return `# TASK {{TASK_ID}} — {{TASK_TITLE}}
 
-<!-- kyw-task-contract: 2 -->
+<!-- kyw-task-contract: 3 -->
 
 ## Status
 
@@ -256,7 +256,7 @@ Deliver one independently verifiable batch-authored outcome.
 function readyBatchTestMarkdown() {
   return `# TEST {{TASK_ID}} — {{TASK_TITLE}}
 
-<!-- kyw-task-contract: 2 -->
+<!-- kyw-task-contract: 3 -->
 
 ## Status
 
@@ -400,8 +400,8 @@ test("atomic task creation publishes TASK.md and TEST.md together", async (t) =>
   const testMarkdown = await readFile(created.testPath, "utf8");
   assert.match(taskMarkdown, /^# TASK 0001 — 템플릿 계약/m);
   assert.match(testMarkdown, /^# TEST 0001 — 템플릿 계약/m);
-  assert.match(taskMarkdown, /<!-- kyw-task-contract: 2 -->/);
-  assert.match(testMarkdown, /<!-- kyw-task-contract: 2 -->/);
+  assert.match(taskMarkdown, /<!-- kyw-task-contract: 3 -->/);
+  assert.match(testMarkdown, /<!-- kyw-task-contract: 3 -->/);
   assert.match(taskMarkdown, /^## Delivery$/m);
   assert.deepEqual(await validateTaskDirectory(created.directory), []);
 

@@ -155,6 +155,16 @@ test("instruction surfaces retain one canonical owner and minimal projections", 
   assert.match(execution, /no automatic whole-history fallback/);
   assert.match(execution, /apply-continuity/);
   assert.match(execution, /actualHead: "UNVERIFIED"/);
+  assert.match(execution, /contracts 1\/2 are grandfathered/);
+  assert.match(authoring, /delivered contract-3 Tasks use new hard-dependent pairs/);
+  assert.match(implementation, /Unchanged invocation reports only/);
+  for (const projection of [agents, agentsTemplate]) {
+    assert.match(
+      projection,
+      /(?:future-contract terminal pair becomes byte-immutable|Delivered contract-3 pairs are immutable)/i,
+    );
+    assert.match(projection, /hard-dependent Task/);
+  }
   assert.match(execution, /successful job at only `refs\/pull\/<number>\/merge`/);
   assert.match(readme, /actual PR-head jobs, synthetic merge compatibility/);
   assert.match(spec, /reused/i);
