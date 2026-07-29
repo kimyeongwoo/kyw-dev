@@ -70,6 +70,9 @@ PASSED
 - Executed full non-publishing gate for package-sensitive bytes: `npm run release:ci`.
 - Executed pair/queue validation in one Node process, plus `node skills/kyw-task/scripts/task-artifacts.mjs inspect-transaction --tasks-root docs/tasks`.
 - Executed Tasks 0001–0060 working/main byte comparison in one Node process, `git diff --check`, package metadata/diff inspection, exact `main` identity checks, and GitHub tag/Release counts.
+- Inspected PR #49 exact-head Actions run `30426553069`, attempt 1, and the original failed logs for representative Ubuntu, macOS, Windows, and merge-compatibility jobs without rerunning them.
+- Executed focused hydration retry after the exact-SHA checkout portability correction: `node --test test/task-delivery-hydration.test.mjs`.
+- Executed the terminal-state Stable retry after that correction: `npm run check`.
 
 ## Results
 
@@ -94,7 +97,8 @@ PASSED
 - PASS — every one of the 120 Task/Test files for Tasks 0001–0060 is byte-identical to `main`; the working and `main` comparison manifests both hash to `39e0a94de01b3a36f3859f6966a1e35cd2907c923478d59060914fb614386d9c`.
 - PASS — package/plugin stay `0.1.0` with no dependency or lifecycle fields, no package/workflow/manifest diff, no added packaged path, and no local or GitHub tag/Release.
 - PASS — `git diff --check`, transaction `NONE / NO_TRANSACTION_EVIDENCE`, final 25-path scope, negative chain-state search, and local/upstream/cached/direct/GitHub `main` equality at `4aa0d7dfea29b8980677a870d48a57b39f8092ef` all pass.
-- PASS — after the pair entered `DONE/PASSED`, canonical validation and terminal-state `npm run check` passed 383/386 tests with the same three explicit skips, lint over 81 modules/foundation, format over 326 files, and the unchanged 43-file/130,721-byte pack boundary.
+- PASS — after the pair entered `DONE/PASSED`, canonical validation and terminal-state `npm run check`, including the post-Actions correction retry, passed 383/386 tests with the same three explicit skips, lint over 81 modules/foundation, format over 326 files, and the unchanged 43-file/130,721-byte pack boundary.
+- FAIL → PASS — PR #49 run `30426553069` at exact head `33dc27fc59065d29e1ab06e3f430f169c9442ccd` passed quality and packed release but failed all seven behavioral jobs plus merge compatibility because the real Task 0059 graph assertion addressed absent `refs/heads/main` in shallow detached checkouts. The original attempt was not rerun; the assertion now skips only when complete local `main` history is unavailable, while the full-checkout retry passes 23/25 with the existing link and live skips.
 
 <!-- kyw-permanent-document-delta:v1 -->
 

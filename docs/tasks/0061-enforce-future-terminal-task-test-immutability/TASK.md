@@ -131,6 +131,8 @@ Make every future current-contract `STANDARD` outcome use one canonical delivery
 - Proved Task 0059's real PR #46 terminal merge plus PR #47 correction merge remains one grandfathered contract-2 outcome, and proved all 120 Task/Test files for Tasks 0001–0060 remain byte-identical to `main`.
 - Passed all 61 pair validations and queue inspection, the six-scenario direct acceptance check, 48 installation/distribution tests, the 386-test Stable suite, lint/format/package gates, and the packed release candidate.
 - Entered the canonical `DONE/PASSED` lifecycle, validated the terminal pair, and passed the final terminal-state Stable composite without changing package or permanent-document measurements.
+- Observed PR #49's first-attempt exact-head run `30426553069`: quality and packed-release jobs passed, while every behavioral matrix job and merge compatibility exposed the same test-only assumption that a shallow detached Actions checkout has a local `main` ref. No job was rerun or bypassed.
+- Made only the real-repository Task 0059 history assertion explicitly conditional on complete local `main` history; hermetic contract-2 compatibility remains mandatory everywhere, and the focused hydration suite passes on a full checkout.
 
 ## Remaining
 

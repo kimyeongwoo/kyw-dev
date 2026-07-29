@@ -666,13 +666,27 @@ test("future terminal history rejects ambiguous canonical delivery candidates", 
   );
 });
 
-test("real Task 0059 multi-merge history remains grandfathered under contract 2", async () => {
+test("real Task 0059 multi-merge history remains grandfathered under contract 2", async (t) => {
   const name = "0059-automatically-hydrate-prior-standard-de-0e0a8659";
   const tasksRoot = path.join(REPOSITORY_ROOT, "docs", "tasks");
   const directory = path.join(tasksRoot, name);
   const taskPath = path.join(directory, "TASK.md");
   const testPath = path.join(directory, "TEST.md");
-  const mainSha = git(REPOSITORY_ROOT, ["rev-parse", "main"]);
+  const mainResult = spawnSync(
+    "git",
+    ["rev-parse", "--verify", "refs/heads/main^{commit}"],
+    {
+      cwd: REPOSITORY_ROOT,
+      encoding: "utf8",
+      windowsHide: true,
+      shell: false,
+    },
+  );
+  if (mainResult.status !== 0) {
+    t.skip("complete local main history is unavailable in this exact-SHA checkout");
+    return;
+  }
+  const mainSha = mainResult.stdout.trim();
   const queueTask = {
     ...task({ id: "0059", contractVersion: 2 }),
     name,
@@ -754,7 +768,7 @@ test("real Task 0059 multi-merge history remains grandfathered under contract 2"
     "log",
     "--first-parent",
     "--format=%s",
-    "main",
+    "refs/heads/main",
     "--",
     `docs/tasks/${name}`,
   ]).split(/\r?\n/);
