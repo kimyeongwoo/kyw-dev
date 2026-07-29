@@ -81,10 +81,12 @@ Incidental prose containing `task` does not route. A surface without the managed
 - Appended user constraints cannot waive acceptance, truthful evidence, safety, or preservation. The configured model and reasoning effort remain unchanged unless the current user explicitly overrides them; unavailable provenance is recorded as unavailable, never guessed.
 
 Task/Test owns repository outcome and reproducible acceptance evidence. GitHub owns mutable PR, review, merge, and Actions state.
-Before selecting a Task, the one-line `$kyw-impl NNNN` path automatically reconstructs every required prior `STANDARD`
-delivery from the queue, local Git ancestry, and fresh GitHub evidence; users do not supply ledger JSON or run, job, synthetic,
-or anchor IDs. This requires `git`, the GitHub CLI, and authenticated read access to the repository. Missing access, partial
-responses, identity drift, or incomplete evidence stops before selection or repository mutation.
+Before selecting a Task, the one-line `$kyw-impl NNNN` path validates previously evaluator-satisfied `STANDARD` continuity from
+one fixed-bounded checkpoint in exact aligned `main`, then reconstructs fresh GitHub evidence for at most one uncovered prior
+outcome. Users do not supply ledger JSON or run, job, synthetic, anchor, or checkpoint payloads. Expired Actions logs for covered
+history no longer block selection; the uncovered outcome still requires `git`, the GitHub CLI, and authenticated repository read
+access. Missing/corrupt/stale continuity, a gap larger than one, partial responses, identity drift, or incomplete fresh evidence
+stops before selection or implementation mutation and requires explicit migration/rebaseline instead of automatic history replay.
 Hardened `STANDARD` delivery keeps actual PR-head jobs, synthetic merge compatibility, the reviewed merge, and post-merge `main`
 jobs as distinct exact-SHA roles. Missing, stale, mismatched, reused, or incomplete evidence fails closed, and CI success never
 substitutes for behavioral acceptance.

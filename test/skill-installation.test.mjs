@@ -346,6 +346,36 @@ function createRepository(root) {
   return realpathSync(root);
 }
 
+function runFixtureGit(root, args) {
+  const result = spawnSync("git", args, {
+    cwd: root,
+    encoding: "utf8",
+  });
+  assert.equal(result.status, 0, result.stderr || result.error?.message);
+  return result.stdout.trim();
+}
+
+function createAlignedRepository(root) {
+  mkdirSync(root, { recursive: true });
+  runFixtureGit(root, ["init", "--initial-branch=main"]);
+  runFixtureGit(root, ["config", "user.name", "Installed Adapter Fixture"]);
+  runFixtureGit(root, ["config", "user.email", "installed-adapter@example.invalid"]);
+  writeFileSync(join(root, ".continuity-fixture"), "aligned main\n", "utf8");
+  runFixtureGit(root, ["add", ".continuity-fixture"]);
+  runFixtureGit(root, ["commit", "-m", "Initialize continuity fixture"]);
+  const mainSha = runFixtureGit(root, ["rev-parse", "HEAD"]);
+  runFixtureGit(root, [
+    "remote",
+    "add",
+    "origin",
+    "https://github.com/example/continuity-fixture.git",
+  ]);
+  runFixtureGit(root, ["update-ref", "refs/remotes/origin/main", mainSha]);
+  runFixtureGit(root, ["config", "branch.main.remote", "origin"]);
+  runFixtureGit(root, ["config", "branch.main.merge", "refs/heads/main"]);
+  return realpathSync(root);
+}
+
 function createSourceCopy(t, version, mutate) {
   const source = join(temporaryDirectory(t, "kyw-dev-source-"), "package");
   mkdirSync(source, { recursive: true });
@@ -355,6 +385,7 @@ function createSourceCopy(t, version, mutate) {
   mkdirSync(join(source, "src", "core"), { recursive: true });
   for (const name of [
     "task-artifact-contract.mjs",
+    "task-artifact-continuity.mjs",
     "task-artifact-creation.mjs",
     "task-artifact-delivery.mjs",
     "task-artifact-hydration.mjs",
@@ -583,18 +614,23 @@ test("user install writes complete hashed Skills and a runnable direct-install T
     now: () => new Date("2026-07-17T00:00:00.000Z"),
   });
   assert.equal(result.skillCount, 5);
-  assert.equal(result.fileCount, 27);
+  assert.equal(result.fileCount, 28);
   assert.equal(readFileSync(unrelated, "utf8"), "unrelated\n");
 
   const location = resolveInstallLocation({ scope: "user", home });
   const metadata = readInstallMetadata(location, { required: true });
   assert.deepEqual(validateInstallMetadata(metadata, { expectedScope: "user" }), []);
   assert.equal(metadata.version, "0.1.0");
-  assert.equal(metadata.files.length, 27);
+  assert.equal(metadata.files.length, 28);
   assert.ok(metadata.files.some((file) => file.path === ".kyw-dev/runtime/templates/task/TASK.md"));
   assert.ok(
     metadata.files.some(
       (file) => file.path === ".kyw-dev/runtime/src/core/task-artifact-hydration.mjs",
+    ),
+  );
+  assert.ok(
+    metadata.files.some(
+      (file) => file.path === ".kyw-dev/runtime/src/core/task-artifact-continuity.mjs",
     ),
   );
   for (const file of metadata.files) {
@@ -604,7 +640,9 @@ test("user install writes complete hashed Skills and a runnable direct-install T
     assert.ok(existsSync(join(location.skillsRoot, skillName, "SKILL.md")));
   }
 
-  const targetRepository = createRepository(join(temporaryDirectory(t, "kyw-dev-target-"), "repository"));
+  const targetRepository = createAlignedRepository(
+    join(temporaryDirectory(t, "kyw-dev-target-"), "repository"),
+  );
   const adapter = join(location.skillsRoot, "kyw-task", "scripts", "task-artifacts.mjs");
   const adapterResult = spawnSync(
     process.execPath,
@@ -669,6 +707,56 @@ test("user install writes complete hashed Skills and a runnable direct-install T
   assert.equal(dispatchOutput.action, "IMPLEMENT");
   assert.equal(dispatchOutput.confirmation, true);
   assert.deepEqual(dispatchOutput.hydration.requiredTaskIds, []);
+  assert.equal(typeof dispatchOutput.continuityTransitionToken, "string");
+  runFixtureGit(targetRepository, [
+    "switch",
+    "-c",
+    "task/0002-installed-adapter",
+  ]);
+  writeFileSync(
+    batchOutput.tasks[0].taskPath,
+    readFileSync(batchOutput.tasks[0].taskPath, "utf8").replace(
+      "\nREADY\n",
+      "\nIN_PROGRESS\n",
+    ),
+    "utf8",
+  );
+  writeFileSync(
+    batchOutput.tasks[0].testPath,
+    readFileSync(batchOutput.tasks[0].testPath, "utf8").replace(
+      "\nREADY\n",
+      "\nRUNNING\n",
+    ),
+    "utf8",
+  );
+  const continuityApply = spawnSync(
+    process.execPath,
+    [
+      adapter,
+      "apply-continuity",
+      "--tasks-root",
+      join(targetRepository, "docs", "tasks"),
+      "--selected-task",
+      "0002",
+      "--transition-token",
+      dispatchOutput.continuityTransitionToken,
+    ],
+    { encoding: "utf8" },
+  );
+  assert.equal(continuityApply.status, 0, continuityApply.stderr);
+  const continuityApplyOutput = JSON.parse(continuityApply.stdout);
+  assert.equal(continuityApplyOutput.write.applied, true);
+  assert.equal(continuityApplyOutput.coveredTaskCount, 0);
+  assert.ok(
+    existsSync(
+      join(
+        targetRepository,
+        "docs",
+        "tasks",
+        ".kyw-dev-standard-delivery-continuity.json",
+      ),
+    ),
+  );
   const transactionInspection = spawnSync(
     process.execPath,
     [
@@ -683,7 +771,7 @@ test("user install writes complete hashed Skills and a runnable direct-install T
   assert.equal(JSON.parse(transactionInspection.stdout).state, "NONE");
 
   const uninstall = uninstallManagedSkills({ scope: "user", home });
-  assert.equal(uninstall.removedFileCount, 27);
+  assert.equal(uninstall.removedFileCount, 28);
   assert.equal(readFileSync(unrelated, "utf8"), "unrelated\n");
   assert.equal(existsSync(location.metadataPath), false);
   for (const skillName of MANAGED_SKILL_NAMES) {
@@ -808,7 +896,7 @@ test("legacy schema-1 four-Skill metadata remains safe for doctor, update, and u
   const doctorLocation = resolveInstallLocation({ scope: "user", home: doctorHome });
   const doctorMetadata = convertCurrentInstallToLegacy(doctorLocation);
   assert.deepEqual(validateInstallMetadata(doctorMetadata, { expectedScope: "user" }), []);
-  assert.equal(doctorMetadata.files.length, 25);
+  assert.equal(doctorMetadata.files.length, 26);
   const doctorReport = diagnoseInstallations({ home: doctorHome, commandRunner });
   assert.equal(doctorReport.exitCode, 0);
   assert.deepEqual(
@@ -822,13 +910,13 @@ test("legacy schema-1 four-Skill metadata remains safe for doctor, update, and u
   convertCurrentInstallToLegacy(updateLocation);
   const updated = updateManagedSkills({ scope: "user", home: updateHome });
   assert.equal(updated.skillCount, 5);
-  assert.equal(updated.fileCount, 27);
+  assert.equal(updated.fileCount, 28);
   const updatedMetadata = readInstallMetadata(updateLocation, { required: true });
   assert.deepEqual(
     updatedMetadata.skills.map(({ name }) => name),
     MANAGED_SKILL_NAMES,
   );
-  assert.equal(updatedMetadata.files.length, 27);
+  assert.equal(updatedMetadata.files.length, 28);
   assert.ok(existsSync(join(updateLocation.skillsRoot, "kyw-impl", "SKILL.md")));
   assert.equal(
     existsSync(join(updateLocation.skillsRoot, "kyw-task", "references", "execution.md")),
@@ -841,7 +929,7 @@ test("legacy schema-1 four-Skill metadata remains safe for doctor, update, and u
   const uninstallLocation = resolveInstallLocation({ scope: "user", home: uninstallHome });
   convertCurrentInstallToLegacy(uninstallLocation);
   const uninstalled = uninstallManagedSkills({ scope: "user", home: uninstallHome });
-  assert.equal(uninstalled.removedFileCount, 25);
+  assert.equal(uninstalled.removedFileCount, 26);
   assert.equal(existsSync(uninstallLocation.metadataPath), false);
   for (const skillName of legacyManagedSkillNames) {
     assert.equal(existsSync(join(uninstallLocation.skillsRoot, skillName)), false);
@@ -1640,7 +1728,7 @@ test("packaged managed source inventory is stable and fully hashed", () => {
     "kyw-audit",
   ]);
   assert.equal(inventory.version, "0.1.0");
-  assert.equal(inventory.files.length, 27);
+  assert.equal(inventory.files.length, 28);
   assert.deepEqual(
     inventory.files.map((file) => file.path),
     [...inventory.files].map((file) => file.path).sort((left, right) => left.localeCompare(right)),
@@ -1672,7 +1760,7 @@ test("actual npm tarball installs, diagnoses, runs its installed adapter, and un
   }
   assert.equal(packed.status, 0, packed.stderr);
   const report = JSON.parse(packed.stdout)[0];
-  assert.equal(report.entryCount, 42);
+  assert.equal(report.entryCount, 43);
   const extractRoot = join(root, "extract");
   mkdirSync(extractRoot);
   const extracted = spawnSync("tar", ["-xf", join(root, report.filename), "-C", extractRoot], {
@@ -1685,7 +1773,7 @@ test("actual npm tarball installs, diagnoses, runs its installed adapter, and un
   const target = join(root, "target");
   mkdirSync(home);
   mkdirSync(work);
-  mkdirSync(target);
+  createAlignedRepository(target);
   const env = { ...process.env, HOME: home, USERPROFILE: home, CODEX_HOME: join(home, ".codex") };
   const cli = join(extractRoot, "package", "bin", "kyw-dev.mjs");
   const install = spawnSync(process.execPath, [cli, "install", "--scope", "user"], {
@@ -1769,6 +1857,40 @@ test("actual npm tarball installs, diagnoses, runs its installed adapter, and un
   assert.equal(portableOutput.outcome, "SELECTED");
   assert.equal(portableOutput.action, "IMPLEMENT");
   assert.deepEqual(portableOutput.hydration.requiredTaskIds, []);
+  assert.equal(typeof portableOutput.continuityTransitionToken, "string");
+  runFixtureGit(target, ["switch", "-c", "task/0001-packed-ready-batch"]);
+  writeFileSync(
+    created.tasks[0].taskPath,
+    readFileSync(created.tasks[0].taskPath, "utf8").replace(
+      "\nREADY\n",
+      "\nIN_PROGRESS\n",
+    ),
+    "utf8",
+  );
+  writeFileSync(
+    created.tasks[0].testPath,
+    readFileSync(created.tasks[0].testPath, "utf8").replace(
+      "\nREADY\n",
+      "\nRUNNING\n",
+    ),
+    "utf8",
+  );
+  const packedApply = spawnSync(
+    process.execPath,
+    [
+      adapter,
+      "apply-continuity",
+      "--tasks-root",
+      join(target, "docs", "tasks"),
+      "--selected-task",
+      "0001",
+      "--transition-token",
+      portableOutput.continuityTransitionToken,
+    ],
+    { encoding: "utf8" },
+  );
+  assert.equal(packedApply.status, 0, packedApply.stderr);
+  assert.equal(JSON.parse(packedApply.stdout).write.applied, true);
 
   const uninstall = spawnSync(process.execPath, [cli, "uninstall", "--scope", "user"], {
     cwd: work,

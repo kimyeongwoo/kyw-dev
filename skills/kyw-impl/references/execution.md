@@ -22,22 +22,14 @@ This reference is the canonical detailed execution procedure. `AGENTS.md` owns r
 
 ## Establish the repository state
 
-1. Resolve the repository and use the packaged dispatch result for exactly one `docs/tasks/NNNN-*/` directory. Treat a missing or duplicate ID, inconsistent status pair, dependency error, cycle, or multiple active Tasks as a blocker; do not guess from titles or timestamps.
-2. Read applicable repository instructions, the current `TASK.md` and
-   `TEST.md`, and named Task dependencies; omit unrelated completed/future
-   Tasks.
-3. Index or search headings in README, SPEC, and ARCHITECTURE. Map Goal, scope,
-   Documentation Impact, changed paths, and code dependencies to only the
-   owning permanent-document sections.
-4. Fully read all four permanent documents for rebaseline, major redesign,
-   broad cross-owner scope, source conflict, ambiguous or missing ownership, or
-   insufficient targeted truth. Stop if a conflict remains unresolved.
-5. Inspect version-control status and the relevant diff before mutation. Separate pre-existing changes from work owned by this execution. If version-control metadata is unavailable, record that limitation and establish the safest available baseline within the authorized scope without claiming Git state.
-6. Run the packaged validator against the pair. Compare its status, acceptance criteria, Plan, Decisions, Discoveries, Completed, Remaining, Resume Point, and Blockers with the files and repository state. Also compare every Test row, command, result, and unverified item with available evidence.
-7. Stop and reconcile a conflict among permanent sources, the Task/Test pair, or the repository before implementation. Never silently choose a convenient claim.
-8. Pass verified conflict, unexplained work, remote drift, or unresolved decisions as execution-preflight findings; empty means checked and clear.
+1. Resolve the repository and the dispatch-selected single `docs/tasks/NNNN-*/` directory. Missing/duplicate IDs, inconsistent pairs, dependency errors/cycles, or multiple active Tasks block; never guess from title or time.
+2. Read applicable instructions, the pair, and named dependencies; omit unrelated Tasks.
+3. Index or search headings in README, SPEC, and ARCHITECTURE, then read only the owning permanent-document sections selected by Goal, scope, Documentation Impact, changed paths, and code dependencies. Fully read all four permanent documents for rebaseline, major redesign, broad cross-owner scope, source conflict, ambiguous ownership, or insufficient targeted truth. Stop if a conflict remains unresolved.
+4. Inspect status and relevant diff before mutation, separating pre-existing work. Without version-control metadata, record the limitation and establish a safe in-scope baseline without claiming Git state.
+5. Validate the pair and compare its lifecycle, acceptance, plan, handoff, blockers, Test matrix, commands, and results with repository evidence.
+6. Reconcile contradictions before implementation. Pass verified conflict, unexplained work, remote drift, and unresolved decisions as execution-preflight findings; empty means checked and clear.
 
-Refactors and large-file extractions derive changed bytes from verified current exact `main`. Record its `branch-base` SHA, the `PR-base` SHA at exact-head review, and the immediately pre-merge `main` SHA. Re-prove them and check each base advance for critical-path upstream movement; missing proof, unexplained identity drift, or such movement is `remoteDrift` and stops for reconciliation against then-current exact `main`. Stale branch snapshots, old whole-file copies, and broad cherry-picks are bounded comparison evidence only, never implementation sources.
+Refactors and large-file extractions derive bytes from verified current exact `main`. Record and re-prove branch-base, PR-base at exact-head review, and pre-merge-main SHAs. Missing proof, unexplained drift, or critical-path upstream movement is `remoteDrift`; reconcile against current `main`. Old snapshots, whole-file copies, and broad cherry-picks are comparison evidence, not implementation sources.
 
 Dispatch from verified state:
 
@@ -66,7 +58,7 @@ The current contract is identified by the paired `<!-- kyw-task-contract: 2 -->`
 
 Legacy unmarked Task/Test evidence remains readable and valid under its historical contract. Do not recursively reinterpret a terminal legacy Task's old free-form dependencies, handoff prose, or delivery sequence as current queue state.
 
-For every non-complete current-contract Task, `## Dependencies` must be exactly `- Not applicable — no hard dependency is required for this outcome.` or one or more distinct bullets in the exact form `- Task NNNN.`. Reject negated prose, explanatory mentions, duplicate or mixed forms, missing references, and cycles. Repository-complete current artifacts whose dependency prose predates this grammar retain the prior literal-reference reader for immutable compatibility and are not rewritten. A hard dependency is satisfied only by `DONE/PASSED` plus any required external delivery; `BLOCKED`, `CANCELLED`, draft, ready, active, missing, or undelivered dependencies are unsatisfied.
+Each non-complete current Task uses either the exact no-dependency sentence or distinct `- Task NNNN.` bullets. Reject prose, duplicates/mixing, missing references, and cycles. Completed artifacts retain their historical literal-reference reader. Only `DONE/PASSED` plus required external delivery satisfies a hard dependency.
 
 Selection is deterministic:
 
@@ -76,14 +68,16 @@ Selection is deterministic:
 4. Historical `BLOCKED` Tasks that are neither active nor hard dependencies do not block unrelated current work.
 5. Continuous mode uses the same selection once, finishes one Task serially, then performs a fresh preflight and calls the dispatcher again. It never allocates, parallelizes, or continues in the background.
 
-When no Task is active, resumable for delivery, or selectable, classify the first non-complete current Task instead of inferring queue truth from the highest ID. A blocked Task reports its blocker, a draft reports no selectable work, and cancellation returns the distinct `TASK_CANCELLED` terminal result after its required gates. Return exactly `현재 만들어진 Task는 모두 완료됐습니다. 더 이상 진행할 작업이 없습니다. 추가로 하고 싶은 작업이 있나요?` only when every applicable current-contract Task is `DONE/PASSED`, every hard dependency is satisfied, and required delivery is proven. Do not create a Task in response.
+With no active, resumable, or selectable Task, classify the first non-complete current Task; never infer completion from the highest ID. Report blocked/draft state or gated `TASK_CANCELLED`. Return exactly `현재 만들어진 Task는 모두 완료됐습니다. 더 이상 진행할 작업이 없습니다. 추가로 하고 싶은 작업이 있나요?` only when every applicable Task is `DONE/PASSED` with dependencies and delivery satisfied. Never create a Task in response.
 
 Current-contract `## Delivery` contains static policy only:
 
 - `STANDARD` uses GitHub PR/Actions exact-SHA state as the canonical ledger.
 - `NONE — <reason>` requires a concrete reason and has no external delivery gate.
 
-For normal `$kyw-impl NNNN`, pass no delivery payload. Before its sole dispatcher call, the adapter derives the prior `STANDARD` set from queue/dependencies, proves terminal merges and the legacy anchor by bounded ancestry, and collects required GitHub roles through an invocation-local command cache. It normalizes/evaluates in memory, then dispatches once. External failure, partial evidence, drift, or bound exhaustion stops before mutation; no retry loop, snapshot, persistent cache, secret, or raw-log storage exists. Manual delivery flags are low-level compatibility/test seams only.
+For normal `$kyw-impl NNNN`, pass no delivery payload. Before its sole dispatcher call, derive the exact prior `STANDARD` set and load one fixed-bounded rolling continuity checkpoint only from aligned local/upstream/cached/direct/GitHub `main`. Its exact ordered prefix, terminal pairs, and covered ancestry must still match. Covered results use production-evaluated `DURABLE_STANDARD_CONTINUITY`, never fresh/legacy/current-ledger relabeling.
+
+At most one prior `STANDARD` outcome may remain uncovered; collect its full GitHub graph through an invocation-local command cache and the unchanged evaluator. Never read covered GitHub objects or logs. Empty history may prepare genesis without GitHub. Existing history with missing, corrupt, stale, forked, mismatched, or over-gap continuity requires explicit migration/rebaseline: normal dispatch has no automatic whole-history fallback. External failure, drift, partial evidence, or bound exhaustion stops before mutation and retry. Persist no raw logs, secrets, API responses, mutable graph, or growing receipts. Manual delivery flags are test/compatibility seams only.
 
 The trusted-local expectation uses `schemaVersion: 2`, exact identity, `HARDENED_EXACT_HEAD` workflow ID/name/path, behavioral/quality/packed job-name sets, and distinct merge/gate names. Schema-2 `FINAL` binds `pullRequest`, `actualHead`/`PR_ACTUAL_HEAD`, `mergeCompatibility`/`PR_MERGE_COMPATIBILITY`, `merge`, and `postMerge`/`POST_MERGE_MAIN` to exact attempts, jobs, checkouts, and parents.
 
@@ -92,6 +86,8 @@ Get numeric identities/conclusions from GitHub APIs and the asserted checkout/pa
 Legacy continuity requires trusted local proof that the outcome predates the hardened anchor: `LEGACY_PRE_CONTRACT` version 1, eligibility `LOCAL_GIT_PRE_CONTRACT_HISTORY`, and exact anchor/merge SHAs. Its schema-1 ledger says `LEGACY_PRE_CONTRACT_CONTINUITY` and `actualHead: "UNVERIFIED"`. It never becomes exact-head PASS and is forbidden for the selected new outcome.
 
 Classify absent or valid-pending evidence `RESUMABLE`; failing, incomplete-final, unknown-version, malformed, stale, role-confused, reused, or drifted evidence `BLOCKED`; and only a complete hardened graph or explicitly eligible legacy continuity `SATISFIED`.
+
+Schema-3 checkpoint input reaches `SATISFIED` only when its repository, Task, outcome, covered-main, terminal-pair, covered-set, evidence, and checkpoint digests agree. Expired covered logs do not invalidate that complete result; uncovered/current evidence still fails closed, and CI never replaces behavioral acceptance.
 
 The static `STANDARD` declaration alone authorizes no ambient mutation. A dispatch returning `IMPLEMENT`, `RESUME`, or `DELIVER` authorizes acceptance verification, `DONE/PASSED`, exact-path commit, non-force push, non-draft PR, exact-head CI, review/mergeability inspection, expected-head protected merge, post-merge base CI, and terminal reporting. Do not ask for ceremonial confirmation before those ordinary steps.
 
@@ -119,7 +115,15 @@ Use the exact exposed value with `OBSERVED`. Use `UNAVAILABLE` as both value and
 
 ## Enter or re-enter execution
 
-Before the first implementation mutation, update the verified pair together from `READY` / `READY` to `IN_PROGRESS` / `RUNNING`, record the start in Completed or Discoveries, make Remaining and Resume Point concrete, and validate again.
+Before implementation mutation, create or verify the selected Task branch; change the pair together from `READY` / `READY` to `IN_PROGRESS` / `RUNNING`; record start, Remaining, and Resume Point; validate.
+
+If the recognized dispatcher result contains `continuityTransitionToken`, only after that branch and active pair exist invoke:
+
+```text
+node <kyw-impl-skill-directory>/../kyw-task/scripts/task-artifacts.mjs apply-continuity --tasks-root <repository>/docs/tasks --selected-task NNNN --transition-token <exact opaque token>
+```
+
+The adapter rechecks token, selected ID, active pair/branch, unchanged source `main`, required set, prior digest, and that the selected Task cannot cover itself; it atomically replaces only the checkpoint. Exact replay is byte-identical. Divergent, stale, self-covering, wrong-branch/Task, or terminal use stops. Never decode, synthesize, edit, log, or retain the token; no token means no mutation.
 
 A selected ready pair needs no reconfirmation. Only a genuine unresolved user-owned blocker permits one question with one recommendation; otherwise use evidence or a safe reversible choice.
 
@@ -186,60 +190,35 @@ Classify verification proportionally; use the repository planner when present:
 
 Add acceptance branches the planner cannot infer. Do not repeat one command or immutable package proof at the same boundary.
 
-The agent executing the current Task performs risk-proportionate verification directly in the current session by default. Subagents, fresh sessions, and isolated delegates are optional tools: use them only when the user explicitly requests them, acceptance-specific independence or isolation is materially necessary, or the active agent determines that delegation would add meaningful evidence. Do not automatically create nested `codex exec` runs or a subagent cohort to satisfy generic verification, and do not block a Task merely because delegation was not used.
+Verify directly by default. Delegate only on user request or when meaningful acceptance independence/isolation requires it; never spawn generic verification cohorts or block because none was used. If delegated, record purpose, scope, and result. In all cases, only executed checks may pass.
 
-When delegation is used, record its purpose, scope, and result in Test evidence. Whether verification is direct or delegated, record only checks that actually ran and never turn an unexecuted check into `PASS`.
-
-For each matrix row:
-
-- `PASS` requires reproducible evidence from an executed command or explicit verification method.
-- `FAIL` records the actual failure while corrective work continues.
-- `BLOCKED` records the unavailable condition, why the row is required, recovery action, and residual risk.
-- `N/A` requires a concrete reason and is valid only when the acceptance intent remains satisfied without execution.
-- `TODO` means no pass claim is available.
+For each row, `PASS` needs reproducible executed evidence; `FAIL` preserves an actual failure; `BLOCKED` names condition, necessity, recovery, and risk; `N/A` gives a concrete reason without losing acceptance intent; `TODO` makes no pass claim.
 
 If a required check cannot run, do not substitute a generic passing command. Set the affected row and Test to `BLOCKED`, set the Task to `BLOCKED` when completion depends on it, refresh the handoff fields, and report the limitation. Never use `DONE` or `PASSED` with an unexecuted required test.
 
 ## Perform the final diff coverage review
 
-After implementation and documentation synchronization:
+After implementation and documentation sync:
 
-1. Reinspect status and the complete relevant diff against the pre-change state. Separate this Task's paths from pre-existing user changes.
-2. Enumerate every meaningful behavior, branch, error path, fallback, compatibility effect, document change, and package/distribution change introduced by this Task.
-3. Map every item to an existing matrix row. When a newly introduced branch lacks coverage, append a test row, add the smallest meaningful test or explicit verification, execute it, and record evidence before continuing.
-4. Investigate out-of-scope paths or behavior. Remove only this workflow's unintended change when safe; preserve unrelated user work. If safe reconciliation is impossible, record and block rather than hiding scope drift.
-5. Compare all acceptance criteria to one or more rows, confirm required regressions ran, and check every Final Coverage Review item only after the review is true.
+1. Reinspect status and full relevant diff against baseline; separate user work.
+2. Enumerate introduced behavior, branches/errors/fallbacks, compatibility, documents, and distribution.
+3. Map each to the matrix. When a newly introduced branch lacks coverage, append a test row, run the smallest proof, and record it.
+4. Investigate scope drift, removing only this workflow's unintended change when safe. If safe reconciliation is impossible, record and block rather than hiding scope drift.
+5. Map every AC, confirm regressions, then check the Final Coverage Review.
 
 A generic full-suite pass does not close an unmapped branch or acceptance criterion.
 
 ## Persist a compaction or interruption checkpoint
 
-Checkpoint when compaction appears likely, the user asks for a handoff, or the session must stop before a terminal state. Do not create a separate progress, handoff, or verification document.
+Checkpoint when compaction appears likely, on handoff request, or before nonterminal stop. Create no separate progress/evidence file.
 
-Before stopping, persist:
-
-- `Completed`: verified work only, including material files and decisions;
-- `Remaining`: the ordered work still required by scope and coverage;
-- `Resume Point`: the exact next action, relevant path, command, and minimum context needed by a fresh session;
-- `Blockers`: each active condition, its evidence, owner or clearing condition, and safe recovery step;
-- current Plan, Decisions, Discoveries and Changes, Risks, and Documentation Impact;
-- repository state: pre-existing changes, this Task's changed paths, and the status/diff limitation if any;
-- Test Status, every row status/evidence, commands actually run, results including failures, and Unverified residual risks.
+Persist verified `Completed`; ordered `Remaining`; executable `Resume Point`; evidence, owner/clearing condition, and recovery for each `Blocker`; current Plan/Decisions/Discoveries/Risks/Documentation Impact; separated repository status/diff; and Test status, rows, executed commands, failures, and Unverified risks.
 
 Validate the updated pair and report the checkpoint. A fresh session must be able to verify the repository and continue without rereading unrelated Tasks or repeating Completed work.
 
 ## Set terminal status
 
-Set `TEST.md` to `PASSED` and `TASK.md` to `DONE` only when all of the following are true:
-
-1. every acceptance criterion is checked and mapped;
-2. every required matrix row is `PASS` or justified `N/A` with evidence;
-3. acceptance-specific and required regression commands actually ran;
-4. the final diff coverage review is complete with every checklist item checked;
-5. permanent documents are synchronized only where meaning changed;
-6. no unsafe scope drift or unresolved blocker remains;
-7. Completed, Remaining, Resume Point, Blockers, Results, and Unverified accurately describe the terminal repository;
-8. the final Task/Test pair passes validation.
+Set `TEST.md` to `PASSED` and `TASK.md` to `DONE` only when every AC is checked/mapped; required rows pass or have evidenced `N/A`; required checks ran; final coverage review is checked; affected permanent truth is synchronized; no unsafe drift/blocker remains; handoff/results are accurate; and the pair validates.
 
 For the current contract, every Plan item must also be checked and both Remaining and Resume Point must record reasoned `None` when the repository outcome is complete. External delivery state is not a ninth repository terminal condition; it is the separate queue-advancement gate in the GitHub ledger.
 

@@ -111,7 +111,9 @@ test("kyw-impl has no authoring engine and calls the one shared packaged adapter
   assert.match(skill, /sole packaged Task adapter in the sibling `kyw-task` Skill/);
   assert.match(skill, /\.\.\/kyw-task\/scripts\/task-artifacts\.mjs dispatch/);
   assert.match(skill, /owns no copied parser, state, dependency, queue, transaction, or delivery engine/);
-  assert.match(skill, /automatically hydrates queue-required prior `STANDARD` outcomes/);
+  assert.match(skill, /validates the exact prior `STANDARD` set from the fixed-bounded checkpoint/);
+  assert.match(skill, /freshly production-evaluates at most one uncovered GitHub outcome/);
+  assert.match(skill, /no whole-history fallback/);
   assert.doesNotMatch(skill, /--delivery-(?:ledger|expectations)(?:-json)?/);
   assert.doesNotMatch(skill, /create-batch --tasks-root|inspect-transaction --tasks-root|recover-transaction --tasks-root/);
   assert.match(adapter, /\.\.\/\.\.\/\.\.\/src\/core\/task-artifacts\.mjs/);
@@ -244,12 +246,23 @@ test("kyw-impl preserves evidence honesty, final coverage review, and checkpoint
   assert.match(execution, /If safe reconciliation is impossible, record and block rather than hiding scope drift/);
 });
 
-test("kyw-impl collects hardened role-separated delivery evidence without legacy relabeling", async () => {
+test("kyw-impl uses bounded durable continuity without weakening uncovered hardened evidence", async () => {
   const execution = await readFile(EXECUTION_REFERENCE_PATH, "utf8");
+  const skill = await readFile(SKILL_PATH, "utf8");
 
   assert.match(execution, /pass no delivery payload/);
   assert.match(execution, /sole dispatcher call/);
   assert.match(execution, /invocation-local command cache/);
+  assert.match(execution, /fixed-bounded rolling continuity checkpoint/);
+  assert.match(execution, /exact ordered prefix/);
+  assert.match(execution, /`DURABLE_STANDARD_CONTINUITY`/);
+  assert.match(execution, /At most one prior `STANDARD` outcome may remain uncovered/);
+  assert.match(execution, /no automatic whole-history fallback/);
+  assert.match(execution, /Expired covered logs do not invalidate/);
+  assert.match(execution, /apply-continuity/);
+  assert.match(execution, /selected Task cannot cover itself/);
+  assert.match(skill, /opaque continuity transition token/);
+  assert.match(skill, /After establishing the selected Task branch and active pair/);
   assert.match(execution, /trusted-local expectation uses `schemaVersion: 2`/);
   assert.match(execution, /HARDENED_EXACT_HEAD/);
   assert.match(execution, /`PR_ACTUAL_HEAD`/);
@@ -267,6 +280,12 @@ test("kyw-impl collects hardened role-separated delivery evidence without legacy
 test("shared adapter dispatches kyw-impl and leaves rejected authoring inputs byte-stable", async (t) => {
   const { tasksRoot, taskDirectory, taskMarkdown, testMarkdown } =
     await temporaryTasksRoot(t);
+  const deliveryTestSeam = [
+    "--delivery-ledger-json",
+    "{}",
+    "--delivery-expectations-json",
+    "{}",
+  ];
 
   const selectedResult = runAdapter([
     "dispatch",
@@ -276,6 +295,7 @@ test("shared adapter dispatches kyw-impl and leaves rejected authoring inputs by
     "$kyw-impl 0101",
     "--managed-routing",
     "false",
+    ...deliveryTestSeam,
   ]);
   assert.equal(selectedResult.status, 0, selectedResult.stderr);
   const selected = JSON.parse(selectedResult.stdout);
@@ -292,6 +312,7 @@ test("shared adapter dispatches kyw-impl and leaves rejected authoring inputs by
     "task 0101 실행해줘",
     "--managed-routing",
     "false",
+    ...deliveryTestSeam,
   ]);
   assert.equal(fallbackResult.status, 0, fallbackResult.stderr);
   const fallback = JSON.parse(fallbackResult.stdout);
@@ -311,6 +332,7 @@ test("shared adapter dispatches kyw-impl and leaves rejected authoring inputs by
     "$kyw-impl 0101",
     "--managed-routing",
     "false",
+    ...deliveryTestSeam,
   ]);
   assert.equal(draftResult.status, 0, draftResult.stderr);
   const draft = JSON.parse(draftResult.stdout);
@@ -327,6 +349,7 @@ test("shared adapter dispatches kyw-impl and leaves rejected authoring inputs by
     "$kyw-impl 0999",
     "--managed-routing",
     "false",
+    ...deliveryTestSeam,
   ]);
   assert.equal(missingResult.status, 0, missingResult.stderr);
   const missing = JSON.parse(missingResult.stdout);
@@ -343,6 +366,7 @@ test("shared adapter dispatches kyw-impl and leaves rejected authoring inputs by
     '$kyw-impl "a new outcome"',
     "--managed-routing",
     "false",
+    ...deliveryTestSeam,
   ]);
   assert.equal(goalResult.status, 0, goalResult.stderr);
   const goal = JSON.parse(goalResult.stdout);

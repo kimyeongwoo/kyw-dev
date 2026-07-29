@@ -140,7 +140,7 @@ Required behavior:
 - on resume, verify recorded completed work against files and version control and continue from the valid resume point instead of repeating externally visible or destructive actions;
 - use current-user appended text as a settled first-selected-Task override without letting it waive acceptance, safety, evidence honesty, preservation, or separate authority;
 - preserve the configured model and effort unless the current user explicitly overrides them, and label unavailable model provenance rather than inferring it;
-- before its one dispatcher call, derive every prior `STANDARD` delivery needed by the requested queue transition, reconstruct trusted local expectations and fresh GitHub evidence automatically, and fail before selection or mutation if hydration or the production evaluator is not satisfied;
+- before its one dispatcher call, derive the exact prior `STANDARD` set, validate repository-owned continuity only from aligned `main`, production-evaluate fresh GitHub evidence for at most one uncovered prior outcome, and fail before selection or mutation on a missing, malformed, stale, over-gap, or evaluator-rejected proof;
 - run acceptance-specific and risk-proportionate verification, record failures as well as later passes, and block when required evidence cannot run;
 - synchronize only permanent owners whose durable meaning changed;
 - compare the complete final diff with scope and the intent-to-test matrix before terminal success;
@@ -274,7 +274,9 @@ A current Task declares one static delivery policy:
 
 The Task/Test pair owns repository outcome and reproducible local evidence; GitHub owns mutable PR, review, run, merge, and post-merge state. Static `STANDARD` text alone authorizes no ambient mutation. A recognized `$kyw-impl` selection grants ordinary delivery for that selected outcome after repository completion.
 
-The normal `$kyw-impl NNNN` path accepts only the invocation: it derives the required prior-delivery set from queue and dependency truth, proves the pre-contract boundary from local Git ancestry, and collects bounded fresh GitHub evidence before one dispatcher call. Historical numbering never grants legacy status. Collection and normalization are invocation-local and non-persistent; unavailable access, partial pagination, malformed responses, missing logs, attempt mixing, or evaluator rejection fails closed before implementation mutation.
+The normal `$kyw-impl NNNN` path accepts only the invocation. It derives the exact required prior-delivery set from queue and dependency truth, validates one fixed-bounded rolling continuity checkpoint read from exact aligned `main`, and creates a distinct production-evaluated continuity classification for its exact covered prefix. The checkpoint binds repository/base/main ancestry, the ordered covered-set and terminal-pair digests, hardened-contract version, cumulative evidence digest, prior checkpoint or genesis, and one sanitized transition receipt. It stores no raw log, credential, API response, or mutable GitHub graph and never becomes the current delivery ledger.
+
+At most one prior `STANDARD` outcome may be uncovered. That outcome is freshly reconstructed from local ancestry and GitHub, must satisfy the existing production evaluator, and may prepare the next rolling checkpoint without mutation. Only a recognized `IMPLEMENT`, `RESUME`, or `DELIVER` result may hand the opaque transition into the selected active Task branch for atomic, idempotent application; the selected Task cannot attest to itself. An empty history may prepare genesis without GitHub access. Existing delivered history with no valid checkpoint, a gap larger than one, or a corrupt, stale, forked, downgraded, repository-mismatched, pair-mismatched, or noncanonical checkpoint requires separately explicit migration/rebaseline authority and has no automatic full-history fallback.
 
 The current hardened contract is `HARDENED_EXACT_HEAD`. Trusted local expectations bind repository, base ref and SHA, outcome SHA, workflow identity, and required job-name sets. GitHub evidence keeps these roles distinct:
 
@@ -286,6 +288,8 @@ The current hardened contract is `HARDENED_EXACT_HEAD`. Trusted local expectatio
 A synthetic merge success never substitutes for actual head evidence. Job/run identities, attempts, conclusions, checkout evidence, and role separation must be exact, current, and non-reused. Missing logs, stale attempts, mismatched identity, failed CI, a review blocker, unsafe drift, or incomplete final evidence blocks advancement. A valid pending snapshot is resumable; only the full hardened graph is satisfied.
 
 Explicit trusted pre-contract continuity may preserve already completed historical delivery while labeling actual-head evidence `UNVERIFIED`. It cannot be used for a newly delivered outcome or promoted to exact-head success. CI evidence proves delivery state, not behavioral acceptance.
+
+Checkpoint-covered continuity preserves a previously complete evaluator result without relabeling it legacy or fresh. Expired covered Actions logs do not invalidate that durable result, while missing or mismatched evidence for the one uncovered or current outcome still fails closed. Repository `DONE/PASSED` acceptance and terminal pair-state integrity remain prerequisites, so checkpoint or CI success cannot substitute for behavioral acceptance.
 
 Ordinary `STANDARD` authority covers exact-path commit, non-force push, non-draft PR creation, exact-head CI observation, review and mergeability inspection, expected-head protected merge, post-merge base CI observation, and terminal reporting. Publication, registry/version/tag/Release/public submission, force push, destructive recovery, branch deletion, workflow rerun, bypass, and unrelated mutation remain separate authority boundaries.
 
@@ -358,7 +362,7 @@ The package and plugin version is `0.1.0`. The npm tarball includes plugin metad
 
 Semantic versioning applies; `0.x` unfinished interfaces may change only with documented migration impact.
 
-The tarball excludes development-only tests and evaluation output, local marketplace fixtures, repository Task/bootstrap documents, generated archives, credentials, machine-local configuration, and absolute machine paths. A positive package allowlist and inspection of real packed bytes enforce that boundary. The production package has no production or development dependency requirement for its workflow behavior.
+The tarball excludes development-only tests and evaluation output, local marketplace fixtures, repository Task/bootstrap documents and continuity checkpoint state, generated archives, credentials, machine-local configuration, and absolute machine paths. A positive package allowlist and inspection of real packed bytes enforce that boundary. The production package has no production or development dependency requirement for its workflow behavior.
 
 Direct and plugin installation use the same packaged Skill meaning without copying a second Task/runtime/delivery engine. An npm or GitHub marketplace source may identify the plugin, but npm-based installation must work without lifecycle scripts.
 

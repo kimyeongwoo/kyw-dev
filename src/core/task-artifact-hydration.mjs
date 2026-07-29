@@ -1,6 +1,21 @@
+import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
+import { lstat, readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 
+import {
+  STANDARD_DELIVERY_CONTINUITY_FILE,
+  STANDARD_DELIVERY_CONTINUITY_RELATIVE_PATH,
+  buildStandardDeliveryContinuityState,
+  createStandardDeliveryContinuityCheckpoint,
+  createStandardDeliveryContinuityTransitionToken,
+  digestStandardDeliveryContinuityEvidence,
+  digestStandardDeliveryContinuityTerminalPairs,
+  parseStandardDeliveryContinuityCheckpoint,
+  parseStandardDeliveryContinuityTransitionToken,
+  partitionStandardDeliveryContinuity,
+  writeStandardDeliveryContinuityCheckpoint,
+} from "./task-artifact-continuity.mjs";
 import { evaluateDeliveryEvidence, parseTaskInvocation } from "./task-artifact-delivery.mjs";
 import { inspectTaskQueue } from "./task-artifact-queue.mjs";
 import { TaskArtifactError } from "./task-artifact-shared.mjs";
@@ -22,6 +37,14 @@ function hydrationError(taskId, role, message, code = "DELIVERY_HYDRATION_FAILED
   const taskLabel = taskId ? `Task ${taskId}` : "delivery hydration";
   const roleLabel = role ? ` ${role}` : "";
   return new TaskArtifactError(code, `${taskLabel}${roleLabel}: ${message}`);
+}
+
+async function tasksRootMatchesRepository(requestedRoot, repositoryRoot) {
+  const [requestedPhysical, expectedPhysical] = await Promise.all([
+    realpath(requestedRoot),
+    realpath(path.resolve(repositoryRoot, "docs", "tasks")),
+  ]);
+  return requestedPhysical.toLowerCase() === expectedPhysical.toLowerCase();
 }
 
 function completeTask(task) {
@@ -172,6 +195,9 @@ export function createInvocationCommandCache({
   const cache = new Map();
   let hits = 0;
   let misses = 0;
+  let gitCommands = 0;
+  let githubApiCommands = 0;
+  let jobLogFetches = 0;
 
   async function run({
     command,
@@ -196,6 +222,11 @@ export function createInvocationCommandCache({
       );
     }
     misses += 1;
+    if (command === "git") gitCommands += 1;
+    if (command === "gh" && args[0] === "api") githubApiCommands += 1;
+    if (command === "gh" && args[0] === "run" && args.includes("--log")) {
+      jobLogFetches += 1;
+    }
     const pending = Promise.resolve(
       runner({
         command,
@@ -228,6 +259,16 @@ export function createInvocationCommandCache({
   return Object.freeze({
     run,
     stats: () => Object.freeze({ hits, misses, entries: cache.size, maxCommands }),
+    details: () =>
+      Object.freeze({
+        hits,
+        misses,
+        entries: cache.size,
+        maxCommands,
+        gitCommands,
+        githubApiCommands,
+        jobLogFetches,
+      }),
   });
 }
 
@@ -557,10 +598,7 @@ export async function discoverLocalDeliveryOutcomes({
     ["rev-parse", "--show-toplevel"],
     { role: "LOCAL_GIT" },
   );
-  if (
-    path.resolve(repositoryRoot, "docs", "tasks").toLowerCase() !==
-    requestedRoot.toLowerCase()
-  ) {
+  if (!(await tasksRootMatchesRepository(requestedRoot, repositoryRoot))) {
     throw hydrationError(
       undefined,
       "LOCAL_GIT",
@@ -676,6 +714,490 @@ export async function discoverLocalDeliveryOutcomes({
     directRemoteSha,
     contractAnchorSha: classified.contractAnchorSha,
     outcomes: Object.freeze(outcomes),
+  });
+}
+
+async function discoverAlignedMainIdentity({
+  tasksRoot,
+  commandCache,
+  githubClient,
+}) {
+  const requestedRoot = path.resolve(tasksRoot);
+  const repositoryRoot = await gitText(
+    commandCache,
+    requestedRoot,
+    ["rev-parse", "--show-toplevel"],
+    { role: "CHECKPOINT_MAIN" },
+  );
+  if (!(await tasksRootMatchesRepository(requestedRoot, repositoryRoot))) {
+    throw hydrationError(
+      undefined,
+      "CHECKPOINT_MAIN",
+      "tasks root must be the repository docs/tasks directory",
+    );
+  }
+  const [currentMainSha, upstreamSha, cachedMainSha, originUrl, directRemote] =
+    await Promise.all([
+      gitText(commandCache, repositoryRoot, ["rev-parse", "refs/heads/main"], {
+        role: "CHECKPOINT_MAIN",
+      }),
+      gitText(commandCache, repositoryRoot, ["rev-parse", "main@{upstream}"], {
+        role: "CHECKPOINT_MAIN",
+      }),
+      gitText(
+        commandCache,
+        repositoryRoot,
+        ["rev-parse", "refs/remotes/origin/main"],
+        { role: "CHECKPOINT_MAIN" },
+      ),
+      gitText(commandCache, repositoryRoot, ["remote", "get-url", "origin"], {
+        role: "CHECKPOINT_MAIN",
+      }),
+      gitText(
+        commandCache,
+        repositoryRoot,
+        ["ls-remote", "--heads", "origin", "refs/heads/main"],
+        { role: "CHECKPOINT_MAIN" },
+      ),
+    ]);
+  requireSha(currentMainSha, undefined, "CHECKPOINT_MAIN", "local main");
+  const directRemoteSha = directRemote.split(/\s+/)[0];
+  for (const [label, value] of [
+    ["upstream main", upstreamSha],
+    ["cached origin/main", cachedMainSha],
+    ["direct remote main", directRemoteSha],
+  ]) {
+    if (value !== currentMainSha) {
+      throw hydrationError(
+        undefined,
+        "CHECKPOINT_MAIN",
+        `${label} does not equal local main`,
+      );
+    }
+  }
+  const repository = parseRepositorySlug(originUrl);
+  const client =
+    githubClient ??
+    createGitHubEvidenceClient({
+      repository,
+      repositoryRoot,
+      commandCache,
+    });
+  const rawMainRef = await client.getMainRef({ role: "GITHUB_MAIN" });
+  const githubMainSha = rawMainRef?.object?.sha;
+  exact(
+    githubMainSha,
+    currentMainSha,
+    undefined,
+    "GITHUB_MAIN",
+    "GitHub main SHA",
+  );
+  return Object.freeze({
+    repositoryRoot,
+    repository,
+    currentMainSha,
+    upstreamSha,
+    cachedMainSha,
+    directRemoteSha,
+    githubMainSha,
+    githubClient: client,
+  });
+}
+
+export async function loadTrustedStandardDeliveryContinuity({
+  tasksRoot,
+  requiredTasks,
+  coverageTasks = requiredTasks,
+  commandCache,
+  githubClient,
+  allowBootstrapWorktreeCheckpoint,
+}) {
+  const identity = await discoverAlignedMainIdentity({
+    tasksRoot,
+    commandCache,
+    githubClient,
+  });
+  const mainBytes = await showGitFile(
+    commandCache,
+    identity.repositoryRoot,
+    identity.currentMainSha,
+    STANDARD_DELIVERY_CONTINUITY_RELATIVE_PATH,
+  );
+  let source = "ALIGNED_MAIN";
+  let bytes = mainBytes;
+  if (bytes === undefined && allowBootstrapWorktreeCheckpoint) {
+    const worktreePath = path.join(
+      path.resolve(tasksRoot),
+      STANDARD_DELIVERY_CONTINUITY_FILE,
+    );
+    let state;
+    try {
+      state = await lstat(worktreePath);
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+    }
+    if (!state || state.isSymbolicLink() || !state.isFile()) {
+      throw hydrationError(
+        undefined,
+        "CHECKPOINT_BOOTSTRAP",
+        "explicit bootstrap checkpoint is missing or unsafe",
+        "DELIVERY_CONTINUITY_REBASELINE_REQUIRED",
+      );
+    }
+    bytes = await readFile(worktreePath, "utf8");
+    source = "EXPLICIT_BOOTSTRAP_WORKTREE";
+  }
+  if (bytes === undefined) {
+    throw hydrationError(
+      undefined,
+      "CHECKPOINT",
+      "aligned main has no durable continuity checkpoint; explicit migration/rebaseline is required",
+      "DELIVERY_CONTINUITY_REBASELINE_REQUIRED",
+    );
+  }
+  let checkpoint;
+  try {
+    checkpoint = parseStandardDeliveryContinuityCheckpoint(bytes);
+  } catch (error) {
+    throw hydrationError(
+      undefined,
+      "CHECKPOINT",
+      error instanceof Error ? error.message : "checkpoint is invalid",
+      error?.code ?? "DELIVERY_CONTINUITY_INVALID",
+    );
+  }
+  if (checkpoint.repository !== identity.repository) {
+    throw hydrationError(
+      undefined,
+      "CHECKPOINT",
+      "checkpoint repository identity does not match the exact remote",
+    );
+  }
+  if (
+    !(await gitIsAncestor(
+      commandCache,
+      identity.repositoryRoot,
+      checkpoint.sourceMainSha,
+      identity.currentMainSha,
+    )) ||
+    !(await gitIsAncestor(
+      commandCache,
+      identity.repositoryRoot,
+      checkpoint.coveredMainSha,
+      identity.currentMainSha,
+    ))
+  ) {
+    throw hydrationError(
+      undefined,
+      "CHECKPOINT",
+      "checkpoint main identities are not ancestors of aligned main",
+    );
+  }
+  const previousBytes = await showGitFile(
+    commandCache,
+    identity.repositoryRoot,
+    checkpoint.sourceMainSha,
+    STANDARD_DELIVERY_CONTINUITY_RELATIVE_PATH,
+  );
+  if (checkpoint.previousCheckpointDigest === "GENESIS") {
+    if (previousBytes !== undefined) {
+      throw hydrationError(
+        undefined,
+        "CHECKPOINT",
+        "genesis source main already contains continuity state",
+      );
+    }
+  } else {
+    if (previousBytes === undefined) {
+      throw hydrationError(
+        undefined,
+        "CHECKPOINT",
+        "rolling source main is missing the previous checkpoint",
+      );
+    }
+    let previousCheckpoint;
+    try {
+      previousCheckpoint =
+        parseStandardDeliveryContinuityCheckpoint(previousBytes);
+    } catch (error) {
+      throw hydrationError(
+        undefined,
+        "CHECKPOINT",
+        `previous checkpoint is invalid: ${error.message}`,
+        error?.code ?? "DELIVERY_CONTINUITY_INVALID",
+      );
+    }
+    if (
+      previousCheckpoint.checkpointDigest !==
+        checkpoint.previousCheckpointDigest ||
+      previousCheckpoint.repository !== checkpoint.repository ||
+      previousCheckpoint.baseRef !== checkpoint.baseRef
+    ) {
+      throw hydrationError(
+        undefined,
+        "CHECKPOINT",
+        "rolling checkpoint does not bind the exact source-main predecessor",
+      );
+    }
+  }
+  if (
+    source === "EXPLICIT_BOOTSTRAP_WORKTREE" &&
+    checkpoint.sourceMainSha !== identity.currentMainSha
+  ) {
+    throw hydrationError(
+      undefined,
+      "CHECKPOINT_BOOTSTRAP",
+      "bootstrap checkpoint source main is stale",
+    );
+  }
+  let coveragePartition;
+  try {
+    coveragePartition = partitionStandardDeliveryContinuity({
+      checkpoint,
+      requiredTasks: coverageTasks,
+    });
+  } catch (error) {
+    throw hydrationError(
+      undefined,
+      "CHECKPOINT",
+      error instanceof Error ? error.message : "checkpoint coverage is invalid",
+      error?.code ?? "DELIVERY_CONTINUITY_INVALID",
+    );
+  }
+  const coverageTaskIds = new Set(coverageTasks.map((task) => task.id));
+  const checkpointCoveredTaskIds = new Set(
+    coveragePartition.coveredTasks.map((task) => task.id),
+  );
+  const requiredOutsideCoverage = requiredTasks.filter(
+    (task) => !coverageTaskIds.has(task.id),
+  );
+  const partition = Object.freeze({
+    coveredTasks: Object.freeze(
+      requiredTasks.filter((task) => checkpointCoveredTaskIds.has(task.id)),
+    ),
+    uncoveredTasks: Object.freeze([
+      ...requiredTasks.filter(
+        (task) =>
+          coverageTaskIds.has(task.id) &&
+          !checkpointCoveredTaskIds.has(task.id),
+      ),
+      ...requiredOutsideCoverage,
+    ]),
+  });
+  if (partition.uncoveredTasks.length > 1) {
+    throw hydrationError(
+      undefined,
+      "CHECKPOINT",
+      `checkpoint gap ${partition.uncoveredTasks.length} requires explicit migration/rebaseline`,
+      "DELIVERY_CONTINUITY_REBASELINE_REQUIRED",
+    );
+  }
+  const coveredPairs = coveragePartition.coveredTasks.map((task) => {
+    const relativeTask = path.relative(path.resolve(tasksRoot), task.taskPath);
+    const relativeTest = path.relative(path.resolve(tasksRoot), task.testPath);
+    if (
+      [relativeTask, relativeTest].some(
+        (relativePath) =>
+          path.isAbsolute(relativePath) ||
+          relativePath === ".." ||
+          relativePath.startsWith(`..${path.sep}`),
+      )
+    ) {
+      throw hydrationError(
+        task.id,
+        "CHECKPOINT_PAIR_STATE",
+        "covered pair path escapes the exact tasks root",
+      );
+    }
+    return Object.freeze({
+      task,
+      taskPath: `docs/tasks/${relativeTask.replaceAll("\\", "/")}`,
+      testPath: `docs/tasks/${relativeTest.replaceAll("\\", "/")}`,
+    });
+  });
+  const coveredPaths = coveredPairs.flatMap(({ taskPath, testPath }) => [
+    taskPath,
+    testPath,
+  ]);
+  if (coveredPaths.length > 0) {
+    const terminalPairs = [];
+    for (const covered of coveredPairs) {
+      const [taskMarkdown, testMarkdown] = await Promise.all([
+        showGitFile(
+          commandCache,
+          identity.repositoryRoot,
+          identity.currentMainSha,
+          covered.taskPath,
+        ),
+        showGitFile(
+          commandCache,
+          identity.repositoryRoot,
+          identity.currentMainSha,
+          covered.testPath,
+        ),
+      ]);
+      if (
+        taskMarkdown === undefined ||
+        testMarkdown === undefined ||
+        sectionStatus(taskMarkdown) !== "DONE" ||
+        sectionStatus(testMarkdown) !== "PASSED"
+      ) {
+        throw hydrationError(
+          covered.task.id,
+          "CHECKPOINT_PAIR_STATE",
+          "aligned main terminal Task/Test bytes are missing or nonterminal",
+        );
+      }
+      terminalPairs.push({
+        taskId: covered.task.id,
+        taskSha256: sha256Text(taskMarkdown),
+        testSha256: sha256Text(testMarkdown),
+        taskStatus: "DONE",
+        testStatus: "PASSED",
+      });
+    }
+    if (
+      digestStandardDeliveryContinuityTerminalPairs(terminalPairs) !==
+      checkpoint.coverage.terminalPairStateSha256
+    ) {
+      throw hydrationError(
+        undefined,
+        "CHECKPOINT_PAIR_STATE",
+        "terminal Task/Test state digest does not match aligned main",
+      );
+    }
+    const historicalChanges = await gitText(
+      commandCache,
+      identity.repositoryRoot,
+      [
+        "diff",
+        "--name-only",
+        checkpoint.sourceMainSha,
+        identity.currentMainSha,
+        "--",
+        ...coveredPaths,
+      ],
+      { role: "CHECKPOINT_PAIR_STATE" },
+    );
+    if (historicalChanges) {
+      throw hydrationError(
+        undefined,
+        "CHECKPOINT_PAIR_STATE",
+        "a checkpoint-covered terminal pair changed after checkpoint source main",
+      );
+    }
+    const worktreeChanges = await gitText(
+      commandCache,
+      identity.repositoryRoot,
+      ["diff", "--name-only", identity.currentMainSha, "--", ...coveredPaths],
+      { role: "CHECKPOINT_PAIR_STATE" },
+    );
+    if (worktreeChanges) {
+      throw hydrationError(
+        undefined,
+        "CHECKPOINT_PAIR_STATE",
+        "working-tree substitution changed a checkpoint-covered terminal pair",
+      );
+    }
+  }
+  return Object.freeze({
+    checkpoint,
+    partition,
+    coveragePartition,
+    identity,
+    source,
+  });
+}
+
+async function prepareEmptyHistoryStandardDeliveryContinuity({
+  tasksRoot,
+  commandCache,
+}) {
+  const requestedRoot = path.resolve(tasksRoot);
+  const repositoryRoot = await gitText(
+    commandCache,
+    requestedRoot,
+    ["rev-parse", "--show-toplevel"],
+    { role: "EMPTY_CHECKPOINT" },
+  );
+  if (!(await tasksRootMatchesRepository(requestedRoot, repositoryRoot))) {
+    throw hydrationError(
+      undefined,
+      "EMPTY_CHECKPOINT",
+      "tasks root must be the repository docs/tasks directory",
+    );
+  }
+  const [currentMainSha, upstreamSha, cachedMainSha, originUrl] =
+    await Promise.all([
+      gitText(commandCache, repositoryRoot, ["rev-parse", "refs/heads/main"], {
+        role: "EMPTY_CHECKPOINT",
+      }),
+      gitText(commandCache, repositoryRoot, ["rev-parse", "main@{upstream}"], {
+        role: "EMPTY_CHECKPOINT",
+      }),
+      gitText(
+        commandCache,
+        repositoryRoot,
+        ["rev-parse", "refs/remotes/origin/main"],
+        { role: "EMPTY_CHECKPOINT" },
+      ),
+      gitText(commandCache, repositoryRoot, ["remote", "get-url", "origin"], {
+        role: "EMPTY_CHECKPOINT",
+      }),
+    ]);
+  requireSha(currentMainSha, undefined, "EMPTY_CHECKPOINT", "local main");
+  if (upstreamSha !== currentMainSha || cachedMainSha !== currentMainSha) {
+    throw hydrationError(
+      undefined,
+      "EMPTY_CHECKPOINT",
+      "local main, upstream, and cached origin/main must align",
+    );
+  }
+  const repository = parseRepositorySlug(originUrl);
+  const mainBytes = await showGitFile(
+    commandCache,
+    repositoryRoot,
+    currentMainSha,
+    STANDARD_DELIVERY_CONTINUITY_RELATIVE_PATH,
+  );
+  if (mainBytes !== undefined) {
+    const checkpoint = parseStandardDeliveryContinuityCheckpoint(mainBytes);
+    if (
+      checkpoint.repository !== repository ||
+      checkpoint.coverage.taskCount !== 0
+    ) {
+      throw hydrationError(
+        undefined,
+        "EMPTY_CHECKPOINT",
+        "aligned-main checkpoint does not represent this empty delivery history",
+      );
+    }
+    return Object.freeze({
+      repository,
+      repositoryRoot,
+      currentMainSha,
+      upstreamSha,
+      cachedMainSha,
+      checkpoint,
+      preparedCheckpoint: undefined,
+      source: "ALIGNED_MAIN",
+    });
+  }
+  const created = createStandardDeliveryContinuityCheckpoint({
+    repository,
+    baseRef: "main",
+    sourceMainSha: currentMainSha,
+    coveredRecords: [],
+  });
+  return Object.freeze({
+    repository,
+    repositoryRoot,
+    currentMainSha,
+    upstreamSha,
+    cachedMainSha,
+    checkpoint: created.checkpoint,
+    preparedCheckpoint: created.checkpoint,
+    source: "EMPTY_HISTORY_PREPARED",
   });
 }
 
@@ -1911,89 +2433,23 @@ function freezeHydrationResult({
   deliveryLedger,
   deliveryExpectations,
   diagnostics,
+  preparedCheckpoint,
 }) {
   return Object.freeze({
     deliveryLedger: Object.freeze(deliveryLedger),
     deliveryExpectations: Object.freeze(deliveryExpectations),
     diagnostics: Object.freeze(diagnostics),
+    ...(preparedCheckpoint
+      ? { preparedCheckpoint: Object.freeze(preparedCheckpoint) }
+      : {}),
   });
 }
 
-export async function hydratePriorStandardDeliveries({
-  tasksRoot,
-  invocation,
-  managedRoutingAvailable = false,
-  commandRunner,
-  queueInspector = inspectTaskQueue,
-  localDiscovery = discoverLocalDeliveryOutcomes,
+async function collectNormalizedDeliveryOutcomes({
+  local,
+  commandCache,
   githubClient,
-} = {}) {
-  const queue = await queueInspector(path.resolve(tasksRoot));
-  if (!isRecord(queue) || !Array.isArray(queue.tasks) || !Array.isArray(queue.errors)) {
-    throw hydrationError(
-      undefined,
-      "QUEUE",
-      "queue inspection returned a malformed response",
-    );
-  }
-  if (queue.errors.length > 0) {
-    throw hydrationError(
-      undefined,
-      "QUEUE",
-      `queue validation failed: ${queue.errors.join("; ")}`,
-    );
-  }
-  const requiredTasks = discoverRequiredStandardDeliveries({
-    tasks: queue.tasks,
-    invocation,
-    managedRoutingAvailable,
-  });
-  if (requiredTasks.length === 0) {
-    return freezeHydrationResult({
-      deliveryLedger: {},
-      deliveryExpectations: {},
-      diagnostics: {
-        requiredTaskIds: Object.freeze([]),
-        classifications: Object.freeze({}),
-        chronology: Object.freeze([]),
-        cache: Object.freeze({ hits: 0, misses: 0, entries: 0, maxCommands: MAX_COMMANDS }),
-        queryPolicy: Object.freeze({
-          retries: 0,
-          maxRequiredDeliveries: MAX_REQUIRED_DELIVERIES,
-          maxGitHubResults: MAX_GITHUB_RESULTS,
-          maxRunAttempts: MAX_RUN_ATTEMPTS,
-          persistentCache: false,
-        }),
-      },
-    });
-  }
-
-  const commandCache = createInvocationCommandCache({ runner: commandRunner });
-  const contractTasks = queue.tasks
-    .filter(
-      (task) =>
-        task.contractVersion === CURRENT_TASK_CONTRACT_VERSION &&
-        completeTask(task) &&
-        requiresStandardDelivery(task),
-    )
-    .sort((left, right) => left.number - right.number);
-  const local = await localDiscovery({
-    tasksRoot: path.resolve(tasksRoot),
-    requiredTasks,
-    contractTasks,
-    commandCache,
-  });
-  if (
-    !isRecord(local) ||
-    !Array.isArray(local.outcomes) ||
-    local.outcomes.length !== requiredTasks.length
-  ) {
-    throw hydrationError(
-      undefined,
-      "LOCAL_GIT",
-      "local discovery returned a partial or malformed outcome set",
-    );
-  }
+}) {
   const client =
     githubClient ??
     createGitHubEvidenceClient({
@@ -2054,7 +2510,10 @@ export async function hydratePriorStandardDeliveries({
         "head ref does not match the locally recorded merge subject",
       );
     }
-    const observedOutcome = Object.freeze({ ...outcome, headRef: observedHeadRef });
+    const observedOutcome = Object.freeze({
+      ...outcome,
+      headRef: observedHeadRef,
+    });
     let normalized;
     if (outcome.classification === "HARDENED_EXACT_HEAD") {
       if (!outcome.hardenedWorkflow) {
@@ -2066,7 +2525,11 @@ export async function hydratePriorStandardDeliveries({
       }
       const workflowContract = Object.freeze({
         ...outcome.hardenedWorkflow,
-        workflow: Object.freeze({ id: workflow.id, name: workflow.name, path: workflow.path }),
+        workflow: Object.freeze({
+          id: workflow.id,
+          name: workflow.name,
+          path: workflow.path,
+        }),
       });
       const snapshot = await collectHardenedSnapshot({
         client,
@@ -2131,21 +2594,765 @@ export async function hydratePriorStandardDeliveries({
     chronology.push(...normalized.chronology);
     classifications[outcome.taskId] = outcome.classification;
   }
+  return Object.freeze({
+    deliveryLedger: Object.freeze(deliveryLedger),
+    deliveryExpectations: Object.freeze(deliveryExpectations),
+    chronology: Object.freeze(chronology),
+    classifications: Object.freeze(classifications),
+    githubMainSha,
+    workflow: Object.freeze(workflow),
+  });
+}
 
-  return freezeHydrationResult({
-    deliveryLedger,
-    deliveryExpectations,
-    diagnostics: {
+function sha256Text(value) {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+async function buildContinuityCoveredRecord({
+  task,
+  outcome,
+  entry,
+  expectation,
+  local,
+  commandCache,
+  role,
+}) {
+  const taskRelative = path
+    .relative(local.repositoryRoot, task.taskPath)
+    .replaceAll("\\", "/");
+  const testRelative = path
+    .relative(local.repositoryRoot, task.testPath)
+    .replaceAll("\\", "/");
+  const [taskMarkdown, testMarkdown] = await Promise.all([
+    showGitFile(
+      commandCache,
+      local.repositoryRoot,
+      local.currentMainSha,
+      taskRelative,
+      task.id,
+    ),
+    showGitFile(
+      commandCache,
+      local.repositoryRoot,
+      local.currentMainSha,
+      testRelative,
+      task.id,
+    ),
+  ]);
+  if (
+    taskMarkdown === undefined ||
+    testMarkdown === undefined ||
+    sectionStatus(taskMarkdown) !== "DONE" ||
+    sectionStatus(testMarkdown) !== "PASSED"
+  ) {
+    throw hydrationError(
+      task.id,
+      role,
+      "aligned main terminal Task/Test bytes are missing or nonterminal",
+    );
+  }
+  return Object.freeze({
+    taskId: task.id,
+    taskSha256: sha256Text(taskMarkdown),
+    testSha256: sha256Text(testMarkdown),
+    taskStatus: "DONE",
+    testStatus: "PASSED",
+    classification: outcome.classification,
+    outcomeSha: outcome.outcomeSha,
+    mergeSha: outcome.mergeSha,
+    evidenceSha256: digestStandardDeliveryContinuityEvidence({
+      entry,
+      expectation,
+    }),
+  });
+}
+
+export async function bootstrapStandardDeliveryContinuity({
+  tasksRoot,
+  invocation,
+  managedRoutingAvailable = false,
+  commandRunner,
+  queueInspector = inspectTaskQueue,
+  localDiscovery = discoverLocalDeliveryOutcomes,
+  githubClient,
+  writeCheckpoint = true,
+} = {}) {
+  const resolvedTasksRoot = path.resolve(tasksRoot);
+  const queue = await queueInspector(resolvedTasksRoot);
+  if (!isRecord(queue) || !Array.isArray(queue.tasks) || !Array.isArray(queue.errors)) {
+    throw hydrationError(
+      undefined,
+      "QUEUE",
+      "queue inspection returned a malformed response",
+    );
+  }
+  if (queue.errors.length > 0) {
+    throw hydrationError(
+      undefined,
+      "QUEUE",
+      `queue validation failed: ${queue.errors.join("; ")}`,
+    );
+  }
+  const requiredTasks = discoverRequiredStandardDeliveries({
+    tasks: queue.tasks,
+    invocation,
+    managedRoutingAvailable,
+  });
+  if (requiredTasks.length === 0) {
+    throw hydrationError(
+      undefined,
+      "CHECKPOINT_BOOTSTRAP",
+      "existing-history bootstrap requires at least one prior STANDARD delivery",
+      "DELIVERY_CONTINUITY_REBASELINE_REQUIRED",
+    );
+  }
+
+  const localCommandCache = createInvocationCommandCache({
+    runner: commandRunner,
+  });
+  const contractTasks = queue.tasks
+    .filter(
+      (task) =>
+        task.contractVersion === CURRENT_TASK_CONTRACT_VERSION &&
+        completeTask(task) &&
+        requiresStandardDelivery(task),
+    )
+    .sort((left, right) => left.number - right.number);
+  const local = await localDiscovery({
+    tasksRoot: resolvedTasksRoot,
+    requiredTasks,
+    contractTasks,
+    commandCache: localCommandCache,
+  });
+  if (
+    !isRecord(local) ||
+    !Array.isArray(local.outcomes) ||
+    local.outcomes.length !== requiredTasks.length
+  ) {
+    throw hydrationError(
+      undefined,
+      "LOCAL_GIT",
+      "local discovery returned a partial or malformed outcome set",
+    );
+  }
+  const existingMainCheckpoint = await showGitFile(
+    localCommandCache,
+    local.repositoryRoot,
+    local.currentMainSha,
+    STANDARD_DELIVERY_CONTINUITY_RELATIVE_PATH,
+  );
+  if (existingMainCheckpoint !== undefined) {
+    throw hydrationError(
+      undefined,
+      "CHECKPOINT_BOOTSTRAP",
+      "aligned main already contains a continuity checkpoint",
+      "DELIVERY_CONTINUITY_REBASELINE_REQUIRED",
+    );
+  }
+
+  const externalCommandCache = createInvocationCommandCache({
+    runner: commandRunner,
+  });
+  const collected = await collectNormalizedDeliveryOutcomes({
+    local,
+    commandCache: externalCommandCache,
+    githubClient,
+  });
+  const outcomeByTask = new Map(
+    local.outcomes.map((outcome) => [outcome.taskId, outcome]),
+  );
+  const coveredRecords = [];
+  for (const task of requiredTasks) {
+    const outcome = outcomeByTask.get(task.id);
+    const entry = collected.deliveryLedger[task.id];
+    const expectation = collected.deliveryExpectations[task.id];
+    coveredRecords.push(
+      await buildContinuityCoveredRecord({
+        task,
+        outcome,
+        entry,
+        expectation,
+        local,
+        commandCache: localCommandCache,
+        role: "CHECKPOINT_BOOTSTRAP",
+      }),
+    );
+  }
+  const created = createStandardDeliveryContinuityCheckpoint({
+    repository: local.repository,
+    baseRef: "main",
+    sourceMainSha: local.currentMainSha,
+    coveredRecords,
+  });
+  const writeResult = writeCheckpoint
+    ? await writeStandardDeliveryContinuityCheckpoint({
+        tasksRoot: resolvedTasksRoot,
+        bytes: created.bytes,
+      })
+    : undefined;
+  const localMetrics = localCommandCache.details();
+  const externalMetrics = externalCommandCache.details();
+  return Object.freeze({
+    checkpoint: created.checkpoint,
+    bytes: created.bytes,
+    write: writeResult,
+    diagnostics: Object.freeze({
       requiredTaskIds: Object.freeze(requiredTasks.map((task) => task.id)),
-      classifications: Object.freeze(classifications),
-      chronology: Object.freeze(chronology),
+      classifications: collected.classifications,
       identities: Object.freeze({
         repository: local.repository,
         localMainSha: local.currentMainSha,
         upstreamSha: local.upstreamSha,
         cachedMainSha: local.cachedMainSha,
         directRemoteSha: local.directRemoteSha,
-        githubMainSha,
+        githubMainSha: collected.githubMainSha,
+        contractAnchorSha: local.contractAnchorSha,
+      }),
+      localCache: localMetrics,
+      externalCache: externalMetrics,
+      commandCount: localMetrics.misses + externalMetrics.misses,
+      jobLogFetchCount:
+        localMetrics.jobLogFetches + externalMetrics.jobLogFetches,
+      persistentRawLogs: false,
+    }),
+  });
+}
+
+export async function applyStandardDeliveryContinuityTransition({
+  tasksRoot,
+  selectedTaskId,
+  transitionToken,
+  commandRunner,
+  queueInspector = inspectTaskQueue,
+} = {}) {
+  let prepared;
+  try {
+    prepared = parseStandardDeliveryContinuityTransitionToken(transitionToken);
+  } catch (error) {
+    throw hydrationError(
+      selectedTaskId,
+      "CHECKPOINT_APPLY",
+      error instanceof Error ? error.message : "transition token is invalid",
+      error?.code ?? "DELIVERY_CONTINUITY_INVALID",
+    );
+  }
+  if (prepared.selectedTaskId !== selectedTaskId) {
+    throw hydrationError(
+      selectedTaskId,
+      "CHECKPOINT_APPLY",
+      "transition token belongs to a different selected Task",
+    );
+  }
+  const resolvedTasksRoot = path.resolve(tasksRoot);
+  const queue = await queueInspector(resolvedTasksRoot);
+  if (!isRecord(queue) || !Array.isArray(queue.tasks) || !Array.isArray(queue.errors)) {
+    throw hydrationError(
+      selectedTaskId,
+      "CHECKPOINT_APPLY",
+      "queue inspection returned a malformed response",
+    );
+  }
+  if (queue.errors.length > 0) {
+    throw hydrationError(
+      selectedTaskId,
+      "CHECKPOINT_APPLY",
+      `queue validation failed: ${queue.errors.join("; ")}`,
+    );
+  }
+  const selectedTask = queue.tasks.find((task) => task.id === selectedTaskId);
+  if (
+    !selectedTask ||
+    selectedTask.taskStatus !== "IN_PROGRESS" ||
+    selectedTask.testStatus !== "RUNNING"
+  ) {
+    throw hydrationError(
+      selectedTaskId,
+      "CHECKPOINT_APPLY",
+      "selected Task must own the active IN_PROGRESS/RUNNING lifecycle",
+    );
+  }
+  const requiredTasks = discoverRequiredStandardDeliveries({
+    tasks: queue.tasks,
+    invocation: `$kyw-impl ${selectedTaskId}`,
+    managedRoutingAvailable: false,
+  });
+  let partition;
+  try {
+    partition = partitionStandardDeliveryContinuity({
+      checkpoint: prepared.checkpoint,
+      requiredTasks,
+    });
+  } catch (error) {
+    throw hydrationError(
+      selectedTaskId,
+      "CHECKPOINT_APPLY",
+      error instanceof Error ? error.message : "prepared coverage is invalid",
+      error?.code ?? "DELIVERY_CONTINUITY_INVALID",
+    );
+  }
+  if (partition.uncoveredTasks.length !== 0) {
+    throw hydrationError(
+      selectedTaskId,
+      "CHECKPOINT_APPLY",
+      "prepared checkpoint does not cover the exact prior delivery set",
+    );
+  }
+
+  const commandCache = createInvocationCommandCache({ runner: commandRunner });
+  const repositoryRoot = await gitText(
+    commandCache,
+    resolvedTasksRoot,
+    ["rev-parse", "--show-toplevel"],
+    { taskId: selectedTaskId, role: "CHECKPOINT_APPLY" },
+  );
+  if (!(await tasksRootMatchesRepository(resolvedTasksRoot, repositoryRoot))) {
+    throw hydrationError(
+      selectedTaskId,
+      "CHECKPOINT_APPLY",
+      "tasks root must be the repository docs/tasks directory",
+    );
+  }
+  const [
+    currentBranch,
+    currentMainSha,
+    currentHeadSha,
+    upstreamSha,
+    cachedMainSha,
+    originUrl,
+  ] = await Promise.all([
+    gitText(commandCache, repositoryRoot, ["branch", "--show-current"], {
+      taskId: selectedTaskId,
+      role: "CHECKPOINT_APPLY",
+    }),
+    gitText(commandCache, repositoryRoot, ["rev-parse", "refs/heads/main"], {
+      taskId: selectedTaskId,
+      role: "CHECKPOINT_APPLY",
+    }),
+    gitText(commandCache, repositoryRoot, ["rev-parse", "HEAD"], {
+      taskId: selectedTaskId,
+      role: "CHECKPOINT_APPLY",
+    }),
+    gitText(commandCache, repositoryRoot, ["rev-parse", "main@{upstream}"], {
+      taskId: selectedTaskId,
+      role: "CHECKPOINT_APPLY",
+    }),
+    gitText(
+      commandCache,
+      repositoryRoot,
+      ["rev-parse", "refs/remotes/origin/main"],
+      {
+        taskId: selectedTaskId,
+        role: "CHECKPOINT_APPLY",
+      },
+    ),
+    gitText(commandCache, repositoryRoot, ["remote", "get-url", "origin"], {
+      taskId: selectedTaskId,
+      role: "CHECKPOINT_APPLY",
+    }),
+  ]);
+  const branchPattern = new RegExp(
+    `(?:^|/)task(?:/|-)${selectedTaskId}(?:-|$)`,
+  );
+  if (currentBranch === "main" || !branchPattern.test(currentBranch)) {
+    throw hydrationError(
+      selectedTaskId,
+      "CHECKPOINT_APPLY",
+      "current branch does not prove selected-Task ownership",
+    );
+  }
+  if (currentMainSha !== prepared.checkpoint.sourceMainSha) {
+    throw hydrationError(
+      selectedTaskId,
+      "CHECKPOINT_APPLY",
+      "local main advanced after checkpoint preparation",
+    );
+  }
+  if (upstreamSha !== currentMainSha || cachedMainSha !== currentMainSha) {
+    throw hydrationError(
+      selectedTaskId,
+      "CHECKPOINT_APPLY",
+      "local main, upstream, and cached origin/main no longer align",
+    );
+  }
+  if (parseRepositorySlug(originUrl) !== prepared.checkpoint.repository) {
+    throw hydrationError(
+      selectedTaskId,
+      "CHECKPOINT_APPLY",
+      "repository identity changed after checkpoint preparation",
+    );
+  }
+  if (
+    !(await gitIsAncestor(
+      commandCache,
+      repositoryRoot,
+      currentMainSha,
+      currentHeadSha,
+    ))
+  ) {
+    throw hydrationError(
+      selectedTaskId,
+      "CHECKPOINT_APPLY",
+      "selected branch is not descended from prepared main",
+    );
+  }
+  if (
+    !(await gitIsAncestor(
+      commandCache,
+      repositoryRoot,
+      prepared.checkpoint.coveredMainSha,
+      currentMainSha,
+    ))
+  ) {
+    throw hydrationError(
+      selectedTaskId,
+      "CHECKPOINT_APPLY",
+      "covered main is not an ancestor of prepared source main",
+    );
+  }
+  const bytes = `${JSON.stringify(prepared.checkpoint, null, 2)}\n`;
+  const write = await writeStandardDeliveryContinuityCheckpoint({
+    tasksRoot: resolvedTasksRoot,
+    bytes,
+  });
+  return Object.freeze({
+    selectedTaskId,
+    currentBranch,
+    currentMainSha,
+    currentHeadSha,
+    checkpointDigest: prepared.checkpoint.checkpointDigest,
+    coveredTaskCount: prepared.checkpoint.coverage.taskCount,
+    write,
+    cache: commandCache.details(),
+  });
+}
+
+export async function hydratePriorStandardDeliveries({
+  tasksRoot,
+  invocation,
+  managedRoutingAvailable = false,
+  commandRunner,
+  queueInspector = inspectTaskQueue,
+  localDiscovery = discoverLocalDeliveryOutcomes,
+  githubClient,
+  allowBootstrapWorktreeCheckpoint = false,
+  allowUncheckpointedCompatibility = false,
+  continuityLoader = loadTrustedStandardDeliveryContinuity,
+  emptyContinuityPreparer = prepareEmptyHistoryStandardDeliveryContinuity,
+  deliveryCollector = collectNormalizedDeliveryOutcomes,
+  continuityRecordBuilder = buildContinuityCoveredRecord,
+} = {}) {
+  const queue = await queueInspector(path.resolve(tasksRoot));
+  if (!isRecord(queue) || !Array.isArray(queue.tasks) || !Array.isArray(queue.errors)) {
+    throw hydrationError(
+      undefined,
+      "QUEUE",
+      "queue inspection returned a malformed response",
+    );
+  }
+  if (queue.errors.length > 0) {
+    throw hydrationError(
+      undefined,
+      "QUEUE",
+      `queue validation failed: ${queue.errors.join("; ")}`,
+    );
+  }
+  const requiredTasks = discoverRequiredStandardDeliveries({
+    tasks: queue.tasks,
+    invocation,
+    managedRoutingAvailable,
+  });
+  if (requiredTasks.length === 0) {
+    if (!allowUncheckpointedCompatibility) {
+      const commandCache = createInvocationCommandCache({
+        runner: commandRunner,
+      });
+      const empty = await emptyContinuityPreparer({
+        tasksRoot: path.resolve(tasksRoot),
+        commandCache,
+      });
+      const metrics = commandCache.details();
+      return freezeHydrationResult({
+        deliveryLedger: {},
+        deliveryExpectations: {},
+        preparedCheckpoint: empty.preparedCheckpoint,
+        diagnostics: {
+          requiredTaskIds: Object.freeze([]),
+          classifications: Object.freeze({}),
+          chronology: Object.freeze([]),
+          identities: Object.freeze({
+            repository: empty.repository,
+            localMainSha: empty.currentMainSha,
+            upstreamSha: empty.upstreamSha,
+            cachedMainSha: empty.cachedMainSha,
+          }),
+          continuity: Object.freeze({
+            source: empty.source,
+            checkpointDigest: empty.checkpoint.checkpointDigest,
+            coveredTaskCount: 0,
+            coveredTaskIds: Object.freeze([]),
+            uncoveredTaskIds: Object.freeze([]),
+            freshEvidenceTaskCount: 0,
+            preparedAdvancement: Boolean(empty.preparedCheckpoint),
+            fullHistoryFallback: false,
+          }),
+          cache: commandCache.stats(),
+          queryCounts: Object.freeze({
+            commands: metrics.misses,
+            gitCommands: metrics.gitCommands,
+            githubApiCommands: metrics.githubApiCommands,
+            jobLogFetches: metrics.jobLogFetches,
+          }),
+          queryPolicy: Object.freeze({
+            retries: 0,
+            maxRequiredDeliveries: MAX_REQUIRED_DELIVERIES,
+            maxUncoveredDeliveries: 1,
+            maxGitHubResults: MAX_GITHUB_RESULTS,
+            maxRunAttempts: MAX_RUN_ATTEMPTS,
+            persistentCache: false,
+            persistentRawLogs: false,
+          }),
+        },
+      });
+    }
+    return freezeHydrationResult({
+      deliveryLedger: {},
+      deliveryExpectations: {},
+      diagnostics: {
+        requiredTaskIds: Object.freeze([]),
+        classifications: Object.freeze({}),
+        chronology: Object.freeze([]),
+        cache: Object.freeze({ hits: 0, misses: 0, entries: 0, maxCommands: MAX_COMMANDS }),
+        queryPolicy: Object.freeze({
+          retries: 0,
+          maxRequiredDeliveries: MAX_REQUIRED_DELIVERIES,
+          maxGitHubResults: MAX_GITHUB_RESULTS,
+          maxRunAttempts: MAX_RUN_ATTEMPTS,
+          persistentCache: false,
+        }),
+      },
+    });
+  }
+
+  if (!allowUncheckpointedCompatibility) {
+    const commandCache = createInvocationCommandCache({ runner: commandRunner });
+    const coverageTasks = queue.tasks
+      .filter(
+        (task) =>
+          task.contractVersion === CURRENT_TASK_CONTRACT_VERSION &&
+          completeTask(task) &&
+          requiresStandardDelivery(task),
+      )
+      .sort((left, right) => left.number - right.number);
+    const continuity = await continuityLoader({
+      tasksRoot: path.resolve(tasksRoot),
+      requiredTasks,
+      coverageTasks,
+      commandCache,
+      githubClient,
+      allowBootstrapWorktreeCheckpoint,
+    });
+    const coveredState = buildStandardDeliveryContinuityState({
+      checkpoint: continuity.checkpoint,
+      coveredTasks: continuity.partition.coveredTasks,
+      coverageTasks,
+    });
+    for (const task of continuity.partition.coveredTasks) {
+      const evaluation = evaluateDeliveryEvidence(
+        task.id,
+        coveredState.deliveryLedger[task.id],
+        coveredState.deliveryExpectations[task.id],
+      );
+      if (!evaluation.satisfied) {
+        throw hydrationError(
+          task.id,
+          "CHECKPOINT",
+          `production evaluator rejected durable continuity: ${evaluation.issues.join("; ")}`,
+        );
+      }
+    }
+
+    let fresh = {
+      deliveryLedger: Object.freeze({}),
+      deliveryExpectations: Object.freeze({}),
+      classifications: Object.freeze({}),
+      chronology: Object.freeze([]),
+      githubMainSha: continuity.identity.githubMainSha,
+    };
+    let freshLocal;
+    let preparedCheckpoint;
+    if (continuity.partition.uncoveredTasks.length === 1) {
+      freshLocal = await localDiscovery({
+        tasksRoot: path.resolve(tasksRoot),
+        requiredTasks: continuity.partition.uncoveredTasks,
+        contractTasks: continuity.partition.uncoveredTasks,
+        commandCache,
+      });
+      if (
+        !isRecord(freshLocal) ||
+        !Array.isArray(freshLocal.outcomes) ||
+        freshLocal.outcomes.length !== 1
+      ) {
+        throw hydrationError(
+          undefined,
+          "LOCAL_GIT",
+          "uncovered local discovery returned a partial or malformed outcome set",
+        );
+      }
+      fresh = await deliveryCollector({
+        local: freshLocal,
+        commandCache,
+        githubClient: continuity.identity.githubClient,
+      });
+      const uncoveredTask = continuity.partition.uncoveredTasks[0];
+      const outcome = freshLocal.outcomes[0];
+      const freshEvaluation = evaluateDeliveryEvidence(
+        uncoveredTask.id,
+        fresh.deliveryLedger[uncoveredTask.id],
+        fresh.deliveryExpectations[uncoveredTask.id],
+      );
+      if (!freshEvaluation.satisfied) {
+        throw hydrationError(
+          uncoveredTask.id,
+          "HARDENED_EXACT_HEAD",
+          `production evaluator rejected uncovered evidence: ${freshEvaluation.issues.join("; ")}`,
+        );
+      }
+      const coveredRecord = await continuityRecordBuilder({
+        task: uncoveredTask,
+        outcome,
+        entry: fresh.deliveryLedger[uncoveredTask.id],
+        expectation: fresh.deliveryExpectations[uncoveredTask.id],
+        local: freshLocal,
+        commandCache,
+        role: "CHECKPOINT_PREPARE",
+      });
+      preparedCheckpoint = createStandardDeliveryContinuityCheckpoint({
+        repository: continuity.identity.repository,
+        baseRef: "main",
+        sourceMainSha: continuity.identity.currentMainSha,
+        coveredRecords: [coveredRecord],
+        previousCheckpoint: continuity.checkpoint,
+      }).checkpoint;
+    }
+    const classifications = Object.fromEntries(
+      continuity.partition.coveredTasks.map((task) => [
+        task.id,
+        "DURABLE_STANDARD_CONTINUITY",
+      ]),
+    );
+    Object.assign(classifications, fresh.classifications);
+    const metrics = commandCache.details();
+    return freezeHydrationResult({
+      deliveryLedger: {
+        ...coveredState.deliveryLedger,
+        ...fresh.deliveryLedger,
+      },
+      deliveryExpectations: {
+        ...coveredState.deliveryExpectations,
+        ...fresh.deliveryExpectations,
+      },
+      preparedCheckpoint,
+      diagnostics: {
+        requiredTaskIds: Object.freeze(requiredTasks.map((task) => task.id)),
+        classifications: Object.freeze(classifications),
+        chronology: fresh.chronology,
+        identities: Object.freeze({
+          repository: continuity.identity.repository,
+          localMainSha: continuity.identity.currentMainSha,
+          upstreamSha: continuity.identity.upstreamSha,
+          cachedMainSha: continuity.identity.cachedMainSha,
+          directRemoteSha: continuity.identity.directRemoteSha,
+          githubMainSha: fresh.githubMainSha,
+          checkpointSourceMainSha: continuity.checkpoint.sourceMainSha,
+          checkpointCoveredMainSha: continuity.checkpoint.coveredMainSha,
+        }),
+        continuity: Object.freeze({
+          source: continuity.source,
+          checkpointDigest: continuity.checkpoint.checkpointDigest,
+          coveredTaskCount: continuity.partition.coveredTasks.length,
+          checkpointCoveredTaskCount:
+            continuity.coveragePartition?.coveredTasks.length ??
+            continuity.checkpoint.coverage.taskCount,
+          coveredTaskIds: Object.freeze(
+            continuity.partition.coveredTasks.map((task) => task.id),
+          ),
+          uncoveredTaskIds: Object.freeze(
+            continuity.partition.uncoveredTasks.map((task) => task.id),
+          ),
+          freshEvidenceTaskCount: continuity.partition.uncoveredTasks.length,
+          preparedAdvancement: Boolean(preparedCheckpoint),
+          fullHistoryFallback: false,
+        }),
+        cache: commandCache.stats(),
+        queryCounts: Object.freeze({
+          commands: metrics.misses,
+          gitCommands: metrics.gitCommands,
+          githubApiCommands: metrics.githubApiCommands,
+          jobLogFetches: metrics.jobLogFetches,
+        }),
+        queryPolicy: Object.freeze({
+          retries: 0,
+          maxRequiredDeliveries: MAX_REQUIRED_DELIVERIES,
+          maxUncoveredDeliveries: 1,
+          maxFirstParentCommits: MAX_FIRST_PARENT_COMMITS,
+          maxTaskPathCommits: MAX_TASK_PATH_COMMITS,
+          maxGitHubResults: MAX_GITHUB_RESULTS,
+          maxReviewPages: MAX_REVIEW_PAGES,
+          maxRunAttempts: MAX_RUN_ATTEMPTS,
+          maxCommands: MAX_COMMANDS,
+          persistentCache: false,
+          persistentRawLogs: false,
+        }),
+      },
+    });
+  }
+
+  const commandCache = createInvocationCommandCache({ runner: commandRunner });
+  const contractTasks = queue.tasks
+    .filter(
+      (task) =>
+        task.contractVersion === CURRENT_TASK_CONTRACT_VERSION &&
+        completeTask(task) &&
+        requiresStandardDelivery(task),
+    )
+    .sort((left, right) => left.number - right.number);
+  const local = await localDiscovery({
+    tasksRoot: path.resolve(tasksRoot),
+    requiredTasks,
+    contractTasks,
+    commandCache,
+  });
+  if (
+    !isRecord(local) ||
+    !Array.isArray(local.outcomes) ||
+    local.outcomes.length !== requiredTasks.length
+  ) {
+    throw hydrationError(
+      undefined,
+      "LOCAL_GIT",
+      "local discovery returned a partial or malformed outcome set",
+    );
+  }
+  const collected = await collectNormalizedDeliveryOutcomes({
+    local,
+    commandCache,
+    githubClient,
+  });
+
+  return freezeHydrationResult({
+    deliveryLedger: collected.deliveryLedger,
+    deliveryExpectations: collected.deliveryExpectations,
+    diagnostics: {
+      requiredTaskIds: Object.freeze(requiredTasks.map((task) => task.id)),
+      classifications: collected.classifications,
+      chronology: collected.chronology,
+      identities: Object.freeze({
+        repository: local.repository,
+        localMainSha: local.currentMainSha,
+        upstreamSha: local.upstreamSha,
+        cachedMainSha: local.cachedMainSha,
+        directRemoteSha: local.directRemoteSha,
+        githubMainSha: collected.githubMainSha,
         contractAnchorSha: local.contractAnchorSha,
       }),
       cache: commandCache.stats(),

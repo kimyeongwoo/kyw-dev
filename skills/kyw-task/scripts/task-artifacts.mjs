@@ -21,8 +21,11 @@ if (!existsSync(fileURLToPath(coreUrl))) {
 const {
   MAX_TASK_BATCH_PAYLOAD_BYTES,
   TaskArtifactError,
+  applyStandardDeliveryContinuityTransition,
+  bootstrapStandardDeliveryContinuity,
   createTaskArtifactBatch,
   createTaskArtifacts,
+  createStandardDeliveryContinuityTransitionToken,
   hydratePriorStandardDeliveries,
   inspectTaskBatchTransaction,
   recoverTaskBatchTransaction,
@@ -37,8 +40,14 @@ const usage =
   "   or: task-artifacts.mjs inspect-transaction --tasks-root <path>\n" +
   "   or: task-artifacts.mjs recover-transaction --tasks-root <path>\n" +
   "   or: task-artifacts.mjs validate --task-directory <path>\n" +
+  "   or: task-artifacts.mjs bootstrap-continuity --tasks-root <path> " +
+  "--invocation <text> --managed-routing <true|false> " +
+  "--migration-authority EXPLICIT_REBASELINE\n" +
+  "   or: task-artifacts.mjs apply-continuity --tasks-root <path> " +
+  "--selected-task <NNNN> --transition-token <opaque-token>\n" +
   "   or: task-artifacts.mjs dispatch --tasks-root <path> --invocation <text> " +
   "--managed-routing <true|false> " +
+  "[--continuity-bootstrap-authority EXPLICIT_REBASELINE] " +
   "[--execution-preflight <json-path> | --execution-preflight-json <json>]";
 
 function parseOptions(args, requiredNames, optionalNames = []) {
@@ -209,11 +218,65 @@ export async function runTaskArtifactCommand(argv, runtime = {}) {
     return { command, directory, valid: true };
   }
 
+  if (command === "bootstrap-continuity") {
+    const options = parseOptions(args, [
+      "--tasks-root",
+      "--invocation",
+      "--managed-routing",
+      "--migration-authority",
+    ]);
+    const managedRoutingValue = options.get("--managed-routing");
+    if (!["true", "false"].includes(managedRoutingValue)) {
+      throw new TaskArtifactError(
+        "INVALID_TASK_ADAPTER_ARGUMENTS",
+        "--managed-routing must be true or false",
+      );
+    }
+    if (options.get("--migration-authority") !== "EXPLICIT_REBASELINE") {
+      throw new TaskArtifactError(
+        "MIGRATION_AUTHORITY_REQUIRED",
+        "continuity bootstrap requires explicit migration/rebaseline authority",
+      );
+    }
+    const bootstrapped = await bootstrapStandardDeliveryContinuity({
+      tasksRoot: resolve(options.get("--tasks-root")),
+      invocation: options.get("--invocation"),
+      managedRoutingAvailable: managedRoutingValue === "true",
+    });
+    return {
+      command,
+      checkpoint: bootstrapped.checkpoint,
+      write: bootstrapped.write,
+      diagnostics: bootstrapped.diagnostics,
+    };
+  }
+
+  if (command === "apply-continuity") {
+    const options = parseOptions(args, [
+      "--tasks-root",
+      "--selected-task",
+      "--transition-token",
+    ]);
+    if (!/^\d{4}$/.test(options.get("--selected-task"))) {
+      throw new TaskArtifactError(
+        "INVALID_TASK_ADAPTER_ARGUMENTS",
+        "--selected-task must be a four-digit Task ID",
+      );
+    }
+    const applied = await applyStandardDeliveryContinuityTransition({
+      tasksRoot: resolve(options.get("--tasks-root")),
+      selectedTaskId: options.get("--selected-task"),
+      transitionToken: options.get("--transition-token"),
+    });
+    return { command, ...applied };
+  }
+
   if (command === "dispatch") {
     const options = parseOptions(
       args,
       ["--tasks-root", "--invocation", "--managed-routing"],
       [
+        "--continuity-bootstrap-authority",
         "--delivery-ledger",
         "--delivery-ledger-json",
         "--delivery-expectations",
@@ -240,6 +303,18 @@ export async function runTaskArtifactCommand(argv, runtime = {}) {
     const tasksRoot = resolve(options.get("--tasks-root"));
     const invocation = options.get("--invocation");
     const managedRoutingAvailable = managedRoutingValue === "true";
+    const continuityBootstrapAuthority = options.get(
+      "--continuity-bootstrap-authority",
+    );
+    if (
+      continuityBootstrapAuthority !== undefined &&
+      continuityBootstrapAuthority !== "EXPLICIT_REBASELINE"
+    ) {
+      throw new TaskArtifactError(
+        "MIGRATION_AUTHORITY_REQUIRED",
+        "continuity bootstrap dispatch requires explicit migration/rebaseline authority",
+      );
+    }
     const manualDeliveryInput = [
       "--delivery-ledger",
       "--delivery-ledger-json",
@@ -249,6 +324,7 @@ export async function runTaskArtifactCommand(argv, runtime = {}) {
     let deliveryLedger;
     let deliveryExpectations;
     let hydrationDiagnostics;
+    let preparedCheckpoint;
     if (manualDeliveryInput) {
       deliveryLedger = await readJsonObjectOption(options, {
         pathOption: "--delivery-ledger",
@@ -267,10 +343,13 @@ export async function runTaskArtifactCommand(argv, runtime = {}) {
         tasksRoot,
         invocation,
         managedRoutingAvailable,
+        allowBootstrapWorktreeCheckpoint:
+          continuityBootstrapAuthority === "EXPLICIT_REBASELINE",
       });
       deliveryLedger = hydrated.deliveryLedger;
       deliveryExpectations = hydrated.deliveryExpectations;
       hydrationDiagnostics = hydrated.diagnostics;
+      preparedCheckpoint = hydrated.preparedCheckpoint;
     }
 
     const result = await dispatchTask({
@@ -281,16 +360,27 @@ export async function runTaskArtifactCommand(argv, runtime = {}) {
       deliveryExpectations,
       executionPreflight,
     });
+    const continuityTransitionToken =
+      preparedCheckpoint &&
+      result.outcome === "SELECTED" &&
+      ["IMPLEMENT", "RESUME", "DELIVER"].includes(result.action) &&
+      result.task?.id
+        ? createStandardDeliveryContinuityTransitionToken({
+            selectedTaskId: result.task.id,
+            checkpoint: preparedCheckpoint,
+          })
+        : undefined;
     return {
       command,
       ...result,
+      ...(continuityTransitionToken ? { continuityTransitionToken } : {}),
       ...(hydrationDiagnostics ? { hydration: hydrationDiagnostics } : {}),
     };
   }
 
   throw new TaskArtifactError(
     "INVALID_TASK_ADAPTER_ARGUMENTS",
-    `Expected create, create-batch, inspect-transaction, recover-transaction, validate, or dispatch, received ${command ?? "<missing>"}\n${usage}`,
+    `Expected create, create-batch, inspect-transaction, recover-transaction, validate, bootstrap-continuity, apply-continuity, or dispatch, received ${command ?? "<missing>"}\n${usage}`,
   );
 }
 

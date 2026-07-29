@@ -9,9 +9,12 @@ const repositoryPattern = /^[^/\s]+\/[^/\s]+$/;
 const EXPECTATION_SCHEMA_VERSION = 2;
 const HARDENED_LEDGER_SCHEMA_VERSION = 2;
 const LEGACY_LEDGER_SCHEMA_VERSION = 1;
+const CONTINUITY_SCHEMA_VERSION = 3;
 const HARDENED_CONTRACT = "HARDENED_EXACT_HEAD";
 const LEGACY_CONTRACT = "LEGACY_PRE_CONTRACT";
+const CONTINUITY_CONTRACT = "DURABLE_STANDARD_CONTINUITY";
 const LEGACY_CLASSIFICATION = "LEGACY_PRE_CONTRACT_CONTINUITY";
+const CONTINUITY_EVALUATION = "PREVIOUSLY_EVALUATOR_SATISFIED";
 const LEGACY_ELIGIBILITY_SOURCE = "LOCAL_GIT_PRE_CONTRACT_HISTORY";
 const ACTUAL_HEAD_ROLE = "PR_ACTUAL_HEAD";
 const MERGE_COMPATIBILITY_ROLE = "PR_MERGE_COMPATIBILITY";
@@ -132,6 +135,14 @@ function requireSha(label, value, issues) {
   return true;
 }
 
+function requireDigest(label, value, issues) {
+  if (!/^[0-9a-f]{64}$/.test(value ?? "")) {
+    issues.push(`${label} must be an exact lowercase SHA-256 digest`);
+    return false;
+  }
+  return true;
+}
+
 function requirePositiveInteger(label, value, issues) {
   if (!Number.isInteger(value) || value < 1) {
     issues.push(`${label} must be a positive integer`);
@@ -169,10 +180,93 @@ function expectationContractKind(expectation) {
     : undefined;
 }
 
+function continuityExpectationIssues(taskId, expectation) {
+  const issues = [];
+  unknownFields(
+    "expectation",
+    expectation,
+    [
+      "schemaVersion",
+      "source",
+      "taskId",
+      "repository",
+      "baseRef",
+      "deliveryContract",
+    ],
+    issues,
+  );
+  requireExact(
+    "expectation.schemaVersion",
+    expectation.schemaVersion,
+    CONTINUITY_SCHEMA_VERSION,
+    issues,
+  );
+  requireExact(
+    "expectation.source",
+    expectation.source,
+    "ALIGNED_MAIN_CHECKPOINT",
+    issues,
+  );
+  requireExact("expectation.taskId", expectation.taskId, taskId, issues);
+  if (!repositoryPattern.test(expectation.repository ?? "")) {
+    issues.push("expectation.repository must be an exact owner/name identifier");
+  }
+  requireExact("expectation.baseRef", expectation.baseRef, "main", issues);
+  const contract = expectation.deliveryContract;
+  if (!isRecord(contract)) {
+    issues.push("expectation.deliveryContract is required");
+    return issues;
+  }
+  unknownFields(
+    "expectation.deliveryContract",
+    contract,
+    [
+      "kind",
+      "version",
+      "checkpointDigest",
+      "coveredTaskSetSha256",
+      "terminalPairStateSha256",
+      "cumulativeEvidenceSha256",
+    ],
+    issues,
+  );
+  requireExact(
+    "expectation.deliveryContract.kind",
+    contract.kind,
+    CONTINUITY_CONTRACT,
+    issues,
+  );
+  requireExact("expectation.deliveryContract.version", contract.version, 1, issues);
+  requireDigest(
+    "expectation.deliveryContract.checkpointDigest",
+    contract.checkpointDigest,
+    issues,
+  );
+  requireDigest(
+    "expectation.deliveryContract.coveredTaskSetSha256",
+    contract.coveredTaskSetSha256,
+    issues,
+  );
+  requireDigest(
+    "expectation.deliveryContract.terminalPairStateSha256",
+    contract.terminalPairStateSha256,
+    issues,
+  );
+  requireDigest(
+    "expectation.deliveryContract.cumulativeEvidenceSha256",
+    contract.cumulativeEvidenceSha256,
+    issues,
+  );
+  return issues;
+}
+
 function deliveryExpectationIssues(taskId, expectation) {
   const issues = [];
   if (!isRecord(expectation)) {
     return [`Task ${taskId} requires trusted local delivery expectations`];
+  }
+  if (expectationContractKind(expectation) === CONTINUITY_CONTRACT) {
+    return continuityExpectationIssues(taskId, expectation);
   }
   unknownFields(
     "expectation",
@@ -302,7 +396,7 @@ function deliveryExpectationIssues(taskId, expectation) {
     requireSha("expectation.deliveryContract.mergeSha", contract.mergeSha, issues);
   } else {
     issues.push(
-      `expectation.deliveryContract.kind must be ${HARDENED_CONTRACT} or ${LEGACY_CONTRACT}`,
+      `expectation.deliveryContract.kind must be ${HARDENED_CONTRACT}, ${LEGACY_CONTRACT}, or ${CONTINUITY_CONTRACT}`,
     );
   }
   return issues;
@@ -1129,6 +1223,86 @@ function validateLegacyEntry(taskId, entry, expectation) {
   return validation;
 }
 
+function validateContinuityEntry(taskId, entry, expectation) {
+  const validation = createValidation(
+    CONTINUITY_CONTRACT,
+    CONTINUITY_EVALUATION,
+    CONTINUITY_EVALUATION,
+    CONTINUITY_EVALUATION,
+  );
+  validation.issues.push(...deliveryExpectationIssues(taskId, expectation));
+  if (!isRecord(entry)) {
+    validation.issues.push(
+      `Task ${taskId} requires durable STANDARD continuity evidence`,
+    );
+    return validation;
+  }
+  unknownFields(
+    "delivery evidence",
+    entry,
+    [
+      "schemaVersion",
+      "claim",
+      "source",
+      "taskId",
+      "repository",
+      "classification",
+      "checkpointDigest",
+      "coveredTaskSetSha256",
+      "terminalPairStateSha256",
+      "cumulativeEvidenceSha256",
+      "evaluation",
+    ],
+    validation.issues,
+  );
+  requireExact(
+    "schemaVersion",
+    entry.schemaVersion,
+    CONTINUITY_SCHEMA_VERSION,
+    validation.issues,
+  );
+  requireExact("claim", entry.claim, "FINAL", validation.issues);
+  requireExact(
+    "source",
+    entry.source,
+    "REPOSITORY_CHECKPOINT",
+    validation.issues,
+  );
+  requireExact("taskId", entry.taskId, taskId, validation.issues);
+  if (!repositoryPattern.test(entry.repository ?? "")) {
+    validation.issues.push("repository must be an exact owner/name identifier");
+  }
+  requireExact(
+    "repository",
+    entry.repository,
+    expectation?.repository,
+    validation.issues,
+  );
+  requireExact(
+    "classification",
+    entry.classification,
+    CONTINUITY_CONTRACT,
+    validation.issues,
+  );
+  requireExact(
+    "evaluation",
+    entry.evaluation,
+    CONTINUITY_EVALUATION,
+    validation.issues,
+  );
+  const contract = expectation?.deliveryContract;
+  for (const field of [
+    "checkpointDigest",
+    "coveredTaskSetSha256",
+    "terminalPairStateSha256",
+    "cumulativeEvidenceSha256",
+  ]) {
+    requireDigest(field, entry[field], validation.issues);
+    requireExact(field, entry[field], contract?.[field], validation.issues);
+  }
+  return validation;
+}
+
 function invalidValidation(taskId, entry, expectation) {
   const validation = createValidation("INVALID", "UNVERIFIED", "UNVERIFIED", "UNVERIFIED");
   validation.issues.push(...deliveryExpectationIssues(taskId, expectation));
@@ -1137,9 +1311,15 @@ function invalidValidation(taskId, entry, expectation) {
     return validation;
   }
   validation.issues.push(...deliveryIdentityIssues(taskId, entry, expectation));
-  if (![LEGACY_LEDGER_SCHEMA_VERSION, HARDENED_LEDGER_SCHEMA_VERSION].includes(entry.schemaVersion)) {
+  if (
+    ![
+      LEGACY_LEDGER_SCHEMA_VERSION,
+      HARDENED_LEDGER_SCHEMA_VERSION,
+      CONTINUITY_SCHEMA_VERSION,
+    ].includes(entry.schemaVersion)
+  ) {
     validation.issues.push(
-      `schemaVersion must be ${LEGACY_LEDGER_SCHEMA_VERSION} or ${HARDENED_LEDGER_SCHEMA_VERSION}`,
+      `schemaVersion must be ${LEGACY_LEDGER_SCHEMA_VERSION}, ${HARDENED_LEDGER_SCHEMA_VERSION}, or ${CONTINUITY_SCHEMA_VERSION}`,
     );
   } else {
     validation.issues.push(
@@ -1156,6 +1336,12 @@ function finalValidation(taskId, entry, expectation) {
   }
   if (contractKind === LEGACY_CONTRACT && entry?.schemaVersion === 1) {
     return validateLegacyEntry(taskId, entry, expectation);
+  }
+  if (
+    contractKind === CONTINUITY_CONTRACT &&
+    entry?.schemaVersion === CONTINUITY_SCHEMA_VERSION
+  ) {
+    return validateContinuityEntry(taskId, entry, expectation);
   }
   return invalidValidation(taskId, entry, expectation);
 }
@@ -1193,6 +1379,8 @@ function resumableClassification(expectation) {
     classification:
       expectationContractKind(expectation) === HARDENED_CONTRACT
         ? HARDENED_CONTRACT
+        : expectationContractKind(expectation) === CONTINUITY_CONTRACT
+          ? CONTINUITY_CONTRACT
         : "PENDING",
     actualHead: "UNVERIFIED",
     mergeCompatibility: "UNVERIFIED",
