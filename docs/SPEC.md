@@ -366,7 +366,7 @@ Stable exit categories are:
 
 ### 9.2 Package boundary
 
-The package and plugin version is `0.1.0`. The npm tarball includes plugin metadata, all five Skills, their required templates and deterministic support, CLI/runtime source, README, license, third-party notices, and upstream attribution.
+The package and plugin version is `0.1.1`. The npm tarball includes plugin metadata, all five Skills, their required templates and deterministic support, CLI/runtime source, README, license, third-party notices, and upstream attribution.
 
 Semantic versioning applies; `0.x` unfinished interfaces may change only with documented migration impact.
 
@@ -440,8 +440,8 @@ The product is accepted when the following observable results are demonstrated:
 
 ## 13. Publication state and authority
 
-Current package and plugin metadata identify version `0.1.0`, package/plugin/CLI name `kyw-dev`, MIT licensing, author display name `Kim Yeongwoo`, copyright `Copyright (c) 2026 Kim Yeongwoo`, public source repository `https://github.com/kimyeongwoo/kyw-dev`, and its issue tracker.
+Current package and plugin metadata identify version `0.1.1`, package/plugin/CLI name `kyw-dev`, MIT licensing, author display name `Kim Yeongwoo`, copyright `Copyright (c) 2026 Kim Yeongwoo`, public source repository `https://github.com/kimyeongwoo/kyw-dev`, and its issue tracker.
 
-Metadata targets the public npm registry and the preferred unscoped package name, with a real owner-scoped fallback requiring a separate decision if availability changes. Optional contact, privacy, terms, and branding values are omitted rather than invented. Public plugin-directory submission is not part of the current release boundary.
+The public npm registry serves `kyw-dev@0.1.1` under the `latest` tag. Metadata targets that registry and published unscoped package identity. Optional contact, privacy, terms, and branding values are omitted rather than invented. No Git version tag, GitHub Release, or public plugin-directory submission is part of the current publication.
 
-Packing, local marketplace verification, exact-SHA CI, release-candidate checks, and `npm publish --dry-run` are evidence only. The mutating `npm publish`, registry mutation, package version change, tag, GitHub Release, public plugin submission, or other public distribution action requires separate explicit user authority after current checks and name revalidation. No Skill or CI result may infer that authority.
+Packing, local marketplace verification, exact-SHA CI, release-candidate checks, and `npm publish --dry-run` are evidence only. The mutating `npm publish`, registry mutation, package version change, tag, GitHub Release, public plugin submission, or other public distribution action requires separate explicit user authority after current checks and registry identity/version revalidation. No Skill or CI result may infer that authority.

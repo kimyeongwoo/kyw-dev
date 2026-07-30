@@ -198,7 +198,10 @@ test("actual tarball passes the fail-closed isolated direct and marketplace life
     [ISOLATION_OUTCOMES.CLEAN],
   );
   assert.equal(summary.tarball.fileCount, EXPECTED_TARBALL_FILES.length);
-  assert.match(summary.tarball.filename, /^kyw-dev-0\.1\.0\.tgz$/);
+  assert.equal(
+    summary.tarball.filename,
+    `${RELEASE_METADATA.name}-${RELEASE_METADATA.version}.tgz`,
+  );
   assert.match(summary.tarball.sha256, /^[a-f0-9]{64}$/);
   assert.equal(summary.pathGuard.targetCount >= 15, true);
   assert.equal(summary.pathGuard.approvedRootRemoved, true);

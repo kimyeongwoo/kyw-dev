@@ -561,10 +561,10 @@ metadata. It is not discoverable as another Skill.
 ### 8.2 Plugin package and cache
 
 The npm tarball is also a complete Codex plugin with a manifest and bundled
-Skills. A marketplace may acquire those bytes from npm or GitHub. Before public
-publication, isolated local-marketplace verification uses the real packed
-archive. Plugin and direct installation are alternatives; duplicate discovery
-is diagnosed rather than silently resolved.
+Skills. A marketplace may acquire those bytes from npm or GitHub. Per-version
+release verification uses the real packed archive through an isolated local
+marketplace before registry mutation. Plugin and direct installation are
+alternatives; duplicate discovery is diagnosed rather than silently resolved.
 
 Plugins are supported by plugin-capable Codex surfaces. The IDE extension uses
 direct Skills. The public package identity, plugin identity, CLI version, and

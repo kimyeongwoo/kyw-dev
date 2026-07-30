@@ -6,7 +6,7 @@
 
 ## Start here
 
-The usable source is this checkout. Version `0.1.0` has not been published to npm or a public plugin directory.
+The current public npm release is `kyw-dev@0.1.1`. No public plugin-directory submission has occurred.
 
 ### Choose one installation surface
 
@@ -49,11 +49,11 @@ Questions and small, clearly bounded changes do not require a Task folder. They 
 
 ## Release status
 
-Version `0.1.0` implements the package, plugin, five Skills, CLI, installer, CI, and development validation surfaces, but remains unpublished. Exact historical candidates and results live only in their numbered Task/Test pairs and GitHub.
+Version `0.1.1` is the current public npm package and implements the plugin, five Skills, CLI, installer, CI, and development validation surfaces. Exact historical candidates and results live only in their numbered Task/Test pairs and GitHub.
 
-No npm publication, registry mutation, package-version change, version tag, GitHub Release, or public plugin submission has occurred.
+`kyw-dev@0.1.1` is published to the public npm registry under the `latest` tag. No version tag, GitHub Release, or public plugin submission has occurred.
 Packing, CI, a candidate verdict, or `npm publish --dry-run` is evidence about specific bytes; none authorizes publication.
-Each publication, registry, version, tag, Release, or public-submission action requires separate explicit authority.
+Each future publication, registry, version, tag, Release, or public-submission action requires separate explicit authority.
 
 Source: [kimyeongwoo/kyw-dev](https://github.com/kimyeongwoo/kyw-dev) · Issues: [GitHub issue tracker](https://github.com/kimyeongwoo/kyw-dev/issues)
 
@@ -120,19 +120,17 @@ The portable `$kyw-grilling`, `$kyw-init`, `$kyw-task "<outcome>"`, `$kyw-impl N
 
 ### Direct Skills installation
 
-Until an explicitly approved npm publication occurs, use the checkout entrypoint:
+Use the published CLI:
 
 ```bash
-git clone https://github.com/kimyeongwoo/kyw-dev.git
-cd kyw-dev
-node ./bin/kyw-dev.mjs install --scope user
-node ./bin/kyw-dev.mjs install --scope project
-node ./bin/kyw-dev.mjs update --scope user
-node ./bin/kyw-dev.mjs uninstall --scope user
-node ./bin/kyw-dev.mjs doctor
+npx --yes kyw-dev@0.1.1 install --scope user
+npx --yes kyw-dev@0.1.1 install --scope project
+npx --yes kyw-dev@0.1.1 update --scope user
+npx --yes kyw-dev@0.1.1 uninstall --scope user
+npx --yes kyw-dev@0.1.1 doctor
 ```
 
-After `kyw-dev@0.1.0` is actually published, the same arguments may be used through `npx --yes kyw-dev@0.1.0 ...`. The prepared package is not evidence that this command is available today.
+For source-checkout development, clone the repository and substitute `node ./bin/kyw-dev.mjs` for `npx --yes kyw-dev@0.1.1` in the same commands.
 
 - The CLI installs the five workflow Skills only. `$kyw-init`, after confirmation, owns project-document creation.
 - Ownership metadata is stored in `.agents/skills/.kyw-dev-install.json`; deterministic Task support is stored under `.agents/skills/.kyw-dev/runtime/`, which is not a discoverable Skill.
@@ -158,13 +156,13 @@ CLI exit codes are stable:
 
 For codes 4–7, run `doctor`, inspect only the reported paths, and preserve unknown files and links. Resolve duplicates by uninstalling an unchanged direct copy with the CLI or removing a plugin through the supported plugin browser, then restart the affected Codex surface and rerun `doctor`.
 
-The preferred future npm name is the unscoped `kyw-dev`, but repository configuration does not reserve it. Recheck the name only at a separately approved publication boundary; if unavailable, stop and choose a real owner scope.
+The unscoped `kyw-dev` name is published on the public npm registry. Revalidate the exact package identity, target version, and authenticated owner before every separately authorized future publication.
 
 ### Codex plugin installation
 
-The package contains `.codex-plugin/plugin.json` and all five `skills/` directories. Pre-publication verification installs extracted packed bytes through an isolated local marketplace as `kyw-dev@kyw-dev-local`; that fixture and runner are development-only and excluded from the tarball.
+The package contains `.codex-plugin/plugin.json` and all five `skills/` directories. Per-version release verification installs extracted packed bytes through an isolated local marketplace as `kyw-dev@kyw-dev-local`; that fixture and runner are development-only and excluded from the tarball.
 
-An npm-backed marketplace entry becomes usable only after publication. Direct Skills and plugin installation are alternatives, not layers to combine. See [ARCHITECTURE](docs/ARCHITECTURE.md) for package, marketplace, cache, duplicate-source, and release boundaries.
+The npm package is available to configured marketplace sources, but no public plugin-directory submission has occurred. Direct Skills and plugin installation are alternatives, not layers to combine. See [ARCHITECTURE](docs/ARCHITECTURE.md) for package, marketplace, cache, duplicate-source, and release boundaries.
 
 ## Development
 
