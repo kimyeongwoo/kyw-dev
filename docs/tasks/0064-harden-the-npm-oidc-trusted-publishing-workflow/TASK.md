@@ -106,6 +106,8 @@ Introduce and deliver a manual-only, fail-closed `.github/workflows/publish.yml`
 - The release-isolation runner completed one `CLEAN` attempt, matched the same candidate bytes, passed all direct and local-marketplace lifecycle steps, preserved the npm userconfig/normal Agents/normal Codex sentinels, and removed its exact owned root. No `kyw-dev-packed-release-*` temporary root remains.
 - Final read-only external inspection found registry versions `0.1.0` and `0.1.1`, `latest` at `0.1.1`, and `0.1.2` absent with HTTP 404; no registered or executed `publish.yml` workflow, local/remote Git tag, GitHub Release, or search-indexed public plugin submission was found. No external mutation or workflow dispatch command ran.
 - Final immutability review found three earlier contract-3 terminal pairs (`0061`–`0063`) and no tracked Task/Test diff other than the rolling checkpoint; all still match aligned `HEAD`. `AGENTS.md`, `.github/workflows/ci.yml`, `package.json`, and `.codex-plugin/plugin.json` are also byte-unchanged, and no dependency, lifecycle, lockfile, or package-allowlist drift exists.
+- PR `#52` ran exact head `8ab7c465d6686e038d09336cc69421179d48b98f`. Ubuntu, Windows, quality, packed-release, and synthetic-merge jobs passed, but both macOS behavioral jobs failed the candidate collision regression because macOS exposes one temporary parent lexically under `/var/...` and physically under `/private/var/...`.
+- The failing guard compared the physical temporary parent with an alias-retaining candidate parent as strings. The focused correction canonicalizes both existing parent directories before the direct-child comparison, still verifies the candidate root's physical parent/name, and adds an ancestor-alias regression without weakening symlink, containment, or cleanup guards.
 
 ## Documentation Impact
 
@@ -132,7 +134,12 @@ Introduce and deliver a manual-only, fail-closed `.github/workflows/publish.yml`
 - Passed current formatting over 338 UTF-8/LF files, lint over 82 JavaScript modules, pair validation, transaction inspection, whitespace review, and the exact 19-path Release plan.
 - Passed all four standalone Stable commands, `npm run release:ci`, the one-attempt `CLEAN` isolation lifecycle, current registry/run/tag/Release reads, final scope and immutable-history review, and validation of all three pre-created Task pairs.
 - Re-ran the full test suite after the lifecycle transition; terminal `DONE/PASSED` queue and continuity state again passed 393 tests with 390 passes, three explicit skips, and zero failures.
-- Entered `DONE/PASSED`; repository acceptance is complete and `STANDARD` remains the separate GitHub exact-head delivery gate.
+- Initially entered `DONE/PASSED`, then reopened the pair after exact-head PR `#52` exposed the macOS temporary-parent alias regression.
+- Canonicalized candidate-parent identity without relaxing physical-root checks, added the deterministic ancestor-alias regression, and passed the corrected focused suite at 47/47.
+- Re-ran `npm run release:ci` on the correction: all 393 tests completed with 390 passes, three skips, and zero failures; lint, format, the 43-file / 128,953-byte pack, and candidate SHA-256 remained exact.
+- Re-ran release isolation on the correction; it returned `CLEAN` in one attempt with unchanged protected sentinels and complete cleanup.
+- Re-ran the full suite after restoring the corrected terminal lifecycle; `DONE/PASSED` queue and continuity state again completed 393 tests with 390 passes, three skips, and zero failures.
+- Restored `DONE/PASSED`; repository acceptance is complete and the corrected exact head now requires the existing `STANDARD` PR checks.
 
 ## Remaining
 

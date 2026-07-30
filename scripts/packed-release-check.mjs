@@ -143,7 +143,11 @@ export function assertOwnedCandidateRoot(
   const parent = safeTemporaryParent(temporaryParent);
   const resolvedRoot = resolve(candidateRoot);
   assertCandidateRootName(resolvedRoot);
-  if (dirname(resolvedRoot) !== parent) {
+  const physicalCandidateParent = canonicalDirectory(
+    dirname(resolvedRoot),
+    "candidate root parent",
+  );
+  if (physicalCandidateParent !== parent) {
     throw new Error("Candidate root must be a direct child of its temporary parent");
   }
   if (!existsSync(resolvedRoot)) {
@@ -153,12 +157,16 @@ export function assertOwnedCandidateRoot(
   if (!metadata.isDirectory() || metadata.isSymbolicLink()) {
     throw new Error("Candidate root must be a physical directory");
   }
-  if (realpathSync(resolvedRoot) !== resolvedRoot) {
+  const physicalRoot = realpathSync(resolvedRoot);
+  if (
+    dirname(physicalRoot) !== parent ||
+    basename(physicalRoot) !== basename(resolvedRoot)
+  ) {
     throw new Error("Candidate root physical identity changed");
   }
 
   if (requireRetainedStructure) {
-    const rootEntries = readdirSync(resolvedRoot, { withFileTypes: true });
+    const rootEntries = readdirSync(physicalRoot, { withFileTypes: true });
     if (
       rootEntries.length !== 1 ||
       rootEntries[0].name !== "pack" ||
@@ -167,7 +175,7 @@ export function assertOwnedCandidateRoot(
     ) {
       throw new Error("Retained candidate root has an unexpected structure");
     }
-    const packDirectory = join(resolvedRoot, "pack");
+    const packDirectory = join(physicalRoot, "pack");
     const packMetadata = lstatSync(packDirectory);
     if (!packMetadata.isDirectory() || packMetadata.isSymbolicLink()) {
       throw new Error("Retained candidate pack path must be a physical directory");
@@ -183,7 +191,7 @@ export function assertOwnedCandidateRoot(
       throw new Error("Retained candidate root must contain exactly the expected archive");
     }
   }
-  return resolvedRoot;
+  return physicalRoot;
 }
 
 export function prepareCandidateRoot({
@@ -199,7 +207,11 @@ export function prepareCandidateRoot({
   }
   const resolvedRoot = resolve(candidateRoot);
   assertCandidateRootName(resolvedRoot);
-  if (dirname(resolvedRoot) !== parent) {
+  const physicalCandidateParent = canonicalDirectory(
+    dirname(resolvedRoot),
+    "requested candidate root parent",
+  );
+  if (physicalCandidateParent !== parent) {
     throw new Error("Requested candidate root must be a direct child of its temporary parent");
   }
   if (existsSync(resolvedRoot)) {

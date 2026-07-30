@@ -7,7 +7,9 @@ import {
   mkdtempSync,
   readFileSync,
   readdirSync,
+  realpathSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -294,6 +296,30 @@ test("candidate root, pack report, hygiene, collision, and cleanup guards fail c
   assert.throws(
     () => cleanupPackedReleaseCandidate(collisionRoot, { temporaryParent }),
     /unexpected structure/,
+  );
+
+  const aliasFixture = mkdtempSync(join(tmpdir(), "kyw-dev-candidate-alias-"));
+  t.after(() => rmSync(aliasFixture, { recursive: true, force: true }));
+  const physicalAncestor = join(aliasFixture, "physical");
+  const physicalParent = join(physicalAncestor, "parent");
+  const aliasAncestor = join(aliasFixture, "alias");
+  mkdirSync(physicalParent, { recursive: true });
+  symlinkSync(
+    physicalAncestor,
+    aliasAncestor,
+    process.platform === "win32" ? "junction" : "dir",
+  );
+  const aliasParent = join(aliasAncestor, "parent");
+  const aliasCandidate = join(
+    aliasParent,
+    "kyw-dev-packed-release-physical-parent",
+  );
+  assert.equal(
+    prepareCandidateRoot({
+      temporaryParent: aliasParent,
+      candidateRoot: aliasCandidate,
+    }),
+    realpathSync(aliasCandidate),
   );
 
   for (const malformed of [
