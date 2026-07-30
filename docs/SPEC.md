@@ -366,7 +366,7 @@ Stable exit categories are:
 
 ### 9.2 Package boundary
 
-The source package and plugin metadata version is `0.1.2`; it is the release candidate and is not yet a public registry version. The candidate npm tarball includes plugin metadata, all five Skills, their required templates and deterministic support, CLI/runtime source, README, license, third-party notices, and upstream attribution.
+The source package and plugin metadata version is `0.1.2`; it is published to the public npm registry under `latest`. The npm tarball includes plugin metadata, all five Skills, their required templates and deterministic support, CLI/runtime source, README, license, third-party notices, and upstream attribution.
 
 Semantic versioning applies; `0.x` unfinished interfaces may change only with documented migration impact.
 
@@ -441,9 +441,9 @@ The product is accepted when the following observable results are demonstrated:
 
 ## 13. Publication state and authority
 
-Current repository package and plugin metadata identify release candidate version `0.1.2`, package/plugin/CLI name `kyw-dev`, MIT licensing, author display name `Kim Yeongwoo`, copyright `Copyright (c) 2026 Kim Yeongwoo`, public source repository `https://github.com/kimyeongwoo/kyw-dev`, and its issue tracker.
+Current repository package and plugin metadata identify public version `0.1.2`, package/plugin/CLI name `kyw-dev`, MIT licensing, author display name `Kim Yeongwoo`, copyright `Copyright (c) 2026 Kim Yeongwoo`, public source repository `https://github.com/kimyeongwoo/kyw-dev`, and its issue tracker.
 
-The public npm registry serves `kyw-dev@0.1.1` under the `latest` tag and does not yet serve the `0.1.2` candidate. Metadata targets that registry and published unscoped package identity. Optional contact, privacy, terms, and branding values are omitted rather than invented. No Git version tag, GitHub Release, or public plugin-directory submission is part of the current publication.
+The public npm registry serves `kyw-dev@0.1.2` under the `latest` tag and retains `0.1.0` and `0.1.1`. The single authorized `0.1.2` publication came from the configured GitHub Actions trusted publisher and carries registry signatures plus SLSA provenance binding the package digest to `.github/workflows/publish.yml`, `refs/heads/main`, and the exact published source commit. Canonical npm version metadata does not expose `gitHead`; provenance supplies the observable source binding but does not satisfy a contract that explicitly requires that metadata field. Metadata otherwise targets the public registry and unscoped package identity. Optional contact, privacy, terms, and branding values are omitted rather than invented. No Git version tag, GitHub Release, or public plugin-directory submission is part of the current publication.
 
 Packing, local marketplace verification, exact-SHA CI, release-candidate checks, and `npm publish --dry-run` are evidence only. The mutating `npm publish`, registry mutation, package version change, tag, GitHub Release, public plugin submission, or other public distribution action requires separate explicit user authority after current checks and registry identity/version revalidation. No Skill or CI result may infer that authority.
 
