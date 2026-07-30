@@ -6,7 +6,7 @@
 
 ## Start here
 
-The repository and package metadata identify public `kyw-dev@0.1.2`, which the public npm registry serves under `latest`. No public plugin-directory submission has occurred.
+The repository and package metadata identify the unpublished `kyw-dev@0.1.3` candidate. The public npm registry still serves `kyw-dev@0.1.2` under `latest`, and no public plugin-directory submission has occurred.
 
 ### Choose one installation surface
 
@@ -49,7 +49,7 @@ Questions and small, clearly bounded changes do not require a Task folder. They 
 
 ## Release status
 
-Version `0.1.2` is the current public source/package release and implements the plugin, five Skills, CLI, installer, CI, and development validation surfaces. Exact historical candidates and results live only in their numbered Task/Test pairs and GitHub.
+Version `0.1.3` is the current unpublished source/package candidate and implements the plugin, five Skills, CLI, installer, CI, and development validation surfaces. Public `latest` remains `0.1.2`. Exact historical candidates and results live only in their numbered Task/Test pairs and GitHub.
 
 `kyw-dev@0.1.2` is published to the public npm registry under the `latest` tag; historical versions `0.1.0` and `0.1.1` remain available. Its single authorized publication used the GitHub Actions trusted publisher and carries npm registry signatures plus SLSA provenance bound to the exact source workflow and commit. Canonical version metadata does not expose a `gitHead` field because that release published a prebuilt tarball. No version tag, GitHub Release, or public plugin submission has occurred.
 The separate `.github/workflows/publish.yml` maintainer workflow is manual-only and is validated against the repository-owned expected publisher `GitHub Actions / kimyeongwoo/kyw-dev / publish.yml / npm-production`. It accepts an exact current `main` SHA and package version, independently inspects one retained candidate, then publishes the exact real Git checkout directory with the publishing job's OIDC permission for one tokenless, OTP-free attempt. A successful actual publish is the runtime proof that npm accepted that identity, and a public-package publish from this public repository receives npm provenance automatically.

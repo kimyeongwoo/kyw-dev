@@ -235,7 +235,7 @@ test("README puts installation, explicit Skills, first use, and current status b
   }
   assert.match(
     readme,
-    /Version `0\.1\.2`[\s\S]*current public source\/package release/,
+    /Version `0\.1\.3`[\s\S]*current unpublished source\/package candidate/,
   );
   assert.match(
     readme,
@@ -309,7 +309,7 @@ test("permanent truth separates credential-free CI, manual OIDC publication, and
   );
   assert.match(
     specification,
-    /public version `0\.1\.2`[\s\S]*public npm registry serves `kyw-dev@0\.1\.2`[\s\S]*Canonical npm version metadata does not expose `gitHead`/,
+    /unpublished candidate version `0\.1\.3`[\s\S]*public npm registry serves `kyw-dev@0\.1\.2`[\s\S]*Canonical npm version metadata does not expose `gitHead`/,
   );
   assert.match(
     specification,
