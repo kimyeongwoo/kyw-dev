@@ -220,7 +220,6 @@ jobs:
             throw new Error("Retained candidate archive identity changed");
           }
           const outputs = {
-            archive_path: candidate.archivePath,
             owned_root: candidate.ownedRoot,
             sha256: candidate.sha256,
           };
@@ -267,10 +266,17 @@ jobs:
           }
           NODE
 
-      - name: Publish the exact candidate through OIDC
+      - name: Reconfirm exact checkout before OIDC publication
+        shell: bash
         env:
-          CANDIDATE_TARBALL: ${{ steps.candidate.outputs.archive_path }}
-        run: npm publish "$CANDIDATE_TARBALL" --access public --ignore-scripts --registry=https://registry.npmjs.org/
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          test -z "$(git status --porcelain --untracked-files=all)"
+
+      - name: Publish the exact checkout directory through OIDC
+        run: npm publish . --access public --ignore-scripts --registry=https://registry.npmjs.org/
 
       - name: Remove the retained candidate
         if: ${{ always() && steps.candidate.outputs.owned_root != '' }}

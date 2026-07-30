@@ -12,7 +12,7 @@ import {
   PERMANENT_RULE_FAMILIES,
   REPOSITORY_ROOT,
   REQUIRED_INSTRUCTION_RULE_FAMILY_IDS,
-  TRUSTED_PUBLISHER_METADATA,
+  TRUSTED_PUBLISHER_EXPECTATION,
   derivePermanentDocumentEvidenceBaseline,
   evaluatePermanentDocumentBudget,
   measurePermanentDocuments,
@@ -34,12 +34,13 @@ import { assertSupportedRuntime } from "../src/core/skill-installation.mjs";
 
 test("package, plugin, Skills, and legal metadata satisfy the foundation contract", () => {
   assert.deepEqual(validateFoundation(), []);
-  assert.deepEqual(TRUSTED_PUBLISHER_METADATA, {
+  assert.deepEqual(TRUSTED_PUBLISHER_EXPECTATION, {
     provider: "GitHub Actions",
     organizationOrUser: "kimyeongwoo",
     repository: "kyw-dev",
     repositoryFullName: "kimyeongwoo/kyw-dev",
     workflowFilename: "publish.yml",
+    workflowPath: ".github/workflows/publish.yml",
     environment: "npm-production",
     allowedActions: ["npm publish"],
     packageAccess: "public",

@@ -279,47 +279,71 @@ test("permanent truth separates credential-free CI, manual OIDC publication, and
 
   assert.match(
     readme,
-    /\.github\/workflows\/publish\.yml[\s\S]*manual-only[\s\S]*npm-production[\s\S]*tokenless, OTP-free/,
+    /\.github\/workflows\/publish\.yml[\s\S]*manual-only[\s\S]*GitHub Actions \/ kimyeongwoo\/kyw-dev \/ publish\.yml \/ npm-production[\s\S]*exact real Git checkout directory[\s\S]*tokenless, OTP-free/,
   );
   assert.match(
     readme,
     /Merging the workflow, passing credential-free CI[\s\S]*neither dispatches nor authorizes/,
   );
   assert.match(readme, /public repository receives npm provenance automatically/);
+  assert.match(
+    readme,
+    /Routine release preflight[\s\S]*without `npm login`, OTP, security-key authentication, account-settings inspection, or `npm trust list`[\s\S]*initial setup[\s\S]*security\/configuration audit or change[\s\S]*actual OIDC\/publisher failure/,
+  );
+  assert.match(
+    readme,
+    /successful actual publish is the runtime proof that npm accepted that identity/,
+  );
 
   assert.match(
     specification,
-    /workflow_dispatch`-only[\s\S]*kimyeongwoo\/kyw-dev[\s\S]*environment `npm-production`[\s\S]*allowed action `npm publish`/,
+    /One repository-owned expectation[\s\S]*GitHub Actions[\s\S]*kimyeongwoo\/kyw-dev[\s\S]*\.github\/workflows\/publish\.yml[\s\S]*npm-production[\s\S]*allowed action `npm publish`/,
   );
   assert.match(
     specification,
-    /no automatic trigger, long-lived npm token, or interactive OTP path/,
+    /no automatic trigger, long-lived npm token, interactive authentication, account-inspection, retry, second-dispatch, or fallback path/,
   );
   assert.match(
     specification,
-    /Stable gate[\s\S]*one exact retained tarball[\s\S]*target version absent[\s\S]*at most once without retry/,
+    /Stable gate[\s\S]*one exact retained candidate[\s\S]*target version absent[\s\S]*clean exact-SHA checkout[\s\S]*`npm publish \.`[\s\S]*exactly once without retry/,
   );
   assert.match(
     specification,
     /public version `0\.1\.2`[\s\S]*public npm registry serves `kyw-dev@0\.1\.2`[\s\S]*Canonical npm version metadata does not expose `gitHead`/,
   );
+  assert.match(
+    specification,
+    /Routine release preflight does not require npm account\/settings inspection[\s\S]*Account-side authentication is limited to initial setup[\s\S]*actual OIDC\/publisher failure/,
+  );
+  assert.match(
+    specification,
+    /Successful publication is canonical runtime proof[\s\S]*OIDC\/publisher rejection fails the workflow and blocks the executing Task/,
+  );
 
   assert.match(architecture, /### 8\.5 Trusted publication workflow/);
   assert.match(
     architecture,
-    /manual-only `.github\/workflows\/publish\.yml` is separate from credential-free[\s\S]*CI/,
+    /One repository-owned expectation[\s\S]*\.github\/workflows\/publish\.yml[\s\S]*The manual-only workflow is separate from credential-free CI/,
   );
   assert.match(
     architecture,
-    /only that job receives[\s\S]*`contents: read` plus `id-token: write`/,
+    /only its single[\s\S]*job receives `contents: read` plus `id-token: write`/,
   );
   assert.match(
     architecture,
-    /one non-retrying `npm publish`[\s\S]*guarded owned-root cleanup/,
+    /publishes that real Git[\s\S]*directory once with `npm publish \.`[\s\S]*retained[\s\S]*candidate[\s\S]*guarded owned-root cleanup/,
   );
   assert.match(
     architecture,
     /Successful trusted publication[\s\S]*creates npm provenance automatically/,
+  );
+  assert.match(
+    architecture,
+    /actual successful publish[\s\S]*canonical runtime proof[\s\S]*OIDC\/publisher[\s\S]*rejection has one path[\s\S]*executing Task[\s\S]*records[\s\S]*BLOCKED/,
+  );
+  assert.match(
+    architecture,
+    /development-only integration fixture[\s\S]*actual npm CLI[\s\S]*raw submitted packument[\s\S]*directory publication supplies the exact commit as `gitHead`[\s\S]*prebuilt tarball cannot synthesize[\s\S]*post-capture registry rewriting/,
   );
 });
 
