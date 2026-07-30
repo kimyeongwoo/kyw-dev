@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { TRUSTED_PUBLISHER_METADATA } from "../scripts/lib/validate-foundation.mjs";
+import { TRUSTED_PUBLISHER_EXPECTATION } from "../scripts/lib/validate-foundation.mjs";
 
 const workflowPath = fileURLToPath(
   new URL("../.github/workflows/publish.yml", import.meta.url),
@@ -65,7 +65,7 @@ function assertPublishWorkflowContract(text) {
   assert.match(text, /^    timeout-minutes: 30$/m);
   assert.match(
     text,
-    new RegExp(`^    environment: ${TRUSTED_PUBLISHER_METADATA.environment}$`, "m"),
+    new RegExp(`^    environment: ${TRUSTED_PUBLISHER_EXPECTATION.environment}$`, "m"),
   );
   assert.deepEqual(
     [...text.matchAll(/^  ([a-z][a-z-]+):$/gm)].map(([, job]) => job),
@@ -87,7 +87,7 @@ function assertPublishWorkflowContract(text) {
 
   for (const guard of [
     'test "$ACTUAL_EVENT" = "workflow_dispatch"',
-    `test "$ACTUAL_REPOSITORY" = "${TRUSTED_PUBLISHER_METADATA.repositoryFullName}"`,
+    `test "$ACTUAL_REPOSITORY" = "${TRUSTED_PUBLISHER_EXPECTATION.repositoryFullName}"`,
     'test "$ACTUAL_REF" = "refs/heads/main"',
     'test "$ACTUAL_SHA" = "$EXPECTED_SHA"',
     'test "$actual_sha" = "$EXPECTED_SHA"',
@@ -151,20 +151,32 @@ function assertPublishWorkflowContract(text) {
   const stableIndex = text.indexOf("run: npm run check");
   const candidateIndex = text.indexOf("--retain-candidate");
   const absenceIndex = text.indexOf("- name: Require registry version absence");
-  const publishIndex = text.indexOf('run: npm publish "$CANDIDATE_TARBALL"');
+  const reconfirmIndex = text.indexOf(
+    "- name: Reconfirm exact checkout before OIDC publication",
+  );
+  const publishIndex = text.indexOf("run: npm publish .");
   const cleanupIndex = text.indexOf("--cleanup-candidate");
   assert.ok(
     stableIndex >= 0 &&
       stableIndex < candidateIndex &&
       candidateIndex < absenceIndex &&
-      absenceIndex < publishIndex &&
+      absenceIndex < reconfirmIndex &&
+      reconfirmIndex < publishIndex &&
       publishIndex < cleanupIndex,
-    "stable, candidate, absence, publish, and cleanup steps must stay ordered",
+    "stable, candidate, absence, checkout, publish, and cleanup steps must stay ordered",
+  );
+  assert.match(
+    text,
+    /test "\$\(git rev-parse HEAD\)" = "\$EXPECTED_SHA"/,
+  );
+  assert.match(
+    text,
+    /test -z "\$\(git status --porcelain --untracked-files=all\)"/,
   );
   assert.equal(occurrenceCount(text, /^        run: npm publish /gm), 1);
   assert.match(
     text,
-    /^        run: npm publish "\$CANDIDATE_TARBALL" --access public --ignore-scripts --registry=https:\/\/registry\.npmjs\.org\/$/m,
+    /^        run: npm publish \. --access public --ignore-scripts --registry=https:\/\/registry\.npmjs\.org\/$/m,
   );
   assert.match(
     text,
@@ -173,22 +185,27 @@ function assertPublishWorkflowContract(text) {
 
   assert.doesNotMatch(
     text,
-    /\bsecrets\.|NODE_AUTH_TOKEN|NPM_TOKEN|npmAuthToken|_authToken|\botp\b|npm login|npm token/i,
+    /\bsecrets\.|NODE_AUTH_TOKEN|NPM_TOKEN|npmAuthToken|_authToken|\botp\b|security[- ]key|(?:^|\n)\s*(?:run:\s*)?npm (?:login|logout|adduser|whoami|trust|token|config)\b/im,
   );
   assert.doesNotMatch(
     text,
     /continue-on-error|retry|npm stage publish|npm dist-tag|npm version|git tag|gh release|gh workflow run|workflow_call|uses:\s+\.\//i,
   );
+  assert.doesNotMatch(
+    text,
+    /CANDIDATE_TARBALL|steps\.candidate\.outputs\.archive_path|npm publish [^\n]*\.tgz|packageJson\.gitHead|["']gitHead["']\s*:|method:\s*["'](?:PUT|PATCH|DELETE)["']/i,
+  );
   assert.doesNotMatch(text, /NPM_CONFIG_PROVENANCE:\s*"false"/);
 }
 
-test("trusted publishing workflow matches the authenticated npm tuple and is manual-only", () => {
-  assert.deepEqual(TRUSTED_PUBLISHER_METADATA, {
+test("trusted publishing workflow matches the repository-owned expected tuple", () => {
+  assert.deepEqual(TRUSTED_PUBLISHER_EXPECTATION, {
     provider: "GitHub Actions",
     organizationOrUser: "kimyeongwoo",
     repository: "kyw-dev",
     repositoryFullName: "kimyeongwoo/kyw-dev",
     workflowFilename: "publish.yml",
+    workflowPath: ".github/workflows/publish.yml",
     environment: "npm-production",
     allowedActions: ["npm publish"],
     packageAccess: "public",
@@ -196,7 +213,7 @@ test("trusted publishing workflow matches the authenticated npm tuple and is man
   assert.equal(
     workflowPath
       .replaceAll("\\", "/")
-      .endsWith(`workflows/${TRUSTED_PUBLISHER_METADATA.workflowFilename}`),
+      .endsWith(TRUSTED_PUBLISHER_EXPECTATION.workflowPath),
     true,
   );
   assertPublishWorkflowContract(workflow);
@@ -233,18 +250,28 @@ test("workflow regression guards reject every authority, identity, candidate, an
     replaceRequired(workflow, "else if (response.ok)", "else if (false)"),
     replaceRequired(
       workflow,
-      'run: npm publish "$CANDIDATE_TARBALL"',
-      'run: npm publish "$CANDIDATE_TARBALL" || npm publish "$CANDIDATE_TARBALL"',
-    ),
-    replaceRequired(
-      workflow,
-      'run: npm publish "$CANDIDATE_TARBALL"',
       "run: npm publish .",
+      "run: npm publish . || npm publish .",
     ),
     replaceRequired(
       workflow,
+      "run: npm publish .",
       'run: npm publish "$CANDIDATE_TARBALL"',
-      'run: npm stage publish "$CANDIDATE_TARBALL"',
+    ),
+    replaceRequired(
+      workflow,
+      "run: npm publish .",
+      "run: npm stage publish .",
+    ),
+    replaceRequired(
+      workflow,
+      'test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"',
+      "true",
+    ),
+    replaceRequired(
+      workflow,
+      "      - name: Publish the exact checkout directory through OIDC\n",
+      "      - name: Authenticate to the npm account\n        run: npm trust list kyw-dev\n\n      - name: Publish the exact checkout directory through OIDC\n",
     ),
     replaceRequired(
       workflow,

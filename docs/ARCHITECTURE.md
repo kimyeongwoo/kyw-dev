@@ -585,32 +585,47 @@ Package metadata may be publishable while publication remains unauthorized.
 Candidate packing, CI, isolated installation, and registry dry-run are distinct
 non-publishing evidence boundaries. Actual registry publication, version
 change, tag, GitHub Release, or public plugin submission requires separate
-authority and fresh identity verification.
+authority plus fresh public-registry, repository-owned publisher-expectation,
+and exact-workflow verification. Routine release preflight does not authenticate
+to npm account/settings surfaces. Account-side authentication exists only for
+initial setup, an explicitly authorized security/configuration audit or change,
+or investigation after an actual OIDC/publisher failure.
 
 ### 8.5 Trusted publication workflow
 
-The manual-only `.github/workflows/publish.yml` is separate from credential-free
-CI. Its single GitHub-hosted job matches publisher `kimyeongwoo/kyw-dev`,
-workflow `publish.yml`, and environment `npm-production`; only that job receives
-`contents: read` plus `id-token: write`. Exact event, repository, `main` ref,
-input/event/checkout SHA, package/plugin version, runtime, and public registry
-identity guards stop before publication on any mismatch.
+One repository-owned expectation defines provider `GitHub Actions`,
+owner/repository `kimyeongwoo/kyw-dev`, workflow
+`.github/workflows/publish.yml`, environment `npm-production`, and allowed
+action `npm publish`. Foundation and workflow validation project that tuple into
+the exact workflow bytes without querying authenticated npm account surfaces.
+The manual-only workflow is separate from credential-free CI; only its single
+GitHub-hosted job receives `contents: read` plus `id-token: write`. Exact event,
+repository, `main` ref, input/event/checkout SHA, package/plugin version,
+runtime, and public registry identity guards stop before publication on any
+mismatch.
 
 The packed-release verifier has two boundaries over the same validation:
 ordinary release checking creates and removes a disposable archive, while the
 workflow mode retains exactly one archive under a physically contained owned
 temporary root and returns bounded machine-readable identity and digest fields.
-The workflow passes that absolute archive path through the Stable gate and a
-fresh registry-absence check to one non-retrying `npm publish`, then performs
-guarded owned-root cleanup. It introduces no token fallback, dist-tag, tag,
-Release, or reusable trigger.
+The workflow passes the independent candidate evidence through the Stable gate
+and a fresh registry-absence check, reconfirms the clean exact checkout, and
+publishes that real Git directory once with `npm publish .`; the retained
+candidate remains the byte expectation for later public-tarball proof and is
+then removed by guarded owned-root cleanup. It introduces no token fallback,
+account-authentication branch, retry, second dispatch, dist-tag, tag, Release,
+or reusable trigger.
 
 OIDC exchanges the GitHub identity for a short-lived npm publishing credential;
 no long-lived npm token or interactive OTP crosses the workflow boundary.
-Successful trusted publication of the public package from the public repository
-creates npm provenance automatically. Source/candidate evidence, workflow
-registration, an authorized run, registry state, and later provenance proof are
-separate evidence states.
+The actual successful publish is canonical runtime proof that npm accepted the
+configured Trusted Publisher identity; static policy or account inspection is
+not runtime proof. Successful trusted publication of the public package from
+the public repository creates npm provenance automatically. OIDC/publisher
+rejection has one path: the workflow fails and the executing Task records
+`BLOCKED`, with no automatic reauthentication or alternate publication.
+Source/candidate evidence, workflow registration, an authorized run, registry
+state, and later provenance proof remain separate evidence states.
 
 ## 9. Validation and CI architecture
 
@@ -680,11 +695,21 @@ merge succeeds.
 Stable verification checks the working tree and package selection. Candidate
 verification creates one real archive and binds its inventory, hygiene, legal
 content, CLI smoke, npm integrity/shasum, and SHA-256. The disposable command
-cleans its archive; the publication workflow may retain the same verified bytes
-only in its owned temporary root for the exact-path handoff and guarded cleanup.
+cleans its archive; the publication workflow retains independently verified
+candidate bytes only in its owned temporary root while publishing the exact
+checkout directory, then uses their digests for later public-byte comparison
+and guarded cleanup.
 Isolated lifecycle verification exercises direct and plugin paths under owned
 temporary state while protecting normal user state. A registry dry-run is a
 later distinct boundary.
+
+A development-only integration fixture creates and commits an owned temporary
+Git repository, invokes the actual npm CLI against an owned loopback registry,
+and captures the raw submitted packument and attachment. It proves that
+directory publication supplies the exact commit as `gitHead` with bytes matching
+the candidate, while publishing the same prebuilt tarball cannot synthesize
+`gitHead`. Its isolated loopback auth value is not a production credential, and
+guards reject source-manifest fabrication or post-capture registry rewriting.
 
 The retained-evidence harness may wrap an explicitly approved release command
 and retain redacted evidence outside the repository. It is not a runtime

@@ -32,12 +32,13 @@ export const RELEASE_METADATA = Object.freeze({
   copyright: "Copyright (c) 2026 Kim Yeongwoo",
 });
 
-export const TRUSTED_PUBLISHER_METADATA = Object.freeze({
+export const TRUSTED_PUBLISHER_EXPECTATION = Object.freeze({
   provider: "GitHub Actions",
   organizationOrUser: "kimyeongwoo",
   repository: "kyw-dev",
   repositoryFullName: "kimyeongwoo/kyw-dev",
   workflowFilename: "publish.yml",
+  workflowPath: ".github/workflows/publish.yml",
   environment: "npm-production",
   allowedActions: Object.freeze(["npm publish"]),
   packageAccess: "public",
@@ -2118,7 +2119,7 @@ export function validateFoundation(
   let publishWorkflow;
   try {
     publishWorkflow = readFileSync(
-      join(root, ".github", "workflows", TRUSTED_PUBLISHER_METADATA.workflowFilename),
+      join(root, ...TRUSTED_PUBLISHER_EXPECTATION.workflowPath.split("/")),
       "utf8",
     );
   } catch (error) {
@@ -2174,14 +2175,14 @@ export function validateFoundation(
       );
       expect(
         publishWorkflow.includes(
-          `\n    environment: ${TRUSTED_PUBLISHER_METADATA.environment}\n`,
+          `\n    environment: ${TRUSTED_PUBLISHER_EXPECTATION.environment}\n`,
         ),
         "trusted publishing workflow environment does not match npm",
         errors,
       );
       expect(
         publishWorkflow.includes(
-          `test "$ACTUAL_REPOSITORY" = "${TRUSTED_PUBLISHER_METADATA.repositoryFullName}"`,
+          `test "$ACTUAL_REPOSITORY" = "${TRUSTED_PUBLISHER_EXPECTATION.repositoryFullName}"`,
         ),
         "trusted publishing workflow repository does not match npm",
         errors,
@@ -2192,8 +2193,17 @@ export function validateFoundation(
         errors,
       );
       expect(
-        !/\bsecrets\.|NODE_AUTH_TOKEN|NPM_TOKEN/.test(publishWorkflow),
-        "trusted publishing workflow must not reference a publication token",
+        publishWorkflow.includes(
+          "        run: npm publish . --access public --ignore-scripts --registry=https://registry.npmjs.org/",
+        ),
+        "trusted publishing workflow must publish the exact checkout directory",
+        errors,
+      );
+      expect(
+        !/\bsecrets\.|NODE_AUTH_TOKEN|NPM_TOKEN|npmAuthToken|_authToken|CANDIDATE_TARBALL|\botp\b|security[- ]key|(?:^|\n)\s*(?:run:\s*)?npm (?:login|logout|adduser|whoami|trust|token|config)\b/im.test(
+          publishWorkflow,
+        ),
+        "trusted publishing workflow must not reference a publication credential or account-authentication path",
         errors,
       );
     }
