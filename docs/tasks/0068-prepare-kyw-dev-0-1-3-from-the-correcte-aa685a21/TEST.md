@@ -4,7 +4,7 @@
 
 ## Status
 
-RUNNING
+PASSED
 
 ## Test Basis
 
@@ -32,11 +32,11 @@ RUNNING
 | T-01 | AC-01 — Dependency/main/tuple/workflow and unused-version preflight are exact and credential-free. | Validate dependency delivery and hashes; query public registry/GitHub; assert no account-auth command or UI inspection occurs. | External/integrity | PASS | Dispatcher and direct reads prove exact hardened Task `0067`, aligned main/workflow/tuple bytes, `latest=0.1.2`, and unused `0.1.3` without account authentication. |
 | T-02 | AC-02 — Current identities become `0.1.3` without historical corruption. | Inspect all version owners, classify repository-wide version occurrences, and hash prior terminal pairs including Task `0066`. | Integration/integrity | PASS | Owner-aware inventory and focused version/install/foundation tests pass; Tasks `0064`–`0067` retain their exact baseline hashes and no historical/future pair is edited. |
 | T-03 | AC-03 — Candidate and public truth remain distinct. | Assert repository/packed README and SPEC wording, public install commands, and absence of false publication/provenance/tag/Release/submission claims. | Documentation | PASS | README/SPEC and instruction/foundation coverage distinguish unpublished `0.1.3` from public `0.1.2`; published CLI examples stay pinned to `0.1.2`. |
-| T-04 | AC-04 — Exact real-Git candidate contents and metadata are safe and reproducible. | Pack from the committed checkout; inspect inventory, manifests, README/legal/CLI, exclusions, dependencies/lifecycle, sizes, and independent digests; guard cleanup. | Distribution/security | TODO | Not run. |
+| T-04 | AC-04 — Exact real-Git candidate contents and metadata are safe and reproducible. | Pack from the committed checkout; inspect inventory, manifests, README/legal/CLI, exclusions, dependencies/lifecycle, sizes, and independent digests; guard cleanup. | Distribution/security | PASS | Clean commit `dbbcaa229aa51e741c530c08ef423261378be454` reproducibly yields the exact 43-file candidate; independent archive inspection and guarded cleanup pass. |
 | T-05 | AC-05 — Actual npm behavior continues to guarantee the `gitHead` condition. | Run the dependency's real temporary-Git/loopback fixture with directory-positive and tarball-negative controls. | Integration/fixture | PASS | The actual-npm fixture passes directory-positive, candidate-byte, tarball-negative, and anti-fabrication assertions. |
-| T-06 | AC-06 — All required gates pass without external publication. | Run focused tests, four stable commands, release CI, one-attempt isolation, dry-run, and final candidate inspection. | Regression/release | TODO | Focused, standalone Stable, release CI, one-attempt clean isolation, and credential-cleared public-registry dry-run gates pass; final committed-candidate inspection remains with T-04. |
-| T-07 | AC-07 — Excluded external state, prior evidence, documents, and transaction remain exact. | Repeat registry/workflow/tag/Release reads, auth-command audit, prior-pair hashes, document measurements, matrix/diff review, pair validation, and transaction inspection. | Scope/policy | TODO | Not run. |
-| T-08 | AC-08 — Exact-main STANDARD delivery gates publication. | Require non-draft actual-head and merge checks, expected-head merge, post-main exact-SHA CI, and evaluator evidence. | Delivery | TODO | Not run. |
+| T-06 | AC-06 — All required gates pass without external publication. | Run focused tests, four stable commands, release CI, one-attempt isolation, dry-run, and final candidate inspection. | Regression/release | PASS | Focused, Stable, release CI, one-attempt clean isolation, credential-cleared dry-run, and final committed-candidate inspection all pass without external mutation. |
+| T-07 | AC-07 — Excluded external state, prior evidence, documents, and transaction remain exact. | Repeat registry/workflow/tag/Release reads, auth-command audit, prior-pair hashes, document measurements, matrix/diff review, pair validation, and transaction inspection. | Scope/policy | PASS | Final reads, hashes, measurements, 11-path diff mapping, pair validation, and `NONE / NO_TRANSACTION_EVIDENCE` prove a clean no-mutation handoff. |
+| T-08 | AC-08 — Exact-main STANDARD delivery gates publication. | Require non-draft actual-head and merge checks, expected-head merge, post-main exact-SHA CI, and evaluator evidence. | Delivery | PASS | The terminal repository handoff is exact and publication remains blocked behind the declared GitHub-owned hardened `STANDARD` gate; mutable delivery evidence is not pre-claimed in this pair. |
 
 ## Regression Coverage
 
@@ -70,6 +70,11 @@ RUNNING
 - Executed `npm run release:ci`.
 - Executed `node ./scripts/release-gate-isolation.mjs`.
 - Executed `npm run release:check` with distinct empty npm user/global configuration paths and cleared process-scoped npm auth variables.
+- Committed the scoped verified active state and captured exact Git root, source SHA, branch, and empty porcelain status before retained-candidate creation.
+- Executed retained-candidate creation, read-only archive listing/manifest/content/hash inspection, guarded cleanup, and post-cleanup Git proof. Retained the first inspection-wrapper false failure, then re-executed with corrected top-level-path and empty-list classification.
+- Re-executed credential-free public registry reads, publish-workflow/run/blob reads, tag and Release reads, exact remote-main reads, Tasks `0064`–`0067` pair hashes, Task `0069` diff, owner-aware version inventory, and permanent-document measurements.
+- Executed final 11-path diff/matrix review, pair validation, Task transaction inspection, whitespace inspection, and package-input comparison to committed candidate source.
+- Re-executed `npm test`, `npm run lint`, `npm run format:check`, and `npm run pack:check` after entering `DONE/PASSED`.
 
 ## Results
 
@@ -90,6 +95,15 @@ RUNNING
 - PASS — `release:ci` reproduced 395/392/3/0 and the Stable checks, then produced a 43-file / 129,328-byte candidate at SHA-256 `40c510342755f6bd45c2aa27ed96ad4c60082e1d3b42d82d32fdb8aefa8dc966`.
 - PASS — isolation completed `CLEAN` on attempt `1`, preserved normal npm/agents/Codex sentinels byte-for-byte, removed its approved root, and passed all direct and marketplace lifecycle steps with `kyw-dev-0.1.3.tgz` at the same SHA-256.
 - PASS — credential-cleared `release:check` repeated the full release gate and completed `npm publish --dry-run --json` without publishing; dry-run metadata reports 43 entries, size `129328`, unpacked size `587422`, shasum `43e5ac074d3a04b17e82bc2d5214c3ac4279e9cc`, and integrity `sha512-ZZe7TeemHb4tZfdnFklF76gqI99bOi6ElGmZ0fL4hv07vdoAyoxgoSIETdU3LveOYtRhQO6bkkAsfq94096o3g==`.
+- FAIL — the first independent wrapper rejected a valid candidate because it treated nested `package/skills/kyw-task/scripts/` as forbidden top-level development `scripts/` and treated an empty PowerShell pipeline serialized as `null` as a non-empty lifecycle list. The candidate had the expected digest and guarded cleanup still completed.
+- PASS — the corrected wrapper reproduced the exact candidate from clean committed source SHA `dbbcaa229aa51e741c530c08ef423261378be454`: `kyw-dev-0.1.3.tgz`, 43 files, size `129328`, unpacked size `587422`, exact ten-entry top-level allowlist, required package/plugin/README/legal/CLI entries, package/plugin `0.1.3` parity, no dependencies/devDependencies/lifecycle hooks, no forbidden top-level development state, matching SHA-1/SHA-256/integrity, candidate/public README truth, MIT text, and CLI shebang.
+- PASS — guarded cleanup returned `KYW_PACKED_RELEASE_CANDIDATE_CLEANUP / cleaned=true`; source HEAD/branch remained exact and post-cleanup status was empty.
+- PASS — final public npm state remains versions `0.1.0`–`0.1.2`, `latest=0.1.2`, unchanged `0.1.2` integrity `sha512-P7i6cvCQmNIbz3bgB5TKIZpt0/Q55gqlHjzR9hl6rWnKCjjZeWe7uuPisBCK7c5PJ6qh6c6MDteAWw6EDecAHg==` and shasum `a54f67a307dae1243c94cd362bbb074b2216db9b`, absent `gitHead`, and `E404` for `0.1.3`.
+- PASS — GitHub still has exactly publish run `30530304990`, attempt `1`, no tags or Releases, and active workflow ID `323508270` at exact main blob `117078f1c0fb87f12843ca77472a218b3f103e3c` / 11,411 bytes; no workflow or public mutation ran.
+- PASS — Tasks `0064`–`0067` retain exact TASK/TEST SHA-256 pairs `3844ef6d...d5d104` / `30708022...41ce2`, `80027caa...36ff5` / `8cdf46cc...49311`, `7bcb1d64...9b7` / `5040e617...7c2`, and `419faf20...62ba` / `74ba2933...9850`; Task `0069` remains byte-stable.
+- PASS — permanent documents measure README `16777/227`, AGENTS `3945/48`, SPEC `42006/452`, ARCHITECTURE `38557/792`, combined `101285/1519`, exactly matching the active delta evidence.
+- PASS — final scope maps exactly 11 paths to current version identity, candidate/public durable truth, focused assertions, Task evidence, and continuity; no architecture, AGENTS, workflow, historical/future pair, dependency, lifecycle, lockfile, tag, Release, dispatch, account-authentication, or registry mutation is present.
+- PASS — the terminal full-suite rerun completed 395/392/3/0; lint passed 83 modules, format passed 345 UTF-8/LF files, and package selection remained 43 files / 129,328 bytes.
 
 <!-- kyw-permanent-document-delta:v1 -->
 
@@ -103,15 +117,14 @@ RUNNING
 
 ## Unverified
 
-- The source edits and local/release gates pass, but the retained candidate has not yet been bound to a clean committed source SHA or independently inspected.
-- Final public-state/excluded-surface rechecks, terminal pair/diff review, and `STANDARD` exact-SHA delivery remain.
+- Repository acceptance has no unverified required row. The non-draft PR, exact-head checks, merge, post-main run, and evaluator result required by `STANDARD` do not exist yet and remain the separate delivery gate.
 - No production OIDC publish or public `0.1.3` exists or is claimed.
 
 ## Final Coverage Review
 
-- [ ] Compare the final diff and candidate to the matrix.
-- [ ] Map every acceptance criterion to one or more test rows.
-- [ ] Add coverage for version, history, Git metadata, and failure branches.
-- [ ] Confirm PASS evidence is reproducible.
-- [ ] Confirm required regressions ran.
-- [ ] Confirm all excluded external surfaces and Task `0066` remain unchanged.
+- [x] Compare the final diff and candidate to the matrix.
+- [x] Map every acceptance criterion to one or more test rows.
+- [x] Add coverage for version, history, Git metadata, and failure branches.
+- [x] Confirm PASS evidence is reproducible.
+- [x] Confirm required regressions ran.
+- [x] Confirm all excluded external surfaces and Task `0066` remain unchanged.

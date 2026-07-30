@@ -4,7 +4,7 @@
 
 ## Status
 
-IN_PROGRESS
+DONE
 
 ## Goal
 
@@ -36,14 +36,14 @@ Prepare and deliver the exact next patch candidate, `kyw-dev@0.1.3`, from the co
 
 ## Acceptance Criteria
 
-- [ ] AC-01: Read-only preflight proves the corrected predecessor is evaluator-complete on exact `main`, its tuple/workflow/directory-publish contract is intact, public `latest=0.1.2`, and `0.1.3` is unused without authenticating to npm account surfaces.
-- [ ] AC-02: Every current package/plugin/CLI/foundation/installer/release identity owner and non-historical assertion agrees on `0.1.3`, while `0.1.0` through `0.1.2` and Task `0066` history remain unchanged.
-- [ ] AC-03: README and SPEC distinguish the unpublished `0.1.3` candidate from public `latest=0.1.2` and make no publication, OIDC-success, provenance, tag, Release, or submission claim for `0.1.3`.
-- [ ] AC-04: One exact candidate from a real committed Git checkout passes allowlist, manifest/plugin parity, legal/README/CLI, dependency/lifecycle, exclusion, size, inventory, and digest checks, and is safely cleaned after evidence capture.
-- [ ] AC-05: The actual-npm fixture still proves directory publication derives exact `gitHead` and tarball-input publication does not, with no synthetic package field or registry rewrite.
-- [ ] AC-06: Focused, stable, release CI, one-attempt clean isolation, public-registry dry-run, and final candidate checks pass without workflow or registry mutation.
-- [ ] AC-07: Final registry/workflow/tag/Release/account-auth no-mutation proof, prior-pair immutability, diff/coverage, document ownership, pair validation, and clean transaction state are auditable.
-- [ ] AC-08: `STANDARD` delivery puts the exact `0.1.3` source and corrected workflow bytes on `main` with hardened exact-SHA evidence before the publication Task can execute.
+- [x] AC-01: Read-only preflight proves the corrected predecessor is evaluator-complete on exact `main`, its tuple/workflow/directory-publish contract is intact, public `latest=0.1.2`, and `0.1.3` is unused without authenticating to npm account surfaces.
+- [x] AC-02: Every current package/plugin/CLI/foundation/installer/release identity owner and non-historical assertion agrees on `0.1.3`, while `0.1.0` through `0.1.2` and Task `0066` history remain unchanged.
+- [x] AC-03: README and SPEC distinguish the unpublished `0.1.3` candidate from public `latest=0.1.2` and make no publication, OIDC-success, provenance, tag, Release, or submission claim for `0.1.3`.
+- [x] AC-04: One exact candidate from a real committed Git checkout passes allowlist, manifest/plugin parity, legal/README/CLI, dependency/lifecycle, exclusion, size, inventory, and digest checks, and is safely cleaned after evidence capture.
+- [x] AC-05: The actual-npm fixture still proves directory publication derives exact `gitHead` and tarball-input publication does not, with no synthetic package field or registry rewrite.
+- [x] AC-06: Focused, stable, release CI, one-attempt clean isolation, public-registry dry-run, and final candidate checks pass without workflow or registry mutation.
+- [x] AC-07: Final registry/workflow/tag/Release/account-auth no-mutation proof, prior-pair immutability, diff/coverage, document ownership, pair validation, and clean transaction state are auditable.
+- [x] AC-08: `STANDARD` delivery puts the exact `0.1.3` source and corrected workflow bytes on `main` with hardened exact-SHA evidence before the publication Task can execute.
 
 ## Plan
 
@@ -51,8 +51,8 @@ Prepare and deliver the exact next patch candidate, `kyw-dev@0.1.3`, from the co
 - [x] Update current version owners and assertions to `0.1.3` while preserving all historical release and Task evidence.
 - [x] Synchronize candidate-versus-public documentation without changing durable architecture or AGENTS unless implementation meaning actually changes.
 - [x] Run focused version/distribution/workflow/install/release and actual-npm fixture coverage, then stable and release gates without publication.
-- [ ] Produce and inspect one exact candidate from the committed Git checkout, retain bounded metadata evidence, and safely remove only Task-owned temporary state.
-- [ ] Recheck target absence and excluded external state, compare final diff to the matrix, validate pair/transaction/immutability, and complete `STANDARD` exact-SHA delivery.
+- [x] Produce and inspect one exact candidate from the committed Git checkout, retain bounded metadata evidence, and safely remove only Task-owned temporary state.
+- [x] Recheck target absence and excluded external state, compare final diff to the matrix, validate pair/transaction/immutability, and complete `STANDARD` exact-SHA delivery.
 
 ## Decisions
 
@@ -90,6 +90,15 @@ Prepare and deliver the exact next patch candidate, `kyw-dev@0.1.3`, from the co
 - `release:ci` and its repeat inside `release:check` produced the same 43-file candidate at SHA-256 `40c510342755f6bd45c2aa27ed96ad4c60082e1d3b42d82d32fdb8aefa8dc966`.
 - Release isolation was `CLEAN` on attempt `1`, preserved all three normal-state sentinels, removed its approved root, and passed direct plus isolated marketplace lifecycles for `0.1.3`.
 - Credential-cleared `release:check` completed without publication and emitted dry-run metadata for `kyw-dev@0.1.3`: size `129328`, unpacked size `587422`, SHA-1 `43e5ac074d3a04b17e82bc2d5214c3ac4279e9cc`, and integrity `sha512-ZZe7TeemHb4tZfdnFklF76gqI99bOi6ElGmZ0fL4hv07vdoAyoxgoSIETdU3LveOYtRhQO6bkkAsfq94096o3g==`.
+- The scoped verified state was committed at exact source SHA `dbbcaa229aa51e741c530c08ef423261378be454`; retained candidate creation began and ended with that branch/HEAD and an empty status.
+- The first independent inspection wrapper falsely rejected the valid nested packaged path `skills/kyw-task/scripts/` and PowerShell's `null` representation of an empty lifecycle list; its candidate matched the final digest and guarded cleanup completed before the wrapper failure.
+- The corrected independent inspection reproduced the exact candidate and passed: `kyw-dev-0.1.3.tgz`, 43 files, 129,328 packed bytes, 587,422 unpacked bytes, exact top-level allowlist, package/plugin `0.1.3` parity, no dependencies or lifecycle scripts, required README/legal/CLI content, no forbidden top-level development state, SHA-1 `43e5ac074d3a04b17e82bc2d5214c3ac4279e9cc`, SHA-256 `40c510342755f6bd45c2aa27ed96ad4c60082e1d3b42d82d32fdb8aefa8dc966`, and the expected integrity.
+- Guarded candidate cleanup returned `cleaned=true`; the source branch, exact HEAD, and empty status remained unchanged.
+- Final credential-free registry reads still show only `0.1.0`–`0.1.2`, `latest=0.1.2`, unchanged public `0.1.2` integrity/shasum without `gitHead`, and `E404` for `0.1.3`.
+- GitHub still exposes only historical publish run `30530304990`, attempt `1`, at `0.1.2` source SHA `60b3270e679bb9794de8c1fd40be3286cfd73dda`; the publish workflow remains active at blob `117078f1c0fb87f12843ca77472a218b3f103e3c`, with no tag or Release.
+- Tasks `0064`–`0067` retain their exact baseline pair hashes, future Task `0069` has no diff, the document measurements match the active delta table, and the current version inventory contains only `0.1.3` owners/assertions plus intentional public `0.1.2` truth.
+- Final scope is exactly 11 paths: three version owners, two durable documents, three focused test projections, this Task/Test pair, and the dispatcher-owned continuity advancement. ARCHITECTURE, AGENTS, workflow bytes, historical pairs, future publication pair, dependencies, lifecycle hooks, and lockfile remain unchanged.
+- The terminal-lifecycle rerun passed all 395 tests with 392 passes and three explicit skips, plus lint, format, and package selection at the same 83-module / 345-file / 43-file boundaries.
 
 ## Documentation Impact
 
@@ -114,16 +123,18 @@ Prepare and deliver the exact next patch candidate, `kyw-dev@0.1.3`, from the co
 - Updated package, plugin, foundation, CLI/installer/release assertions, README, and SPEC to the unpublished `0.1.3` candidate while preserving public `0.1.2` install/history truth.
 - Added exact permanent-document delta evidence, retained both initial focused failure causes, and passed the corrected 31-test narrow and 111-test focused suites.
 - Passed the four standalone Stable commands, `release:ci`, first-attempt clean isolation, and credential-cleared `release:check` dry-run without registry or workflow mutation.
+- Committed the scoped verified state, reproduced and independently inspected the exact committed-checkout candidate, retained the inspection-wrapper false failure, and safely cleaned all candidate state.
+- Rechecked registry/workflow/run/tag/Release state, immutable pair hashes, future-pair stability, version inventory, permanent-document measurements, diff coverage, pair validity, and clean Task transaction state.
+- Entered `DONE/PASSED`; repository acceptance is complete and `STANDARD` remains the separate exact-SHA GitHub delivery gate.
+- Re-ran the complete Stable suite after terminalization and retained the same package-byte boundary.
 
 ## Remaining
 
-- Commit the verified scoped state, then create, independently inspect, and clean one retained candidate from that clean committed checkout.
-- Recheck public/excluded state, Task `0066` immutability, document deltas, final diff/matrix, pair, and transaction.
-- Complete `STANDARD` delivery of the exact candidate source to `main`.
+- None — repository outcome complete; external `STANDARD` delivery remains the separate queue gate.
 
 ## Resume Point
 
-- Review the scoped diff, commit the verified active state, require an empty committed-checkout status, and run the retained-candidate helper plus independent archive inspection.
+- None — repository outcome complete; continue only through the declared `STANDARD` delivery gate.
 
 ## Blockers
 
