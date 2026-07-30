@@ -235,7 +235,7 @@ test("README puts installation, explicit Skills, first use, and current status b
   }
   assert.match(
     readme,
-    /Version `0\.1\.0`[\s\S]*remains unpublished/,
+    /Version `0\.1\.1`[\s\S]*current public npm package/,
   );
   assert.match(
     readme,
@@ -243,8 +243,13 @@ test("README puts installation, explicit Skills, first use, and current status b
   );
   assert.match(
     readme,
-    /No npm publication, registry mutation, package-version change, version tag, GitHub Release, or public plugin submission has occurred/,
+    /`kyw-dev@0\.1\.1` is published to the public npm registry under the `latest` tag/,
   );
+  assert.match(
+    readme,
+    /No version tag, GitHub Release, or public plugin submission has occurred/,
+  );
+  assert.match(readme, /npx --yes kyw-dev@0\.1\.1 install --scope user/);
   assert.match(readme, /requires separate explicit authority/);
   assert.doesNotMatch(readme, /\bTask 0\d{3}\b|READY_FOR_APPROVAL|UNCHANGED at the audited point/);
   assert.doesNotMatch(readme, /^### Grilling evaluation harness$/m);

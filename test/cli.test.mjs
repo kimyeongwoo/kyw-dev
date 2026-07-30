@@ -51,7 +51,12 @@ for (const args of [["--unknown"], ["unexpected", "arguments"]]) {
     const label = args.length === 1 ? "argument" : "arguments";
     assert.equal(result.status, 1);
     assert.equal(result.stdout, "");
-    assert.match(result.stderr, new RegExp(`^kyw-dev: unknown ${label}: ${args.join(" ")}\\n\\nkyw-dev 0\\.1\\.0`));
+    assert.match(
+      result.stderr,
+      new RegExp(
+        `^kyw-dev: unknown ${label}: ${args.join(" ")}\\n\\nkyw-dev ${VERSION.replaceAll(".", "\\.")}`,
+      ),
+    );
     assert.match(result.stderr, /Usage:\n  kyw-dev install --scope <user\|project>/);
   });
 }
