@@ -173,6 +173,7 @@ const releaseSensitiveExactPaths = new Set([
   "scripts/release-gate-isolation.mjs",
   "test/continuous-integration.test.mjs",
   "test/distribution.test.mjs",
+  "test/publish-workflow.test.mjs",
   "test/release-gate-isolation.test.mjs",
 ]);
 

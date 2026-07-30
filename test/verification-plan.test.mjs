@@ -137,6 +137,19 @@ test("runtime, mixed, unknown, and release-sensitive paths escalate conservative
     changedPaths: ["skills/kyw-task/SKILL.md", "package.json"],
   });
   assert.equal(mixedRelease.changeClass, "release");
+
+  for (const changedPath of [
+    ".github/workflows/publish.yml",
+    "test/publish-workflow.test.mjs",
+  ]) {
+    const trustedPublishing = planVerification({ changedPaths: [changedPath] });
+    assert.equal(trustedPublishing.changeClass, "release");
+    assert.equal(trustedPublishing.highestTier, "RELEASE");
+    assert.deepEqual(
+      trustedPublishing.commands.map(({ command }) => command),
+      ["npm run release:ci"],
+    );
+  }
 });
 
 test("candidate intent only escalates without duplicating a separate isolation boundary", () => {

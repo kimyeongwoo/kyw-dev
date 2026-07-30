@@ -52,8 +52,8 @@ Questions and small, clearly bounded changes do not require a Task folder. They 
 Version `0.1.1` is the current public npm package and implements the plugin, five Skills, CLI, installer, CI, and development validation surfaces. Exact historical candidates and results live only in their numbered Task/Test pairs and GitHub.
 
 `kyw-dev@0.1.1` is published to the public npm registry under the `latest` tag. No version tag, GitHub Release, or public plugin submission has occurred.
-Packing, CI, a candidate verdict, or `npm publish --dry-run` is evidence about specific bytes; none authorizes publication.
-Each future publication, registry, version, tag, Release, or public-submission action requires separate explicit authority.
+The separate `.github/workflows/publish.yml` maintainer workflow is manual-only: it accepts an exact current `main` SHA and package version, uses the `npm-production` GitHub environment, verifies one retained tarball, and gives only its publishing job the OIDC permission needed for one tokenless, OTP-free npm publication. A public-package publish from this public repository receives npm provenance automatically.
+Merging the workflow, passing credential-free CI, packing a candidate, or completing `npm publish --dry-run` neither dispatches nor authorizes it. Each publication, registry/version/tag/Release change, or public submission still requires separate explicit authority and fresh identity/version checks.
 
 Source: [kimyeongwoo/kyw-dev](https://github.com/kimyeongwoo/kyw-dev) · Issues: [GitHub issue tracker](https://github.com/kimyeongwoo/kyw-dev/issues)
 

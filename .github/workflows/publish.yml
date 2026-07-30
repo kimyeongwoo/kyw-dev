@@ -1,0 +1,279 @@
+name: Publish npm package through OIDC
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: Exact current main commit to publish
+        required: true
+        type: string
+      expected_version:
+        description: Exact package version at that commit
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: kyw-dev-npm-publish
+  cancel-in-progress: false
+
+env:
+  CI: "true"
+  FORCE_COLOR: "0"
+  NO_COLOR: "1"
+  NPM_CONFIG_AUDIT: "false"
+  NPM_CONFIG_COLOR: "false"
+  NPM_CONFIG_FETCH_RETRIES: "0"
+  NPM_CONFIG_FUND: "false"
+  NPM_CONFIG_LOGS_MAX: "0"
+  NPM_CONFIG_PROVENANCE: "true"
+  NPM_CONFIG_UPDATE_NOTIFIER: "false"
+
+jobs:
+  publish:
+    name: Publish exact npm candidate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: npm-production
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Guard manual dispatch identity
+        shell: bash
+        env:
+          ACTUAL_EVENT: ${{ github.event_name }}
+          ACTUAL_REF: ${{ github.ref }}
+          ACTUAL_REPOSITORY: ${{ github.repository }}
+          ACTUAL_SHA: ${{ github.sha }}
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          EXPECTED_VERSION: ${{ inputs.expected_version }}
+        run: |
+          set -euo pipefail
+          test "$ACTUAL_EVENT" = "workflow_dispatch"
+          test "$ACTUAL_REPOSITORY" = "kimyeongwoo/kyw-dev"
+          test "$ACTUAL_REF" = "refs/heads/main"
+          test "$ACTUAL_SHA" = "$EXPECTED_SHA"
+          test "${#EXPECTED_SHA}" -eq 40
+          case "$EXPECTED_SHA" in
+            *[!0-9a-f]*|"")
+              exit 1
+              ;;
+          esac
+          if ! [[ "$EXPECTED_VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            exit 1
+          fi
+          printf 'KYWPUBLISHEVIDENCE schema=1 stage=dispatch repository=%s event=%s ref=%s expected_sha=%s expected_version=%s\n' \
+            "$ACTUAL_REPOSITORY" "$ACTUAL_EVENT" "$ACTUAL_REF" "$EXPECTED_SHA" "$EXPECTED_VERSION"
+
+      - name: Check out exact source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.expected_sha }}
+
+      - name: Set up supported Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 24.x
+          package-manager-cache: false
+
+      - name: Guard checkout, runtime, and package identity
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          EXPECTED_VERSION: ${{ inputs.expected_version }}
+        run: |
+          set -euo pipefail
+          actual_sha="$(git rev-parse HEAD)"
+          test "$actual_sha" = "$EXPECTED_SHA"
+          ACTUAL_SHA="$actual_sha" node --input-type=module <<'NODE'
+          import { execFileSync } from "node:child_process";
+          import { existsSync, readFileSync } from "node:fs";
+
+          const expectedSha = process.env.EXPECTED_SHA;
+          const expectedVersion = process.env.EXPECTED_VERSION;
+          const actualSha = process.env.ACTUAL_SHA;
+          const packageJson = JSON.parse(readFileSync("package.json", "utf8"));
+          const pluginJson = JSON.parse(
+            readFileSync(".codex-plugin/plugin.json", "utf8"),
+          );
+          const npmVersion = execFileSync("npm", ["--version"], {
+            encoding: "utf8",
+          }).trim();
+
+          function numericVersion(value, label) {
+            const match = /^(?:v)?(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/.exec(value);
+            if (!match) throw new Error(`${label} has an invalid version`);
+            return match.slice(1).map(Number);
+          }
+
+          function atLeast(actual, minimum) {
+            return actual.some((value, index) => {
+              if (value === minimum[index]) return false;
+              return value > minimum[index] &&
+                actual.slice(0, index).every((prior, priorIndex) =>
+                  prior === minimum[priorIndex]);
+            }) || actual.every((value, index) => value === minimum[index]);
+          }
+
+          if (!atLeast(numericVersion(process.versions.node, "Node.js"), [22, 14, 0])) {
+            throw new Error("Node.js does not satisfy the OIDC publishing minimum");
+          }
+          if (!atLeast(numericVersion(npmVersion, "npm"), [11, 5, 1])) {
+            throw new Error("npm does not satisfy the OIDC publishing minimum");
+          }
+          if (actualSha !== expectedSha) {
+            throw new Error("Checkout SHA does not match the dispatch input");
+          }
+          if (
+            packageJson.name !== "kyw-dev" ||
+            packageJson.version !== expectedVersion ||
+            pluginJson.name !== packageJson.name ||
+            pluginJson.version !== packageJson.version
+          ) {
+            throw new Error("Package or plugin identity does not match the dispatch input");
+          }
+          if (
+            packageJson.repository?.url !==
+              "git+https://github.com/kimyeongwoo/kyw-dev.git" ||
+            packageJson.publishConfig?.access !== "public" ||
+            packageJson.publishConfig?.registry !== "https://registry.npmjs.org/"
+          ) {
+            throw new Error("Package repository or public registry identity is invalid");
+          }
+          if (
+            "dependencies" in packageJson ||
+            "devDependencies" in packageJson ||
+            existsSync(".npmrc")
+          ) {
+            throw new Error("Publication source contains an unauthorized dependency or npm config");
+          }
+          for (const scriptName of [
+            "preinstall",
+            "install",
+            "postinstall",
+            "prepare",
+            "prepack",
+            "postpack",
+            "prepublish",
+            "prepublishOnly",
+            "publish",
+            "postpublish",
+          ]) {
+            if (scriptName in (packageJson.scripts ?? {})) {
+              throw new Error(`Publication source contains lifecycle script ${scriptName}`);
+            }
+          }
+          console.log(
+            `KYWPUBLISHEVIDENCE schema=1 stage=source expected_sha=${expectedSha} actual_sha=${actualSha} package=${packageJson.name} version=${packageJson.version} node=${process.versions.node} npm=${npmVersion}`,
+          );
+          NODE
+
+      - name: Run stable repository gate
+        run: npm run check
+
+      - name: Create and verify one retained candidate
+        id: candidate
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          EXPECTED_VERSION: ${{ inputs.expected_version }}
+        run: |
+          set -euo pipefail
+          candidate_json="$(node ./scripts/packed-release-check.mjs --retain-candidate)"
+          CANDIDATE_JSON="$candidate_json" node --input-type=module <<'NODE'
+          import { appendFileSync, lstatSync } from "node:fs";
+          import { dirname, isAbsolute, join, resolve } from "node:path";
+
+          const candidate = JSON.parse(process.env.CANDIDATE_JSON);
+          const expectedVersion = process.env.EXPECTED_VERSION;
+          if (
+            candidate.schemaVersion !== 1 ||
+            candidate.kind !== "KYW_PACKED_RELEASE_CANDIDATE" ||
+            candidate.retained !== true ||
+            candidate.name !== "kyw-dev" ||
+            candidate.version !== expectedVersion ||
+            candidate.filename !== `kyw-dev-${expectedVersion}.tgz` ||
+            candidate.fileCount !== 43 ||
+            !Number.isSafeInteger(candidate.size) ||
+            candidate.size <= 0 ||
+            !Number.isSafeInteger(candidate.unpackedSize) ||
+            candidate.unpackedSize <= 0 ||
+            !/^[a-f0-9]{40}$/.test(candidate.shasum) ||
+            !/^[a-f0-9]{64}$/.test(candidate.sha256) ||
+            !/^sha512-[A-Za-z0-9+/]+={0,2}$/.test(candidate.integrity)
+          ) {
+            throw new Error("Retained candidate metadata is invalid");
+          }
+          if (
+            !isAbsolute(candidate.ownedRoot) ||
+            !isAbsolute(candidate.archivePath) ||
+            dirname(candidate.archivePath) !== join(candidate.ownedRoot, "pack") ||
+            resolve(candidate.archivePath) !== candidate.archivePath
+          ) {
+            throw new Error("Retained candidate path is unsafe");
+          }
+          const archive = lstatSync(candidate.archivePath);
+          if (!archive.isFile() || archive.isSymbolicLink() || archive.size !== candidate.size) {
+            throw new Error("Retained candidate archive identity changed");
+          }
+          const outputs = {
+            archive_path: candidate.archivePath,
+            owned_root: candidate.ownedRoot,
+            sha256: candidate.sha256,
+          };
+          for (const [name, value] of Object.entries(outputs)) {
+            if (/[\r\n]/.test(value)) throw new Error(`Unsafe candidate output ${name}`);
+            appendFileSync(process.env.GITHUB_OUTPUT, `${name}=${value}\n`);
+          }
+          console.log(
+            `KYWPUBLISHEVIDENCE schema=1 stage=candidate expected_sha=${process.env.EXPECTED_SHA} package=${candidate.name} version=${candidate.version} filename=${candidate.filename} files=${candidate.fileCount} size=${candidate.size} integrity=${candidate.integrity} shasum=${candidate.shasum} sha256=${candidate.sha256}`,
+          );
+          NODE
+
+      - name: Require registry version absence
+        env:
+          EXPECTED_VERSION: ${{ inputs.expected_version }}
+        run: |
+          node --input-type=module <<'NODE'
+          const packageName = "kyw-dev";
+          const version = process.env.EXPECTED_VERSION;
+          const registryUrl = new URL(
+            `${encodeURIComponent(packageName)}/${encodeURIComponent(version)}`,
+            "https://registry.npmjs.org/",
+          );
+          registryUrl.searchParams.set(
+            "kyw-run",
+            `${process.env.GITHUB_RUN_ID}-${process.env.GITHUB_RUN_ATTEMPT}`,
+          );
+          const response = await fetch(registryUrl, {
+            headers: {
+              accept: "application/json",
+              "cache-control": "no-cache",
+            },
+          });
+          if (response.status === 404) {
+            console.log(
+              `KYWPUBLISHEVIDENCE schema=1 stage=registry-absence package=${packageName} version=${version} status=404`,
+            );
+          } else if (response.ok) {
+            throw new Error(`Registry version ${packageName}@${version} already exists`);
+          } else {
+            throw new Error(
+              `Registry absence check was ambiguous with status ${response.status}`,
+            );
+          }
+          NODE
+
+      - name: Publish the exact candidate through OIDC
+        env:
+          CANDIDATE_TARBALL: ${{ steps.candidate.outputs.archive_path }}
+        run: npm publish "$CANDIDATE_TARBALL" --access public --ignore-scripts --registry=https://registry.npmjs.org/
+
+      - name: Remove the retained candidate
+        if: ${{ always() && steps.candidate.outputs.owned_root != '' }}
+        env:
+          CANDIDATE_ROOT: ${{ steps.candidate.outputs.owned_root }}
+        run: node ./scripts/packed-release-check.mjs --cleanup-candidate "$CANDIDATE_ROOT"

@@ -437,6 +437,7 @@ The product is accepted when the following observable results are demonstrated:
 - **AC-14:** Progressive loading selects the durable owner from explicit scope signals and escalates broad, conflicting, ambiguous, missing, or insufficient truth to a full read.
 - **AC-15:** Permanent-document validation enforces the exact four-path inventory, ownership, growth evidence, budgets, chronology separation, and command validity through ordinary CI.
 - **AC-16:** The published package version and third-party licensing are truthful, while publication remains separately authorized.
+- **AC-17:** The trusted npm workflow is manual-only, matches its exact OIDC publisher identity, verifies the requested `main` SHA/version and one retained candidate, and cannot publish from merge or CI success.
 
 ## 13. Publication state and authority
 
@@ -445,3 +446,7 @@ Current package and plugin metadata identify version `0.1.1`, package/plugin/CLI
 The public npm registry serves `kyw-dev@0.1.1` under the `latest` tag. Metadata targets that registry and published unscoped package identity. Optional contact, privacy, terms, and branding values are omitted rather than invented. No Git version tag, GitHub Release, or public plugin-directory submission is part of the current publication.
 
 Packing, local marketplace verification, exact-SHA CI, release-candidate checks, and `npm publish --dry-run` are evidence only. The mutating `npm publish`, registry mutation, package version change, tag, GitHub Release, public plugin submission, or other public distribution action requires separate explicit user authority after current checks and registry identity/version revalidation. No Skill or CI result may infer that authority.
+
+The repository's `.github/workflows/publish.yml` is a separate `workflow_dispatch`-only surface matching the configured GitHub Actions publisher `kimyeongwoo/kyw-dev`, filename `publish.yml`, environment `npm-production`, and allowed action `npm publish`. It requires the current `main` ref plus exact expected source SHA and package/plugin version, grants only the publishing job `contents: read` and `id-token: write`, and has no automatic trigger, long-lived npm token, or interactive OTP path. Merging or passing CI cannot invoke it.
+
+An authorized run must pass the Stable gate, create and verify one exact retained tarball, prove the target version absent immediately before mutation, and call `npm publish` for that tarball at most once without retry, fallback credentials, or an independent dist-tag/tag/Release action. Successful OIDC publication of this public package from the public repository produces npm provenance automatically; workflow presence, candidate evidence, provenance expectations, and repository delivery remain distinct from publication authority.
