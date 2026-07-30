@@ -570,7 +570,7 @@ test("harness and tests stay development-only while Stable CI discovers them on 
     "utf8",
   );
 
-  assert.equal(packageJson.version, "0.1.1");
+  assert.equal(packageJson.version, "0.1.2");
   assert.equal(packageJson.scripts.test, "node --test");
   assert.equal(packageJson.dependencies, undefined);
   assert.equal(packageJson.devDependencies, undefined);

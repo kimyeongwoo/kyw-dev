@@ -235,7 +235,7 @@ test("README puts installation, explicit Skills, first use, and current status b
   }
   assert.match(
     readme,
-    /Version `0\.1\.1`[\s\S]*current public npm package/,
+    /Version `0\.1\.2`[\s\S]*current source\/package release candidate/,
   );
   assert.match(
     readme,
@@ -243,8 +243,9 @@ test("README puts installation, explicit Skills, first use, and current status b
   );
   assert.match(
     readme,
-    /`kyw-dev@0\.1\.1` is published to the public npm registry under the `latest` tag/,
+    /`kyw-dev@0\.1\.1` remains published to the public npm registry under the `latest` tag/,
   );
+  assert.match(readme, /It is not yet published/);
   assert.match(
     readme,
     /No version tag, GitHub Release, or public plugin submission has occurred/,
@@ -294,6 +295,10 @@ test("permanent truth separates credential-free CI, manual OIDC publication, and
   assert.match(
     specification,
     /Stable gate[\s\S]*one exact retained tarball[\s\S]*target version absent[\s\S]*at most once without retry/,
+  );
+  assert.match(
+    specification,
+    /release candidate version `0\.1\.2`[\s\S]*public npm registry serves `kyw-dev@0\.1\.1`[\s\S]*does not yet serve the `0\.1\.2` candidate/,
   );
 
   assert.match(architecture, /### 8\.5 Trusted publication workflow/);
