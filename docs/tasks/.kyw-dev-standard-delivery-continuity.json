@@ -3,26 +3,26 @@
   "kind": "KYW_STANDARD_DELIVERY_CONTINUITY",
   "repository": "kimyeongwoo/kyw-dev",
   "baseRef": "main",
-  "sourceMainSha": "59664f4f02c58e9703776bb8ad9a40a2e658d7d5",
-  "coveredMainSha": "59664f4f02c58e9703776bb8ad9a40a2e658d7d5",
+  "sourceMainSha": "96b1d120f02c518fcb5f550af524ec035711fef6",
+  "coveredMainSha": "96b1d120f02c518fcb5f550af524ec035711fef6",
   "deliveryContract": {
     "kind": "HARDENED_EXACT_HEAD",
     "version": 2
   },
   "coverage": {
-    "taskCount": 33,
-    "lastTaskId": "0063",
-    "orderedTaskSetSha256": "0ac644bf34e712bf03f971402fc611d3ee1efdb3d7aa25c127b1e0cc8a3967a7",
-    "terminalPairStateSha256": "560d3f91a689e2800375d242f724217bb1b70794eaed1b397171d1bf2e06a9c0",
-    "cumulativeEvidenceSha256": "2e579a414c494d35fa9242a268de240edf982bf9ef944ce97a7224af63b08921"
+    "taskCount": 34,
+    "lastTaskId": "0064",
+    "orderedTaskSetSha256": "2d2f894ed648625dee8b50ed08b933fa963aa6fe1bbe592295278fd1f9d26fd7",
+    "terminalPairStateSha256": "a31d189e952d336c161e4830f03d870c038046819e561a94f4cb3328b5836a55",
+    "cumulativeEvidenceSha256": "ca93f6fc140e0a20cd494276978bc6714bd43622501f194eda90ddd6f94d696a"
   },
-  "previousCheckpointDigest": "af45721a5708f25938985dcf2761cd48825aaa3e5d78f9276e9b5d83bb92a79c",
+  "previousCheckpointDigest": "d0b2656132acd9f0f0197c3fbba2efba3aded7cb3a1dcafc0ecfb412ea326e1d",
   "transition": {
-    "taskId": "0063",
+    "taskId": "0064",
     "classification": "HARDENED_EXACT_HEAD",
-    "outcomeSha": "b1499f5e8ee6bb2cdd7f26191b73009630a98209",
-    "mergeSha": "59664f4f02c58e9703776bb8ad9a40a2e658d7d5",
-    "evidenceSha256": "083f156a20256ebc93bd446cf3d349676c3c1fc51e7768cf8283c39a81a5daa8"
+    "outcomeSha": "8ded011619ed16eae2d77b619e230a3ad1be8f5b",
+    "mergeSha": "96b1d120f02c518fcb5f550af524ec035711fef6",
+    "evidenceSha256": "7b9f07b97c503b255f6bcb21e4ba6674f90d687fe69cb7cc5d0367f28780e313"
   },
-  "checkpointDigest": "d0b2656132acd9f0f0197c3fbba2efba3aded7cb3a1dcafc0ecfb412ea326e1d"
+  "checkpointDigest": "c10bd9c40d700f21c34ca55795bed6829e440445c34b14d6603a350f438991dc"
 }

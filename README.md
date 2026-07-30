@@ -6,7 +6,7 @@
 
 ## Start here
 
-The current public npm release is `kyw-dev@0.1.1`. No public plugin-directory submission has occurred.
+The repository and package metadata identify the unpublished `kyw-dev@0.1.2` release candidate. The public npm `latest` remains `kyw-dev@0.1.1`, and no public plugin-directory submission has occurred.
 
 ### Choose one installation surface
 
@@ -49,9 +49,9 @@ Questions and small, clearly bounded changes do not require a Task folder. They 
 
 ## Release status
 
-Version `0.1.1` is the current public npm package and implements the plugin, five Skills, CLI, installer, CI, and development validation surfaces. Exact historical candidates and results live only in their numbered Task/Test pairs and GitHub.
+Version `0.1.2` is the current source/package release candidate and implements the plugin, five Skills, CLI, installer, CI, and development validation surfaces. It is not yet published. Exact historical candidates and results live only in their numbered Task/Test pairs and GitHub.
 
-`kyw-dev@0.1.1` is published to the public npm registry under the `latest` tag. No version tag, GitHub Release, or public plugin submission has occurred.
+`kyw-dev@0.1.1` remains published to the public npm registry under the `latest` tag. No version tag, GitHub Release, or public plugin submission has occurred.
 The separate `.github/workflows/publish.yml` maintainer workflow is manual-only: it accepts an exact current `main` SHA and package version, uses the `npm-production` GitHub environment, verifies one retained tarball, and gives only its publishing job the OIDC permission needed for one tokenless, OTP-free npm publication. A public-package publish from this public repository receives npm provenance automatically.
 Merging the workflow, passing credential-free CI, packing a candidate, or completing `npm publish --dry-run` neither dispatches nor authorizes it. Each publication, registry/version/tag/Release change, or public submission still requires separate explicit authority and fresh identity/version checks.
 
