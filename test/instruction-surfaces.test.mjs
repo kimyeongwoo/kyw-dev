@@ -266,6 +266,55 @@ test("README puts installation, explicit Skills, first use, and current status b
   );
 });
 
+test("permanent truth separates credential-free CI, manual OIDC publication, and authority", async () => {
+  const [readme, specification, architecture] = await Promise.all([
+    read("README.md"),
+    read("docs/SPEC.md"),
+    read("docs/ARCHITECTURE.md"),
+  ]);
+
+  assert.match(
+    readme,
+    /\.github\/workflows\/publish\.yml[\s\S]*manual-only[\s\S]*npm-production[\s\S]*tokenless, OTP-free/,
+  );
+  assert.match(
+    readme,
+    /Merging the workflow, passing credential-free CI[\s\S]*neither dispatches nor authorizes/,
+  );
+  assert.match(readme, /public repository receives npm provenance automatically/);
+
+  assert.match(
+    specification,
+    /workflow_dispatch`-only[\s\S]*kimyeongwoo\/kyw-dev[\s\S]*environment `npm-production`[\s\S]*allowed action `npm publish`/,
+  );
+  assert.match(
+    specification,
+    /no automatic trigger, long-lived npm token, or interactive OTP path/,
+  );
+  assert.match(
+    specification,
+    /Stable gate[\s\S]*one exact retained tarball[\s\S]*target version absent[\s\S]*at most once without retry/,
+  );
+
+  assert.match(architecture, /### 8\.5 Trusted publication workflow/);
+  assert.match(
+    architecture,
+    /manual-only `.github\/workflows\/publish\.yml` is separate from credential-free[\s\S]*CI/,
+  );
+  assert.match(
+    architecture,
+    /only that job receives[\s\S]*`contents: read` plus `id-token: write`/,
+  );
+  assert.match(
+    architecture,
+    /one non-retrying `npm publish`[\s\S]*guarded owned-root cleanup/,
+  );
+  assert.match(
+    architecture,
+    /Successful trusted publication[\s\S]*creates npm provenance automatically/,
+  );
+});
+
 test("permanent-document inventory and deliberate scope boundaries stay explicit", async () => {
   const [readme, specification, architecture] = await Promise.all([
     read("README.md"),

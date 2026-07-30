@@ -32,6 +32,17 @@ export const RELEASE_METADATA = Object.freeze({
   copyright: "Copyright (c) 2026 Kim Yeongwoo",
 });
 
+export const TRUSTED_PUBLISHER_METADATA = Object.freeze({
+  provider: "GitHub Actions",
+  organizationOrUser: "kimyeongwoo",
+  repository: "kyw-dev",
+  repositoryFullName: "kimyeongwoo/kyw-dev",
+  workflowFilename: "publish.yml",
+  environment: "npm-production",
+  allowedActions: Object.freeze(["npm publish"]),
+  packageAccess: "public",
+});
+
 export const PACKAGE_FILES_ALLOWLIST = [
   ".codex-plugin/",
   "bin/",
@@ -2104,6 +2115,15 @@ export function validateFoundation(
   const errors = [];
   const packageJson = readJson(root, "package.json", errors);
   const pluginJson = readJson(root, ".codex-plugin/plugin.json", errors);
+  let publishWorkflow;
+  try {
+    publishWorkflow = readFileSync(
+      join(root, ".github", "workflows", TRUSTED_PUBLISHER_METADATA.workflowFilename),
+      "utf8",
+    );
+  } catch (error) {
+    errors.push(`trusted publishing workflow is unreadable: ${error.message}`);
+  }
 
   if (packageJson && pluginJson) {
     expect(packageJson.name === RELEASE_METADATA.name, "package name must be kyw-dev", errors);
@@ -2144,6 +2164,38 @@ export function validateFoundation(
     }
     for (const name of forbiddenLifecycleScripts) {
       expect(!(name in (packageJson.scripts ?? {})), `npm lifecycle script ${name} is not allowed`, errors);
+    }
+
+    if (publishWorkflow) {
+      expect(
+        publishWorkflow.includes("\n  workflow_dispatch:\n"),
+        "trusted publishing workflow must be manual-only",
+        errors,
+      );
+      expect(
+        publishWorkflow.includes(
+          `\n    environment: ${TRUSTED_PUBLISHER_METADATA.environment}\n`,
+        ),
+        "trusted publishing workflow environment does not match npm",
+        errors,
+      );
+      expect(
+        publishWorkflow.includes(
+          `test "$ACTUAL_REPOSITORY" = "${TRUSTED_PUBLISHER_METADATA.repositoryFullName}"`,
+        ),
+        "trusted publishing workflow repository does not match npm",
+        errors,
+      );
+      expect(
+        (publishWorkflow.match(/^        run: npm publish /gm) ?? []).length === 1,
+        "trusted publishing workflow must contain exactly one publish command",
+        errors,
+      );
+      expect(
+        !/\bsecrets\.|NODE_AUTH_TOKEN|NPM_TOKEN/.test(publishWorkflow),
+        "trusted publishing workflow must not reference a publication token",
+        errors,
+      );
     }
 
     const executable = readFileSync(join(root, "bin/kyw-dev.mjs"), "utf8");

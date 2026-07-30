@@ -3,26 +3,26 @@
   "kind": "KYW_STANDARD_DELIVERY_CONTINUITY",
   "repository": "kimyeongwoo/kyw-dev",
   "baseRef": "main",
-  "sourceMainSha": "6554f886469d1f81ef58454bb8c5047399179606",
-  "coveredMainSha": "6554f886469d1f81ef58454bb8c5047399179606",
+  "sourceMainSha": "59664f4f02c58e9703776bb8ad9a40a2e658d7d5",
+  "coveredMainSha": "59664f4f02c58e9703776bb8ad9a40a2e658d7d5",
   "deliveryContract": {
     "kind": "HARDENED_EXACT_HEAD",
     "version": 2
   },
   "coverage": {
-    "taskCount": 32,
-    "lastTaskId": "0062",
-    "orderedTaskSetSha256": "52d8fd4473d1ef555e6ca0dbfce893fbaf7e479ce56ebaa2ec114f9a874f32a5",
-    "terminalPairStateSha256": "8d665bdf8de2eb15c8c320042d04827362918fe93b48bbe6ccf7b67674205ced",
-    "cumulativeEvidenceSha256": "9e26a36eef893a9f2d8b31a7c2d43b597f547456d98805e31ad18e2e182bacb1"
+    "taskCount": 33,
+    "lastTaskId": "0063",
+    "orderedTaskSetSha256": "0ac644bf34e712bf03f971402fc611d3ee1efdb3d7aa25c127b1e0cc8a3967a7",
+    "terminalPairStateSha256": "560d3f91a689e2800375d242f724217bb1b70794eaed1b397171d1bf2e06a9c0",
+    "cumulativeEvidenceSha256": "2e579a414c494d35fa9242a268de240edf982bf9ef944ce97a7224af63b08921"
   },
-  "previousCheckpointDigest": "178ce087bc71c109d389cfabb2d1605b3be2f58998e659a7d9c76bd7b42b4366",
+  "previousCheckpointDigest": "af45721a5708f25938985dcf2761cd48825aaa3e5d78f9276e9b5d83bb92a79c",
   "transition": {
-    "taskId": "0062",
+    "taskId": "0063",
     "classification": "HARDENED_EXACT_HEAD",
-    "outcomeSha": "8d0961b55ff73dc2e59352c014a1425c7c566929",
-    "mergeSha": "6554f886469d1f81ef58454bb8c5047399179606",
-    "evidenceSha256": "5e116ce8c65cf2b21e818c5c317d3db121fb5a6606cdc5adb77a3e2e47a4f0ab"
+    "outcomeSha": "b1499f5e8ee6bb2cdd7f26191b73009630a98209",
+    "mergeSha": "59664f4f02c58e9703776bb8ad9a40a2e658d7d5",
+    "evidenceSha256": "083f156a20256ebc93bd446cf3d349676c3c1fc51e7768cf8283c39a81a5daa8"
   },
-  "checkpointDigest": "af45721a5708f25938985dcf2761cd48825aaa3e5d78f9276e9b5d83bb92a79c"
+  "checkpointDigest": "d0b2656132acd9f0f0197c3fbba2efba3aded7cb3a1dcafc0ecfb412ea326e1d"
 }

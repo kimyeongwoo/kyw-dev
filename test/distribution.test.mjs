@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -9,10 +11,19 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
+import {
+  RETAINED_CANDIDATE_SCHEMA_VERSION,
+  assertOwnedCandidateRoot,
+  assertPackedHygiene,
+  cleanupPackedReleaseCandidate,
+  createPackedReleaseCandidate,
+  parsePackReport,
+  prepareCandidateRoot,
+} from "../scripts/packed-release-check.mjs";
 import {
   EXPECTED_TARBALL_FILES,
   RELEASE_METADATA,
@@ -23,6 +34,9 @@ import {
 } from "../scripts/release-gate-isolation.mjs";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
+const packedReleaseScript = fileURLToPath(
+  new URL("../scripts/packed-release-check.mjs", import.meta.url),
+);
 const marketplaceFixtureRoot = join(
   repositoryRoot,
   "test",
@@ -179,6 +193,155 @@ test("release metadata is public-ready while publication remains an explicit com
     installation: "AVAILABLE",
     authentication: "ON_INSTALL",
   });
+});
+
+test("retained candidate mode returns one exact archive and cleans only its owned root", (t) => {
+  const retained = spawnSync(process.execPath, [packedReleaseScript, "--retain-candidate"], {
+    cwd: repositoryRoot,
+    encoding: "utf8",
+  });
+  assert.equal(retained.status, 0, retained.stderr);
+  assert.equal(retained.stderr, "");
+  const candidate = JSON.parse(retained.stdout);
+  t.after(() => {
+    if (existsSync(candidate.ownedRoot)) {
+      cleanupPackedReleaseCandidate(candidate.ownedRoot);
+    }
+  });
+
+  assert.equal(candidate.schemaVersion, RETAINED_CANDIDATE_SCHEMA_VERSION);
+  assert.equal(candidate.kind, "KYW_PACKED_RELEASE_CANDIDATE");
+  assert.equal(candidate.retained, true);
+  assert.equal(candidate.name, RELEASE_METADATA.name);
+  assert.equal(candidate.version, RELEASE_METADATA.version);
+  assert.equal(
+    candidate.filename,
+    `${RELEASE_METADATA.name}-${RELEASE_METADATA.version}.tgz`,
+  );
+  assert.equal(candidate.fileCount, EXPECTED_TARBALL_FILES.length);
+  assert.equal(candidate.size, readFileSync(candidate.archivePath).length);
+  assert.equal(isAbsolute(candidate.ownedRoot), true);
+  assert.equal(isAbsolute(candidate.archivePath), true);
+  assert.equal(dirname(candidate.archivePath), join(candidate.ownedRoot, "pack"));
+  assert.match(candidate.integrity, /^sha512-[A-Za-z0-9+/]+={0,2}$/);
+  assert.match(candidate.shasum, /^[a-f0-9]{40}$/);
+  assert.match(candidate.sha256, /^[a-f0-9]{64}$/);
+  assert.deepEqual(readdirSync(candidate.ownedRoot), ["pack"]);
+  assert.deepEqual(readdirSync(join(candidate.ownedRoot, "pack")), [candidate.filename]);
+  assert.equal(
+    assertOwnedCandidateRoot(candidate.ownedRoot, {
+      requireRetainedStructure: true,
+    }),
+    candidate.ownedRoot,
+  );
+
+  const cleanup = spawnSync(
+    process.execPath,
+    [packedReleaseScript, "--cleanup-candidate", candidate.ownedRoot],
+    { cwd: repositoryRoot, encoding: "utf8" },
+  );
+  assert.equal(cleanup.status, 0, cleanup.stderr);
+  assert.deepEqual(JSON.parse(cleanup.stdout), {
+    schemaVersion: RETAINED_CANDIDATE_SCHEMA_VERSION,
+    kind: "KYW_PACKED_RELEASE_CANDIDATE_CLEANUP",
+    cleaned: true,
+  });
+  assert.equal(existsSync(candidate.ownedRoot), false);
+});
+
+test("candidate root, pack report, hygiene, collision, and cleanup guards fail closed", (t) => {
+  const temporaryParent = mkdtempSync(join(tmpdir(), "kyw-dev-candidate-guards-"));
+  t.after(() => rmSync(temporaryParent, { recursive: true, force: true }));
+
+  assert.throws(
+    () =>
+      prepareCandidateRoot({
+        temporaryParent,
+        candidateRoot: "relative-candidate",
+      }),
+    /absolute path/,
+  );
+  assert.throws(
+    () =>
+      prepareCandidateRoot({
+        temporaryParent,
+        candidateRoot: join(tmpdir(), "kyw-dev-packed-release-outside"),
+      }),
+    /direct child/,
+  );
+  assert.throws(
+    () => prepareCandidateRoot({ temporaryParent: repositoryRoot }),
+    /system temporary root|overlap the repository/,
+  );
+
+  const collisionRoot = join(
+    temporaryParent,
+    "kyw-dev-packed-release-collision",
+  );
+  mkdirSync(collisionRoot);
+  assert.throws(
+    () => prepareCandidateRoot({ temporaryParent, candidateRoot: collisionRoot }),
+    /already exists/,
+  );
+  assert.throws(
+    () =>
+      assertOwnedCandidateRoot(
+        join(temporaryParent, "kyw-dev-packed-release-missing"),
+        { temporaryParent },
+      ),
+    /does not exist/,
+  );
+  assert.throws(
+    () => cleanupPackedReleaseCandidate(collisionRoot, { temporaryParent }),
+    /unexpected structure/,
+  );
+
+  for (const malformed of [
+    "",
+    "{}",
+    "[]",
+    '[{"filename":"candidate.tgz"}]',
+    '[{"filename":"candidate.tgz","files":"not-an-array"}]',
+  ]) {
+    assert.throws(() => parsePackReport(malformed), /npm pack/);
+  }
+
+  const forbiddenRoot = join(temporaryParent, "forbidden-package");
+  mkdirSync(forbiddenRoot);
+  writeFileSync(join(forbiddenRoot, ".npmrc"), "registry=https://example.invalid/\n");
+  assert.throws(() => assertPackedHygiene(forbiddenRoot), /forbidden path/);
+
+  const credentialRoot = join(temporaryParent, "credential-package");
+  mkdirSync(credentialRoot);
+  writeFileSync(
+    join(credentialRoot, "README.md"),
+    `synthetic npm_${"a".repeat(24)}\n`,
+  );
+  assert.throws(() => assertPackedHygiene(credentialRoot), /credential-shaped token/);
+
+  let malformedOwnedRoot;
+  assert.throws(
+    () =>
+      createPackedReleaseCandidate({
+        temporaryParent,
+        packRunner(packDirectory) {
+          malformedOwnedRoot = dirname(packDirectory);
+          return { status: 0, stdout: "{}", stderr: "" };
+        },
+      }),
+    /unexpected report shape/,
+  );
+  assert.equal(existsSync(malformedOwnedRoot), false);
+});
+
+test("disposable candidate behavior still removes its verified temporary root", (t) => {
+  const temporaryParent = mkdtempSync(join(tmpdir(), "kyw-dev-candidate-disposable-"));
+  t.after(() => rmSync(temporaryParent, { recursive: true, force: true }));
+  const candidate = createPackedReleaseCandidate({ temporaryParent });
+  assert.equal(candidate.retained, false);
+  assert.equal(candidate.fileCount, EXPECTED_TARBALL_FILES.length);
+  assert.equal(existsSync(candidate.ownedRoot), false);
+  assert.deepEqual(readdirSync(temporaryParent), []);
 });
 
 test("actual tarball passes the fail-closed isolated direct and marketplace lifecycles", (t) => {
