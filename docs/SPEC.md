@@ -366,7 +366,7 @@ Stable exit categories are:
 
 ### 9.2 Package boundary
 
-The source package and plugin metadata version is the unpublished `0.1.3` candidate; the public npm registry still serves `0.1.2` under `latest`. The candidate tarball includes plugin metadata, all five Skills, their required templates and deterministic support, CLI/runtime source, README, license, third-party notices, and upstream attribution.
+The source package and plugin metadata version and public npm `latest` are `0.1.3`. The release tarball includes plugin metadata, all five Skills, their required templates and deterministic support, CLI/runtime source, README, license, third-party notices, and upstream attribution.
 
 Semantic versioning applies; `0.x` unfinished interfaces may change only with documented migration impact.
 
@@ -441,9 +441,9 @@ The product is accepted when the following observable results are demonstrated:
 
 ## 13. Publication state and authority
 
-Current repository package and plugin metadata identify unpublished candidate version `0.1.3`, package/plugin/CLI name `kyw-dev`, MIT licensing, author display name `Kim Yeongwoo`, copyright `Copyright (c) 2026 Kim Yeongwoo`, public source repository `https://github.com/kimyeongwoo/kyw-dev`, and its issue tracker.
+Current repository package and plugin metadata identify published version `0.1.3`, package/plugin/CLI name `kyw-dev`, MIT licensing, author display name `Kim Yeongwoo`, copyright `Copyright (c) 2026 Kim Yeongwoo`, public source repository `https://github.com/kimyeongwoo/kyw-dev`, and its issue tracker.
 
-The public npm registry serves `kyw-dev@0.1.2` under the `latest` tag and retains `0.1.0` and `0.1.1`. The single authorized `0.1.2` publication came from the configured GitHub Actions trusted publisher and carries registry signatures plus SLSA provenance binding the package digest to `.github/workflows/publish.yml`, `refs/heads/main`, and the exact published source commit. Canonical npm version metadata does not expose `gitHead`; provenance supplies the observable source binding but does not satisfy a contract that explicitly requires that metadata field. Metadata otherwise targets the public registry and unscoped package identity. Optional contact, privacy, terms, and branding values are omitted rather than invented. No Git version tag, GitHub Release, or public plugin-directory submission is part of the current publication.
+The public npm registry serves `kyw-dev@0.1.3` under the `latest` tag and retains `0.1.0` through `0.1.2`. The single authorized `0.1.3` publication came from the configured GitHub Actions trusted publisher and the exact Git checkout; canonical npm metadata exposes `gitHead` matching the published source commit, and registry signatures plus SLSA provenance bind the package digest to `.github/workflows/publish.yml`, `refs/heads/main`, and that exact commit. Historical `0.1.2` remains available with its original OIDC signature and provenance, while its immutable canonical metadata still lacks `gitHead` because it published a prebuilt tarball. Metadata otherwise targets the public registry and unscoped package identity. Optional contact, privacy, terms, and branding values are omitted rather than invented. No Git version tag, GitHub Release, or public plugin-directory submission is part of the current publication.
 
 Packing, local marketplace verification, exact-SHA CI, release-candidate checks, and `npm publish --dry-run` are evidence only. The mutating `npm publish`, registry mutation, package version change, tag, GitHub Release, public plugin submission, or other public distribution action requires separate explicit user authority after current public-registry, repository-owned publisher-expectation, and exact-workflow checks. Routine release preflight does not require npm account/settings inspection, `npm login`, OTP, security-key authentication, or `npm trust list`. Account-side authentication is limited to initial setup, an explicitly authorized security/configuration audit or change, or investigation after an actual OIDC/publisher failure. No Skill or CI result may infer mutation authority.
 
