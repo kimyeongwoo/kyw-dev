@@ -3,26 +3,26 @@
   "kind": "KYW_STANDARD_DELIVERY_CONTINUITY",
   "repository": "kimyeongwoo/kyw-dev",
   "baseRef": "main",
-  "sourceMainSha": "872ff827a630d6fb39d8ad04e6fdb8e27d6d29a0",
-  "coveredMainSha": "872ff827a630d6fb39d8ad04e6fdb8e27d6d29a0",
+  "sourceMainSha": "caf6c82f8fc79c2b76ae2bc6c2122ca0359878d0",
+  "coveredMainSha": "caf6c82f8fc79c2b76ae2bc6c2122ca0359878d0",
   "deliveryContract": {
     "kind": "HARDENED_EXACT_HEAD",
     "version": 2
   },
   "coverage": {
-    "taskCount": 36,
-    "lastTaskId": "0067",
-    "orderedTaskSetSha256": "df72fcb976afe1392cb06f794d771cd1f3edce9a1ec271e22de9d3aa5d520f14",
-    "terminalPairStateSha256": "c1339552f25ae45a049363d364e96927be251e65192e33fecc439c5006c6d90f",
-    "cumulativeEvidenceSha256": "81881cd6a76ff6f183ffe2d5abf0352657351eb99ebf08c21b439fc8be375dfa"
+    "taskCount": 37,
+    "lastTaskId": "0068",
+    "orderedTaskSetSha256": "66a1a570f15c2e5ef50b1f746ab210a13e0ac01dc0f9f4990c47af84057651b9",
+    "terminalPairStateSha256": "02462d423ac45e34544f9b44b44e98c373e2bebc05066f85be7ce32dce34ef20",
+    "cumulativeEvidenceSha256": "911277dd0aea29b90a15dc6c12157ac08938e25402346c0bdbad8cbab12a1b16"
   },
-  "previousCheckpointDigest": "55834a385fa8cc32d3c61dc5f4f645b6b5d81989b6eff1d11960758e974e3717",
+  "previousCheckpointDigest": "bc9e222639800bf1cc2f3c03e463038be6f5f4a09eef3e4b7552508732fa836a",
   "transition": {
-    "taskId": "0067",
+    "taskId": "0068",
     "classification": "HARDENED_EXACT_HEAD",
-    "outcomeSha": "7384570b9db0436db005b6700f30350e5e1e0e1f",
-    "mergeSha": "872ff827a630d6fb39d8ad04e6fdb8e27d6d29a0",
-    "evidenceSha256": "7f82f9882874efd13b096ada252f60827d4d782d33bf03ad28d2760974d01fbf"
+    "outcomeSha": "e6aa233cf60ec7d3f7e14f095803d7b45f0a183e",
+    "mergeSha": "caf6c82f8fc79c2b76ae2bc6c2122ca0359878d0",
+    "evidenceSha256": "30ed6f6c630d745922291f3c575e0fe47133b16e7d7c4b7dcba7dc2f2fd164f6"
   },
-  "checkpointDigest": "bc9e222639800bf1cc2f3c03e463038be6f5f4a09eef3e4b7552508732fa836a"
+  "checkpointDigest": "ffc574a5f32cd52f2ad8003ffee1dc00ea2d9b52638e880aaaea1a722526959e"
 }

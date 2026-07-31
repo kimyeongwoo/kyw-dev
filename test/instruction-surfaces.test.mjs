@@ -235,7 +235,7 @@ test("README puts installation, explicit Skills, first use, and current status b
   }
   assert.match(
     readme,
-    /Version `0\.1\.3`[\s\S]*current unpublished source\/package candidate/,
+    /Version `0\.1\.3`[\s\S]*current source\/package release and public `latest`/,
   );
   assert.match(
     readme,
@@ -243,17 +243,17 @@ test("README puts installation, explicit Skills, first use, and current status b
   );
   assert.match(
     readme,
-    /`kyw-dev@0\.1\.2` is published to the public npm registry under the `latest` tag/,
+    /`kyw-dev@0\.1\.3` is published to the public npm registry under the `latest` tag/,
   );
   assert.match(
     readme,
-    /Canonical version metadata does not expose a `gitHead` field/,
+    /canonical version metadata exposes a `gitHead` field matching the published source commit/,
   );
   assert.match(
     readme,
     /No version tag, GitHub Release, or public plugin submission has occurred/,
   );
-  assert.match(readme, /npx --yes kyw-dev@0\.1\.2 install --scope user/);
+  assert.match(readme, /npx --yes kyw-dev@0\.1\.3 install --scope user/);
   assert.match(readme, /requires separate explicit authority/);
   assert.doesNotMatch(readme, /\bTask 0\d{3}\b|READY_FOR_APPROVAL|UNCHANGED at the audited point/);
   assert.doesNotMatch(readme, /^### Grilling evaluation harness$/m);
@@ -309,7 +309,7 @@ test("permanent truth separates credential-free CI, manual OIDC publication, and
   );
   assert.match(
     specification,
-    /unpublished candidate version `0\.1\.3`[\s\S]*public npm registry serves `kyw-dev@0\.1\.2`[\s\S]*Canonical npm version metadata does not expose `gitHead`/,
+    /published version `0\.1\.3`[\s\S]*public npm registry serves `kyw-dev@0\.1\.3`[\s\S]*canonical npm metadata exposes `gitHead` matching the published source commit[\s\S]*Historical `0\.1\.2`[\s\S]*still lacks `gitHead`/,
   );
   assert.match(
     specification,
