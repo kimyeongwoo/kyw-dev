@@ -26,9 +26,19 @@ import {
   evaluateDeliveryEvidence,
   hydratePriorStandardDeliveries,
   normalizeHardenedDeliveryEvidence,
+  parseStandardDeliveryContinuityTransitionToken,
   parseKywCiEvidence,
   STANDARD_DELIVERY_CONTINUITY_FILE,
 } from "../src/core/task-artifacts.mjs";
+import {
+  gitPorcelainText,
+  gitScalarText,
+  parseFrozenPreDispatchStatus,
+  parseTerminalPairWorktreeStatus,
+  reconcileAuthoritativeJobs,
+  terminalArtifactNewlineEquivalent,
+  validateTask0070FrozenWorktreeStatus,
+} from "../src/core/task-artifact-hydration.mjs";
 import { runTaskArtifactCommand } from "../skills/kyw-task/scripts/task-artifacts.mjs";
 
 const REPOSITORY_ROOT = fileURLToPath(new URL("../", import.meta.url));
@@ -117,6 +127,7 @@ Prove immutable terminal delivery behavior.
 ## Risks
 
 - Preserve exact terminal bytes.
+- Reject semantic drift.
 
 ## Discoveries and Changes
 
@@ -552,6 +563,62 @@ test("production queue validation cannot mask a delivered pair link", async (t) 
   );
 });
 
+test("terminal artifact newline equivalence normalizes only CRLF byte pairs", () => {
+  for (const [canonical, worktree] of [
+    ["line1\nline2\n", "line1\r\nline2\r\n"],
+    ["line1\r\nline2\r\n", "line1\nline2\n"],
+    ["line1\n\nline2\n", "line1\r\n\r\nline2\r\n"],
+    ["line1\r\nline2", "line1\nline2"],
+  ]) {
+    assert.equal(terminalArtifactNewlineEquivalent(canonical, worktree), true);
+  }
+  for (const [canonical, worktree] of [
+    ["line1\nline2\n", "line1\r\nchanged\r\n"],
+    ["line1\nline2\n", "line1\r\nline2\r\nadded\r\n"],
+    ["line1\nline2\n", "line1\r\n"],
+    ["line1\nline2\n", "line1\r\nline2 \r\n"],
+    ["line1 \nline2\n", "line1\r\nline2\r\n"],
+    ["line1\nline2\n", "line1\r\nline2"],
+    ["line1\nline2\n", "line1\rline2\n"],
+  ]) {
+    assert.equal(terminalArtifactNewlineEquivalent(canonical, worktree), false);
+  }
+});
+
+test("terminal-pair porcelain parsing preserves exact first paths and rejects malformed records", () => {
+  assert.deepEqual(
+    parseTerminalPairWorktreeStatus(
+      " M docs/tasks/0001-immutable/TASK.md\n M docs/tasks/0001-immutable/TEST.md\n",
+      "0001",
+    ),
+    [
+      {
+        code: " M",
+        relativePaths: ["docs/tasks/0001-immutable/TASK.md"],
+      },
+      {
+        code: " M",
+        relativePaths: ["docs/tasks/0001-immutable/TEST.md"],
+      },
+    ],
+  );
+  for (const statusText of [
+    " Mdocs/tasks/0001-immutable/TASK.md\n",
+    " M \n",
+    "XY docs/tasks/0001-immutable/TASK.md\n",
+    "R  docs/tasks/0001-immutable/TASK.md\n",
+    " M docs/tasks/0001-immutable/TASK.md\n\n",
+  ]) {
+    assert.throws(
+      () => parseTerminalPairWorktreeStatus(statusText, "0001"),
+      (error) =>
+        error.code === "FUTURE_TERMINAL_PAIR_IMMUTABLE" &&
+        error.message ===
+          'Task 0001 TERMINAL_PAIR_IMMUTABILITY: docs/tasks/0001-*/: worktree porcelain status is malformed or ambiguous. Preserve the delivered pair byte-for-byte and use $kyw-task "<correction outcome>"; the correction Task must hard-depend on Task 0001',
+    );
+  }
+});
+
 test("checkpoint-covered future pairs remain exact without newline-normalization false positives", async (t) => {
   const fixture = await futureTerminalFixture(t);
   const hydrateCovered = await fixture.checkpointDelivery();
@@ -561,13 +628,59 @@ test("checkpoint-covered future pairs remain exact without newline-normalization
     "DURABLE_STANDARD_CONTINUITY",
   );
 
-  await writeFile(
-    fixture.taskPath,
-    fixture.taskBytes.replaceAll("\n", "\r\n"),
-    "utf8",
-  );
-  await hydrateCovered();
-  await writeFile(fixture.taskPath, fixture.taskBytes, "utf8");
+  for (const [label, target, canonical] of [
+    ["TASK.md", fixture.taskPath, fixture.taskBytes],
+    ["TEST.md", fixture.testPath, fixture.testBytes],
+  ]) {
+    await writeFile(target, canonical.replaceAll("\n", "\r\n"), "utf8");
+    await hydrateCovered();
+    await writeFile(target, canonical, "utf8");
+    assert.equal(await readFile(target, "utf8"), canonical, label);
+  }
+
+  for (const [name, changedBytes] of [
+    [
+      "CRLF with a character change",
+      fixture.taskBytes
+        .replace(
+          "Prove immutable terminal delivery behavior.",
+          "Prove mutable terminal delivery behavior.",
+        )
+        .replaceAll("\n", "\r\n"),
+    ],
+    [
+      "line addition",
+      fixture.taskBytes.replace(
+        "- Reject semantic drift.\n",
+        "- Reject semantic drift.\n- Added terminal drift.\n",
+      ),
+    ],
+    [
+      "line deletion",
+      fixture.taskBytes.replace("- Reject semantic drift.\n", ""),
+    ],
+    [
+      "trailing space",
+      fixture.taskBytes.replace(
+        "# TASK 0001 — Immutable\n",
+        "# TASK 0001 — Immutable \n",
+      ),
+    ],
+    ["missing final newline", fixture.taskBytes.slice(0, -1)],
+  ]) {
+    await writeFile(fixture.taskPath, changedBytes, "utf8");
+    await assert.rejects(
+      hydrateCovered(),
+      (error) =>
+        error.code === "FUTURE_TERMINAL_PAIR_IMMUTABLE" &&
+        /docs\/tasks\/0001-immutable\/TASK\.md/.test(error.message) &&
+        /terminal artifact bytes differ from the canonical merge/.test(
+          error.message,
+        ),
+      name,
+    );
+    await writeFile(fixture.taskPath, fixture.taskBytes, "utf8");
+  }
 
   await rm(fixture.testPath);
   await assert.rejects(
@@ -1095,6 +1208,495 @@ function normalizeFixture(fixture) {
   return normalizeHardenedDeliveryEvidence(fixture);
 }
 
+function pr57MixedAttemptFixture() {
+  const repository = "kimyeongwoo/kyw-dev";
+  const baseSha = "caf6c82f8fc79c2b76ae2bc6c2122ca0359878d0";
+  const outcomeSha = "52bf834fd2ef19b4e56d5e9571cb50279dd34391";
+  const syntheticSha = "a6a4e1ea360a329917ddbe8fe54b3fe2d365567d";
+  const mergeSha = "184c0802a3327a1c287634e701206b31dec44b2f";
+  const actualHeadJobs = [
+    "Behavioral / Ubuntu / Node 22.x",
+    "Behavioral / macOS / Node 22.x",
+    "Behavioral / Windows / Node 22.x",
+    "Behavioral / Ubuntu / Node 24.x",
+    "Behavioral / macOS / Node 24.x",
+    "Behavioral / Windows / Node 24.x",
+    "Behavioral / Ubuntu / Node 26.x compatibility",
+    "Quality / Ubuntu / Node 24.x",
+    "Packed release / Ubuntu / Node 24.x",
+  ];
+  const mergeName = "Merge compatibility / Ubuntu / Node 24.x";
+  const gateName = "Required / credential-free CI";
+  const workflow = {
+    id: 314856028,
+    name: "CI",
+    path: ".github/workflows/ci.yml",
+  };
+  const jobKeys = Object.fromEntries(
+    actualHeadJobs.map((name) => [
+      name,
+      name.startsWith("Behavioral")
+        ? "behavioral"
+        : name.startsWith("Quality")
+          ? "quality"
+          : "packed-release",
+    ]),
+  );
+  jobKeys[mergeName] = "merge-compatibility";
+  jobKeys[gateName] = "required";
+  const workflowContract = {
+    name: workflow.name,
+    path: workflow.path,
+    workflow,
+    actualHeadJobs,
+    postMergeJobs: [...actualHeadJobs],
+    mergeCompatibilityJob: mergeName,
+    requiredGateJob: gateName,
+    jobKeys,
+  };
+  const outcome = {
+    taskId: "0069",
+    baseRef: "main",
+    baseSha,
+    outcomeSha,
+    mergeSha,
+    pullRequestNumber: 57,
+    headRef:
+      "task/0069-publish-and-prove-kyw-dev-0-1-3-through-npm-oidc",
+    classification: "HARDENED_EXACT_HEAD",
+    hardenedWorkflow: workflowContract,
+  };
+  const run = ({
+    id,
+    attempt,
+    event,
+    branch,
+    sha,
+    startedAt,
+    updatedAt,
+  }) => ({
+    id,
+    runAttempt: attempt,
+    workflowId: workflow.id,
+    name: workflow.name,
+    path: workflow.path,
+    event,
+    headBranch: branch,
+    headSha: sha,
+    status: "completed",
+    conclusion: "success",
+    runStartedAt: startedAt,
+    updatedAt,
+    pullRequestNumbers: event === "pull_request" ? [57] : [],
+  });
+  const prRun = run({
+    id: 30593586295,
+    attempt: 2,
+    event: "pull_request",
+    branch: outcome.headRef,
+    sha: outcomeSha,
+    startedAt: "2026-07-31T01:23:27Z",
+    updatedAt: "2026-07-31T01:25:14Z",
+  });
+  const prAttempts = [
+    {
+      ...prRun,
+      runAttempt: 1,
+      conclusion: "failure",
+      runStartedAt: "2026-07-31T00:27:23Z",
+      updatedAt: "2026-07-31T00:29:33Z",
+    },
+    prRun,
+  ];
+  const postRun = run({
+    id: 30599908879,
+    attempt: 1,
+    event: "push",
+    branch: "main",
+    sha: mergeSha,
+    startedAt: "2026-07-31T02:47:51Z",
+    updatedAt: "2026-07-31T02:50:13Z",
+  });
+  const rawJob = ({
+    id,
+    runId,
+    attempt,
+    name,
+    sha,
+    startedAt,
+    completedAt,
+    conclusion = "success",
+    steps = true,
+  }) => ({
+    id,
+    run_id: runId,
+    run_attempt: attempt,
+    name,
+    head_sha: sha,
+    status: "completed",
+    conclusion,
+    started_at: startedAt,
+    completed_at: completedAt,
+    runner_id: 1000000000 + (id % 1000),
+    runner_name: `GitHub Actions ${1000000000 + (id % 1000)}`,
+    runner_group_id: 0,
+    runner_group_name: "GitHub Actions",
+    labels: ["fixture"],
+    steps: steps
+      ? [
+          {
+            number: 1,
+            name: `Execute ${name}`,
+            status: "completed",
+            conclusion,
+            started_at: startedAt,
+            completed_at: completedAt,
+          },
+        ]
+      : [],
+  });
+  const evidenceLog = ({
+    name,
+    role,
+    runId,
+    attempt,
+    key,
+    expectedSha,
+    extras = "",
+  }) =>
+    [
+      `unique-log=${name}`,
+      `KYWCIEVIDENCE schema=2 role=${role} repository=${repository} event=${
+        role === "POST_MERGE_MAIN" ? "push" : "pull_request"
+      } pr=${role === "POST_MERGE_MAIN" ? "0" : "57"} workflow=CI run_id=${runId} run_attempt=${attempt} job=${key} expected_sha=${expectedSha} actual_sha=${expectedSha}${extras}`,
+    ].join("\n");
+
+  const attempt1Ids = [
+    91040965503,
+    91040965495,
+    91040965509,
+    91040965530,
+    91040965562,
+    91040965567,
+    91040965563,
+    91040965553,
+    91040965446,
+  ];
+  const attempt1Times = [
+    ["2026-07-31T00:27:27Z", "2026-07-31T00:27:55Z"],
+    ["2026-07-31T00:27:26Z", "2026-07-31T00:28:03Z"],
+    ["2026-07-31T00:27:27Z", "2026-07-31T00:29:26Z"],
+    ["2026-07-31T00:27:32Z", "2026-07-31T00:27:57Z"],
+    ["2026-07-31T00:27:28Z", "2026-07-31T00:28:02Z"],
+    ["2026-07-31T00:27:27Z", "2026-07-31T00:29:15Z"],
+    ["2026-07-31T00:27:26Z", "2026-07-31T00:27:53Z"],
+    ["2026-07-31T00:27:27Z", "2026-07-31T00:27:42Z"],
+    ["2026-07-31T00:27:28Z", "2026-07-31T00:27:37Z"],
+  ];
+  const prAttempt1 = actualHeadJobs.map((name, index) =>
+    rawJob({
+      id: attempt1Ids[index],
+      runId: prRun.id,
+      attempt: 1,
+      name,
+      sha: outcomeSha,
+      startedAt: attempt1Times[index][0],
+      completedAt: attempt1Times[index][1],
+      conclusion:
+        name === "Behavioral / Windows / Node 22.x"
+          ? "failure"
+          : "success",
+    }),
+  );
+  prAttempt1.push(
+    rawJob({
+      id: 91040965531,
+      runId: prRun.id,
+      attempt: 1,
+      name: mergeName,
+      sha: outcomeSha,
+      startedAt: "2026-07-31T00:27:27Z",
+      completedAt: "2026-07-31T00:27:57Z",
+    }),
+    rawJob({
+      id: 91041268653,
+      runId: prRun.id,
+      attempt: 1,
+      name: gateName,
+      sha: outcomeSha,
+      startedAt: "2026-07-31T00:29:29Z",
+      completedAt: "2026-07-31T00:29:32Z",
+      conclusion: "failure",
+    }),
+  );
+  const projectionIds = new Map([
+    ["Behavioral / Ubuntu / Node 22.x", 91049030029],
+    ["Behavioral / macOS / Node 22.x", 91049018333],
+    ["Behavioral / Ubuntu / Node 24.x", 91049035194],
+    ["Behavioral / macOS / Node 24.x", 91049036986],
+    ["Behavioral / Windows / Node 24.x", 91049033189],
+    ["Behavioral / Ubuntu / Node 26.x compatibility", 91049018410],
+    ["Quality / Ubuntu / Node 24.x", 91049037107],
+    ["Packed release / Ubuntu / Node 24.x", 91049035818],
+    [mergeName, 91049033766],
+  ]);
+  const prAttempt2 = prAttempt1
+    .filter((job) => projectionIds.has(job.name))
+    .map((job) => ({
+      ...structuredClone(job),
+      id: projectionIds.get(job.name),
+      run_attempt: 2,
+      runner_group_id: null,
+    }));
+  prAttempt2.push(
+    rawJob({
+      id: 91049018006,
+      runId: prRun.id,
+      attempt: 2,
+      name: "Behavioral / Windows / Node 22.x",
+      sha: outcomeSha,
+      startedAt: "2026-07-31T01:23:31Z",
+      completedAt: "2026-07-31T01:25:07Z",
+    }),
+    rawJob({
+      id: 91049232063,
+      runId: prRun.id,
+      attempt: 2,
+      name: gateName,
+      sha: outcomeSha,
+      startedAt: "2026-07-31T01:25:10Z",
+      completedAt: "2026-07-31T01:25:13Z",
+    }),
+  );
+  const prLogs = new Map();
+  for (const job of prAttempt1) {
+    if (job.name === gateName) {
+      prLogs.set(`1:${job.id}`, "required-gate-attempt-1");
+      continue;
+    }
+    const extras =
+      job.name === mergeName
+        ? ` expected_base_sha=${baseSha} actual_base_sha=${baseSha} expected_head_sha=${outcomeSha} actual_head_sha=${outcomeSha}`
+        : "";
+    prLogs.set(
+      `1:${job.id}`,
+      evidenceLog({
+        name: job.name,
+        role:
+          job.name === mergeName
+            ? "PR_MERGE_COMPATIBILITY"
+            : "PR_ACTUAL_HEAD",
+        runId: prRun.id,
+        attempt: 1,
+        key: jobKeys[job.name],
+        expectedSha: job.name === mergeName ? syntheticSha : outcomeSha,
+        extras,
+      }),
+    );
+  }
+  for (const job of prAttempt2) {
+    const original = prAttempt1.find((candidate) => candidate.name === job.name);
+    if (projectionIds.has(job.name)) {
+      prLogs.set(`2:${job.id}`, prLogs.get(`1:${original.id}`));
+    } else if (job.name === gateName) {
+      prLogs.set(`2:${job.id}`, "required-gate-attempt-2");
+    } else {
+      prLogs.set(
+        `2:${job.id}`,
+        evidenceLog({
+          name: job.name,
+          role: "PR_ACTUAL_HEAD",
+          runId: prRun.id,
+          attempt: 2,
+          key: jobKeys[job.name],
+          expectedSha: outcomeSha,
+        }),
+      );
+    }
+  }
+
+  const postIds = [
+    91060129280,
+    91060129335,
+    91060129364,
+    91060129289,
+    91060129310,
+    91060129295,
+    91060129303,
+    91060129203,
+    91060129228,
+  ];
+  const postJobs = actualHeadJobs.map((name, index) =>
+    rawJob({
+      id: postIds[index],
+      runId: postRun.id,
+      attempt: 1,
+      name,
+      sha: mergeSha,
+      startedAt: "2026-07-31T02:47:54Z",
+      completedAt:
+        name.includes("Windows / Node 24")
+          ? "2026-07-31T02:50:05Z"
+          : name.includes("Windows / Node 22")
+            ? "2026-07-31T02:49:54Z"
+            : "2026-07-31T02:48:27Z",
+    }),
+  );
+  postJobs.push(
+    rawJob({
+      id: 91060408360,
+      runId: postRun.id,
+      attempt: 1,
+      name: gateName,
+      sha: mergeSha,
+      startedAt: "2026-07-31T02:50:08Z",
+      completedAt: "2026-07-31T02:50:12Z",
+    }),
+    rawJob({
+      id: 91060129707,
+      runId: postRun.id,
+      attempt: 1,
+      name: mergeName,
+      sha: mergeSha,
+      startedAt: "2026-07-31T02:47:52Z",
+      completedAt: "2026-07-31T02:47:52Z",
+      conclusion: "skipped",
+      steps: false,
+    }),
+  );
+  const postLogs = new Map();
+  for (const job of postJobs) {
+    if (job.name === gateName) {
+      postLogs.set(`1:${job.id}`, "required-post-main-gate");
+    } else if (job.name !== mergeName) {
+      postLogs.set(
+        `1:${job.id}`,
+        evidenceLog({
+          name: job.name,
+          role: "POST_MERGE_MAIN",
+          runId: postRun.id,
+          attempt: 1,
+          key: jobKeys[job.name],
+          expectedSha: mergeSha,
+        }),
+      );
+    }
+  }
+  const historyClient = (history) => ({
+    async listJobs(runId, selector) {
+      assert.equal(runId, history.run.id);
+      if (selector === "all") return structuredClone(history.all);
+      if (selector === "latest") return structuredClone(history.latest);
+      return structuredClone(history.byAttempt.get(selector) ?? []);
+    },
+    async getJobLog(runId, attempt, jobId) {
+      assert.equal(runId, history.run.id);
+      const key = `${attempt}:${jobId}`;
+      if (!history.logs.has(key)) {
+        throw new Error(`missing fixture log ${key}`);
+      }
+      return history.logs.get(key);
+    },
+  });
+  const prHistory = {
+    run: prRun,
+    attempts: prAttempts,
+    byAttempt: new Map([
+      [1, prAttempt1],
+      [2, prAttempt2],
+    ]),
+    all: [...prAttempt1, ...prAttempt2],
+    latest: prAttempt2,
+    logs: prLogs,
+  };
+  const postHistory = {
+    run: postRun,
+    attempts: [postRun],
+    byAttempt: new Map([[1, postJobs]]),
+    all: postJobs,
+    latest: postJobs,
+    logs: postLogs,
+  };
+  return {
+    repository,
+    outcome,
+    workflowContract,
+    prHistory,
+    postHistory,
+    historyClient,
+    baseSnapshot: {
+      pullRequest: {
+        number: 57,
+        head: {
+          sha: outcomeSha,
+          ref: outcome.headRef,
+          repo: { full_name: repository },
+        },
+        base: {
+          sha: baseSha,
+          ref: "main",
+          repo: { full_name: repository },
+        },
+        merge_commit_sha: mergeSha,
+        merged: true,
+        draft: false,
+      },
+      reviews: [],
+      pullRequestRun: prRun,
+      syntheticCommit: {
+        sha: syntheticSha,
+        parents: [{ sha: baseSha }, { sha: outcomeSha }],
+      },
+      postMergeRun: postRun,
+    },
+  };
+}
+
+async function normalizePr57MixedAttemptFixture(fixture) {
+  const prState = await reconcileAuthoritativeJobs({
+    client: fixture.historyClient(fixture.prHistory),
+    run: fixture.prHistory.run,
+    attempts: fixture.prHistory.attempts,
+    names: [
+      ...fixture.workflowContract.actualHeadJobs,
+      fixture.workflowContract.mergeCompatibilityJob,
+      fixture.workflowContract.requiredGateJob,
+    ],
+    evidenceNames: [
+      ...fixture.workflowContract.actualHeadJobs,
+      fixture.workflowContract.mergeCompatibilityJob,
+    ],
+    gateName: fixture.workflowContract.requiredGateJob,
+    taskId: fixture.outcome.taskId,
+    role: "PR_ACCEPTED_JOB_LOG",
+  });
+  const postState = await reconcileAuthoritativeJobs({
+    client: fixture.historyClient(fixture.postHistory),
+    run: fixture.postHistory.run,
+    attempts: fixture.postHistory.attempts,
+    names: [
+      ...fixture.workflowContract.postMergeJobs,
+      fixture.workflowContract.requiredGateJob,
+    ],
+    evidenceNames: fixture.workflowContract.postMergeJobs,
+    gateName: fixture.workflowContract.requiredGateJob,
+    taskId: fixture.outcome.taskId,
+    role: "POST_MAIN_JOB_LOG",
+  });
+  const normalized = normalizeHardenedDeliveryEvidence({
+    outcome: fixture.outcome,
+    repository: fixture.repository,
+    workflowContract: fixture.workflowContract,
+    snapshot: {
+      ...fixture.baseSnapshot,
+      pullRequestJobs: prState.jobs,
+      postMergeJobs: postState.jobs,
+      chronology: [...prState.chronology, ...postState.chronology],
+    },
+  });
+  return { normalized, prState, postState };
+}
+
 test("complete hardened graph reaches the existing production evaluator", () => {
   const fixture = hardenedFixture();
   const normalized = normalizeFixture(fixture);
@@ -1115,6 +1717,240 @@ test("complete hardened graph reaches the existing production evaluator", () => 
       [2, "success"],
     ],
   );
+});
+
+test("authoritative job history accepts one-attempt, full-rerun, and exact PR 57 subset-rerun graphs", async () => {
+  const subset = pr57MixedAttemptFixture();
+  const subsetResult = await normalizePr57MixedAttemptFixture(subset);
+  const subsetEvaluation = evaluateDeliveryEvidence(
+    subset.outcome.taskId,
+    subsetResult.normalized.entry,
+    subsetResult.normalized.expectation,
+  );
+  assert.equal(subsetEvaluation.satisfied, true);
+  assert.equal(subsetEvaluation.classification, "HARDENED_EXACT_HEAD");
+  assert.equal(subsetResult.normalized.entry.actualHead.runAttempt, 2);
+  const subsetByName = new Map(
+    subsetResult.prState.jobs.map((job) => [job.name, job]),
+  );
+  assert.equal(
+    subsetByName.get("Behavioral / Windows / Node 22.x").id,
+    91049018006,
+  );
+  assert.equal(
+    subsetByName.get("Behavioral / Windows / Node 22.x").runAttempt,
+    2,
+  );
+  assert.equal(
+    subsetByName.get("Required / credential-free CI").id,
+    91049232063,
+  );
+  assert.equal(
+    subsetByName.get("Required / credential-free CI").runAttempt,
+    2,
+  );
+  assert.equal(
+    subsetByName.get("Behavioral / macOS / Node 22.x").id,
+    91040965495,
+  );
+  assert.equal(
+    subsetByName.get("Behavioral / macOS / Node 22.x").runAttempt,
+    1,
+  );
+  assert.equal(
+    subsetByName.get("Merge compatibility / Ubuntu / Node 24.x").id,
+    91040965531,
+  );
+  assert.equal(
+    subsetByName.get("Merge compatibility / Ubuntu / Node 24.x")
+      .evidence.run_attempt,
+    "1",
+  );
+  assert.equal(
+    subsetResult.postState.jobs.every((job) => job.runAttempt === 1),
+    true,
+  );
+
+  const oneAttempt = pr57MixedAttemptFixture();
+  const firstAttempt = oneAttempt.prHistory.byAttempt.get(1);
+  for (const job of firstAttempt) {
+    job.status = "completed";
+    job.conclusion = "success";
+    for (const step of job.steps) step.conclusion = "success";
+  }
+  const firstRun = {
+    ...oneAttempt.prHistory.attempts[0],
+    conclusion: "success",
+  };
+  oneAttempt.prHistory.run = firstRun;
+  oneAttempt.prHistory.attempts = [firstRun];
+  oneAttempt.prHistory.byAttempt = new Map([[1, firstAttempt]]);
+  oneAttempt.prHistory.all = firstAttempt;
+  oneAttempt.prHistory.latest = firstAttempt;
+  oneAttempt.baseSnapshot.pullRequestRun = firstRun;
+  const oneAttemptResult =
+    await normalizePr57MixedAttemptFixture(oneAttempt);
+  assert.equal(
+    evaluateDeliveryEvidence(
+      oneAttempt.outcome.taskId,
+      oneAttemptResult.normalized.entry,
+      oneAttemptResult.normalized.expectation,
+    ).classification,
+    "HARDENED_EXACT_HEAD",
+  );
+  assert.equal(
+    oneAttemptResult.prState.jobs.every((job) => job.runAttempt === 1),
+    true,
+  );
+
+  const fullRerun = pr57MixedAttemptFixture();
+  const secondAttempt = fullRerun.prHistory.byAttempt.get(2);
+  for (const job of secondAttempt) {
+    if (job.name === fullRerun.workflowContract.requiredGateJob) continue;
+    job.started_at = "2026-07-31T01:23:31Z";
+    job.completed_at = "2026-07-31T01:24:00Z";
+    job.status = "completed";
+    job.conclusion = "success";
+    job.steps = [
+      {
+        number: 1,
+        name: `Execute ${job.name}`,
+        status: "completed",
+        conclusion: "success",
+        started_at: job.started_at,
+        completed_at: job.completed_at,
+      },
+    ];
+    const original = fullRerun.prHistory.byAttempt
+      .get(1)
+      .find((candidate) => candidate.name === job.name);
+    const originalLog = fullRerun.prHistory.logs.get(`1:${original.id}`);
+    fullRerun.prHistory.logs.set(
+      `2:${job.id}`,
+      originalLog.replace("run_attempt=1", "run_attempt=2"),
+    );
+  }
+  fullRerun.prHistory.all = [
+    ...fullRerun.prHistory.byAttempt.get(1),
+    ...secondAttempt,
+  ];
+  fullRerun.prHistory.latest = secondAttempt;
+  const fullRerunResult =
+    await normalizePr57MixedAttemptFixture(fullRerun);
+  assert.equal(
+    evaluateDeliveryEvidence(
+      fullRerun.outcome.taskId,
+      fullRerunResult.normalized.entry,
+      fullRerunResult.normalized.expectation,
+    ).classification,
+    "HARDENED_EXACT_HEAD",
+  );
+  assert.equal(
+    fullRerunResult.prState.jobs.every((job) => job.runAttempt === 2),
+    true,
+  );
+});
+
+test("authoritative job history rejects stale aliases, collection attacks, and later non-success without fallback", async () => {
+  for (const [mutate, pattern] of [
+    [
+      (fixture) => {
+        const job = fixture.prHistory.byAttempt
+          .get(2)
+          .find((candidate) =>
+            candidate.name.includes("Windows / Node 22"),
+          );
+        job.conclusion = "failure";
+        job.steps[0].conclusion = "failure";
+      },
+      /job conclusion must equal "success"/,
+    ],
+    [
+      (fixture) => {
+        const job = fixture.prHistory.byAttempt
+          .get(2)
+          .find((candidate) =>
+            candidate.name.includes("Windows / Node 22"),
+          );
+        job.status = "in_progress";
+      },
+      /job status must equal "completed"/,
+    ],
+    [
+      (fixture) => {
+        const job = fixture.prHistory.byAttempt
+          .get(2)
+          .find((candidate) =>
+            candidate.name.includes("Windows / Node 22"),
+          );
+        const key = `2:${job.id}`;
+        fixture.prHistory.logs.set(
+          key,
+          fixture.prHistory.logs
+            .get(key)
+            .replace("run_attempt=2", "run_attempt=1"),
+        );
+      },
+      /evidence actual execution attempt must equal "2"/,
+    ],
+    [
+      (fixture) => {
+        const alias = fixture.prHistory.byAttempt
+          .get(2)
+          .find((candidate) =>
+            candidate.name.includes("macOS / Node 22"),
+          );
+        alias.completed_at = "2026-07-31T00:28:04Z";
+        alias.steps[0].completed_at = alias.completed_at;
+      },
+      /projection does not match the latest actual execution/,
+    ],
+    [
+      (fixture) => {
+        const alias = fixture.prHistory.byAttempt
+          .get(2)
+          .find((candidate) =>
+            candidate.name.includes("macOS / Node 22"),
+          );
+        fixture.prHistory.logs.set(`2:${alias.id}`, "stale projection log");
+      },
+      /projection log does not match its actual execution/,
+    ],
+    [
+      (fixture) => {
+        fixture.prHistory.all.pop();
+      },
+      /filter=all job collection is mismatched/,
+    ],
+    [
+      (fixture) => {
+        const duplicate = structuredClone(
+          fixture.prHistory.byAttempt.get(2)[0],
+        );
+        duplicate.id += 999999;
+        fixture.prHistory.byAttempt.get(2).push(duplicate);
+      },
+      /logical job name.*ambiguous/,
+    ],
+    [
+      (fixture) => {
+        const job = fixture.prHistory.byAttempt
+          .get(2)
+          .find((candidate) =>
+            candidate.name.includes("Windows / Node 22"),
+          );
+        fixture.prHistory.logs.delete(`2:${job.id}`);
+      },
+      /missing fixture log/,
+    ],
+  ]) {
+    const fixture = pr57MixedAttemptFixture();
+    mutate(fixture);
+    await assert.rejects(
+      normalizePr57MixedAttemptFixture(fixture),
+      pattern,
+    );
+  }
 });
 
 test("checkpoint hydration freshly evaluates only one uncovered hardened outcome", async () => {
@@ -1228,6 +2064,137 @@ test("checkpoint hydration freshly evaluates only one uncovered hardened outcome
   );
 });
 
+test("explicit Task 0070 rebaseline prepares exactly one existing-checkpoint frontier without writing", async () => {
+  const fixture = hardenedFixture();
+  fixture.outcome.taskId = "0069";
+  const normalized = normalizeFixture(fixture);
+  const checkpoint = createStandardDeliveryContinuityCheckpoint({
+    repository: fixture.repository,
+    sourceMainSha: "f".repeat(40),
+    coveredRecords: [
+      {
+        taskId: "0068",
+        taskSha256: "1".repeat(64),
+        testSha256: "2".repeat(64),
+        taskStatus: "DONE",
+        testStatus: "PASSED",
+        classification: "HARDENED_EXACT_HEAD",
+        outcomeSha: "3".repeat(40),
+        mergeSha: "4".repeat(40),
+        evidenceSha256: "5".repeat(64),
+      },
+    ],
+  }).checkpoint;
+  const coveredTask = task({ id: "0068", contractVersion: 3 });
+  const frontierTask = task({ id: "0069", contractVersion: 3 });
+  const selectedTask = task({
+    id: "0070",
+    status: "READY",
+    dependencies: ["0068"],
+    contractVersion: 3,
+  });
+  let validatorCalls = 0;
+  let recordBuilds = 0;
+  const options = {
+    tasksRoot: path.join(REPOSITORY_ROOT, "docs", "tasks"),
+    invocation: "$kyw-impl 0070",
+    queueInspector: async () => ({
+      tasks: [coveredTask, frontierTask, selectedTask],
+      errors: [],
+    }),
+    continuityLoader: async () => ({
+      checkpoint,
+      partition: {
+        coveredTasks: [coveredTask],
+        uncoveredTasks: [frontierTask],
+      },
+      source: "ALIGNED_MAIN",
+      identity: {
+        repository: fixture.repository,
+        repositoryRoot: REPOSITORY_ROOT,
+        currentMainSha: "f".repeat(40),
+        upstreamSha: "f".repeat(40),
+        cachedMainSha: "f".repeat(40),
+        directRemoteSha: "f".repeat(40),
+        githubMainSha: "f".repeat(40),
+        githubClient: {},
+      },
+    }),
+    localDiscovery: async () => ({
+      repository: fixture.repository,
+      repositoryRoot: REPOSITORY_ROOT,
+      currentMainSha: "f".repeat(40),
+      upstreamSha: "f".repeat(40),
+      cachedMainSha: "f".repeat(40),
+      directRemoteSha: "f".repeat(40),
+      contractAnchorSha: fixture.outcome.baseSha,
+      outcomes: [fixture.outcome],
+    }),
+    deliveryCollector: async () => ({
+      deliveryLedger: { "0069": normalized.entry },
+      deliveryExpectations: { "0069": normalized.expectation },
+      classifications: { "0069": "HARDENED_EXACT_HEAD" },
+      chronology: normalized.chronology,
+      githubMainSha: "f".repeat(40),
+    }),
+    continuityRecordBuilder: async () => {
+      recordBuilds += 1;
+      return {
+        taskId: "0069",
+        taskSha256: "6".repeat(64),
+        testSha256: "7".repeat(64),
+        taskStatus: "DONE",
+        testStatus: "PASSED",
+        classification: "HARDENED_EXACT_HEAD",
+        outcomeSha: fixture.outcome.outcomeSha,
+        mergeSha: fixture.outcome.mergeSha,
+        evidenceSha256: "8".repeat(64),
+      };
+    },
+    explicitRebaselineValidator: async () => {
+      validatorCalls += 1;
+      return {
+        authority: "EXPLICIT_REBASELINE",
+        selectedTaskId: "0070",
+        priorTaskId: "0068",
+        frontierTaskId: "0069",
+        expectedCheckpointDigest: checkpoint.checkpointDigest,
+        expectedCheckpointTaskCount: 1,
+        expectedFrontierMergeSha: fixture.outcome.mergeSha,
+      };
+    },
+  };
+  await assert.rejects(
+    hydratePriorStandardDeliveries(options),
+    /Task 0070 EXPLICIT_REBASELINE.*separate explicit rebaseline authority/,
+  );
+  assert.equal(validatorCalls, 0);
+  assert.equal(recordBuilds, 0);
+
+  const hydrated = await hydratePriorStandardDeliveries({
+    ...options,
+    continuityBootstrapAuthority: "EXPLICIT_REBASELINE",
+  });
+  assert.equal(validatorCalls, 1);
+  assert.equal(recordBuilds, 1);
+  assert.equal(hydrated.preparedCheckpoint.coverage.taskCount, 2);
+  assert.equal(hydrated.preparedCheckpoint.coverage.lastTaskId, "0069");
+  assert.equal(
+    hydrated.preparedCheckpoint.previousCheckpointDigest,
+    checkpoint.checkpointDigest,
+  );
+  assert.deepEqual(hydrated.diagnostics.explicitRebaseline, {
+    authority: "EXPLICIT_REBASELINE",
+    selectedTaskId: "0070",
+    priorTaskId: "0068",
+    frontierTaskId: "0069",
+    evaluatorVerdict: "HARDENED_EXACT_HEAD",
+    preparedCheckpointDigest:
+      hydrated.preparedCheckpoint.checkpointDigest,
+    checkpointWritten: false,
+  });
+});
+
 function assertFixtureRejected(mutate, pattern) {
   const fixture = hardenedFixture();
   mutate(fixture);
@@ -1290,7 +2257,7 @@ test("hardened normalization rejects stale, cross-attempt, role, job, and checko
       (fixture) => {
         fixture.snapshot.pullRequestJobs[0].runAttempt = 1;
       },
-      /Task 0058 PR_ACTUAL_HEAD.*job run attempt/,
+      /Task 0058 PR_ACTUAL_HEAD.*evidence actual execution attempt/,
     ],
     [
       (fixture) => {
@@ -1430,6 +2397,120 @@ test("invocation-local command cache deduplicates reads and redacts external fai
   );
 });
 
+test("Git scalar and porcelain helpers keep command-output boundaries distinct", async () => {
+  for (const [label, stdout, expected] of [
+    ["sha", `${"a".repeat(40)}\n`, "a".repeat(40)],
+    [
+      "branch",
+      "task/0070-repair-mixed-attempt-delivery-hydration-and-one-step-rebaseline\r\n",
+      "task/0070-repair-mixed-attempt-delivery-hydration-and-one-step-rebaseline",
+    ],
+    [
+      "remote",
+      "https://github.com/kimyeongwoo/kyw-dev.git\n",
+      "https://github.com/kimyeongwoo/kyw-dev.git",
+    ],
+  ]) {
+    const cache = createInvocationCommandCache({
+      runner: ({ command, args }) => {
+        assert.equal(command, "git");
+        assert.deepEqual(args, ["fixture", label]);
+        return { status: 0, stdout, stderr: "" };
+      },
+    });
+    assert.equal(
+      await gitScalarText(cache, REPOSITORY_ROOT, ["fixture", label]),
+      expected,
+    );
+  }
+
+  const porcelain = " M docs/ARCHITECTURE.md\n?? untracked-file\n";
+  const cache = createInvocationCommandCache({
+    runner: () => ({ status: 0, stdout: porcelain, stderr: "" }),
+  });
+  assert.equal(
+    await gitPorcelainText(cache, REPOSITORY_ROOT, ["status", "--porcelain=v1"]),
+    porcelain,
+  );
+});
+
+test("pre-dispatch porcelain parser preserves fixed-width first records and delimiters", () => {
+  assert.deepEqual(
+    parseFrozenPreDispatchStatus(" M docs/ARCHITECTURE.md\n", "0070"),
+    [{ code: " M", relativePath: "docs/ARCHITECTURE.md" }],
+  );
+  assert.deepEqual(
+    parseFrozenPreDispatchStatus("M  staged-file\n", "0070"),
+    [{ code: "M ", relativePath: "staged-file" }],
+  );
+  assert.deepEqual(
+    parseFrozenPreDispatchStatus("?? untracked-file\n", "0070"),
+    [{ code: "??", relativePath: "untracked-file" }],
+  );
+
+  const expected = [
+    { code: " M", relativePath: "docs/ARCHITECTURE.md" },
+    { code: "M ", relativePath: "staged-file" },
+    { code: "??", relativePath: "untracked-file" },
+  ];
+  assert.deepEqual(
+    parseFrozenPreDispatchStatus(
+      " M docs/ARCHITECTURE.md\nM  staged-file\n?? untracked-file\n",
+      "0070",
+    ),
+    expected,
+  );
+  assert.deepEqual(
+    parseFrozenPreDispatchStatus(
+      " M docs/ARCHITECTURE.md\r\nM  staged-file\r\n?? untracked-file\r\n",
+      "0070",
+    ),
+    expected,
+  );
+  assert.deepEqual(parseFrozenPreDispatchStatus("", "0070"), []);
+  assert.deepEqual(
+    parseFrozenPreDispatchStatus(" M trailing-path-space \n", "0070"),
+    [{ code: " M", relativePath: "trailing-path-space " }],
+  );
+});
+
+test("pre-dispatch porcelain parser fails closed on malformed or ambiguous records", () => {
+  for (const statusText of [
+    " Mdocs/ARCHITECTURE.md\n",
+    " M\n",
+    " M \n",
+    "\n",
+    " M valid-path\n\n",
+    "XY invalid-status\n",
+    "R  old-path -> new-path\n",
+  ]) {
+    assert.throws(
+      () => parseFrozenPreDispatchStatus(statusText, "0070"),
+      /Task 0070 EXPLICIT_REBASELINE: pre-dispatch worktree status is malformed or contains a rename/,
+    );
+  }
+});
+
+test("pre-dispatch allowlist diagnostic preserves an exact first-record path", () => {
+  const expectedPath = "docs/not-in-the-frozen-allowlist.md";
+  const statusText = [
+    ` M ${expectedPath}`,
+    "?? docs/tasks/0070-repair-mixed-attempt-delivery-hydration-0d08b166/TASK.md",
+    "?? docs/tasks/0070-repair-mixed-attempt-delivery-hydration-0d08b166/TEST.md",
+    "",
+  ].join("\n");
+  assert.throws(
+    () => validateTask0070FrozenWorktreeStatus(statusText),
+    (error) => {
+      assert.equal(
+        error.message,
+        `Task 0070 EXPLICIT_REBASELINE: pre-dispatch change is outside the frozen allowlist: ${expectedPath}`,
+      );
+      return true;
+    },
+  );
+});
+
 test("GitHub adapter fails closed on malformed JSON and partial pagination", async () => {
   const malformedCache = createInvocationCommandCache({
     runner: () => ({ status: 0, stdout: "{", stderr: "" }),
@@ -1462,6 +2543,49 @@ test("GitHub adapter fails closed on malformed JSON and partial pagination", asy
       role: "POST_MAIN_RUNS",
     }),
     /partial, malformed, or exceeds bound/,
+  );
+});
+
+test("GitHub job adapter keeps all/latest and attempt-specific collection meanings distinct", async () => {
+  const endpoints = [];
+  const cache = createInvocationCommandCache({
+    runner: ({ args }) => {
+      endpoints.push(args.at(-1));
+      return {
+        status: 0,
+        stdout: JSON.stringify({ total_count: 0, jobs: [] }),
+        stderr: "",
+      };
+    },
+  });
+  const client = createGitHubEvidenceClient({
+    repository: "owner/repository",
+    repositoryRoot: REPOSITORY_ROOT,
+    commandCache: cache,
+  });
+  await client.listJobs(1001, 1, {
+    taskId: "0058",
+    role: "ATTEMPT_JOBS",
+  });
+  await client.listJobs(1001, "all", {
+    taskId: "0058",
+    role: "ALL_JOBS",
+  });
+  await client.listJobs(1001, "latest", {
+    taskId: "0058",
+    role: "LATEST_JOBS",
+  });
+  assert.deepEqual(endpoints, [
+    "repos/owner/repository/actions/runs/1001/attempts/1/jobs?per_page=100&page=1",
+    "repos/owner/repository/actions/runs/1001/jobs?filter=all&per_page=100&page=1",
+    "repos/owner/repository/actions/runs/1001/jobs?filter=latest&per_page=100&page=1",
+  ]);
+  await assert.rejects(
+    client.listJobs(1001, "unknown", {
+      taskId: "0058",
+      role: "JOBS",
+    }),
+    /selector must be an attempt or all\/latest/,
   );
 });
 
@@ -1596,6 +2720,131 @@ test("normal adapter hydrates before one dispatcher call and failure invokes non
     /POST_MERGE_MAIN: timeout/,
   );
   assert.equal(dispatchCalls, 0);
+});
+
+test("explicit Task 0070 adapter permits one hydrated IMPLEMENT dispatch and no manual or second path", async () => {
+  const prepared = createStandardDeliveryContinuityCheckpoint({
+    repository: "owner/repository",
+    sourceMainSha: "f".repeat(40),
+    coveredRecords: [
+      {
+        taskId: "0069",
+        taskSha256: "1".repeat(64),
+        testSha256: "2".repeat(64),
+        taskStatus: "DONE",
+        testStatus: "PASSED",
+        classification: "HARDENED_EXACT_HEAD",
+        outcomeSha: "3".repeat(40),
+        mergeSha: "4".repeat(40),
+        evidenceSha256: "5".repeat(64),
+      },
+    ],
+  }).checkpoint;
+  const argumentsList = [
+    "dispatch",
+    "--tasks-root",
+    path.join(REPOSITORY_ROOT, "docs", "tasks"),
+    "--invocation",
+    "$kyw-impl 0070 separate explicit authority",
+    "--managed-routing",
+    "false",
+    "--continuity-bootstrap-authority",
+    "EXPLICIT_REBASELINE",
+  ];
+  const events = [];
+  const result = await runTaskArtifactCommand(argumentsList, {
+    hydratePriorStandardDeliveries: async (options) => {
+      events.push("hydrate");
+      assert.equal(
+        options.continuityBootstrapAuthority,
+        "EXPLICIT_REBASELINE",
+      );
+      return {
+        deliveryLedger: {},
+        deliveryExpectations: {},
+        preparedCheckpoint: prepared,
+        diagnostics: {
+          explicitRebaseline: {
+            evaluatorVerdict: "HARDENED_EXACT_HEAD",
+            frontierTaskId: "0069",
+          },
+        },
+      };
+    },
+    resolveTaskDispatch: async () => {
+      events.push("dispatch");
+      return {
+        outcome: "SELECTED",
+        action: "IMPLEMENT",
+        task: { id: "0070" },
+      };
+    },
+  });
+  assert.deepEqual(events, ["hydrate", "dispatch"]);
+  const transition = parseStandardDeliveryContinuityTransitionToken(
+    result.continuityTransitionToken,
+  );
+  assert.equal(transition.selectedTaskId, "0070");
+  assert.equal(transition.checkpoint.coverage.lastTaskId, "0069");
+
+  let wrongInvocationHydration = 0;
+  await assert.rejects(
+    runTaskArtifactCommand(
+      argumentsList.map((value) =>
+        value === "$kyw-impl 0070 separate explicit authority"
+          ? "$kyw-impl 0069"
+          : value,
+      ),
+      {
+        hydratePriorStandardDeliveries: async () => {
+          wrongInvocationHydration += 1;
+        },
+      },
+    ),
+    /restricted to the exact portable Task 0070 invocation/,
+  );
+  assert.equal(wrongInvocationHydration, 0);
+
+  await assert.rejects(
+    runTaskArtifactCommand(
+      [
+        ...argumentsList,
+        "--delivery-ledger-json",
+        "{}",
+        "--delivery-expectations-json",
+        "{}",
+      ],
+      {},
+    ),
+    /forbids manual delivery ledger or expectation input/,
+  );
+
+  let dispatchCalls = 0;
+  await assert.rejects(
+    runTaskArtifactCommand(argumentsList, {
+      hydratePriorStandardDeliveries: async () => ({
+        deliveryLedger: {},
+        deliveryExpectations: {},
+        preparedCheckpoint: prepared,
+        diagnostics: {
+          explicitRebaseline: {
+            evaluatorVerdict: "HARDENED_EXACT_HEAD",
+            frontierTaskId: "0069",
+          },
+        },
+      }),
+      resolveTaskDispatch: async () => {
+        dispatchCalls += 1;
+        return {
+          outcome: "SELECTED",
+          action: "RESUME",
+          task: { id: "0070" },
+        };
+      },
+    }),
+    /sole dispatcher did not select Task 0070 for IMPLEMENT/,
+  );
+  assert.equal(dispatchCalls, 1);
 });
 
 test("manual delivery objects remain a low-level seam and bypass automatic hydration", async () => {

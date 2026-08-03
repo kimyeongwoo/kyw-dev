@@ -257,8 +257,15 @@ nor fresh/current delivery evidence.
 
 The shared hydration module derives required outcomes from the queue, validates
 checkpoint coverage, and normalizes fresh GitHub observations only for the
-single permitted uncovered suffix. Invocation cache and pagination bounds still
-apply to that fresh graph; credentials and raw logs are never persisted.
+single permitted uncovered suffix. For each selected workflow run it keeps the
+run-level latest attempt separate from every required logical job's actual
+execution attempt. Bounded `filter=all`, `filter=latest`, and attempt-specific
+job collections establish execution history; a projected record is deduplicated
+only when exact envelope, chronology, step, and log equivalence prove one prior
+execution. The newest actual execution is authoritative and never falls back to
+an earlier success after a later failed, cancelled, incomplete, or
+missing-evidence execution. Invocation cache and pagination bounds still apply
+to that fresh graph; credentials and raw logs are never persisted.
 `NONE` delivery stays local and records a reason.
 
 ## 5. Control and data flows
@@ -344,13 +351,16 @@ post-merge main
    └─ the packed job asserts the merge SHA
 ```
 
-Each role is bound to repository, workflow, run attempt, and distinct numeric
-job identities. Jobs emit a `KYWCIEVIDENCE` checkout assertion. A successful
-synthetic checkout proves compatibility only and cannot occupy an actual-head
-slot. Missing, stale, reused, role-confused, or mismatched evidence fails
-closed. Explicit pre-contract continuity can preserve an older completed
-delivery only while actual-head evidence remains visibly `UNVERIFIED`; it is
-not available to new outcomes.
+Each role is bound to repository, workflow, the run-level latest attempt, each
+logical job's authoritative execution attempt, and distinct numeric execution
+identities. Checkout-bearing jobs emit a `KYWCIEVIDENCE` assertion whose
+`run_attempt` must equal the independently reconciled execution attempt; the
+marker-free aggregate gate is selected from the same history and dependency
+chronology. A successful synthetic checkout proves compatibility only and
+cannot occupy an actual-head slot. Missing, stale, reused, role-confused,
+ambiguous, or mismatched evidence fails closed. Explicit pre-contract
+continuity can preserve an older completed delivery only while actual-head
+evidence remains visibly `UNVERIFIED`; it is not available to new outcomes.
 
 After one complete evaluator result is no longer current, a later selected
 Task may roll it into durable continuity. The checkpoint carries only an exact
@@ -360,6 +370,12 @@ read-only before dispatch. Application requires the selected Task's
 `IN_PROGRESS/RUNNING` branch and can cover only already delivered predecessors,
 preserving one-delivery causal lag. Missing/corrupt checkpoints and gaps larger
 than one stop for explicit migration/rebaseline rather than replaying history.
+A separately authorized one-time correction may repair only a frozen
+pre-dispatch owner allowlist and prepare one evaluator-satisfied terminal
+frontier from an already valid checkpoint. It reuses the same read-only prepare
+→ sole selected-dispatch token → active-branch atomic apply boundary, forbids
+manual proof and pre-dispatch checkpoint writes, and cannot cover the selected
+correction Task or create a wider recovery subsystem.
 
 For artifact contract 3, the first evaluator-satisfied hardened graph is the
 only delivery graph for its Task. The protected merge tree binds the exact
@@ -369,6 +385,14 @@ type, and worktree bytes before dispatch. A mismatch names the Task/path and
 routes the correction to a new hard-dependent Task. The graph, rolling
 checkpoint, and Git history provide the binding; there is no PR-chain array,
 correction receipt collection, second checkpoint, or alternate ledger.
+
+Terminal worktree inspection preserves fixed-width porcelain status records
+and rejects malformed, staged, added, deleted, renamed, linked, or unsupported
+pair states before content comparison. For an unstaged regular-file
+modification only, it reads the canonical Git blob and worktree bytes and
+suppresses the status record only when CRLF-pair-to-LF normalization is exactly
+equal; it performs no other whitespace, final-newline, or Unicode
+normalization.
 
 ### 5.5 Independent audit
 
