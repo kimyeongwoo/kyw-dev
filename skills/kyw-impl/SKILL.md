@@ -32,6 +32,8 @@ Use `true` only for loaded managed routing. Pass verified conflict, unexplained-
 
 Delivered contract-3 Tasks are bound to their first complete hardened graph and pair bytes: unchanged invocation reports only; drift or redelivery stops with Task/path and new hard-dependent `$kyw-task "<correction outcome>"` guidance.
 
+A correction Task may use a separately explicit, contract-recorded pre-dispatch repair only when its frozen allowlist, focused proof, one evaluator-satisfied uncovered frontier, sole-dispatch selection, and active-pair transition checks all succeed. This is not ambient implementation authority, a manual delivery seam, or a general rebaseline path; any failed condition stops without retry.
+
 A selected result may carry an opaque continuity transition token. After establishing the selected Task branch and active pair, pass it unchanged once to `apply-continuity`. Never construct, decode, edit, retain, or apply it after a terminal result; exact resume replay is idempotent and any mismatch stops.
 
 ## Dispatch handoff

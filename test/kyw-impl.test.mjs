@@ -273,6 +273,18 @@ test("kyw-impl uses bounded durable continuity without weakening uncovered harde
   assert.match(execution, /`PR_MERGE_COMPATIBILITY`/);
   assert.match(execution, /`POST_MERGE_MAIN`/);
   assert.match(execution, /`KYWCIEVIDENCE`/);
+  assert.match(execution, /run-level latest attempt/);
+  assert.match(execution, /logical job's actual execution attempt/);
+  assert.match(execution, /`filter=all`/);
+  assert.match(execution, /`filter=latest`/);
+  assert.match(execution, /attempt-specific job collections/);
+  assert.match(execution, /later actual execution supersedes/);
+  assert.match(execution, /never falls back/);
+  assert.match(execution, /uniquely proven equivalent projection/);
+  assert.match(execution, /Task `0070` recovery is the sole limited exception/);
+  assert.match(execution, /freeze and enforce the owner-source\/test\/document allowlist/);
+  assert.match(skill, /separately explicit, contract-recorded pre-dispatch repair/);
+  assert.match(skill, /any failed condition stops without retry/);
   assert.match(execution, /behavioral\/quality\/packed job-name sets/);
   assert.match(execution, /successful job at only `refs\/pull\/<number>\/merge`/);
   assert.match(execution, /do not rerun CI/i);

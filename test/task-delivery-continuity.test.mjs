@@ -975,6 +975,82 @@ test("adapter emits an opaque transition only for recognized selected work", asy
   assert.equal("continuityTransitionToken" in terminal, false);
 });
 
+test("existing-checkpoint explicit rebaseline remains one-step and cannot cover selected Task 0070", () => {
+  const through0068 = createStandardDeliveryContinuityCheckpoint({
+    repository: "owner/repository",
+    sourceMainSha: "a".repeat(40),
+    coveredRecords: [
+      coveredRecord({
+        taskId: "0068",
+        classification: "HARDENED_EXACT_HEAD",
+        outcomeSha: "b".repeat(40),
+        mergeSha: "c".repeat(40),
+        seed: "1",
+      }),
+    ],
+  });
+  const through0069 = createStandardDeliveryContinuityCheckpoint({
+    repository: "owner/repository",
+    sourceMainSha: "d".repeat(40),
+    previousCheckpoint: through0068.checkpoint,
+    coveredRecords: [
+      coveredRecord({
+        taskId: "0069",
+        classification: "HARDENED_EXACT_HEAD",
+        outcomeSha: "e".repeat(40),
+        mergeSha: "f".repeat(40),
+        seed: "2",
+      }),
+    ],
+  });
+  assert.equal(
+    through0069.checkpoint.previousCheckpointDigest,
+    through0068.checkpoint.checkpointDigest,
+  );
+  assert.equal(through0069.checkpoint.coverage.taskCount, 2);
+  assert.equal(through0069.checkpoint.coverage.lastTaskId, "0069");
+  const token = createStandardDeliveryContinuityTransitionToken({
+    selectedTaskId: "0070",
+    checkpoint: through0069.checkpoint,
+  });
+  const parsed = parseStandardDeliveryContinuityTransitionToken(token);
+  assert.equal(parsed.selectedTaskId, "0070");
+  assert.equal(parsed.checkpoint.coverage.lastTaskId, "0069");
+  assert.throws(
+    () =>
+      createStandardDeliveryContinuityTransitionToken({
+        selectedTaskId: "0069",
+        checkpoint: through0069.checkpoint,
+      }),
+    /cannot attest to its own delivery/,
+  );
+  assert.throws(
+    () =>
+      createStandardDeliveryContinuityCheckpoint({
+        repository: "owner/repository",
+        sourceMainSha: "d".repeat(40),
+        previousCheckpoint: through0068.checkpoint,
+        coveredRecords: [
+          coveredRecord({
+            taskId: "0069",
+            classification: "HARDENED_EXACT_HEAD",
+            outcomeSha: "e".repeat(40),
+            mergeSha: "f".repeat(40),
+            seed: "2",
+          }),
+          coveredRecord({
+            taskId: "0070",
+            classification: "HARDENED_EXACT_HEAD",
+            outcomeSha: "1".repeat(40),
+            mergeSha: "2".repeat(40),
+            seed: "3",
+          }),
+        ],
+      }),
+    /rolling transition may cover exactly one new outcome/,
+  );
+});
+
 test(
   "live STANDARD delivery continuity proves bootstrap and the next bounded transition",
   { skip: process.env.KYW_LIVE_GITHUB_CONTINUITY !== "1" },

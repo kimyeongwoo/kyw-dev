@@ -41,6 +41,43 @@ const MAX_LOG_BYTES = 8 * 1024 * 1024;
 const COMMAND_TIMEOUT_MS = 30_000;
 const WORKFLOW_PATH = ".github/workflows/ci.yml";
 const FUTURE_TERMINAL_CORRECTION_ROUTE = '$kyw-task "<correction outcome>"';
+const TASK_0070_EXPLICIT_REBASELINE = Object.freeze({
+  authority: "EXPLICIT_REBASELINE",
+  selectedTaskId: "0070",
+  priorTaskId: "0068",
+  frontierTaskId: "0069",
+  expectedBranch:
+    "task/0070-repair-mixed-attempt-delivery-hydration-and-one-step-rebaseline",
+  expectedMainSha: "184c0802a3327a1c287634e701206b31dec44b2f",
+  expectedCheckpointDigest:
+    "ffc574a5f32cd52f2ad8003ffee1dc00ea2d9b52638e880aaaea1a722526959e",
+  expectedCheckpointFileSha256:
+    "126567d86296f489bc5b522d13b08c510b2bf261e2e7e1792afd2a41d0bbc2f5",
+  expectedCheckpointTaskCount: 37,
+  expectedRequiredTaskCount: 38,
+  expectedFrontierMergeSha: "184c0802a3327a1c287634e701206b31dec44b2f",
+  frozenPairHashes: Object.freeze({
+    "docs/tasks/0069-publish-and-prove-kyw-dev-0-1-3-through-npm-oidc/TASK.md":
+      "53d973f700ce91b3ee4f3c92692c7ba691e622732f36c9cb95f7691ee522e813",
+    "docs/tasks/0069-publish-and-prove-kyw-dev-0-1-3-through-npm-oidc/TEST.md":
+      "6da2f8f8f4af2734753d4f7adcb9ac357c0b528e3589053bda941612cb283a67",
+    "docs/tasks/0070-repair-mixed-attempt-delivery-hydration-0d08b166/TASK.md":
+      "98443739a0cb936b669b77a403aca5ae602a6790f05993d88587515cd9b4f99b",
+    "docs/tasks/0070-repair-mixed-attempt-delivery-hydration-0d08b166/TEST.md":
+      "430c2a3418cae51a330834a562bebd22dd9ff016cd440f24ffb764a2594b6135",
+  }),
+  mutableAllowlist: Object.freeze([
+    "src/core/task-artifact-hydration.mjs",
+    "skills/kyw-task/scripts/task-artifacts.mjs",
+    "test/task-delivery-hydration.test.mjs",
+    "test/task-delivery-continuity.test.mjs",
+    "test/kyw-impl.test.mjs",
+    "docs/SPEC.md",
+    "docs/ARCHITECTURE.md",
+    "skills/kyw-impl/references/execution.md",
+    "skills/kyw-impl/SKILL.md",
+  ]),
+});
 
 function hydrationError(taskId, role, message, code = "DELIVERY_HYDRATION_FAILED") {
   const taskLabel = taskId ? `Task ${taskId}` : "delivery hydration";
@@ -476,6 +513,23 @@ async function git(cache, cwd, args, { taskId, role, allowFailure = false } = {}
 
 async function gitText(cache, cwd, args, context) {
   return (await git(cache, cwd, args, context)).stdout.trim();
+}
+
+function stripFinalGitCommandDelimiter(stdout) {
+  const text = String(stdout);
+  if (text.endsWith("\r\n")) return text.slice(0, -2);
+  if (text.endsWith("\n")) return text.slice(0, -1);
+  return text;
+}
+
+export async function gitScalarText(cache, cwd, args, context) {
+  return stripFinalGitCommandDelimiter(
+    (await git(cache, cwd, args, context)).stdout,
+  );
+}
+
+export async function gitPorcelainText(cache, cwd, args, context) {
+  return (await git(cache, cwd, args, context)).stdout;
 }
 
 async function gitIsAncestor(cache, cwd, ancestor, descendant) {
@@ -975,6 +1029,102 @@ function changedFutureTaskArtifactPaths(taskId, nameStatus) {
   return Object.freeze(paths);
 }
 
+function normalizeTerminalArtifactLineEndings(bytes) {
+  const source = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes);
+  const normalized = Buffer.allocUnsafe(source.length);
+  let targetIndex = 0;
+  for (let sourceIndex = 0; sourceIndex < source.length; sourceIndex += 1) {
+    if (
+      source[sourceIndex] === 0x0d &&
+      sourceIndex + 1 < source.length &&
+      source[sourceIndex + 1] === 0x0a
+    ) {
+      normalized[targetIndex] = 0x0a;
+      targetIndex += 1;
+      sourceIndex += 1;
+      continue;
+    }
+    normalized[targetIndex] = source[sourceIndex];
+    targetIndex += 1;
+  }
+  return normalized.subarray(0, targetIndex);
+}
+
+export function terminalArtifactNewlineEquivalent(canonicalBytes, worktreeBytes) {
+  const canonical = Buffer.isBuffer(canonicalBytes)
+    ? canonicalBytes
+    : Buffer.from(canonicalBytes);
+  const worktree = Buffer.isBuffer(worktreeBytes)
+    ? worktreeBytes
+    : Buffer.from(worktreeBytes);
+  return (
+    canonical.equals(worktree) ||
+    normalizeTerminalArtifactLineEndings(canonical).equals(
+      normalizeTerminalArtifactLineEndings(worktree),
+    )
+  );
+}
+
+export function parseTerminalPairWorktreeStatus(statusText, taskId) {
+  const malformed = () => {
+    throw immutableTerminalPairError(
+      taskId,
+      undefined,
+      "worktree porcelain status is malformed or ambiguous",
+    );
+  };
+  if (typeof statusText !== "string") malformed();
+  if (statusText.length === 0) return Object.freeze([]);
+  const framedStatus = stripFinalGitCommandDelimiter(statusText);
+  if (framedStatus.length === 0) malformed();
+
+  const entries = [];
+  for (const line of framedStatus.split(/\r?\n/)) {
+    if (
+      line.length < 4 ||
+      line[2] !== " " ||
+      line.includes("\r") ||
+      line.includes("\0")
+    ) {
+      malformed();
+    }
+    const code = line.slice(0, 2);
+    if (
+      code === "  " ||
+      !/^[ MTADRCU?!]{2}$/u.test(code) ||
+      (code.includes("?") && code !== "??") ||
+      (code.includes("!") && code !== "!!")
+    ) {
+      malformed();
+    }
+    const value = line.slice(3);
+    const renamed = code.includes("R") || code.includes("C");
+    const hasRenameSeparator = value.includes(" -> ");
+    if (renamed !== hasRenameSeparator) malformed();
+    const relativePaths = renamed ? value.split(" -> ") : [value];
+    if (relativePaths.length !== (renamed ? 2 : 1)) malformed();
+    for (const relativePath of relativePaths) {
+      if (
+        relativePath.length === 0 ||
+        relativePath.startsWith('"') ||
+        path.isAbsolute(relativePath) ||
+        relativePath === ".." ||
+        relativePath.startsWith("../") ||
+        relativePath.startsWith("..\\")
+      ) {
+        malformed();
+      }
+    }
+    entries.push(
+      Object.freeze({
+        code,
+        relativePaths: Object.freeze(relativePaths),
+      }),
+    );
+  }
+  return Object.freeze(entries);
+}
+
 async function inspectFutureTerminalPairDrift({
   cache,
   repositoryRoot,
@@ -1000,7 +1150,7 @@ async function inspectFutureTerminalPairDrift({
     { taskId: task.id, role: "TERMINAL_PAIR_HISTORY" },
   );
   const mainChanges = changedFutureTaskArtifactPaths(task.id, mainNameStatus);
-  const worktreeStatus = await gitText(
+  const worktreeStatus = await gitPorcelainText(
     cache,
     repositoryRoot,
     [
@@ -1012,25 +1162,12 @@ async function inspectFutureTerminalPairDrift({
     ],
     { taskId: task.id, role: "TERMINAL_PAIR_WORKTREE" },
   );
-  const worktreeChanges = Object.freeze(
-    worktreeStatus
-      .split(/\r?\n/)
-      .flatMap((line) => {
-        if (!line.trim()) return [];
-        const value = line.slice(3).replace(/^"|"$/g, "");
-        return value
-          .split(" -> ")
-          .map((candidate) =>
-            taskPairPathMatch(task.id, candidate.trim(), {
-              allowCaseConfusion: true,
-            }),
-          )
-          .filter(Boolean)
-          .map((matched) => matched.relativePath);
-      })
-      .filter((value, index, values) => values.indexOf(value) === index),
+  const worktreeStatusEntries = parseTerminalPairWorktreeStatus(
+    worktreeStatus,
+    task.id,
   );
   const worktreePairIssues = [];
+  const equivalentPairPaths = new Set();
   for (const [relativePath, expectedBlobSha] of [
     [pair.taskPath, pair.taskBlobSha],
     [pair.testPath, pair.testBlobSha],
@@ -1040,7 +1177,15 @@ async function inspectFutureTerminalPairDrift({
     try {
       state = await lstat(absolutePath);
     } catch (error) {
-      if (error.code !== "ENOENT") throw error;
+      if (error.code !== "ENOENT") {
+        worktreePairIssues.push(
+          Object.freeze({
+            path: relativePath,
+            detail: "terminal artifact filesystem state could not be inspected",
+          }),
+        );
+        continue;
+      }
     }
     if (!state) {
       worktreePairIssues.push(
@@ -1057,18 +1202,72 @@ async function inspectFutureTerminalPairDrift({
       );
       continue;
     }
-    const worktreeBlobSha = await gitText(
+    const canonicalBlob = await git(
       cache,
       repositoryRoot,
-      ["hash-object", `--path=${relativePath}`, absolutePath],
-      { taskId: task.id, role: "TERMINAL_PAIR_WORKTREE" },
+      ["cat-file", "blob", expectedBlobSha],
+      {
+        taskId: task.id,
+        role: "TERMINAL_PAIR_WORKTREE",
+        allowFailure: true,
+      },
     );
-    if (worktreeBlobSha !== expectedBlobSha) {
+    if (canonicalBlob.status !== 0) {
       worktreePairIssues.push(
-        Object.freeze({ path: relativePath, detail: "terminal artifact bytes differ from the canonical merge" }),
+        Object.freeze({
+          path: relativePath,
+          detail: "canonical terminal artifact blob is unavailable",
+        }),
       );
+      continue;
     }
+    let worktreeBytes;
+    try {
+      worktreeBytes = await readFile(absolutePath);
+    } catch {
+      worktreePairIssues.push(
+        Object.freeze({
+          path: relativePath,
+          detail: "terminal artifact worktree bytes could not be read",
+        }),
+      );
+      continue;
+    }
+    if (
+      !terminalArtifactNewlineEquivalent(
+        Buffer.from(canonicalBlob.stdout, "utf8"),
+        worktreeBytes,
+      )
+    ) {
+      worktreePairIssues.push(
+        Object.freeze({
+          path: relativePath,
+          detail: "terminal artifact bytes differ from the canonical merge",
+        }),
+      );
+      continue;
+    }
+    equivalentPairPaths.add(relativePath);
   }
+  const worktreeChanges = Object.freeze(
+    worktreeStatusEntries
+      .flatMap((entry) =>
+        entry.relativePaths.flatMap((candidate) => {
+          const matched = taskPairPathMatch(task.id, candidate, {
+            allowCaseConfusion: true,
+          });
+          if (!matched) return [];
+          const newlineOnlyCanonicalPair =
+            entry.code === " M" &&
+            entry.relativePaths.length === 1 &&
+            (matched.relativePath === pair.taskPath ||
+              matched.relativePath === pair.testPath) &&
+            equivalentPairPaths.has(matched.relativePath);
+          return newlineOnlyCanonicalPair ? [] : [matched.relativePath];
+        }),
+      )
+      .filter((value, index, values) => values.indexOf(value) === index),
+  );
   const additionalDeliveries = Object.freeze(
     firstParentHistory
       .filter(
@@ -2174,6 +2373,8 @@ function normalizeRun(raw, attemptOverride) {
     status: String(raw?.status ?? "").toLowerCase(),
     conclusion: String(raw?.conclusion ?? "").toLowerCase(),
     createdAt: apiField(raw, "createdAt", "created_at") ?? "",
+    runStartedAt: apiField(raw, "runStartedAt", "run_started_at") ?? "",
+    updatedAt: apiField(raw, "updatedAt", "updated_at") ?? "",
     pullRequestNumbers: Array.isArray(raw?.pull_requests)
       ? raw.pull_requests.map((pullRequest) => Number(pullRequest?.number))
       : Array.isArray(raw?.pullRequestNumbers)
@@ -2182,18 +2383,54 @@ function normalizeRun(raw, attemptOverride) {
   };
 }
 
-function normalizeJob(raw, { runAttempt, evidence } = {}) {
+function normalizeJobStep(raw) {
+  return {
+    number: Number(raw?.number),
+    name: raw?.name,
+    status: String(raw?.status ?? "").toLowerCase(),
+    conclusion: String(raw?.conclusion ?? "").toLowerCase(),
+    startedAt: apiField(raw, "startedAt", "started_at") ?? "",
+    completedAt: apiField(raw, "completedAt", "completed_at") ?? "",
+  };
+}
+
+function normalizeJob(raw, {
+  runAttempt,
+  apiRunAttempt,
+  collectionAttempt,
+  evidence,
+  rawLog,
+} = {}) {
   return {
     id: Number(raw?.id),
     runId: Number(apiField(raw, "runId", "run_id")),
     runAttempt: Number(
       runAttempt ?? apiField(raw, "runAttempt", "run_attempt"),
     ),
+    apiRunAttempt: Number(
+      apiRunAttempt ?? apiField(raw, "runAttempt", "run_attempt"),
+    ),
+    collectionAttempt:
+      collectionAttempt === undefined ? undefined : Number(collectionAttempt),
     name: raw?.name,
     headSha: apiField(raw, "headSha", "head_sha"),
     status: String(raw?.status ?? "").toLowerCase(),
     conclusion: String(raw?.conclusion ?? "").toLowerCase(),
+    startedAt: apiField(raw, "startedAt", "started_at") ?? "",
+    completedAt: apiField(raw, "completedAt", "completed_at") ?? "",
+    runnerId: Number(apiField(raw, "runnerId", "runner_id") ?? 0),
+    runnerName: apiField(raw, "runnerName", "runner_name") ?? "",
+    runnerGroupId: Number(
+      apiField(raw, "runnerGroupId", "runner_group_id") ?? 0,
+    ),
+    runnerGroupName:
+      apiField(raw, "runnerGroupName", "runner_group_name") ?? "",
+    labels: Array.isArray(raw?.labels) ? [...raw.labels] : [],
+    steps: Array.isArray(raw?.steps)
+      ? raw.steps.map((step) => normalizeJobStep(step))
+      : [],
     evidence: evidence ?? raw?.evidence,
+    rawLog: rawLog ?? raw?.rawLog,
   };
 }
 
@@ -2330,9 +2567,23 @@ export function createGitHubEvidenceClient({
         context,
       );
     },
-    async listJobs(runId, attempt, context = {}) {
+    async listJobs(runId, attemptOrFilter, context = {}) {
+      if (positiveInteger(attemptOrFilter)) {
+        return listCounted(
+          `repos/${repository}/actions/runs/${runId}/attempts/${attemptOrFilter}/jobs`,
+          "jobs",
+          context,
+        );
+      }
+      if (!["all", "latest"].includes(attemptOrFilter)) {
+        throw hydrationError(
+          context.taskId,
+          context.role,
+          "job collection selector must be an attempt or all/latest",
+        );
+      }
       return listCounted(
-        `repos/${repository}/actions/runs/${runId}/attempts/${attempt}/jobs`,
+        `repos/${repository}/actions/runs/${runId}/jobs?filter=${attemptOrFilter}`,
         "jobs",
         context,
       );
@@ -2481,11 +2732,21 @@ function findExactJob(jobs, name, taskId, role) {
 }
 
 function validateJobEnvelope(job, run, taskId, role) {
-  if (!positiveInteger(job.id)) {
-    throw hydrationError(taskId, role, "job ID must be a positive integer");
+  if (!positiveInteger(job.id) || !positiveInteger(job.runAttempt)) {
+    throw hydrationError(
+      taskId,
+      role,
+      "job ID and actual execution attempt must be positive integers",
+    );
   }
   exact(job.runId, run.id, taskId, role, "job run ID");
-  exact(job.runAttempt, run.runAttempt, taskId, role, "job run attempt");
+  if (job.runAttempt > run.runAttempt) {
+    throw hydrationError(
+      taskId,
+      role,
+      "job actual execution attempt exceeds the run-level latest attempt",
+    );
+  }
   exact(job.headSha, run.headSha, taskId, role, "job head SHA");
   exact(job.status, "completed", taskId, role, "job status");
   exact(job.conclusion, "success", taskId, role, "job conclusion");
@@ -2499,6 +2760,7 @@ function validateEvidenceRecord(record, {
   pullRequestNumber,
   workflow,
   run,
+  executionAttempt,
   jobKey,
   expectedSha,
 }) {
@@ -2520,10 +2782,10 @@ function validateEvidenceRecord(record, {
   exact(record.run_id, String(run.id), taskId, role, "evidence run ID");
   exact(
     record.run_attempt,
-    String(run.runAttempt),
+    String(executionAttempt),
     taskId,
     role,
-    "evidence run attempt",
+    "evidence actual execution attempt",
   );
   exact(record.job, jobKey, taskId, role, "evidence job key");
   exact(record.expected_sha, expectedSha, taskId, role, "expected checkout SHA");
@@ -2565,6 +2827,7 @@ function normalizeAcceptedJobs({
       pullRequestNumber,
       workflow: workflowContract.workflow,
       run,
+      executionAttempt: job.runAttempt,
       jobKey,
       expectedSha,
     });
@@ -2697,6 +2960,7 @@ export function normalizeHardenedDeliveryEvidence({
     pullRequestNumber: outcome.pullRequestNumber,
     workflow: workflowContract.workflow,
     run: prRun,
+    executionAttempt: mergeJob.runAttempt,
     jobKey: workflowContract.jobKeys[workflowContract.mergeCompatibilityJob],
     expectedSha: mergeEvidence?.expected_sha,
   });
@@ -2989,6 +3253,14 @@ function validateRunList(runs, {
   });
 }
 
+function requiredTimestamp(value, taskId, role, label) {
+  const parsed = Date.parse(value ?? "");
+  if (!Number.isFinite(parsed)) {
+    throw hydrationError(taskId, role, `${label} must be an exact timestamp`);
+  }
+  return parsed;
+}
+
 async function acceptedAttempt(client, selectedRun, context) {
   if (selectedRun.runAttempt > MAX_RUN_ATTEMPTS) {
     throw hydrationError(
@@ -2999,6 +3271,7 @@ async function acceptedAttempt(client, selectedRun, context) {
     );
   }
   const attempts = [];
+  let previousStartedAt = -1;
   for (let attempt = 1; attempt <= selectedRun.runAttempt; attempt += 1) {
     const raw = await client.getRunAttempt(selectedRun.id, attempt, context);
     const normalized = normalizeRun(raw);
@@ -3046,41 +3319,431 @@ async function acceptedAttempt(client, selectedRun, context) {
       context.role,
       "attempt head SHA",
     );
+    const runStartedAt = requiredTimestamp(
+      normalized.runStartedAt,
+      context.taskId,
+      context.role,
+      "attempt run_started_at",
+    );
+    if (runStartedAt <= previousStartedAt) {
+      throw hydrationError(
+        context.taskId,
+        context.role,
+        "attempt run_started_at values must increase strictly",
+      );
+    }
+    previousStartedAt = runStartedAt;
     attempts.push(normalized);
   }
   return Object.freeze({ accepted: attempts.at(-1), attempts: Object.freeze(attempts) });
 }
 
-async function attachJobEvidence({
-  client,
+function jobCollectionFingerprint(job) {
+  return JSON.stringify({
+    id: job.id,
+    runId: job.runId,
+    apiRunAttempt: job.apiRunAttempt,
+    collectionAttempt: job.collectionAttempt,
+    name: job.name,
+    headSha: job.headSha,
+    status: job.status,
+    conclusion: job.conclusion,
+    startedAt: job.startedAt,
+    completedAt: job.completedAt,
+    runnerId: job.runnerId,
+    runnerName: job.runnerName,
+    runnerGroupId: job.runnerGroupId,
+    runnerGroupName: job.runnerGroupName,
+    labels: job.labels,
+    steps: job.steps,
+  });
+}
+
+function jobExecutionFingerprint(job) {
+  return JSON.stringify({
+    runId: job.runId,
+    name: job.name,
+    headSha: job.headSha,
+    status: job.status,
+    conclusion: job.conclusion,
+    startedAt: job.startedAt,
+    completedAt: job.completedAt,
+    runnerId: job.runnerId,
+    runnerName: job.runnerName,
+    runnerGroupId: job.runnerGroupId,
+    runnerGroupName: job.runnerGroupName,
+    labels: job.labels,
+    steps: job.steps,
+  });
+}
+
+function normalizeCollectedJobs({
   rawJobs,
   run,
+  collectionAttempt,
+  taskId,
+  role,
+  requireUniqueNames = true,
+}) {
+  const jobs = rawJobs.map((raw) =>
+    normalizeJob(raw, {
+      apiRunAttempt: apiField(raw, "runAttempt", "run_attempt"),
+      collectionAttempt:
+        collectionAttempt ?? apiField(raw, "runAttempt", "run_attempt"),
+    }),
+  );
+  const ids = new Set();
+  const names = new Set();
+  for (const job of jobs) {
+    if (!positiveInteger(job.id) || !positiveInteger(job.apiRunAttempt)) {
+      throw hydrationError(taskId, role, "job ID and API attempt must be positive");
+    }
+    exact(job.runId, run.id, taskId, role, "job run ID");
+    exact(job.headSha, run.headSha, taskId, role, "job head SHA");
+    exact(
+      job.apiRunAttempt,
+      job.collectionAttempt,
+      taskId,
+      role,
+      "job collection attempt",
+    );
+    if (ids.has(job.id)) {
+      throw hydrationError(taskId, role, `job ID ${job.id} is duplicated`);
+    }
+    ids.add(job.id);
+    if (requireUniqueNames && names.has(job.name)) {
+      throw hydrationError(
+        taskId,
+        role,
+        `logical job name ${JSON.stringify(job.name)} is ambiguous`,
+      );
+    }
+    names.add(job.name);
+    if (!job.name || !Array.isArray(job.labels) || !Array.isArray(job.steps)) {
+      throw hydrationError(taskId, role, "job envelope is malformed");
+    }
+    for (const step of job.steps) {
+      if (
+        !positiveInteger(step.number) ||
+        !step.name ||
+        !step.status ||
+        !step.startedAt ||
+        !step.completedAt
+      ) {
+        throw hydrationError(taskId, role, `job ${job.name} step envelope is malformed`);
+      }
+    }
+  }
+  return jobs;
+}
+
+function requireSameJobCollection({
+  expected,
+  actual,
+  taskId,
+  role,
+  label,
+}) {
+  const expectedById = new Map(expected.map((job) => [job.id, job]));
+  const actualById = new Map(actual.map((job) => [job.id, job]));
+  if (
+    expectedById.size !== expected.length ||
+    actualById.size !== actual.length ||
+    expectedById.size !== actualById.size
+  ) {
+    throw hydrationError(taskId, role, `${label} job collection is mismatched`);
+  }
+  for (const [id, expectedJob] of expectedById) {
+    const actualJob = actualById.get(id);
+    if (
+      !actualJob ||
+      jobCollectionFingerprint(actualJob) !==
+        jobCollectionFingerprint(expectedJob)
+    ) {
+      throw hydrationError(
+        taskId,
+        role,
+        `${label} job collection differs at job ${id}`,
+      );
+    }
+  }
+}
+
+export async function reconcileAuthoritativeJobs({
+  client,
+  run,
+  attempts,
   names,
+  evidenceNames,
+  gateName,
   taskId,
   role,
 }) {
-  const normalized = rawJobs.map((job) =>
-    normalizeJob(job, { runAttempt: run.runAttempt }),
-  );
-  for (const name of names) {
-    const job = findExactJob(normalized, name, taskId, role);
-    const rawLog = await client.getJobLog(run.id, run.runAttempt, job.id, {
+  const attemptCollections = [];
+  for (const attempt of attempts) {
+    const rawJobs = await client.listJobs(run.id, attempt.runAttempt, {
       taskId,
-      role: `${role}:${name}`,
+      role: `${role}:ATTEMPT_${attempt.runAttempt}_JOBS`,
     });
-    let evidence;
-    try {
-      evidence = parseKywCiEvidence(rawLog);
-    } catch (error) {
-      throw hydrationError(
+    attemptCollections.push(
+      normalizeCollectedJobs({
+        rawJobs,
+        run,
+        collectionAttempt: attempt.runAttempt,
         taskId,
-        `${role}:${name}`,
-        error instanceof Error ? error.message.replace(/^delivery hydration JOB_LOG:\s*/, "") : "job log is malformed",
+        role: `${role}:ATTEMPT_${attempt.runAttempt}_JOBS`,
+      }),
+    );
+  }
+  const rawAllJobs = await client.listJobs(run.id, "all", {
+    taskId,
+    role: `${role}:ALL_JOBS`,
+  });
+  const allJobs = normalizeCollectedJobs({
+    rawJobs: rawAllJobs,
+    run,
+    taskId,
+    role: `${role}:ALL_JOBS`,
+    requireUniqueNames: false,
+  });
+  const rawLatestJobs = await client.listJobs(run.id, "latest", {
+    taskId,
+    role: `${role}:LATEST_JOBS`,
+  });
+  const latestJobs = normalizeCollectedJobs({
+    rawJobs: rawLatestJobs,
+    run,
+    collectionAttempt: run.runAttempt,
+    taskId,
+    role: `${role}:LATEST_JOBS`,
+  });
+  const attemptUnion = attemptCollections.flat();
+  requireSameJobCollection({
+    expected: attemptUnion,
+    actual: allJobs,
+    taskId,
+    role,
+    label: "filter=all",
+  });
+  requireSameJobCollection({
+    expected: attemptCollections.at(-1),
+    actual: latestJobs,
+    taskId,
+    role,
+    label: "filter=latest",
+  });
+
+  const evidenceNameSet = new Set(evidenceNames);
+  const logCache = new Map();
+  const readJobLog = async (job) => {
+    const key = `${job.collectionAttempt}:${job.id}`;
+    if (!logCache.has(key)) {
+      const rawLog = await client.getJobLog(
+        run.id,
+        job.collectionAttempt,
+        job.id,
+        {
+          taskId,
+          role: `${role}:${job.name}`,
+        },
+      );
+      if (typeof rawLog !== "string" || rawLog.length === 0) {
+        throw hydrationError(taskId, role, `job ${job.name} log is missing`);
+      }
+      logCache.set(key, rawLog);
+    }
+    return logCache.get(key);
+  };
+
+  const selected = [];
+  const chronology = [];
+  const selectedEvidenceDigests = new Set();
+  for (const name of names) {
+    let authoritative;
+    let authoritativeAttempt;
+    for (let index = 0; index < attempts.length; index += 1) {
+      const attempt = attempts[index];
+      const job = findExactJob(
+        attemptCollections[index],
+        name,
+        taskId,
+        `${role}:ATTEMPT_${attempt.runAttempt}`,
+      );
+      const startedAt = requiredTimestamp(
+        job.startedAt,
+        taskId,
+        role,
+        `${name} started_at`,
+      );
+      const completedAt = requiredTimestamp(
+        job.completedAt,
+        taskId,
+        role,
+        `${name} completed_at`,
+      );
+      if (completedAt < startedAt) {
+        throw hydrationError(
+          taskId,
+          role,
+          `job ${name} completion precedes its start`,
+        );
+      }
+      const attemptStartedAt = requiredTimestamp(
+        attempt.runStartedAt,
+        taskId,
+        role,
+        `attempt ${attempt.runAttempt} run_started_at`,
+      );
+      if (startedAt >= attemptStartedAt) {
+        if (attempt.updatedAt) {
+          const attemptUpdatedAt = requiredTimestamp(
+            attempt.updatedAt,
+            taskId,
+            role,
+            `attempt ${attempt.runAttempt} updated_at`,
+          );
+          if (startedAt > attemptUpdatedAt || completedAt > attemptUpdatedAt) {
+            throw hydrationError(
+              taskId,
+              role,
+              `job ${name} lies outside attempt ${attempt.runAttempt} chronology`,
+            );
+          }
+        }
+        authoritative = job;
+        authoritativeAttempt = attempt.runAttempt;
+        chronology.push(
+          Object.freeze({
+            taskId,
+            role: `${role}_JOB_EXECUTION`,
+            runId: run.id,
+            runAttempt: authoritativeAttempt,
+            jobId: job.id,
+            jobName: job.name,
+            projectionAttempt: attempt.runAttempt,
+            conclusion: job.conclusion,
+          }),
+        );
+        continue;
+      }
+      if (!authoritative || !positiveInteger(authoritativeAttempt)) {
+        throw hydrationError(
+          taskId,
+          role,
+          `job ${name} has no prior actual execution for its projection`,
+        );
+      }
+      if (
+        jobExecutionFingerprint(job) !==
+        jobExecutionFingerprint(authoritative)
+      ) {
+        throw hydrationError(
+          taskId,
+          role,
+          `job ${name} projection does not match the latest actual execution`,
+        );
+      }
+      const [projectionLog, authoritativeLog] = await Promise.all([
+        readJobLog(job),
+        readJobLog(authoritative),
+      ]);
+      if (projectionLog !== authoritativeLog) {
+        throw hydrationError(
+          taskId,
+          role,
+          `job ${name} projection log does not match its actual execution`,
+        );
+      }
+      chronology.push(
+        Object.freeze({
+          taskId,
+          role: `${role}_JOB_PROJECTION`,
+          runId: run.id,
+          runAttempt: authoritativeAttempt,
+          jobId: authoritative.id,
+          jobName: job.name,
+          projectionAttempt: attempt.runAttempt,
+          conclusion: authoritative.conclusion,
+        }),
       );
     }
-    job.evidence = evidence;
+    const rawLog = await readJobLog(authoritative);
+    let evidence;
+    if (evidenceNameSet.has(name)) {
+      try {
+        evidence = parseKywCiEvidence(rawLog);
+      } catch (error) {
+        throw hydrationError(
+          taskId,
+          `${role}:${name}`,
+          error instanceof Error
+            ? error.message.replace(/^delivery hydration JOB_LOG:\s*/, "")
+            : "job log is malformed",
+        );
+      }
+      const evidenceDigest = sha256Text(rawLog);
+      if (selectedEvidenceDigests.has(evidenceDigest)) {
+        throw hydrationError(
+          taskId,
+          role,
+          `job ${name} reuses another selected checkout log`,
+        );
+      }
+      selectedEvidenceDigests.add(evidenceDigest);
+    }
+    selected.push(
+      normalizeJob(authoritative, {
+        runAttempt: authoritativeAttempt,
+        apiRunAttempt: authoritative.apiRunAttempt,
+        collectionAttempt: authoritative.collectionAttempt,
+        evidence,
+        rawLog,
+      }),
+    );
   }
-  return normalized;
+
+  if (gateName) {
+    const gate = findExactJob(selected, gateName, taskId, role);
+    const dependencies = selected.filter((job) => job.name !== gateName);
+    const latestDependencyAttempt = Math.max(
+      ...dependencies.map((job) => job.runAttempt),
+    );
+    exact(
+      gate.runAttempt,
+      latestDependencyAttempt,
+      taskId,
+      role,
+      "Required gate execution attempt",
+    );
+    const latestDependencyCompletion = Math.max(
+      ...dependencies.map((job) =>
+        requiredTimestamp(
+          job.completedAt,
+          taskId,
+          role,
+          `${job.name} completed_at`,
+        ),
+      ),
+    );
+    if (
+      requiredTimestamp(
+        gate.startedAt,
+        taskId,
+        role,
+        "Required gate started_at",
+      ) < latestDependencyCompletion
+    ) {
+      throw hydrationError(
+        taskId,
+        role,
+        "Required gate started before its authoritative dependencies completed",
+      );
+    }
+  }
+  return Object.freeze({
+    jobs: Object.freeze(selected),
+    chronology: Object.freeze(chronology),
+  });
 }
 
 async function collectHardenedSnapshot({
@@ -3110,22 +3773,24 @@ async function collectHardenedSnapshot({
     role: "PR_ACTUAL_HEAD",
   });
   const acceptedPrRun = prAttemptState.accepted;
-  const rawPrJobs = await client.listJobs(
-    acceptedPrRun.id,
-    acceptedPrRun.runAttempt,
-    { taskId: outcome.taskId, role: "PR_ACCEPTED_JOBS" },
-  );
-  const pullRequestJobs = await attachJobEvidence({
+  const prJobState = await reconcileAuthoritativeJobs({
     client,
-    rawJobs: rawPrJobs,
     run: acceptedPrRun,
+    attempts: prAttemptState.attempts,
     names: [
       ...workflowContract.actualHeadJobs,
       workflowContract.mergeCompatibilityJob,
+      workflowContract.requiredGateJob,
     ],
+    evidenceNames: [
+      ...workflowContract.actualHeadJobs,
+      workflowContract.mergeCompatibilityJob,
+    ],
+    gateName: workflowContract.requiredGateJob,
     taskId: outcome.taskId,
     role: "PR_ACCEPTED_JOB_LOG",
   });
+  const pullRequestJobs = prJobState.jobs;
   const mergeJob = findExactJob(
     pullRequestJobs,
     workflowContract.mergeCompatibilityJob,
@@ -3162,19 +3827,20 @@ async function collectHardenedSnapshot({
     role: "POST_MERGE_MAIN",
   });
   const acceptedPostRun = postAttemptState.accepted;
-  const rawPostJobs = await client.listJobs(
-    acceptedPostRun.id,
-    acceptedPostRun.runAttempt,
-    { taskId: outcome.taskId, role: "POST_MAIN_ACCEPTED_JOBS" },
-  );
-  const postMergeJobs = await attachJobEvidence({
+  const postJobState = await reconcileAuthoritativeJobs({
     client,
-    rawJobs: rawPostJobs,
     run: acceptedPostRun,
-    names: workflowContract.postMergeJobs,
+    attempts: postAttemptState.attempts,
+    names: [
+      ...workflowContract.postMergeJobs,
+      workflowContract.requiredGateJob,
+    ],
+    evidenceNames: workflowContract.postMergeJobs,
+    gateName: workflowContract.requiredGateJob,
     taskId: outcome.taskId,
     role: "POST_MAIN_JOB_LOG",
   });
+  const postMergeJobs = postJobState.jobs;
 
   const chronology = [
     ...prRuns.map((run) => runSummary(run, outcome.taskId, "PR_RUN")),
@@ -3184,6 +3850,8 @@ async function collectHardenedSnapshot({
     ...postAttemptState.attempts.map((run) =>
       runSummary(run, outcome.taskId, "POST_MAIN_ATTEMPT"),
     ),
+    ...prJobState.chronology,
+    ...postJobState.chronology,
   ];
   return {
     pullRequest: rawPullRequest,
@@ -3914,6 +4582,315 @@ async function buildImmutableTerminalFallbackQueue({
   });
 }
 
+async function readExactRegularText(target, taskId, role) {
+  let state;
+  try {
+    state = await lstat(target);
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      throw hydrationError(taskId, role, `${target} is missing`);
+    }
+    throw error;
+  }
+  if (state.isSymbolicLink() || !state.isFile()) {
+    throw hydrationError(taskId, role, `${target} is not a real regular file`);
+  }
+  return readFile(target, "utf8");
+}
+
+export function parseFrozenPreDispatchStatus(statusText, taskId) {
+  if (typeof statusText !== "string") {
+    throw hydrationError(
+      taskId,
+      "EXPLICIT_REBASELINE",
+      "pre-dispatch worktree status is malformed or contains a rename",
+    );
+  }
+  if (statusText.length === 0) return Object.freeze([]);
+
+  const framedStatus = stripFinalGitCommandDelimiter(statusText);
+  if (framedStatus.length === 0) {
+    throw hydrationError(
+      taskId,
+      "EXPLICIT_REBASELINE",
+      "pre-dispatch worktree status is malformed or contains a rename",
+    );
+  }
+  const entries = [];
+  for (const line of framedStatus.split(/\r?\n/)) {
+    if (
+      line.length < 4 ||
+      line[2] !== " " ||
+      line.includes("\r") ||
+      line.includes("\0") ||
+      line.includes(" -> ")
+    ) {
+      throw hydrationError(
+        taskId,
+        "EXPLICIT_REBASELINE",
+        "pre-dispatch worktree status is malformed or contains a rename",
+      );
+    }
+    const code = line.slice(0, 2);
+    if (
+      code === "  " ||
+      !/^[ MADRCU?!]{2}$/u.test(code) ||
+      (code.includes("?") && code !== "??") ||
+      (code.includes("!") && code !== "!!")
+    ) {
+      throw hydrationError(
+        taskId,
+        "EXPLICIT_REBASELINE",
+        "pre-dispatch worktree status is malformed or contains a rename",
+      );
+    }
+    const relativePath = line.slice(3);
+    if (
+      relativePath.startsWith('"') ||
+      path.isAbsolute(relativePath) ||
+      relativePath === ".." ||
+      relativePath.startsWith("../") ||
+      relativePath.startsWith("..\\")
+    ) {
+      throw hydrationError(
+        taskId,
+        "EXPLICIT_REBASELINE",
+        "pre-dispatch worktree path is unsafe",
+      );
+    }
+    entries.push(Object.freeze({ code, relativePath }));
+  }
+  return Object.freeze(entries);
+}
+
+export function validateTask0070FrozenWorktreeStatus(statusText) {
+  const contract = TASK_0070_EXPLICIT_REBASELINE;
+  const frozenPairPaths = new Set(
+    Object.keys(contract.frozenPairHashes).filter((relativePath) =>
+      relativePath.includes("/0070-"),
+    ),
+  );
+  const mutableAllowlist = new Set(contract.mutableAllowlist);
+  const statusEntries = parseFrozenPreDispatchStatus(
+    statusText,
+    contract.selectedTaskId,
+  );
+  const observedFrozenPairs = new Set();
+  for (const entry of statusEntries) {
+    if (frozenPairPaths.has(entry.relativePath)) {
+      if (entry.code !== "??") {
+        throw hydrationError(
+          contract.selectedTaskId,
+          "EXPLICIT_REBASELINE",
+          "Task 0070 pair must remain untracked and byte-frozen before selection",
+        );
+      }
+      observedFrozenPairs.add(entry.relativePath);
+      continue;
+    }
+    if (!mutableAllowlist.has(entry.relativePath) || entry.code !== " M") {
+      throw hydrationError(
+        contract.selectedTaskId,
+        "EXPLICIT_REBASELINE",
+        `pre-dispatch change is outside the frozen allowlist: ${entry.relativePath}`,
+      );
+    }
+  }
+  if (
+    observedFrozenPairs.size !== frozenPairPaths.size ||
+    [...frozenPairPaths].some(
+      (relativePath) => !observedFrozenPairs.has(relativePath),
+    )
+  ) {
+    throw hydrationError(
+      contract.selectedTaskId,
+      "EXPLICIT_REBASELINE",
+      "both frozen Task 0070 pair files must be present before selection",
+    );
+  }
+  return statusEntries;
+}
+
+async function validateTask0070ExplicitRebaselineBootstrap({
+  tasksRoot,
+  invocation,
+  managedRoutingAvailable,
+  queue,
+  requiredTasks,
+  commandCache,
+}) {
+  const contract = TASK_0070_EXPLICIT_REBASELINE;
+  const parsed = parseTaskInvocation(invocation, { managedRoutingAvailable });
+  if (
+    !parsed.recognized ||
+    parsed.mode !== "EXACT" ||
+    parsed.source !== "PORTABLE_SKILL" ||
+    parsed.taskId !== contract.selectedTaskId ||
+    managedRoutingAvailable
+  ) {
+    throw hydrationError(
+      contract.selectedTaskId,
+      "EXPLICIT_REBASELINE",
+      "limited bootstrap requires the exact portable Task 0070 invocation",
+      "MIGRATION_AUTHORITY_REQUIRED",
+    );
+  }
+  const selectedTask = queue.tasks.find(
+    (task) => task.id === contract.selectedTaskId,
+  );
+  const frontierTask = queue.tasks.find(
+    (task) => task.id === contract.frontierTaskId,
+  );
+  if (
+    !selectedTask ||
+    selectedTask.taskStatus !== "READY" ||
+    selectedTask.testStatus !== "READY" ||
+    selectedTask.contractVersion !==
+      IMMUTABLE_TERMINAL_TASK_CONTRACT_VERSION ||
+    selectedTask.dependencies?.length !== 1 ||
+    selectedTask.dependencies[0] !== contract.priorTaskId
+  ) {
+    throw hydrationError(
+      contract.selectedTaskId,
+      "EXPLICIT_REBASELINE",
+      "Task 0070 must remain the exact READY/READY correction pair",
+    );
+  }
+  if (
+    !frontierTask ||
+    !completeTask(frontierTask) ||
+    !requiresStandardDelivery(frontierTask)
+  ) {
+    throw hydrationError(
+      contract.frontierTaskId,
+      "EXPLICIT_REBASELINE",
+      "Task 0069 must remain the sole terminal STANDARD frontier",
+    );
+  }
+  if (
+    requiredTasks.length !== contract.expectedRequiredTaskCount ||
+    requiredTasks.at(-2)?.id !== contract.priorTaskId ||
+    requiredTasks.at(-1)?.id !== contract.frontierTaskId
+  ) {
+    throw hydrationError(
+      contract.selectedTaskId,
+      "EXPLICIT_REBASELINE",
+      "required STANDARD history is not the exact Task 0068 to 0069 frontier",
+      "DELIVERY_CONTINUITY_REBASELINE_REQUIRED",
+    );
+  }
+
+  const requestedRoot = path.resolve(tasksRoot);
+  const repositoryRoot = await gitScalarText(
+    commandCache,
+    requestedRoot,
+    ["rev-parse", "--show-toplevel"],
+    { taskId: contract.selectedTaskId, role: "EXPLICIT_REBASELINE" },
+  );
+  if (!(await tasksRootMatchesRepository(requestedRoot, repositoryRoot))) {
+    throw hydrationError(
+      contract.selectedTaskId,
+      "EXPLICIT_REBASELINE",
+      "tasks root must be the repository docs/tasks directory",
+    );
+  }
+  const [branch, headSha, mainSha, statusText] = await Promise.all([
+    gitScalarText(commandCache, repositoryRoot, ["branch", "--show-current"], {
+      taskId: contract.selectedTaskId,
+      role: "EXPLICIT_REBASELINE",
+    }),
+    gitScalarText(commandCache, repositoryRoot, ["rev-parse", "HEAD"], {
+      taskId: contract.selectedTaskId,
+      role: "EXPLICIT_REBASELINE",
+    }),
+    gitScalarText(commandCache, repositoryRoot, ["rev-parse", "refs/heads/main"], {
+      taskId: contract.selectedTaskId,
+      role: "EXPLICIT_REBASELINE",
+    }),
+    gitPorcelainText(
+      commandCache,
+      repositoryRoot,
+      ["status", "--porcelain=v1", "--untracked-files=all"],
+      { taskId: contract.selectedTaskId, role: "EXPLICIT_REBASELINE" },
+    ),
+  ]);
+  exact(
+    branch,
+    contract.expectedBranch,
+    contract.selectedTaskId,
+    "EXPLICIT_REBASELINE",
+    "active branch",
+  );
+  exact(
+    headSha,
+    contract.expectedMainSha,
+    contract.selectedTaskId,
+    "EXPLICIT_REBASELINE",
+    "pre-dispatch HEAD",
+  );
+  exact(
+    mainSha,
+    contract.expectedMainSha,
+    contract.selectedTaskId,
+    "EXPLICIT_REBASELINE",
+    "local main",
+  );
+
+  validateTask0070FrozenWorktreeStatus(statusText);
+
+  for (const [relativePath, expectedHash] of Object.entries(
+    contract.frozenPairHashes,
+  )) {
+    const bytes = await readExactRegularText(
+      path.join(repositoryRoot, ...relativePath.split("/")),
+      contract.selectedTaskId,
+      "EXPLICIT_REBASELINE",
+    );
+    exact(
+      sha256Text(bytes),
+      expectedHash,
+      contract.selectedTaskId,
+      "EXPLICIT_REBASELINE",
+      `${relativePath} SHA-256`,
+    );
+  }
+  const checkpointBytes = await readExactRegularText(
+    path.join(requestedRoot, STANDARD_DELIVERY_CONTINUITY_FILE),
+    contract.selectedTaskId,
+    "EXPLICIT_REBASELINE",
+  );
+  exact(
+    sha256Text(checkpointBytes),
+    contract.expectedCheckpointFileSha256,
+    contract.selectedTaskId,
+    "EXPLICIT_REBASELINE",
+    "checkpoint file SHA-256",
+  );
+  const checkpoint = parseStandardDeliveryContinuityCheckpoint(checkpointBytes);
+  exact(
+    checkpoint.checkpointDigest,
+    contract.expectedCheckpointDigest,
+    contract.selectedTaskId,
+    "EXPLICIT_REBASELINE",
+    "checkpoint digest",
+  );
+  exact(
+    checkpoint.coverage.taskCount,
+    contract.expectedCheckpointTaskCount,
+    contract.selectedTaskId,
+    "EXPLICIT_REBASELINE",
+    "checkpoint task count",
+  );
+  exact(
+    checkpoint.coverage.lastTaskId,
+    contract.priorTaskId,
+    contract.selectedTaskId,
+    "EXPLICIT_REBASELINE",
+    "checkpoint last Task",
+  );
+  return contract;
+}
+
 export async function hydratePriorStandardDeliveries({
   tasksRoot,
   invocation,
@@ -3923,11 +4900,14 @@ export async function hydratePriorStandardDeliveries({
   localDiscovery = discoverLocalDeliveryOutcomes,
   githubClient,
   allowBootstrapWorktreeCheckpoint = false,
+  continuityBootstrapAuthority,
   allowUncheckpointedCompatibility = false,
   continuityLoader = loadTrustedStandardDeliveryContinuity,
   emptyContinuityPreparer = prepareEmptyHistoryStandardDeliveryContinuity,
   deliveryCollector = collectNormalizedDeliveryOutcomes,
   continuityRecordBuilder = buildContinuityCoveredRecord,
+  explicitRebaselineValidator =
+    validateTask0070ExplicitRebaselineBootstrap,
   _skipImmutableTerminalFallback = false,
 } = {}) {
   const queue = await queueInspector(path.resolve(tasksRoot));
@@ -3961,11 +4941,13 @@ export async function hydratePriorStandardDeliveries({
         localDiscovery,
         githubClient,
         allowBootstrapWorktreeCheckpoint,
+        continuityBootstrapAuthority,
         allowUncheckpointedCompatibility,
         continuityLoader,
         emptyContinuityPreparer,
         deliveryCollector,
         continuityRecordBuilder,
+        explicitRebaselineValidator,
         _skipImmutableTerminalFallback: true,
       });
     } catch (error) {
@@ -3990,6 +4972,43 @@ export async function hydratePriorStandardDeliveries({
     invocation,
     managedRoutingAvailable,
   });
+  const parsedInvocation = parseTaskInvocation(invocation, {
+    managedRoutingAvailable,
+  });
+  const task0070 = queue.tasks.find(
+    (task) => task.id === TASK_0070_EXPLICIT_REBASELINE.selectedTaskId,
+  );
+  const limitedBootstrapPending =
+    parsedInvocation.recognized &&
+    parsedInvocation.mode === "EXACT" &&
+    parsedInvocation.taskId ===
+      TASK_0070_EXPLICIT_REBASELINE.selectedTaskId &&
+    task0070?.taskStatus === "READY" &&
+    task0070?.testStatus === "READY";
+  if (
+    continuityBootstrapAuthority !== undefined &&
+    continuityBootstrapAuthority !==
+      TASK_0070_EXPLICIT_REBASELINE.authority
+  ) {
+    throw hydrationError(
+      TASK_0070_EXPLICIT_REBASELINE.selectedTaskId,
+      "EXPLICIT_REBASELINE",
+      "limited bootstrap requires EXPLICIT_REBASELINE authority",
+      "MIGRATION_AUTHORITY_REQUIRED",
+    );
+  }
+  if (
+    limitedBootstrapPending &&
+    continuityBootstrapAuthority !==
+      TASK_0070_EXPLICIT_REBASELINE.authority
+  ) {
+    throw hydrationError(
+      TASK_0070_EXPLICIT_REBASELINE.selectedTaskId,
+      "EXPLICIT_REBASELINE",
+      "the READY Task 0070 correction requires separate explicit rebaseline authority",
+      "MIGRATION_AUTHORITY_REQUIRED",
+    );
+  }
   if (requiredTasks.length === 0) {
     await rethrowProvenImmutableTerminalDrift();
     if (!allowUncheckpointedCompatibility) {
@@ -4065,6 +5084,18 @@ export async function hydratePriorStandardDeliveries({
 
   if (!allowUncheckpointedCompatibility) {
     const commandCache = createInvocationCommandCache({ runner: commandRunner });
+    const explicitRebaselineContract =
+      continuityBootstrapAuthority ===
+      TASK_0070_EXPLICIT_REBASELINE.authority
+        ? await explicitRebaselineValidator({
+            tasksRoot: path.resolve(tasksRoot),
+            invocation,
+            managedRoutingAvailable,
+            queue,
+            requiredTasks,
+            commandCache,
+          })
+        : undefined;
     const coverageTasks = queue.tasks
       .filter(
         (task) =>
@@ -4081,6 +5112,36 @@ export async function hydratePriorStandardDeliveries({
       githubClient,
       allowBootstrapWorktreeCheckpoint,
     });
+    if (explicitRebaselineContract) {
+      exact(
+        continuity.source,
+        "ALIGNED_MAIN",
+        explicitRebaselineContract.selectedTaskId,
+        "EXPLICIT_REBASELINE",
+        "checkpoint source",
+      );
+      exact(
+        continuity.checkpoint.checkpointDigest,
+        explicitRebaselineContract.expectedCheckpointDigest,
+        explicitRebaselineContract.selectedTaskId,
+        "EXPLICIT_REBASELINE",
+        "trusted checkpoint digest",
+      );
+      exact(
+        continuity.checkpoint.coverage.taskCount,
+        explicitRebaselineContract.expectedCheckpointTaskCount,
+        explicitRebaselineContract.selectedTaskId,
+        "EXPLICIT_REBASELINE",
+        "trusted checkpoint task count",
+      );
+      exact(
+        continuity.checkpoint.coverage.lastTaskId,
+        explicitRebaselineContract.priorTaskId,
+        explicitRebaselineContract.selectedTaskId,
+        "EXPLICIT_REBASELINE",
+        "trusted checkpoint last Task",
+      );
+    }
     const coveredState = buildStandardDeliveryContinuityState({
       checkpoint: continuity.checkpoint,
       coveredTasks: continuity.partition.coveredTasks,
@@ -4123,6 +5184,19 @@ export async function hydratePriorStandardDeliveries({
           ),
       ),
     ]);
+    if (
+      explicitRebaselineContract &&
+      (uncoveredTasks.length !== 1 ||
+        uncoveredTasks[0]?.id !==
+          explicitRebaselineContract.frontierTaskId)
+    ) {
+      throw hydrationError(
+        explicitRebaselineContract.selectedTaskId,
+        "EXPLICIT_REBASELINE",
+        "limited bootstrap requires exactly the Task 0069 uncovered frontier",
+        "DELIVERY_CONTINUITY_REBASELINE_REQUIRED",
+      );
+    }
     if (uncoveredTasks.length > 1) {
       throw hydrationError(
         undefined,
@@ -4168,6 +5242,16 @@ export async function hydratePriorStandardDeliveries({
           `production evaluator rejected uncovered evidence: ${freshEvaluation.issues.join("; ")}`,
         );
       }
+      if (
+        explicitRebaselineContract &&
+        freshEvaluation.classification !== "HARDENED_EXACT_HEAD"
+      ) {
+        throw hydrationError(
+          uncoveredTask.id,
+          "EXPLICIT_REBASELINE",
+          "fresh production evaluator verdict must be HARDENED_EXACT_HEAD",
+        );
+      }
       assertFutureTerminalOutcomeImmutable(uncoveredTask, outcome);
       const coveredRecord = await continuityRecordBuilder({
         task: uncoveredTask,
@@ -4185,6 +5269,36 @@ export async function hydratePriorStandardDeliveries({
         coveredRecords: [coveredRecord],
         previousCheckpoint: continuity.checkpoint,
       }).checkpoint;
+      if (explicitRebaselineContract) {
+        exact(
+          preparedCheckpoint.previousCheckpointDigest,
+          explicitRebaselineContract.expectedCheckpointDigest,
+          explicitRebaselineContract.selectedTaskId,
+          "EXPLICIT_REBASELINE",
+          "prepared previous checkpoint digest",
+        );
+        exact(
+          preparedCheckpoint.coverage.taskCount,
+          explicitRebaselineContract.expectedCheckpointTaskCount + 1,
+          explicitRebaselineContract.selectedTaskId,
+          "EXPLICIT_REBASELINE",
+          "prepared checkpoint task count",
+        );
+        exact(
+          preparedCheckpoint.coverage.lastTaskId,
+          explicitRebaselineContract.frontierTaskId,
+          explicitRebaselineContract.selectedTaskId,
+          "EXPLICIT_REBASELINE",
+          "prepared checkpoint last Task",
+        );
+        exact(
+          preparedCheckpoint.coveredMainSha,
+          explicitRebaselineContract.expectedFrontierMergeSha,
+          explicitRebaselineContract.selectedTaskId,
+          "EXPLICIT_REBASELINE",
+          "prepared checkpoint covered main",
+        );
+      }
     }
     const classifications = Object.fromEntries(
       continuity.partition.coveredTasks.map((task) => [
@@ -4235,6 +5349,20 @@ export async function hydratePriorStandardDeliveries({
           preparedAdvancement: Boolean(preparedCheckpoint),
           fullHistoryFallback: false,
         }),
+        ...(explicitRebaselineContract
+          ? {
+              explicitRebaseline: Object.freeze({
+                authority: explicitRebaselineContract.authority,
+                selectedTaskId: explicitRebaselineContract.selectedTaskId,
+                priorTaskId: explicitRebaselineContract.priorTaskId,
+                frontierTaskId: explicitRebaselineContract.frontierTaskId,
+                evaluatorVerdict: "HARDENED_EXACT_HEAD",
+                preparedCheckpointDigest:
+                  preparedCheckpoint.checkpointDigest,
+                checkpointWritten: false,
+              }),
+            }
+          : {}),
         cache: commandCache.stats(),
         queryCounts: Object.freeze({
           commands: metrics.misses,
