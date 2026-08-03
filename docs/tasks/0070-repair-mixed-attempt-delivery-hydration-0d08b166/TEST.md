@@ -44,7 +44,7 @@ PASSED
 | T-10 | AC-10 — The real immutable Task `0069` graph hydrates credential-free with no adjacent mutation. | Freshly read PR/run/job/log/commit data and public registry state; production-hydrate Task `0069`, compare exact pair hashes and main/checkpoint identities, and resnapshot publication/CI/tag/Release/registry state without mutation. | Live read-only/integrity | PASS | PR `#57`, runs `30593586295` and `30599908879`, ordered identities, and job logs evaluated successfully; Task `0069` hashes stayed exact, publication run `30592539397/1`, `latest=0.1.3`, zero tags, and zero Releases remained unchanged. |
 | T-11 | AC-11 — Durable and procedural owners express the corrected narrow meaning without scope drift. | Verify SPEC/ARCHITECTURE and `kyw-impl` owner text, permanent-document measurements and projections, changed-path planning, README/AGENTS stability, and absence of unrelated Windows/release/installer changes. | Documentation/scope | PASS | Owner tests and foundation guard passed; SPEC/ARCHITECTURE and minimum Skill projections are synchronized, the exact delta table is current, and README/AGENTS diffs are empty. |
 | T-12 | AC-12 — Complete repository and delivery readiness is auditable. | Run focused tests, verification planner, Stable commands, final diff/matrix review, pair/transaction validation, Task `0069` immutability hashes, no-adjacent-mutation reads, and later Task `0070` ordinary exact-SHA delivery. | Regression/delivery | PASS | Final focused passed 113/116 with three skips; aggregate Stable passed 404/407 with three skips plus lint/format/pack, final scope and matrix are complete, and ordinary GitHub delivery remains the separate external gate. |
-| T-13 | AC-13 — Structured status parsing and terminal newline equivalence preserve exact immutability semantics. | Exercise scalar versus raw porcelain output, first-record XY/path parsing, LF/CRLF framing, malformed records, exact allowlist diagnostics, canonical LF/worktree CRLF in both pair files, and semantic/path/type drift. | Regression/security | PASS | Parser 4/4 and terminal focused 5 pass/1 host symlink skip; LF/CRLF-only TASK/TEST representations pass while character, line, trailing-space, final-newline, malformed, deletion, rename, link/type, and shadow drift remain rejected. |
+| T-13 | AC-13 — Structured status parsing, normal Git type-change records, and terminal newline equivalence preserve exact immutability semantics. | Exercise scalar versus raw porcelain output; exact `" T"`/`"T "` codes and first-record spaces for canonical TASK/TEST paths; LF/CRLF framing; malformed and rename/copy ambiguity; exact allowlist diagnostics; canonical LF/worktree CRLF only under code `" M"`; and semantic/path/link/type drift. | Regression/security | PASS | Historical PR `#58` run `30780897593/1` failure remains recorded. Correction cycle 1 added only `T` to the parser alphabet; targeted passed four with one explicit local symlink-permission skip, focused passed 114/117 with three skips, and Stable passed 405/408 with three skips. Exact TASK/TEST type-change records parse, both regular-file XY type changes remain immutable drift, malformed/rename/deletion/newline negatives pass, and the actual POSIX symlink branch remains the new exact-head hosted-CI proof. |
 
 ## Regression Coverage
 
@@ -72,6 +72,13 @@ PASSED
 - Changed-path selection — `npm run verify:plan -- <the 12 exact active paths>`; exit 0, `STABLE`, one ordered command: `npm run check`.
 - Stable checks — initial `npm run check` exited 1 during `npm test` with four foundation/distribution failures caused by missing active delta evidence. A later aggregate run exited 1 on the invalid matrix status `RUNNING`; changing it to the canonical nonterminal `TODO` made packaged validation and the queue regression pass. The final `npm run check` exited 0: 407 tests / 404 passes / three skips, lint over 83 modules, format over 347 files, and pack over 43 files / 136,856 bytes.
 - Integrity/no-mutation reads — packaged validation for Tasks `0068`–`0070`, transaction inspection, queue inspection, Task `0069` SHA-256, checkpoint JSON, `gh pr view`, GitHub API GETs, `git ls-remote`, public `npm view kyw-dev dist-tags --json`, tag and Release GETs; all completed without mutation.
+- Correction exact-state preflight — `git status --porcelain=v1 --untracked-files=all`, local/upstream/ref/hash/checkpoint reads, `git ls-remote`, GitHub app PR reads, `gh pr view 58`, `gh run view 30780897593`, and GitHub `main` ref GET; exit 0 with the expected clean branch/base/head/main/checkpoint/hash state and no mutation.
+- CI inspection — the bundled `inspect_pr_checks.py` first exited 1 because Windows CP949 could not decode UTF-8 Actions logs; `python -X utf8 ... --pr 58 --json` then returned the existing failed check graph and exited 1 because failures remain. `gh run view 30780897593 --log-failed` with bounded matching exited 0 and confirmed the exact test, malformed diagnostic, source stack, attempt `1`, and head SHA. Neither command reran a workflow.
+- Correction targeted — `node --test --test-name-pattern "delivered pair link|terminal-pair porcelain|newline equivalence|deletion or rename" test/task-delivery-hydration.test.mjs`; exit 0, five tests, four passes, one explicit `file symlink creation is unavailable on this host` skip, zero failures.
+- Correction focused — `node --test test/task-delivery-hydration.test.mjs test/task-delivery-continuity.test.mjs test/task-dispatch.test.mjs test/task-artifacts.test.mjs test/kyw-impl.test.mjs test/instruction-surfaces.test.mjs`; exit 0, 117 tests, 114 passes, three explicit skips, zero failures.
+- Correction Stable — `npm run check`; exit 0: 408 tests / 405 passes / three explicit skips / zero failures, lint over 83 JavaScript modules, format over 347 UTF-8/LF files, and pack selection of 43 files / 136,857 bytes.
+- Correction final review — `git diff --check`, exact changed-path/source diff, Task `0069` SHA-256, checkpoint JSON, CRLF-guard source reads, and package/publication diff reads; exit 0 with exactly four authorized paths, one production alphabet character, unchanged Task `0069` hashes, checkpoint digest/count/last Task `4db847…` / `38` / `0069`, and no package/publication/checkpoint diff.
+- Terminal pair validation — `node skills/kyw-task/scripts/task-artifacts.mjs validate --task-directory docs/tasks/0070-repair-mixed-attempt-delivery-hydration-0d08b166`; exit 0 with canonical `DONE/PASSED` state after correction evidence and coverage synchronization.
 
 ## Results
 
@@ -86,6 +93,11 @@ PASSED
 - PASS — PR `#57` remains merged at exact base/head/merge `caf6c82f8fc79c2b76ae2bc6c2122ca0359878d0` / `52bf834fd2ef19b4e56d5e9571cb50279dd34391` / `184c0802a3327a1c287634e701206b31dec44b2f`; PR CI, post-main CI, and publication remain their recorded successful attempts.
 - PASS — public `latest=0.1.3`, zero Git tags, zero GitHub Releases, publication run `30592539397/1`, package version, workflow history, and registry state remain unchanged; no npm login, publish, dispatch, account inspection, dist-tag mutation, or public submission occurred.
 - PASS — final focused, aggregate Stable, diff/matrix coverage, immutable-hash, queue, pair, transaction, checkpoint, documentation, and external no-adjacent-mutation checks all pass; repository outcome is complete.
+- FAIL — PR `#58` exact-head CI run `30780897593`, attempt `1`, at `a5d1f54fd4641e96b1e4e7220da8566fd9f42a47` failed `production queue validation cannot mask a delivered pair link`: `parseTerminalPairWorktreeStatus()` rejected Git's normal type-change status as `worktree porcelain status is malformed or ambiguous`, so the expected exact canonical path plus link/unsupported-type diagnostic was masked before `lstat()`. The run remains untouched and will not be rerun.
+- PASS — correction cycle 1 accepts exact `" T"` and `"T "` records with their first-row leading space and canonical TASK/TEST paths intact; type changes cannot enter the exact-code `" M"` CRLF exception, and a regular file with either type-change code is rejected as immutable worktree shadowing rather than malformed status.
+- PASS — targeted, focused, and Stable checks preserve malformed XY, rename/copy ambiguity, deletion/rename, character/space/line/final-newline drift, mixed-attempt hydration, and one-step rebaseline behavior. The local host explicitly skipped only actual symlink creation; no pass is claimed for that host-only integration branch before new POSIX CI.
+- PASS — final review proves exactly four authorized changed paths, one-character production semantics, unchanged Task `0069` bytes, unchanged count-38 checkpoint through Task `0069`, and no npm/package/publication/tag/Release implementation change.
+- PASS — the reterminalized Task `0070` pair validates canonically; a final validation is repeated after recording this evidence before commit.
 
 <!-- kyw-permanent-document-delta:v1 -->
 
@@ -99,13 +111,14 @@ PASSED
 
 ## Unverified
 
-- Task `0070`'s non-draft PR, exact-head CI, expected-head merge, post-main exact-SHA CI, and final production-evaluator verdict remain the separate ordinary `STANDARD` delivery gate.
-- No rerun, source patch after CI failure, bypass, publication, registry mutation, tag, Release, or public submission is authorized if that delivery gate fails.
+- Actual symlink creation was unavailable on this local Windows host; the new exact-head POSIX CI is the canonical cross-platform execution proof for the exact-path link/type diagnostic.
+- A new non-force-pushed exact head, its automatically triggered attempt-1 CI, expected-head merge, post-main exact-SHA CI, and final production-evaluator literal verdict remain the separate ordinary `STANDARD` delivery gate.
+- No existing-run rerun, further source patch after the new CI, bypass, publication, registry mutation, tag, Release, public submission, dispatcher, hydration, transition-token, or checkpoint mutation is authorized.
 
 ## Final Coverage Review
 
-- [x] Compare the final diff to the matrix.
-- [x] Map every acceptance criterion to one or more test rows.
-- [x] Add coverage for introduced branches, failures, and compatibility behavior.
-- [x] Confirm PASS evidence is reproducible.
-- [x] Confirm required regressions ran.
+- [x] Compare the final correction diff to the matrix.
+- [x] Map every acceptance criterion to one or more test rows after the correction.
+- [x] Add coverage for the introduced `T` parser branches and preserved failures.
+- [x] Confirm correction PASS evidence is reproducible.
+- [x] Confirm requested regressions ran.

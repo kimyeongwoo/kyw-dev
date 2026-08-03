@@ -60,7 +60,7 @@ Repair production `STANDARD` delivery hydration so GitHub Actions subset reruns 
 - [x] AC-10: Credential-free production hydration re-evaluates the immutable Task `0069` graph from PR `#57`, PR run `30593586295`, exact base/head/merge identities, mixed job attempts, and post-main run `30599908879`; publication run `30592539397`, public `latest=0.1.3`, and Task `0069` bytes remain unchanged.
 - [x] AC-11: SPEC, ARCHITECTURE, and the minimum `kyw-impl` owner procedure accurately describe authoritative per-job attempts and the narrow one-step explicit rebaseline; README, AGENTS, unrelated behavior, and package/publication semantics remain unchanged.
 - [x] AC-12: Focused attack/continuity tests, the changed-path verification plan, all four Stable commands, final diff/matrix review, pair validation, transaction inspection, Task `0069` immutability checks, and no-adjacent-mutation checks pass before Task `0070` reaches repository success and its own ordinary `STANDARD` delivery.
-- [x] AC-13: Git scalar and structured porcelain outputs remain separate; fixed-width status parsing preserves the first XY record and exact path, and checkpoint-covered terminal pairs accept only LF/CRLF representation equivalence while rejecting malformed status, final-newline, whitespace, character, line, path, link, and type drift.
+- [x] AC-13: Git scalar and structured porcelain outputs remain separate; fixed-width status parsing preserves the first XY record and exact path, accepts Git's normal `T` type-change status in either XY column as a real change, and checkpoint-covered terminal pairs accept only exact `" M"` regular-file LF/CRLF representation equivalence while rejecting malformed status, final-newline, whitespace, character, line, path, link, and type drift.
 
 ## Plan
 
@@ -72,6 +72,10 @@ Repair production `STANDARD` delivery hydration so GitHub Actions subset reruns 
 - [x] Record the bootstrap chronology in this pair, complete remaining integration and Stable verification, and prove the checkpoint covers through Task `0069` while Task `0070` remains uncovered.
 - [x] Close the discovered first-record and terminal CRLF false positives without weakening structured-status parsing or terminal-pair immutability, and record their focused regressions.
 - [x] Recheck Task `0069` hashes and external no-mutation state, synchronize final documentation/diff coverage, validate the pair and transaction, and complete only Task `0070`'s normal repository and `STANDARD` lifecycle.
+- [x] Freshly verify the clean exact PR `#58` base/head, local/cached/direct/GitHub `main`, Task `0069` hashes, Task `0070` terminal hashes, and unchanged continuity checkpoint before correction mutation.
+- [x] Preserve failed exact-head run `30780897593` attempt `1` chronology and reopen Task `0070` as `IN_PROGRESS/RUNNING` without rerunning the failed workflow.
+- [x] Accept normal porcelain `T` status characters without weakening malformed, rename/copy, path, or ambiguity rejection, and add parser/integration regressions for the exact type-change boundary.
+- [x] Run targeted, focused, and Stable verification, complete final diff/invariance review, and only then reterminalize the pair for one new corrective commit and ordinary `STANDARD` delivery.
 
 ## Decisions
 
@@ -113,6 +117,8 @@ Repair production `STANDARD` delivery hydration so GitHub Actions subset reruns 
 - One live adapter invocation performed exactly one credential-free hydration followed by exactly one dispatcher call. Task `0069` evaluated as literal `HARDENED_EXACT_HEAD`; nine untouched PR logical jobs used actual execution attempt `1`, Windows/Node 22 and Required used actual execution attempt `2`, and all post-main logical jobs used attempt `1`.
 - The dispatcher returned `SELECTED / IMPLEMENT / 0070`; after pair activation and validation, the opaque token was applied exactly once. Continuity advanced from digest `ffc574a5f32cd52f2ad8003ffee1dc00ea2d9b52638e880aaaea1a722526959e`, count `37`, last Task `0068` to digest `4db847cb90b443f1e0e419bc39582ec7c4f29cd26b3114ae5dfae2ee01e43fec`, count `38`, last Task `0069`, with Task `0070` excluded.
 - The first Stable run exposed missing active permanent-document delta evidence and failed four foundation/distribution tests without reaching lint. Adding the exact current Task evidence restored foundation validation; the subsequent full suite passed 404/407 with three explicit skips, and standalone lint, format, and pack checks passed.
+- PR `#58` exact-head CI run `30780897593`, attempt `1`, at `a5d1f54fd4641e96b1e4e7220da8566fd9f42a47` deterministically failed the existing `production queue validation cannot mask a delivered pair link` regression across hosted lanes. Git emitted the valid type-change record for the symlink replacement, but `parseTerminalPairWorktreeStatus()` omitted `T` from its XY alphabet and raised the generic malformed/ambiguous immutable diagnostic before filesystem `lstat()` could name the exact linked path.
+- Fresh correction preflight found branch HEAD and origin task branch exact at `a5d1f54fd4641e96b1e4e7220da8566fd9f42a47`, local/cached/direct/GitHub `main` exact at `184c0802a3327a1c287634e701206b31dec44b2f`, PR `#58` open/non-draft with the expected base/head, a clean worktree, Task `0069` hashes unchanged, and continuity digest `4db847cb90b443f1e0e419bc39582ec7c4f29cd26b3114ae5dfae2ee01e43fec` at count `38` through Task `0069` only.
 
 ## Documentation Impact
 
@@ -135,15 +141,21 @@ Repair production `STANDARD` delivery hydration so GitHub Actions subset reruns 
 - Synchronized SPEC, ARCHITECTURE, and the minimum `kyw-impl` owner surfaces; README and AGENTS remain byte-stable.
 - Passed the focused/targeted suites, exact worktree self-check, queue/pair/transaction integrity reads, external no-mutation snapshot, full tests, lint, format, and pack checks recorded in `TEST.md`.
 - Completed the final 116-test focused rerun and planner-selected `npm run check`: 407 tests with 404 passes and three explicit skips, lint over 83 modules, format over 347 text files, and pack selection of 43 files / 136,856 bytes.
+- Freshly confirmed the exact local/remote/PR/checkpoint/hash baseline and inspected failed run `30780897593/1` without mutation or rerun.
+- Reopened the repository lifecycle and preserved the exact-head failure chronology before any source or regression mutation.
+- Added only `T` to the production parser's valid XY alphabet; the existing exact-path `lstat()` branch now reports linked or unsupported filesystem replacements, while every regular-file type-change remains a real immutable worktree change and only exact code `" M"` can use CRLF/LF equivalence.
+- Added exact parser positives for `" T"` TASK and `"T "` TEST paths, a fixed-width leading-space assertion, regular-file type-change non-equivalence coverage in both XY columns, and a symlink predicate that explicitly rejects generic malformed/ambiguous substitution.
+- Passed the requested targeted command with four passes, one explicit local symlink-permission skip, and zero failures; the focused suite with 117 tests, 114 passes, three skips, and zero failures; and `npm run check` with 408 tests, 405 passes, three skips, zero failures, lint over 83 modules, format over 347 files, and pack selection of 43 files / 136,857 bytes.
+- Completed correction cycle `1` final review: exactly four authorized paths changed, the production diff is one added status character, mixed-attempt and one-step rebaseline regressions pass, Task `0069` hashes and checkpoint remain exact, and package/publication paths remain unchanged.
 
 ## Remaining
 
-- None — repository acceptance, verification, documentation, continuity, and evidence are complete; ordinary `STANDARD` GitHub delivery remains the separate external gate.
+- None — repository correction acceptance, verification, scope review, documentation-impact review, and evidence are complete; ordinary `STANDARD` delivery remains the separate external gate.
 
 ## Resume Point
 
-- None — repository outcome is complete. If delivery is interrupted, resume only from the recorded external GitHub state; never repeat hydration, dispatcher selection, or token application.
+- None — repository correction is complete. If delivery is interrupted, resume only from the recorded PR `#58` external state; never repeat Task `0069` hydration, dispatcher selection, transition-token preparation/application, or checkpoint mutation.
 
 ## Blockers
 
-- Not applicable — the explicit bootstrap completed successfully and no repository blocker remains.
+- Not applicable — the deterministic parser defect is corrected and all required local checks pass. POSIX symlink execution and the remaining ordinary `STANDARD` delivery roles are explicit external gates on the new exact head; failed run `30780897593/1` remains untouched.

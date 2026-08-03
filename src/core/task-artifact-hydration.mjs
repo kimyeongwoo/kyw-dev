@@ -1091,7 +1091,7 @@ export function parseTerminalPairWorktreeStatus(statusText, taskId) {
     const code = line.slice(0, 2);
     if (
       code === "  " ||
-      !/^[ MADRCU?!]{2}$/u.test(code) ||
+      !/^[ MTADRCU?!]{2}$/u.test(code) ||
       (code.includes("?") && code !== "??") ||
       (code.includes("!") && code !== "!!")
     ) {

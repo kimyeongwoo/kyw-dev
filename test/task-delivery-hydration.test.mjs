@@ -241,6 +241,7 @@ PASSED
   git(root, ["update-ref", "refs/remotes/origin/main", alignedMainSha]);
   git(root, ["config", "branch.main.remote", "origin"]);
   git(root, ["config", "branch.main.merge", "refs/heads/main"]);
+  let worktreeStatusOverride;
   const queueTask = {
     ...task({ id: "0001", contractVersion: 3 }),
     name: "0001-immutable",
@@ -249,6 +250,19 @@ PASSED
     testPath,
   };
   const commandRunner = ({ command, args, cwd, timeoutMs, maxBuffer }) => {
+    if (
+      command === "git" &&
+      args[0] === "status" &&
+      args.includes("--porcelain=v1") &&
+      worktreeStatusOverride !== undefined
+    ) {
+      return {
+        status: 0,
+        signal: null,
+        stdout: worktreeStatusOverride,
+        stderr: "",
+      };
+    }
     if (command === "git" && args[0] === "ls-remote") {
       return {
         status: 0,
@@ -335,6 +349,9 @@ PASSED
     queueTask,
     hydrate,
     hydrateFromQueue,
+    setWorktreeStatusOverride(value) {
+      worktreeStatusOverride = value;
+    },
     async checkpointDelivery() {
       const checkpoint = createStandardDeliveryContinuityCheckpoint({
         repository: "owner/repository",
@@ -559,7 +576,8 @@ test("production queue validation cannot mask a delivered pair link", async (t) 
     (error) =>
       error.code === "FUTURE_TERMINAL_PAIR_IMMUTABLE" &&
       /docs\/tasks\/0001-immutable\/TASK\.md/.test(error.message) &&
-      /link|symbolic/i.test(error.message),
+      /link|symbolic|unsupported filesystem type/i.test(error.message) &&
+      !/malformed|ambiguous/i.test(error.message),
   );
 });
 
@@ -585,6 +603,31 @@ test("terminal artifact newline equivalence normalizes only CRLF byte pairs", ()
   }
 });
 
+test("terminal-pair type changes cannot use newline equivalence", async (t) => {
+  const fixture = await futureTerminalFixture(t);
+  const hydrateCovered = await fixture.checkpointDelivery();
+  await hydrateCovered();
+
+  for (const [code, relativePath] of [
+    ["T ", "docs/tasks/0001-immutable/TASK.md"],
+    [" T", "docs/tasks/0001-immutable/TEST.md"],
+  ]) {
+    fixture.setWorktreeStatusOverride(`${code} ${relativePath}\n`);
+    await assert.rejects(
+      hydrateCovered(),
+      (error) =>
+        error.code === "FUTURE_TERMINAL_PAIR_IMMUTABLE" &&
+        error.message.includes(relativePath) &&
+        /worktree state shadows the canonical terminal artifact/.test(
+          error.message,
+        ) &&
+        !/malformed|ambiguous/i.test(error.message),
+      code,
+    );
+  }
+  fixture.setWorktreeStatusOverride(undefined);
+});
+
 test("terminal-pair porcelain parsing preserves exact first paths and rejects malformed records", () => {
   assert.deepEqual(
     parseTerminalPairWorktreeStatus(
@@ -602,6 +645,21 @@ test("terminal-pair porcelain parsing preserves exact first paths and rejects ma
       },
     ],
   );
+  const typeChanges = parseTerminalPairWorktreeStatus(
+    " T docs/tasks/0001-immutable/TASK.md\nT  docs/tasks/0001-immutable/TEST.md\n",
+    "0001",
+  );
+  assert.deepEqual(typeChanges, [
+    {
+      code: " T",
+      relativePaths: ["docs/tasks/0001-immutable/TASK.md"],
+    },
+    {
+      code: "T ",
+      relativePaths: ["docs/tasks/0001-immutable/TEST.md"],
+    },
+  ]);
+  assert.equal(typeChanges[0].code[0], " ");
   for (const statusText of [
     " Mdocs/tasks/0001-immutable/TASK.md\n",
     " M \n",
