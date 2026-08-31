@@ -214,10 +214,11 @@ export function prepareCandidateRoot({
   if (physicalCandidateParent !== parent) {
     throw new Error("Requested candidate root must be a direct child of its temporary parent");
   }
-  if (existsSync(resolvedRoot)) {
+  const physicalRoot = join(parent, basename(resolvedRoot));
+  if (existsSync(resolvedRoot) || existsSync(physicalRoot)) {
     throw new Error("Requested candidate root already exists");
   }
-  mkdirSync(resolvedRoot);
+  mkdirSync(physicalRoot);
   return assertOwnedCandidateRoot(resolvedRoot, { temporaryParent });
 }
 
