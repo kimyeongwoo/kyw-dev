@@ -15,7 +15,6 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import {
-  STANDARD_DELIVERY_CONTINUITY_RELATIVE_PATH,
   applyStandardDeliveryContinuityTransition,
   buildStandardDeliveryContinuityState,
   createStandardDeliveryContinuityCheckpoint,
@@ -31,6 +30,12 @@ import {
   writeStandardDeliveryContinuityCheckpoint,
 } from "../src/core/task-artifacts.mjs";
 import { runTaskArtifactCommand } from "../skills/kyw-task/scripts/task-artifacts.mjs";
+import {
+  createSyntheticStandardDeliveryProbe,
+  deriveStandardDeliveryFrontier,
+  readAlignedMainStandardDeliveryCheckpoint,
+  readRepositoryPorcelainStatus,
+} from "./support/task-delivery-frontier.mjs";
 
 const SHA = Object.freeze({
   sourceMain: "1".repeat(40),
@@ -41,6 +46,23 @@ const SHA = Object.freeze({
 });
 const REPOSITORY_ROOT = fileURLToPath(new URL("../", import.meta.url));
 const REPOSITORY_TASKS_ROOT = path.join(REPOSITORY_ROOT, "docs", "tasks");
+
+function assertBoundedLiveQueryCounts(diagnostics) {
+  const { queryCounts, queryPolicy } = diagnostics;
+  for (const key of [
+    "commands",
+    "gitCommands",
+    "githubApiCommands",
+    "jobLogFetches",
+  ]) {
+    assert.ok(Number.isInteger(queryCounts[key]) && queryCounts[key] >= 0, key);
+  }
+  assert.equal(queryPolicy.retries, 0);
+  assert.ok(queryCounts.commands <= queryPolicy.maxCommands);
+  assert.ok(queryCounts.gitCommands <= queryCounts.commands);
+  assert.ok(queryCounts.githubApiCommands <= queryCounts.commands);
+  assert.ok(queryCounts.jobLogFetches <= queryCounts.commands);
+}
 
 function git(repositoryRoot, args) {
   const result = spawnSync("git", args, {
@@ -1051,106 +1073,218 @@ test("existing-checkpoint explicit rebaseline remains one-step and cannot cover 
   );
 });
 
+test("frontier-relative live expectations compose offline and follow one rolling transition", () => {
+  const initial = createStandardDeliveryContinuityCheckpoint({
+    repository: "owner/repository",
+    sourceMainSha: "a".repeat(40),
+    coveredRecords: [
+      coveredRecord({
+        taskId: "0001",
+        classification: "HARDENED_EXACT_HEAD",
+        outcomeSha: "b".repeat(40),
+        mergeSha: "c".repeat(40),
+        seed: "1",
+      }),
+    ],
+  });
+  const tasks = [
+    completedTask("0001"),
+    completedTask("0002"),
+    {
+      ...completedTask("0003"),
+      deliveryRequirement: {
+        kind: "NONE",
+        reason: "offline fixture has no external delivery",
+      },
+    },
+    {
+      ...completedTask("0004"),
+      taskStatus: "IN_PROGRESS",
+      testStatus: "RUNNING",
+    },
+    {
+      ...completedTask("0005"),
+      taskStatus: "READY",
+      testStatus: "READY",
+    },
+  ];
+  const probe = createSyntheticStandardDeliveryProbe({
+    tasks,
+    tasksRoot: "C:\\fixture\\docs\\tasks",
+  });
+  assert.equal(probe.selectedTask.id, "0006");
+  assert.deepEqual(probe.selectedTask.dependencies, ["0003"]);
+  assert.deepEqual(
+    probe.tasks
+      .filter((task) => task.id === "0004")
+      .map((task) => [task.taskStatus, task.testStatus]),
+    [["READY", "READY"]],
+  );
+
+  const beforeRoll = deriveStandardDeliveryFrontier({
+    tasks: probe.tasks,
+    invocation: probe.invocation,
+    checkpoint: initial.checkpoint,
+  });
+  assert.deepEqual(beforeRoll.requiredTaskIds, ["0001", "0002"]);
+  assert.deepEqual(beforeRoll.coveredTaskIds, ["0001"]);
+  assert.deepEqual(beforeRoll.uncoveredTaskIds, ["0002"]);
+  assert.deepEqual(beforeRoll.classifications, {
+    "0001": "DURABLE_STANDARD_CONTINUITY",
+    "0002": "HARDENED_EXACT_HEAD",
+  });
+  assert.equal(beforeRoll.preparedAdvancement, true);
+  assert.equal(beforeRoll.expectedTaskCount, 2);
+  assert.equal(beforeRoll.expectedLastTaskId, "0002");
+
+  const rolled = createStandardDeliveryContinuityCheckpoint({
+    repository: "owner/repository",
+    sourceMainSha: "d".repeat(40),
+    previousCheckpoint: initial.checkpoint,
+    coveredRecords: [
+      coveredRecord({
+        taskId: "0002",
+        classification: "HARDENED_EXACT_HEAD",
+        outcomeSha: "e".repeat(40),
+        mergeSha: "f".repeat(40),
+        seed: "4",
+      }),
+    ],
+  });
+  const afterRoll = deriveStandardDeliveryFrontier({
+    tasks: probe.tasks,
+    invocation: probe.invocation,
+    checkpoint: rolled.checkpoint,
+  });
+  assert.deepEqual(afterRoll.coveredTaskIds, ["0001", "0002"]);
+  assert.deepEqual(afterRoll.uncoveredTaskIds, []);
+  assert.equal(afterRoll.preparedAdvancement, false);
+  assert.equal(afterRoll.expectedTaskCount, 2);
+  assert.equal(afterRoll.expectedLastTaskId, "0002");
+
+  const nextTasks = tasks.map((task) =>
+    task.id === "0003"
+      ? { ...task, deliveryRequirement: { kind: "STANDARD" } }
+      : task,
+  );
+  const nextProbe = createSyntheticStandardDeliveryProbe({
+    tasks: nextTasks,
+    tasksRoot: "C:\\fixture\\docs\\tasks",
+  });
+  const nextFrontier = deriveStandardDeliveryFrontier({
+    tasks: nextProbe.tasks,
+    invocation: nextProbe.invocation,
+    checkpoint: rolled.checkpoint,
+  });
+  assert.deepEqual(nextFrontier.requiredTaskIds, ["0001", "0002", "0003"]);
+  assert.deepEqual(nextFrontier.coveredTaskIds, ["0001", "0002"]);
+  assert.deepEqual(nextFrontier.uncoveredTaskIds, ["0003"]);
+  assert.equal(nextFrontier.expectedTaskCount, 3);
+  assert.equal(nextFrontier.expectedLastTaskId, "0003");
+  assert.throws(
+    () =>
+      deriveStandardDeliveryFrontier({
+        tasks: nextProbe.tasks,
+        invocation: nextProbe.invocation,
+        checkpoint: initial.checkpoint,
+      }),
+    (error) => error.code === "DELIVERY_CONTINUITY_REBASELINE_REQUIRED",
+  );
+});
+
 test(
   "live STANDARD delivery continuity proves bootstrap and the next bounded transition",
   { skip: process.env.KYW_LIVE_GITHUB_CONTINUITY !== "1" },
-  async () => {
+  async (t) => {
+    const statusBefore = readRepositoryPorcelainStatus(REPOSITORY_ROOT);
+    const alignedBefore =
+      readAlignedMainStandardDeliveryCheckpoint(REPOSITORY_ROOT);
     const queue = await inspectTaskQueue(REPOSITORY_TASKS_ROOT);
     assert.deepEqual(queue.errors, []);
-    const task0060 = queue.tasks.find(({ id }) => id === "0060");
-    assert.ok(task0060);
-    const mainCheckpoint = spawnSync(
-      "git",
-      [
-        "show",
-        `main:${STANDARD_DELIVERY_CONTINUITY_RELATIVE_PATH}`,
-      ],
-      {
-        cwd: REPOSITORY_ROOT,
-        encoding: "utf8",
-        windowsHide: true,
-        shell: false,
-      },
-    );
-    const postDelivery =
-      task0060.taskStatus === "DONE" &&
-      task0060.testStatus === "PASSED" &&
-      mainCheckpoint.status === 0;
-
-    if (!postDelivery) {
-      const bootstrap = await hydratePriorStandardDeliveries({
-        tasksRoot: REPOSITORY_TASKS_ROOT,
-        invocation: "$kyw-impl 0060",
-        managedRoutingAvailable: true,
-        allowBootstrapWorktreeCheckpoint: true,
-        queueInspector: async () => ({
-          tasks: queue.tasks.map((task) =>
-            task.id === "0060"
-              ? { ...task, taskStatus: "READY", testStatus: "READY" }
-              : task,
-          ),
-          errors: [],
-        }),
-      });
-      assert.equal(bootstrap.diagnostics.continuity.coveredTaskCount, 29);
-      assert.equal(bootstrap.diagnostics.continuity.freshEvidenceTaskCount, 0);
-      assert.equal(bootstrap.diagnostics.continuity.fullHistoryFallback, false);
-      assert.equal(bootstrap.diagnostics.queryCounts.jobLogFetches, 0);
-      assert.ok(bootstrap.diagnostics.queryCounts.commands <= 512);
-      return;
-    }
-
-    const syntheticReady = {
-      id: "0061",
-      number: 61,
-      name: "0061-live-continuity-probe",
-      taskStatus: "READY",
-      testStatus: "READY",
-      contractVersion: 2,
-      dependencies: ["0060"],
-      deliveryRequirement: { kind: "STANDARD" },
-      taskPath: path.join(
-        REPOSITORY_TASKS_ROOT,
-        "0061-live-continuity-probe",
-        "TASK.md",
-      ),
-      testPath: path.join(
-        REPOSITORY_TASKS_ROOT,
-        "0061-live-continuity-probe",
-        "TEST.md",
-      ),
-    };
+    const probe = createSyntheticStandardDeliveryProbe({
+      tasks: queue.tasks,
+      tasksRoot: REPOSITORY_TASKS_ROOT,
+    });
+    const expected = deriveStandardDeliveryFrontier({
+      tasks: probe.tasks,
+      invocation: probe.invocation,
+      checkpoint: alignedBefore.checkpoint,
+    });
     const steadyState = await hydratePriorStandardDeliveries({
       tasksRoot: REPOSITORY_TASKS_ROOT,
-      invocation: "$kyw-impl 0061",
-      managedRoutingAvailable: false,
-      queueInspector: async () => ({
-        tasks: [...queue.tasks, syntheticReady],
-        errors: [],
-      }),
+      invocation: probe.invocation,
+      queueInspector: async () => ({ tasks: probe.tasks, errors: [] }),
     });
-    assert.equal(steadyState.diagnostics.continuity.coveredTaskCount, 29);
+    assert.deepEqual(
+      steadyState.diagnostics.requiredTaskIds,
+      expected.requiredTaskIds,
+    );
+    assert.deepEqual(
+      steadyState.diagnostics.continuity.coveredTaskIds,
+      expected.coveredTaskIds,
+    );
     assert.deepEqual(
       steadyState.diagnostics.continuity.uncoveredTaskIds,
-      ["0060"],
+      expected.uncoveredTaskIds,
     );
-    assert.equal(steadyState.diagnostics.continuity.freshEvidenceTaskCount, 1);
+    assert.equal(
+      steadyState.diagnostics.continuity.coveredTaskCount,
+      expected.coveredTaskIds.length,
+    );
+    assert.equal(
+      steadyState.diagnostics.continuity.freshEvidenceTaskCount,
+      expected.uncoveredTaskIds.length,
+    );
+    assert.equal(
+      steadyState.diagnostics.continuity.preparedAdvancement,
+      expected.preparedAdvancement,
+    );
     assert.equal(steadyState.diagnostics.continuity.fullHistoryFallback, false);
-    assert.equal(
-      steadyState.diagnostics.classifications["0060"],
-      "HARDENED_EXACT_HEAD",
+    for (const taskId of expected.requiredTaskIds) {
+      assert.equal(
+        steadyState.diagnostics.classifications[taskId],
+        expected.classifications[taskId],
+      );
+      const evaluation = evaluateDeliveryEvidence(
+        taskId,
+        steadyState.deliveryLedger[taskId],
+        steadyState.deliveryExpectations[taskId],
+      );
+      assert.equal(
+        evaluation.satisfied,
+        true,
+        `Task ${taskId}: ${evaluation.issues.join("; ")}`,
+      );
+    }
+    if (expected.preparedAdvancement) {
+      assert.ok(steadyState.preparedCheckpoint);
+      assert.equal(
+        steadyState.preparedCheckpoint.previousCheckpointDigest,
+        alignedBefore.checkpoint.checkpointDigest,
+      );
+      assert.equal(
+        steadyState.preparedCheckpoint.coverage.taskCount,
+        expected.expectedTaskCount,
+      );
+      assert.equal(
+        steadyState.preparedCheckpoint.coverage.lastTaskId,
+        expected.expectedLastTaskId,
+      );
+      assert.ok(steadyState.diagnostics.queryCounts.jobLogFetches > 0);
+    } else {
+      assert.equal(steadyState.preparedCheckpoint, undefined);
+      assert.equal(steadyState.diagnostics.queryCounts.jobLogFetches, 0);
+    }
+    assertBoundedLiveQueryCounts(steadyState.diagnostics);
+    t.diagnostic(
+      `frontier required=${expected.requiredTaskIds.length} covered=${expected.coveredTaskIds.length} uncovered=${expected.uncoveredTaskIds.join(",") || "none"} expected=${expected.expectedTaskCount}/${expected.expectedLastTaskId}; queries commands=${steadyState.diagnostics.queryCounts.commands} github=${steadyState.diagnostics.queryCounts.githubApiCommands} logs=${steadyState.diagnostics.queryCounts.jobLogFetches}`,
     );
+    const alignedAfter =
+      readAlignedMainStandardDeliveryCheckpoint(REPOSITORY_ROOT);
+    assert.equal(alignedAfter.bytes, alignedBefore.bytes);
     assert.equal(
-      evaluateDeliveryEvidence(
-        "0060",
-        steadyState.deliveryLedger["0060"],
-        steadyState.deliveryExpectations["0060"],
-      ).satisfied,
-      true,
+      readRepositoryPorcelainStatus(REPOSITORY_ROOT),
+      statusBefore,
     );
-    assert.equal(steadyState.preparedCheckpoint.coverage.taskCount, 30);
-    assert.equal(steadyState.preparedCheckpoint.coverage.lastTaskId, "0060");
-    assert.ok(steadyState.diagnostics.queryCounts.jobLogFetches > 0);
-    assert.ok(steadyState.diagnostics.queryCounts.commands <= 512);
   },
 );

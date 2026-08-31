@@ -1266,8 +1266,15 @@ test("doctor accepts a real Codex home reached through an ancestor path alias", 
     aliasParent,
     "Codex-home ancestor alias acceptance",
   );
+  const physicalCodexHome = join(physicalParent, "codex-home");
   const codexHome = join(aliasParent, "codex-home");
-  const pluginSkillsRoot = installPluginCacheFixture(aliasParent, { codexHome });
+  const physicalPluginSkillsRoot = installPluginCacheFixture(physicalParent, {
+    codexHome: physicalCodexHome,
+  });
+  const pluginSkillsRoot = join(
+    codexHome,
+    path.relative(physicalCodexHome, physicalPluginSkillsRoot),
+  );
   const before = metadataSnapshot(physicalParent);
 
   const report = diagnoseInstallations({ home: physicalParent, codexHome, commandRunner });
@@ -1275,6 +1282,7 @@ test("doctor accepts a real Codex home reached through an ancestor path alias", 
   assert.equal(report.pluginCache.codexHome, path.resolve(codexHome));
   assert.equal(report.pluginCache.sources.length, 1);
   assert.equal(report.pluginCache.sources[0].skillsRoot, pluginSkillsRoot);
+  assert.equal(realpathSync(pluginSkillsRoot), realpathSync(physicalPluginSkillsRoot));
   assert.equal(report.findings.some((finding) => finding.code === "UNSAFE_PLUGIN_CACHE"), false);
   assert.deepEqual(metadataSnapshot(physicalParent), before);
 });

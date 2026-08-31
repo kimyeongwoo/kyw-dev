@@ -25,6 +25,7 @@ import {
   discoverRequiredStandardDeliveries,
   evaluateDeliveryEvidence,
   hydratePriorStandardDeliveries,
+  inspectTaskQueue,
   normalizeHardenedDeliveryEvidence,
   parseStandardDeliveryContinuityTransitionToken,
   parseKywCiEvidence,
@@ -40,8 +41,32 @@ import {
   validateTask0070FrozenWorktreeStatus,
 } from "../src/core/task-artifact-hydration.mjs";
 import { runTaskArtifactCommand } from "../skills/kyw-task/scripts/task-artifacts.mjs";
+import {
+  createSyntheticStandardDeliveryProbe,
+  deriveStandardDeliveryFrontier,
+  readAlignedMainStandardDeliveryCheckpoint,
+  readRepositoryPorcelainStatus,
+} from "./support/task-delivery-frontier.mjs";
 
 const REPOSITORY_ROOT = fileURLToPath(new URL("../", import.meta.url));
+const REPOSITORY_TASKS_ROOT = path.join(REPOSITORY_ROOT, "docs", "tasks");
+
+function assertBoundedLiveQueryCounts(diagnostics) {
+  const { queryCounts, queryPolicy } = diagnostics;
+  for (const key of [
+    "commands",
+    "gitCommands",
+    "githubApiCommands",
+    "jobLogFetches",
+  ]) {
+    assert.ok(Number.isInteger(queryCounts[key]) && queryCounts[key] >= 0, key);
+  }
+  assert.equal(queryPolicy.retries, 0);
+  assert.ok(queryCounts.commands <= queryPolicy.maxCommands);
+  assert.ok(queryCounts.gitCommands <= queryCounts.commands);
+  assert.ok(queryCounts.githubApiCommands <= queryCounts.commands);
+  assert.ok(queryCounts.jobLogFetches <= queryCounts.commands);
+}
 
 function task({
   id,
@@ -2939,41 +2964,80 @@ test("manual delivery objects remain a low-level seam and bypass automatic hydra
 test(
   "live repository and GitHub hydration recovers the queue-required hardened chain",
   { skip: process.env.KYW_LIVE_GITHUB_HYDRATION !== "1" },
-  async () => {
-    const hydrated = await hydratePriorStandardDeliveries({
-      tasksRoot: path.join(REPOSITORY_ROOT, "docs", "tasks"),
-      invocation: "$kyw-impl 0059",
+  async (t) => {
+    const statusBefore = readRepositoryPorcelainStatus(REPOSITORY_ROOT);
+    const alignedBefore =
+      readAlignedMainStandardDeliveryCheckpoint(REPOSITORY_ROOT);
+    const queue = await inspectTaskQueue(REPOSITORY_TASKS_ROOT);
+    assert.deepEqual(queue.errors, []);
+    const probe = createSyntheticStandardDeliveryProbe({
+      tasks: queue.tasks,
+      tasksRoot: REPOSITORY_TASKS_ROOT,
     });
-    const terminalInvocation = Boolean(hydrated.deliveryLedger["0059"]);
-    const hardenedTaskIds = terminalInvocation
-      ? ["0057", "0058", "0059"]
-      : ["0054", "0055", "0056", "0057", "0058"];
-    assert.equal(hydrated.diagnostics.requiredTaskIds.length, terminalInvocation ? 3 : 28);
-    for (const taskId of hardenedTaskIds) {
+    const expected = deriveStandardDeliveryFrontier({
+      tasks: probe.tasks,
+      invocation: probe.invocation,
+      checkpoint: alignedBefore.checkpoint,
+    });
+    const hydrated = await hydratePriorStandardDeliveries({
+      tasksRoot: REPOSITORY_TASKS_ROOT,
+      invocation: probe.invocation,
+      queueInspector: async () => ({ tasks: probe.tasks, errors: [] }),
+    });
+    assert.deepEqual(
+      hydrated.diagnostics.requiredTaskIds,
+      expected.requiredTaskIds,
+    );
+    assert.deepEqual(
+      hydrated.diagnostics.continuity.coveredTaskIds,
+      expected.coveredTaskIds,
+    );
+    assert.deepEqual(
+      hydrated.diagnostics.continuity.uncoveredTaskIds,
+      expected.uncoveredTaskIds,
+    );
+    assert.equal(
+      hydrated.diagnostics.continuity.freshEvidenceTaskCount,
+      expected.uncoveredTaskIds.length,
+    );
+    assert.equal(
+      hydrated.diagnostics.continuity.preparedAdvancement,
+      expected.preparedAdvancement,
+    );
+    assert.deepEqual(
+      Object.keys(hydrated.deliveryLedger).sort(),
+      [...expected.requiredTaskIds].sort(),
+    );
+    assert.deepEqual(
+      Object.keys(hydrated.deliveryExpectations).sort(),
+      [...expected.requiredTaskIds].sort(),
+    );
+    for (const taskId of expected.requiredTaskIds) {
       assert.equal(
         hydrated.diagnostics.classifications[taskId],
-        "HARDENED_EXACT_HEAD",
+        expected.classifications[taskId],
+      );
+      const evaluation = evaluateDeliveryEvidence(
+        taskId,
+        hydrated.deliveryLedger[taskId],
+        hydrated.deliveryExpectations[taskId],
       );
       assert.equal(
-        evaluateDeliveryEvidence(
-          taskId,
-          hydrated.deliveryLedger[taskId],
-          hydrated.deliveryExpectations[taskId],
-        ).satisfied,
+        evaluation.satisfied,
         true,
+        `Task ${taskId}: ${evaluation.issues.join("; ")}`,
       );
     }
-    if (!terminalInvocation) {
-      assert.equal(
-        hydrated.diagnostics.chronology.some(
-          (entry) =>
-            entry.taskId === "0055" &&
-            entry.role === "POST_MAIN_ATTEMPT" &&
-            entry.runAttempt === 1 &&
-            entry.conclusion === "failure",
-        ),
-        true,
-      );
-    }
+    assertBoundedLiveQueryCounts(hydrated.diagnostics);
+    t.diagnostic(
+      `frontier required=${expected.requiredTaskIds.length} covered=${expected.coveredTaskIds.length} uncovered=${expected.uncoveredTaskIds.join(",") || "none"}; queries commands=${hydrated.diagnostics.queryCounts.commands} github=${hydrated.diagnostics.queryCounts.githubApiCommands} logs=${hydrated.diagnostics.queryCounts.jobLogFetches}`,
+    );
+    const alignedAfter =
+      readAlignedMainStandardDeliveryCheckpoint(REPOSITORY_ROOT);
+    assert.equal(alignedAfter.bytes, alignedBefore.bytes);
+    assert.equal(
+      readRepositoryPorcelainStatus(REPOSITORY_ROOT),
+      statusBefore,
+    );
   },
 );

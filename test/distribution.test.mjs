@@ -314,13 +314,30 @@ test("candidate root, pack report, hygiene, collision, and cleanup guards fail c
     aliasParent,
     "kyw-dev-packed-release-physical-parent",
   );
-  assert.equal(
-    prepareCandidateRoot({
-      temporaryParent: aliasParent,
-      candidateRoot: aliasCandidate,
-    }),
-    realpathSync(aliasCandidate),
+  const physicalCandidate = join(
+    physicalParent,
+    "kyw-dev-packed-release-physical-parent",
   );
+  const preparedCandidate = prepareCandidateRoot({
+    temporaryParent: aliasParent,
+    candidateRoot: aliasCandidate,
+  });
+  assert.equal(preparedCandidate, realpathSync(physicalCandidate));
+  assert.equal(realpathSync(aliasCandidate), preparedCandidate);
+  assert.deepEqual(readdirSync(physicalParent), [
+    "kyw-dev-packed-release-physical-parent",
+  ]);
+  assert.throws(
+    () =>
+      prepareCandidateRoot({
+        temporaryParent: aliasParent,
+        candidateRoot: aliasCandidate,
+    }),
+    /already exists/,
+  );
+  assert.deepEqual(readdirSync(physicalParent), [
+    "kyw-dev-packed-release-physical-parent",
+  ]);
 
   for (const malformed of [
     "",
