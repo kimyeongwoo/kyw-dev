@@ -4,7 +4,7 @@
 
 ## Status
 
-IN_PROGRESS
+BLOCKED
 
 ## Goal
 
@@ -40,17 +40,17 @@ Add and execute one development-only, credential-free manual release-evidence ru
 
 ## Acceptance Criteria
 
-- [ ] AC-01: The manual runner accepts only an explicit full 40-hex source commit, canonical real source/evidence roots, and explicit actual-run authority; symbolic/ref-like, missing, mismatched, dirty, linked, overlapping, or identity-drifted input fails before a harness or release child.
-- [ ] AC-02: One physically separate detached checkout exactly matches the requested commit and tree, contains the exact runner/harness/package bytes, remains clean, and leaves the source repository HEAD, index, worktree, refs, and worktree metadata unchanged.
-- [ ] AC-03: Every child-visible home, Codex, app-data, XDG, temporary, Git, npm config, and cache path is an owned canonical hermetic descendant disjoint from interactive/source/evidence roots; no credential, proxy credential, unsafe Node/npm/Git override, or normal-home path reaches the child.
-- [ ] AC-04: The harness snapshots and requires `CLEAN` only for the hermetic protected roots; any attributed, unattributed, snapshot, or identity drift there fails closed, while concurrent interactive Codex/plugin-cache changes cannot affect the verdict and are not scanned or copied.
-- [ ] AC-05: The complete actual command graph contains one manual-runner invocation, one harness actual invocation, and one exact `npm run release:check` child maximum with retry maximum zero, duplicate rejection, and no actual publish, standalone duplicate dry run, lifecycle surprise, model command, workflow dispatch, or fallback.
-- [ ] AC-06: Exact source/tree/environment/provenance and outer/inner raw output/exit/runtime evidence is durable before parsing; bounded redacted summaries publish atomically, and every child, parser, protected-state, or post-processing failure retains safe evidence and exits nonzero.
-- [ ] AC-07: Checkout/environment/evidence cleanup touches only identity-proved owned roots after sealing; evidence is preserved by default, foreign entries or changed identity block cleanup, and no repository, home, cache, or caller parent becomes a recursive target.
-- [ ] AC-08: Deterministic tests cover Windows drive/UNC/case/long-short identities, spaces, junction/reparse escapes, POSIX symlink/containment, missing Git/npm capabilities, exact-SHA drift, credential stripping, interactive-state independence, duplicate/no-retry behavior, failure retention, and existing harness compatibility.
+- [x] AC-01: The manual runner accepts only an explicit full 40-hex source commit, canonical real source/evidence roots, and explicit actual-run authority; symbolic/ref-like, missing, mismatched, dirty, linked, overlapping, or identity-drifted input fails before a harness or release child.
+- [x] AC-02: One physically separate detached checkout exactly matches the requested commit and tree, contains the exact runner/harness/package bytes, remains clean, and leaves the source repository HEAD, index, worktree, refs, and worktree metadata unchanged.
+- [x] AC-03: Every child-visible home, Codex, app-data, XDG, temporary, Git, npm config, and cache path is an owned canonical hermetic descendant disjoint from interactive/source/evidence roots; no credential, proxy credential, unsafe Node/npm/Git override, or normal-home path reaches the child.
+- [x] AC-04: The harness snapshots and requires `CLEAN` only for the hermetic protected roots; any attributed, unattributed, snapshot, or identity drift there fails closed, while concurrent interactive Codex/plugin-cache changes cannot affect the verdict and are not scanned or copied.
+- [x] AC-05: The complete actual command graph contains one manual-runner invocation, one harness actual invocation, and one exact `npm run release:check` child maximum with retry maximum zero, duplicate rejection, and no actual publish, standalone duplicate dry run, lifecycle surprise, model command, workflow dispatch, or fallback.
+- [x] AC-06: Exact source/tree/environment/provenance and outer/inner raw output/exit/runtime evidence is durable before parsing; bounded redacted summaries publish atomically, and every child, parser, protected-state, or post-processing failure retains safe evidence and exits nonzero.
+- [x] AC-07: Checkout/environment/evidence cleanup touches only identity-proved owned roots after sealing; evidence is preserved by default, foreign entries or changed identity block cleanup, and no repository, home, cache, or caller parent becomes a recursive target.
+- [x] AC-08: Deterministic tests cover Windows drive/UNC/case/long-short identities, spaces, junction/reparse escapes, POSIX symlink/containment, missing Git/npm capabilities, exact-SHA drift, credential stripping, interactive-state independence, duplicate/no-retry behavior, failure retention, and existing harness compatibility.
 - [ ] AC-09: After the correction source is committed, exactly one credential-free actual manual-runner invocation executes `release:check` from that literal SHA, reaches Stable, candidate, and npm dry-run stages, returns clean, and preserves a reproducible external evidence root; failure blocks with no rerun.
-- [ ] AC-10: Credential-free before/after reads prove unchanged npm versions/latest/target absence, publish-workflow run inventory, remote tags, GitHub Releases, and public-submission state; no publication or account-authentication authority is inferred.
-- [ ] AC-11: The runner remains development-only with no dependency, lifecycle, package allowlist, package script, workflow, public surface, or Task 0076 change; README and ARCHITECTURE document the exact manual command, isolation, retention, failure, and non-publication boundaries while SPEC and AGENTS remain unchanged.
+- [x] AC-10: Credential-free before/after reads prove unchanged npm versions/latest/target absence, publish-workflow run inventory, remote tags, GitHub Releases, and public-submission state; no publication or account-authentication authority is inferred.
+- [x] AC-11: The runner remains development-only with no dependency, lifecycle, package allowlist, package script, workflow, public surface, or Task 0076 change; README and ARCHITECTURE document the exact manual command, isolation, retention, failure, and non-publication boundaries while SPEC and AGENTS remain unchanged.
 
 ## Plan
 
@@ -59,7 +59,7 @@ Add and execute one development-only, credential-free manual release-evidence ru
 - [x] Implement the manual runner and the narrow harness gate without duplicating existing evidence, npm provenance, command-plan, redaction, or cleanup owners.
 - [x] Add deterministic path, SHA/tree, environment, credential, drift, duplicate, failure-retention, cleanup, Windows/POSIX, and compatibility tests plus Release-tier planner coverage.
 - [x] Synchronize README and ARCHITECTURE only, then run focused checks, all Stable commands, package checks, and non-publishing release CI before the actual evidence attempt.
-- [ ] Commit the exact correction source, capture credential-free public/GitHub baselines, execute the manual runner exactly once from the literal commit, retain its evidence regardless of outcome, and perform matching after-reads without retry.
+- [x] Commit the exact correction source, capture credential-free public/GitHub baselines, execute the manual runner exactly once from the literal commit, retain its evidence regardless of outcome, and perform matching after-reads without retry.
 - [ ] Complete final diff/matrix, package/dependency/workflow, credential, source-state, Task 0076 immutability, pair/transaction, evidence-hash, and no-publication review before STANDARD delivery.
 
 ## Decisions
@@ -91,11 +91,16 @@ Add and execute one development-only, credential-free manual release-evidence ru
 - Runtime selection binds the exact lexical and canonical Git/npm launcher identities, passes the exact PATH-selected npm launcher to the harness, and rejects either side of a launcher alias that intersects an interactive, source, allowed-parent, or evidence root. Windows uses only PATHEXT-resolved launchers; POSIX accepts a lexical npm link only when its canonical target is a regular file.
 - The parent-scoped actual-attempt marker is created before runtime, state, clone, or child work and is revalidated by exact path, filesystem identity, and bytes immediately before the sole harness child and before PASS sealing. A pre-existing state seal, changed marker, failed state/evidence seal, or forged child-success summary is terminal evidence failure rather than PASS.
 - Durable state/evidence writes and renames fsync their parent directory on POSIX; Windows records the Node runtime limitation explicitly. Partial state is bound and retained when layout creation fails, and recursive cleanup first quarantines and revalidates the exact owned inventory and identity.
-- The current harness already fixes `RELEASE_INVOCATION_MAXIMUM` at one, retry maximum at zero, validates the composite dry-run-only command plan, and writes raw child streams and exit evidence before summary parsing.
-- Its actual mode has no required expected-SHA input and runs in the caller worktree. Its child environment isolates npm config/cache but still inherits normal home, Codex, app-data, temporary, Git, and many other process values.
-- Harness pre/post protected snapshots resolve from that inherited interactive environment, so unrelated Codex/plugin-cache/WAL changes during the long child are classified fail-closed. Task 0076 observed two such zero-attribution ambient envelopes.
+- Before this Task, the harness already fixed `RELEASE_INVOCATION_MAXIMUM` at one, retry maximum at zero, validated the composite dry-run-only command plan, and wrote raw child streams and exit evidence before summary parsing.
+- Before this Task, actual mode had no required expected-SHA input and ran in the caller worktree. Its child environment isolated npm config/cache but still inherited normal home, Codex, app-data, temporary, Git, and many other process values.
+- Before this Task, harness pre/post protected snapshots resolved from that inherited interactive environment, so unrelated Codex/plugin-cache/WAL changes during the long child were classified fail-closed. Task 0076 observed two such zero-attribution ambient envelopes.
 - Task 0052 is the satisfied direct harness owner. Task 0025 supplies protected-state classification compatibility, and Tasks 0067–0069 preserve exact-checkout, credential-free, one-attempt, and non-fallback release boundaries.
 - The dependent Windows teardown Task must precede the real attempt because `release:check` runs `npm test`, and the approved Task 0076 rerun was consumed by the known after-hook race before candidate and dry-run stages.
+- Exact correction source `7e1a167efef75f1916a810182806c117e08bd447` passed harmless committed-SHA dry validation and had a clean source and detached checkout before the actual attempt.
+- The retained parent-scoped marker proves the one permitted runner, harness, and release-child graph was consumed once with retry maximum zero. The sole harness child exited nonzero, and the runner correctly sealed `HARNESS_FAILED` without retry or fallback.
+- The actual `release:check` reached Stable only as far as `npm test`: 483 tests produced 451 passes, 26 failures, and six skips. The hermetic Windows path omitted `powershell.exe` for four helper-dependent failures, one deep proof fixture could not spawn its absolute Node path, and the remaining failure groups were dominated by nested runner paths exceeding Windows filename limits; lint, format, pack, candidate, and npm dry-run stages were not reached.
+- Failure evidence shows protected state `CLEAN` with zero differences and zero attribution, npm runtime identity `UNCHANGED`, and an exact clean detached/source SHA after the child. Outer and state seals preserve the non-PASS result and raw streams under the caller-owned external root.
+- Credential-free public before/after snapshots match on npm latest `0.1.3`, versions `0.1.0`–`0.1.3`, absent target `0.1.4`, empty remote tags and Releases, the same two historical publish-workflow runs, and no public-submission action. No publication or public mutation occurred.
 
 ## Documentation Impact
 
@@ -117,18 +122,22 @@ Add and execute one development-only, credential-free manual release-evidence ru
 - Created `task/0078-run-release-evidence-in-an-exact-sha-he-50a73706`, activated the pair as `IN_PROGRESS/RUNNING`, and applied the prepared predecessor-continuity transition exactly once; the checkpoint now covers 45 delivered outcomes through Task 0077 while Task 0078 remains uncovered.
 - Implemented the development-only exact-SHA manual runner, narrow proof-gated harness actual mode, Release-tier path selection, focused runner/harness tests, and the README/Architecture projections without changing package scripts, dependencies, workflows, SPEC, AGENTS, or a historical Task.
 - Hardened exact tracked-byte cleanliness, cross-process environment equality, lexical/canonical runtime provenance, parent-scoped one-attempt consumption, forged child-result rejection, partial-state retention, state/evidence seal failure classification, POSIX durability, and identity-proved quarantine cleanup through repeated adversarial review.
-- Passed the final independent integrated focused suite 85/85 across 36 runner, 30 harness, 9 planner, and 10 instruction-surface tests after the final runtime-provenance audit fixes, plus script syntax, Release-tier planner selection, format, whitespace, lint, pair, and transaction checks. No actual harness or `release:check` command has run.
+- Passed the final independent integrated focused suite 85/85 across 36 runner, 30 harness, 9 planner, and 10 instruction-surface tests after the final runtime-provenance audit fixes, plus script syntax, Release-tier planner selection, format, whitespace, lint, pair, and transaction checks before the actual attempt.
 - Passed the complete Stable preflight: `npm test` reported 479 pass / 4 host-limited skip / 0 fail across 483 tests; lint, format, pack, and whitespace checks passed. The subsequent non-publishing `npm run release:ci` repeated the same Stable result and produced a verified 43-file, 135,268-byte candidate with SHA-256 `dc7aa85b4402e77097514b1911df92e367d72a19d5588834319959512f567ee4`.
+- Committed the exact correction source as `7e1a167efef75f1916a810182806c117e08bd447`, passed harmless dry validation from that literal SHA, and captured the credential-free public baseline outside the repository.
+- Consumed exactly one authorized actual manual-runner attempt. Its sole `release:check` child failed in `npm test` with 26 failures before candidate or npm dry-run, and the runner retained sealed fail-closed evidence without retry.
+- Captured the matching credential-free after-read and proved all observed npm, Git tag, GitHub workflow/Release, and submission state remained unchanged; the repository, exact checkout, hermetic protected roots, and npm runtime also remained clean or unchanged.
+- Completed the blocked-state diff/matrix, package/dependency/workflow, credential, source-state, Task 0076 immutability, evidence-hash, pair/transaction, and no-publication review. The branch still contains exactly the 11 expected paths, while the post-correction evidence update changes only this Task/Test pair.
 
 ## Remaining
 
-- Commit the verified correction source, capture credential-free external baselines, consume exactly one actual manual-runner attempt, preserve its evidence, and capture matching after-reads without retry.
-- Complete final diff/matrix and integrity review, set an honest terminal repository state, and perform ordinary `STANDARD` delivery.
+- Do not rerun Task 0078 actual mode. A new explicit hard-dependent correction Task must address bounded Windows path depth and required PowerShell launcher availability, add deterministic regression coverage, and define any new attempt authority.
+- Ordinary `STANDARD` push/PR/CI/merge delivery remains withheld because AC-09 failed; no publication authority is requested or implied.
 
 ## Resume Point
 
-- Resume with the final scope/integrity review and exact correction commit, then harmless committed-SHA dry validation and public before-reads. Consume actual mode only after those steps and never rerun it.
+- Resume only through a newly authorized hard-dependent correction Task. Preserve the exact external evidence and state roots; never rerun or replace Task 0078's consumed attempt, and do not begin STANDARD delivery from this blocked pair.
 
 ## Blockers
 
-- Not applicable — the declared dependencies provide the required execution order.
+- BLOCKED — the sole actual attempt was consumed and failed Stable with 26 Windows environment/path failures before candidate and npm dry-run. Recovery requires a new explicit hard-dependent Task; retry, fallback, publication, and STANDARD delivery are not authorized here.

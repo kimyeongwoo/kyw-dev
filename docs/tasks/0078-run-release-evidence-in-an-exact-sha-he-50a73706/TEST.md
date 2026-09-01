@@ -4,7 +4,7 @@
 
 ## Status
 
-RUNNING
+BLOCKED
 
 ## Test Basis
 
@@ -35,9 +35,9 @@ RUNNING
 | T-06 | AC-06 — durable bounded evidence on every terminal path | Force spawn, child, parser, protected-state, and post-processing failures; verify source/environment provenance, streams, exit/runtime, hashes, and atomic redacted summaries survive. | Integration / durability | PASS | Spawn, exit, parser, forged-success, marker drift, state/evidence seal, postflight, and partial-layout seams retain raw/bounded evidence and never return PASS. |
 | T-07 | AC-07 — sealed ownership and preservation | Exercise exact sealed cleanup plus parent, repository, home, evidence, foreign-entry, link, and identity-drift rejections; require evidence retention by default. | Filesystem / security | PASS | State/evidence preservation, pre-existing seal rejection, inventory/identity binding, quarantine recheck, foreign-entry rejection, and exact owned cleanup are covered. |
 | T-08 | AC-08 — cross-platform and harness compatibility | Cover Windows aliases/reparse/spaces and POSIX links/containment/capability failures, then run existing harness, provenance, planner, instruction, and release regressions. | Cross-platform / regression | PASS | The final integrated focused suite passed 85/85: runner coverage includes spaces, Windows drive/UNC/extended/case/8.3 and PATHEXT, POSIX links, missing capabilities and inverse aliases; harness coverage includes exact npm runtime/package provenance and internal-only package links. |
-| T-09 | AC-09 — one real exact-SHA credential-free release check | After committing the correction and completing all preflight, invoke the manual runner once with the literal SHA, require Stable/candidate/dry-run completion and retained reproducible evidence, and forbid rerun credit. | Manual native / Release | TODO | Not executed — implementation has not started. |
-| T-10 | AC-10 — external publication state remains unchanged | Compare credential-free npm latest/version/target reads, publish-workflow runs, remote tags, Releases, and submission evidence immediately before and after the one attempt. | Live read-only / authority | TODO | Not executed — implementation has not started. |
-| T-11 | AC-11 — development-only scope and durable documentation | Inspect package/dependency/lifecycle/workflow selection, README/ARCHITECTURE projections, unchanged SPEC/AGENTS/Task 0076, complete diff, pair validation, and transaction state. | Package / docs / integrity | TODO | README/Architecture, planner, Stable/package/Release preflight, pair/transaction, unchanged package/workflow/SPEC/AGENTS paths, and expected diff scope pass; final committed-diff and Task 0076 history review remains. |
+| T-09 | AC-09 — one real exact-SHA credential-free release check | After committing the correction and completing all preflight, invoke the manual runner once with the literal SHA, require Stable/candidate/dry-run completion and retained reproducible evidence, and forbid rerun credit. | Manual native / Release | FAIL | The sole exact-SHA attempt was consumed once and retained, but `npm test` reported 451 pass / 26 fail / 6 skip; Stable stopped before lint/format/pack, candidate, and npm dry-run. No rerun is permitted. |
+| T-10 | AC-10 — external publication state remains unchanged | Compare credential-free npm latest/version/target reads, publish-workflow runs, remote tags, Releases, and submission evidence immediately before and after the one attempt. | Live read-only / authority | PASS | Credential-free public snapshots match on npm latest/versions/target absence, remote tags, two historical workflow runs, empty Releases, and no submission action. |
+| T-11 | AC-11 — development-only scope and durable documentation | Inspect package/dependency/lifecycle/workflow selection, README/ARCHITECTURE projections, unchanged SPEC/AGENTS/Task 0076, complete diff, pair validation, and transaction state. | Package / docs / integrity | PASS | README/Architecture, planner, Stable/package/Release preflight, pair/transaction, unchanged package/workflow/SPEC/AGENTS paths, expected committed scope, and Task 0076 immutability pass. |
 
 ## Regression Coverage
 
@@ -90,6 +90,17 @@ RUNNING
 - PASS — final pre-commit scope review found only the 11 expected README/Architecture/continuity/Task/runner/harness/planner/test paths. Package manifests, dependencies, lifecycle scripts, workflows, SPEC, and AGENTS have no diff; the separate Task 0076 branch remains at `4e504f75d85155facc195955295e1ae074fd6f00` with `BLOCKED/BLOCKED` pair hashes `dd5a7277…bb7b7` and `435dfb57…a6e2e`.
 - FAIL then PASS — the first credential/machine-path scan used Windows-invalid wildcard operands and `rg` rejected them before scanning. The corrected directory-plus-`-g` form found no user path, bearer/token-shaped value, or credential in the changed documentation, Task, runner, harness, or focused tests.
 - PASS — the final planner invocation over all 11 changed paths selected `RELEASE`, ignored only the two Task evidence paths for risk classification, and required the already-passed local `npm run release:ci` plus hosted exact-SHA CI. Final script syntax, lint, format, whitespace, pair, and transaction checks pass.
+- PASS — exact correction source `7e1a167efef75f1916a810182806c117e08bd447` was clean and passed harmless committed-SHA dry validation at `C:\1kyw\5.personal\kyw-task-0078-release-evidence-7e1a167e\evidence\release-evidence-manual-dry-20260901151748538-eba6570bbe65`; no release child ran during dry validation.
+- PASS — the external parent-scoped attempt marker is 882 bytes / SHA-256 `4e234f895336ac2336ca5a7e3a62f07b0eb031ba8358704085454657f66756a9`, records exact source `7e1a167e…`, runner/harness/release maxima `1/1/1`, retry maximum `0`, and is accompanied by exactly one outer harness lock and one inner `release:check` lock.
+- FAIL (sole authorized actual attempt; no retry) — the manual runner invoked the harness once and exited `HARNESS_FAILED` after 129937.562 ms because the sole inner `npm run release:check` child exited `1` after 125560.1958 ms. Stable stopped in `npm test`: 483 tests, 451 passes, 26 failures, six skips, and 124659.2631 ms; lint, format, pack, candidate, and `npm publish --dry-run` were not reached.
+- FAIL detail — the 26 failures comprise 20 manual-runner failures (14 leaf `Filename too long` errors, four downstream missed-call assertions, and two aggregate failures), one harness proof-baseline `Filename too long`, four PowerShell-dependent failures (three explicit `powershell.exe ENOENT` plus one null spawn status), and one absolute-Node-spawn `ENOENT` in a deep proof fixture. The actual checkout root measured 140 characters versus the 26-character source root, and a representative failed config path measured 298 characters. This native depth/launcher combination requires a new correction Task rather than a Task 0078 rerun.
+- PASS (fail-closed retention) — actual evidence is preserved at `C:\1kyw\5.personal\kyw-task-0078-release-evidence-7e1a167e\evidence\release-evidence-manual-run-20260901152349860-7559699db1f3`. Outer summary is 562 bytes / SHA-256 `6f9e1835c1f5497f76a5300f8e4685aa269fa9d649d47835d71867fd42bd8b18`; outer seal is 8732 bytes / `afd1d0e0700d92e1d5d0b48c35104c2a157254fe7ddd7243bee6fb3db02d07da`; state seal is 243805 bytes / `0fd25aaafaa6267f52f1f4e7e315fa08b7a6b1a58200c69a4465b1797daf393d` with inventory SHA-256 `9ac11ccfe5e14795fafe2f6c9373a800074e276d9b54769b02962d03fb622ec6`. Read-only verification found zero missing, extra, hash, size, or type mismatches across all 43 outer and 1,264 state inventory entries.
+- PASS (inner evidence) — inner summary is 15344 bytes / SHA-256 `0a39df6e95e4f542421a55c5b1091c8e4e7b27c3276b7833fa52a8171be0a804`; raw stdout is 96550 bytes / `4cdc9ceb5d8ccdcf42cec5c0a3d76ff1fb8e478f38e549cbfb6b445d7fe7a580`; its raw-hash index is 595 bytes / `5259d13533111e74e520c251cf821ef6083e46eead92dea3b94d57ca4ede6069`. Proof digest `8f54174dbdc41cef29e35ea7ce4e0e74e2cfac44b926b85d16799fcbda3eb64c` is bound into the retained state and outer evidence.
+- PASS (postflight integrity) — inner protected state remained `CLEAN` with zero differences and zero attribution, npm runtime identity was `UNCHANGED`, and both source and detached checkout remained clean at exact SHA `7e1a167e…` with tree `ec3ed009…`. Runner postflight and failure-postflight hashes are `f9fe2acb512e60833111adbd4d357af183c95e6c4084e7706a3f16404c2f4d86` and `ff591834befe7840671a4cfbc98b0ef05a31297959deabd6c882ae9fc97c3850`.
+- PASS (credential-free public non-mutation) — before snapshot SHA-256 `26968cdc4b8ed3b2ab8050a5e1a6f05d6c0404c1c8bcc2056327b8feeb499464` and after snapshot SHA-256 `896519644dc3f5e8f37d9167d446a90ecf042384eaeee9f2bc8d9cd8d912e4ad` differ only in phase/timestamps. Both record npm latest `0.1.3`, versions `0.1.0`–`0.1.3`, target `0.1.4` as `E404`, no remote tags, the same successful workflow run IDs `30592539397` and `30530304990`, no GitHub Releases, and no submission action or endpoint.
+- LIMITATION then PASS — isolated credential-free `gh run list` and `gh release list` each exited `4` because GitHub CLI requires authentication even for the public list operations. The external helper instead used public GitHub REST with no Authorization header and received matching `200` responses/content hashes before and after; a separate authenticated read-only CLI check corroborated the same two runs and empty Releases but is not credited as credential-free proof.
+- FAIL then PASS (read-only diagnostics only) — the first authenticated Release query requested unsupported `databaseId` output and exited before returning state; the valid-field rerun returned `[]`. An external repository scan also initially used Windows-invalid wildcard operands, and the evidence-stage grep later guessed nonexistent `raw/child-stdout.log`; corrected targeted/glob-safe reads and the actual `raw/stdout.log` produced the recorded results without mutation.
+- PASS — final blocked-state review found exactly the expected 11 branch paths and only this Task/Test pair changed after correction commit `7e1a167e…`; Task 0076 still points to `4e504f75d85155facc195955295e1ae074fd6f00`. Canonical pair validation accepted `BLOCKED/BLOCKED`, transaction inspection returned `NONE`, lint passed 87 JavaScript modules and foundation metadata, format checked 365 UTF-8/LF files, and `git diff --check` passed.
 
 <!-- kyw-permanent-document-delta:v1 -->
 
@@ -103,12 +114,14 @@ RUNNING
 
 ## Unverified
 
-- Clean exact correction commit, harmless committed-SHA dry validation, one real attempt, external before/after non-mutation reads, retained evidence hashes, final committed diff/integrity review, and STANDARD delivery remain unverified.
+- A successful actual Stable/candidate/npm-dry-run result is not verified and cannot be retried under Task 0078. Deterministic coverage for the newly exposed deep Windows path plus required PowerShell launcher combination requires a new hard-dependent correction Task.
+- No alternate shorter-root or PowerShell-adjusted actual invocation was run; either would be a prohibited replacement attempt rather than Task 0078 evidence.
+- Ordinary STANDARD push, PR, exact-head CI, merge, and post-main observation have not started because T-09 failed. No publication or public-distribution mutation is authorized or claimed.
 
 ## Final Coverage Review
 
-- [ ] Compare the final diff to the matrix.
-- [ ] Map every acceptance criterion to one or more test rows.
+- [x] Compare the final diff to the matrix.
+- [x] Map every acceptance criterion to one or more test rows.
 - [ ] Add coverage for introduced branches, failures, and compatibility behavior.
-- [ ] Confirm PASS evidence is reproducible.
-- [ ] Confirm required regressions ran.
+- [x] Confirm PASS evidence is reproducible.
+- [x] Confirm required regressions ran.
