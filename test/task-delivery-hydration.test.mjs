@@ -272,6 +272,9 @@ PASSED
   ]);
   git(root, ["add", `docs/tasks/${directoryName}`]);
   if (canonicalExecutable) {
+    if (process.platform !== "win32") {
+      await Promise.all([chmod(taskPath, 0o755), chmod(testPath, 0o755)]);
+    }
     git(root, [
       "update-index",
       "--chmod=+x",

@@ -26,13 +26,13 @@ PASSED
 
 | ID | Intent / acceptance criterion | Method | Level | Status | Evidence |
 |---|---|---|---|---|---|
-| T-01 | AC-01 — Exact bytes and unchanged regular-file modes remain valid. | Exercise TASK.md and TEST.md exact-byte fixtures through fresh and checkpoint-covered validation. | Unit plus integration | PASS | Exact canonical `100644` and `100755` fixtures passed fresh and covered validation on Windows; the executable class is bound through Git index mode where the host does not expose POSIX worktree bits. |
+| T-01 | AC-01 — Exact bytes and unchanged regular-file modes remain valid. | Exercise TASK.md and TEST.md exact-byte fixtures through fresh and checkpoint-covered validation. | Unit plus integration | PASS | Canonical `100644`/`100755` passed fresh and covered on Windows; the recovery keeps deterministic index mode everywhere and aligns physical `0755` modes before POSIX fixture commit. New hosted proof remains the delivery gate, not a pre-claimed result. |
 | T-02 | AC-02 — Newline tolerance is worktree-to-canonical only. | Run both LF/CRLF directions and require only canonical LF with worktree CRLF under exact space-M to pass. | Unit / boundary | PASS | Pure and repository fixtures accepted only LF canonical / CRLF worktree with one exact ` M`; statusless CRLF, identical-byte ` M`, and canonical CRLF / worktree LF rejected fresh and covered. |
 | T-03 | AC-03 — Non-CRLF byte drift cannot normalize away. | Mutate bare CR, final newline, spaces, Unicode, characters, and lines and assert exact immutable-pair rejection. | Security / regression | PASS | The full fresh/covered matrix rejected all listed drift, and the late pure/fresh/covered regression proved canonical CRLF plus worktree CRCRLF can no longer hide an inserted carriage return. |
 | T-04 | AC-04 — File-mode drift is always rejected. | Exercise staged and unstaged chmod-only and chmod-plus-CRLF fixtures using deterministic Git modes and POSIX worktree chmod where supported. | Integrity / cross-platform | PASS | Staged `100644→100755` and staged-mode-plus-CRLF attacks rejected fresh and covered; a missing stage-zero entry rejected fresh; canonical `100755` passed fresh and covered. Native POSIX chmod/chmod-plus-CRLF is an explicit Windows skip and remains hosted exact-head proof. |
 | T-05 | AC-05 — Unsafe porcelain, path, and object states never enter the exception. | Run identical-byte space-M, T status, links, renames, copies, deletions, shadows, and unsupported-type attacks and compare diagnostics. | Security / regression | PASS | Exact-byte ` M`, both T columns, rename/copy, missing-index, deletion, shadow, type, and malformed cases retained `FUTURE_TERMINAL_PAIR_IMMUTABLE` with the affected path; native symlink creation is an explicit Windows skip and remains hosted proof. |
-| T-06 | AC-06 — Fresh and checkpoint-covered paths share one rule set. | Execute the full positive and negative matrix before and after continuity coverage on Windows and a POSIX-capable CI job. | Integration / compatibility | PASS | Post-correction hydration/continuity execution passed `53/57` with four explicit Windows/live skips; fresh and covered byte/status/mode rules agree locally, while native POSIX chmod and symlink execution remain the hosted exact-head obligation. |
-| T-07 | AC-07 — Durable truth and full verification agree. | Inspect SPEC and ARCHITECTURE diffs, run focused hydration and continuity suites, Stable, pair validation, transaction and hash checks. | Documentation / delivery | PASS | The post-correction focused, complete related, and Stable gates passed; documentation-delta evidence, pair validation, transaction `NONE`, fixed hashes, whitespace, and exact scope/matrix review agree. |
+| T-06 | AC-06 — Fresh and checkpoint-covered paths share one rule set. | Execute the full positive and negative matrix before and after continuity coverage on Windows and a POSIX-capable CI job. | Integration / compatibility | PASS | Shared fresh/covered execution and Windows mode fixtures pass; the first hosted logs proved native POSIX negative behavior and identified only fixture setup. The recovery removes that host-only mismatch, with a new exact-head matrix still required for delivery. |
+| T-07 | AC-07 — Durable truth and full verification agree. | Inspect SPEC and ARCHITECTURE diffs, run focused hydration and continuity suites, Stable, pair validation, transaction and hash checks. | Documentation / delivery | PASS | Recovery-focused and Stable gates, unchanged permanent docs, pair validation, transaction `NONE`, exact hashes, foundation/current-queue checks, whitespace, and exact three-path scope all passed. |
 
 ## Regression Coverage
 
@@ -66,6 +66,10 @@ PASSED
 - Bare-CR ambiguity green — the same focused command; exit `0`, two passes and zero failures, including pure plus fresh/checkpoint-covered rejection.
 - Post-correction complete related run — `node --test test/task-delivery-hydration.test.mjs test/task-delivery-continuity.test.mjs`; exit `0`, 57 tests / 53 passes / four explicit skips / zero failures.
 - Post-correction Stable aggregate — `npm run check`; exit `0`, including test, lint, format, and pack checks.
+- First exact-head PR observation — `gh pr checks 62 --watch --interval 10`, `gh run view 33474424353`, and completed job-log reads for head `84580160f63cc909d9b0df59d12890979caadac0`; no rerun.
+- Recovery-focused mode check — `node --test --test-name-pattern "terminal-pair Git modes bind canonical|POSIX terminal-pair chmod" test/task-delivery-hydration.test.mjs`; exit `0`, one pass and one explicit Windows skip.
+- Post-hosted-failure Stable aggregate — `npm run check`; exit `0`, including test, lint, format, and pack checks.
+- Recovery changed-path plan — `npm run verify:plan -- docs/tasks/0074-enforce-directional-terminal-pair-newli-90b28490/TASK.md docs/tasks/0074-enforce-directional-terminal-pair-newli-90b28490/TEST.md test/task-delivery-hydration.test.mjs`; exit `0`, `STABLE` with hosted exact-SHA gates retained.
 
 ## Results
 
@@ -85,6 +89,11 @@ PASSED
 - PASS — the post-correction complete hydration/continuity run passed `53/57` with four explicit symlink/POSIX/live skips and zero failures.
 - PASS — the post-correction `npm run check` exited `0`: `418` tests / `414` passes / four explicit host/live skips / zero failures, lint over `84` modules and foundation metadata, format over `360` UTF-8/LF files, and pack selection of `43` files / `134489` bytes.
 - PASS — terminal validation accepted the `DONE/PASSED` pair; transaction inspection remained `NONE`; foundation passed `21/21`; current queued artifacts passed `1/1`; Task 0070 hashes and the count-42 checkpoint hash `bc82b0a5c68d4806f739590479d86e1657c75ade0d3aaddee5fd792f20b9a407` remained exact; formatting, whitespace, and the seven-path Task scope passed with Task 0075–0076 untouched.
+- FAIL — PR `#62` run `33474424353` at exact head `84580160f63cc909d9b0df59d12890979caadac0` completed without rerun: Quality, packed release, and two Windows behavioral jobs passed; five Ubuntu/macOS behavioral jobs plus merge compatibility failed, and the required aggregate failed.
+- FAIL — inspected Ubuntu, macOS, and merge logs identify one shared cause in `terminal-pair Git modes bind canonical, index, and supported worktree executable state`: the canonical-executable fixture staged TASK.md/TEST.md as `100755` while their POSIX worktree modes stayed `0644`, so its branch switch aborted before the positive assertions. The separate native POSIX chmod regression passed in those logs, so no production-rule failure was observed.
+- PASS — the test-only recovery sets both physical terminal fixture files to `0755` on non-Windows before retaining the existing deterministic `update-index --chmod=+x`; the focused Windows command passed the canonical mode test and explicitly skipped only native POSIX chmod.
+- PASS — post-recovery `npm run check` exited `0`: `418` tests / `414` passes / four explicit host/live skips / zero failures, lint over `84` modules and foundation metadata, format over `360` UTF-8/LF files, and pack selection of `43` files / `134489` bytes.
+- PASS — terminal recovery review retained the exact three paths, unchanged permanent owners, exact Task 0070 hashes, and checkpoint SHA-256 `bc82b0a5c68d4806f739590479d86e1657c75ade0d3aaddee5fd792f20b9a407`; pair validation, transaction `NONE`, foundation `21/21`, current queue `1/1`, format, and `git diff --check` passed.
 
 <!-- kyw-permanent-document-delta:v1 -->
 
@@ -100,7 +109,8 @@ PASSED
 
 - Native unstaged executable-bit behavior was unavailable on this Windows host; its named regression is an explicit local skip and remains required in hosted POSIX exact-head CI.
 - Native terminal-pair symlink creation was unavailable on this Windows host; its unchanged named regression remains required in hosted POSIX exact-head CI.
-- Exact-head PR CI, protected merge, post-main CI, and final production-evaluator satisfaction remain the external STANDARD delivery ledger and are not pre-claimed here.
+- The test-only canonical-executable POSIX fixture recovery remains unverified externally until a new exact-head Ubuntu/macOS and merge-compatibility run succeeds; failed run `33474424353` remains immutable evidence and is not rerun.
+- Protected merge, post-main CI, and final production-evaluator satisfaction remain the external STANDARD delivery ledger and are not pre-claimed here.
 
 ## Final Coverage Review
 

@@ -90,6 +90,12 @@ Make terminal Task/Test comparison obey canonical authority exactly: accept only
 - The exact two-test regression captured that ambiguity before correction: the pure helper returned `true`, and fresh hydration omitted the required immutable-pair rejection. The comparison now permits non-identical newline representation only when canonical bytes contain no carriage return, while exact canonical/worktree bytes remain valid regardless of their line endings.
 - The focused correction passed `2/2`; the complete hydration/continuity rerun passed `53/57` with four explicit host/live skips; and the post-correction Stable gate passed `414/418` with the same four skips, lint over `84` modules, format over `360` files, and pack selection of `43` files / `134489` bytes.
 - Terminal review then passed pair validation, transaction `NONE`, foundation `21/21`, current queued-artifact validation `1/1`, formatting, whitespace, exact seven-path scope, unchanged Task 0070 hashes, and unchanged count-42 checkpoint SHA-256 `bc82b0a5c68d4806f739590479d86e1657c75ade0d3aaddee5fd792f20b9a407`.
+- Commit `84580160f63cc909d9b0df59d12890979caadac0` preserved the exact seven-path scope, was pushed non-forced, and opened non-draft PR `#62` at that exact head.
+- First PR run `33474424353` completed without rerun: Quality, packed release, and both Windows behavioral jobs passed; Ubuntu 22/24/26, macOS 22/24, and merge compatibility failed on one common test-fixture setup error, so the required aggregate failed as designed.
+- Representative Ubuntu, macOS, and merge logs show the native POSIX chmod/chmod-plus-CRLF regression itself passed. The failing canonical-executable fixture staged `100755` but left its real POSIX TASK.md/TEST.md files at `0644`, so switching branches aborted as dirty before fresh or covered positive assertions.
+- The bounded recovery aligns those two physical fixture files to `0755` on non-Windows before the existing deterministic `update-index --chmod=+x`; production, permanent owners, workflow, continuity, dependencies, and future pairs remain unchanged.
+- Recovery-focused execution passed the canonical-mode test on Windows with the native POSIX test explicitly skipped (`1/2` pass, one skip); post-recovery Stable again passed `414/418` with four explicit host/live skips, lint over `84` modules, format over `360` files, and pack selection of `43` files / `134489` bytes.
+- Recovery planning retained `STABLE`; terminal review passed pair validation, transaction `NONE`, foundation `21/21`, current queue `1/1`, formatting, whitespace, exact three-path recovery scope, unchanged permanent owners, exact Task 0070 hashes, and unchanged count-42 checkpoint SHA-256 `bc82b0a5c68d4806f739590479d86e1657c75ade0d3aaddee5fd792f20b9a407`.
 
 ## Documentation Impact
 
@@ -114,15 +120,18 @@ Make terminal Task/Test comparison obey canonical authority exactly: accept only
 - Replaced the stale Task-0072-equals-current-main test premise with exact ancestry plus immutable merge-identity proof, without changing production redelivery semantics or historical fixtures.
 - Closed the late canonical-CRLF / worktree-CRCRLF ambiguity with pure, fresh, and checkpoint-covered red/green proof, then repeated the complete hydration/continuity and planner-selected Stable gates.
 - Completed terminal pair, foundation/delta, current-queue, immutable-hash, transaction, formatting, whitespace, and exact-scope review without touching future Task 0075–0076 pairs.
+- Committed and non-force pushed the initial exact seven paths, opened non-draft PR `#62`, observed immutable failed run `33474424353` to completion, and traced all six platform/merge failures to the same test-fixture worktree-mode mismatch without rerun or bypass.
+- Aligned the POSIX canonical-executable fixture's physical and staged modes with a test-only three-path recovery and passed its focused check plus the complete Stable gate without changing product source or durable owners.
+- Revalidated the terminal pair, foundation/delta policy, current queue, transaction, immutable hashes, exact recovery scope, formatting, and whitespace before the recovery commit.
 
 ## Remaining
 
-- None — the repository outcome, durable documentation, verification, invariance, and final coverage are complete; exact-head CI, protected merge, post-main CI, and production evaluation remain the ordinary STANDARD delivery ledger.
+- None — the corrected repository outcome and recovery verification are complete; a recovery commit/non-force push, new exact-head CI, protected merge, post-main CI, and production evaluation remain the ordinary STANDARD delivery ledger.
 
 ## Resume Point
 
-- None — repository work is complete. If delivery is interrupted, resume only from this Task branch or its PR; do not repeat dispatcher selection or the continuity transition.
+- None — repository recovery is complete. If delivery is interrupted, resume only from PR `#62` with the local three-path recovery; do not repeat dispatcher selection, continuity transition, initial commit/PR creation, or failed run `33474424353`.
 
 ## Blockers
 
-- Not applicable — no repository blocker remains.
+- Not applicable — no repository blocker remains; the failed first run is retained evidence for the new exact head to supersede.
