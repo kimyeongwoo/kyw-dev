@@ -261,7 +261,7 @@ test("kyw-impl uses bounded durable continuity without weakening uncovered harde
   assert.match(execution, /exact ordered prefix/);
   assert.match(execution, /`DURABLE_STANDARD_CONTINUITY`/);
   assert.match(execution, /At most one prior `STANDARD` outcome may remain uncovered/);
-  assert.match(execution, /no automatic whole-history fallback/);
+  assert.match(execution, /without automatic whole-history replay/);
   assert.match(execution, /Expired covered logs do not invalidate/);
   assert.match(execution, /apply-continuity/);
   assert.match(execution, /selected Task cannot cover itself/);
@@ -281,10 +281,14 @@ test("kyw-impl uses bounded durable continuity without weakening uncovered harde
   assert.match(execution, /later actual execution supersedes/);
   assert.match(execution, /never falls back/);
   assert.match(execution, /uniquely proven equivalent projection/);
-  assert.match(execution, /Task `0070` recovery is the sole limited exception/);
-  assert.match(execution, /freeze and enforce the owner-source\/test\/document allowlist/);
-  assert.match(skill, /separately explicit, contract-recorded pre-dispatch repair/);
-  assert.match(skill, /any failed condition stops without retry/);
+  assert.match(execution, /every four-digit ID uses the same generic queue path/);
+  assert.match(execution, /separate `bootstrap-continuity` command/);
+  assert.match(execution, /requires exact `EXPLICIT_REBASELINE` authority/);
+  assert.match(execution, /not a dispatch option, source-repair path, or Task-ID exception/);
+  assert.match(skill, /dispatch never reserves or intercepts an ID for recovery/);
+  assert.match(skill, /accepts no migration\/bootstrap authority option/);
+  assert.doesNotMatch(execution, /Task `0070` recovery|frozen allowlist/);
+  assert.doesNotMatch(skill, /pre-dispatch repair|continuity-bootstrap-authority/);
   assert.match(execution, /behavioral\/quality\/packed job-name sets/);
   assert.match(execution, /successful job at only `refs\/pull\/<number>\/merge`/);
   assert.match(execution, /do not rerun CI/i);

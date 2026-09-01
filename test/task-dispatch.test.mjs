@@ -682,6 +682,123 @@ test("current status table is exhaustive across exact, next, and continuous disp
   }
 });
 
+test("Task 0070 exact routing is ID-isomorphic across queue outcomes", async (t) => {
+  const scenarios = [
+    {
+      label: "draft",
+      definitions: (id) => [{ id, status: "DRAFT", delivery: "local fixture" }],
+      expected: { outcome: "BLOCKED", code: "DRAFT_AUTHORING_REQUIRED" },
+    },
+    {
+      label: "implement",
+      definitions: (id) => [{ id, status: "READY", delivery: "local fixture" }],
+      expected: { outcome: "SELECTED", action: "IMPLEMENT" },
+    },
+    {
+      label: "resume",
+      definitions: (id) => [
+        { id, status: "IN_PROGRESS", delivery: "local fixture" },
+      ],
+      expected: { outcome: "SELECTED", action: "RESUME" },
+    },
+    {
+      label: "blocked",
+      definitions: (id) => [
+        {
+          id,
+          status: "BLOCKED",
+          blocker: "- Required fixture is unavailable.",
+          delivery: "local fixture",
+        },
+      ],
+      expected: { outcome: "SELECTED", action: "RECHECK_BLOCKER" },
+    },
+    {
+      label: "cancelled",
+      definitions: (id) => [
+        { id, status: "CANCELLED", delivery: "local fixture" },
+      ],
+      expected: { outcome: "TERMINAL", code: "TASK_CANCELLED" },
+    },
+    {
+      label: "terminal",
+      definitions: (id) => [{ id, status: "DONE", delivery: "local fixture" }],
+      expected: { outcome: "TERMINAL", code: "TASK_COMPLETE" },
+    },
+    {
+      label: "deliver",
+      definitions: (id) => [{ id, status: "DONE", delivery: "STANDARD" }],
+      expected: { outcome: "SELECTED", action: "DELIVER" },
+    },
+    {
+      label: "active conflict",
+      definitions: (id) => [
+        { id: "0002", status: "IN_PROGRESS", delivery: "local fixture" },
+        { id, status: "READY", delivery: "local fixture" },
+      ],
+      expected: { outcome: "BLOCKED", code: "ANOTHER_TASK_ACTIVE" },
+    },
+    {
+      label: "dependency",
+      definitions: (id) => [
+        {
+          id: "0001",
+          status: "BLOCKED",
+          blocker: "- Dependency remains blocked.",
+          delivery: "local fixture",
+        },
+        {
+          id,
+          status: "READY",
+          dependencies: "- Task 0001.",
+          delivery: "local fixture",
+        },
+      ],
+      expected: { outcome: "BLOCKED", code: "UNSATISFIED_DEPENDENCY" },
+    },
+    {
+      label: "incompatible pair",
+      definitions: (id) => [{ id, status: "READY", delivery: "local fixture" }],
+      mutate: async (root, id) => {
+        const testPath = path.join(root, `${id}-task-${id}`, "TEST.md");
+        const markdown = await readFile(testPath, "utf8");
+        await writeFile(
+          testPath,
+          markdown.replace("## Status\n\nREADY", "## Status\n\nRUNNING"),
+          "utf8",
+        );
+      },
+      expected: { outcome: "BLOCKED", code: "INVALID_TASK_QUEUE" },
+    },
+  ];
+
+  for (const scenario of scenarios) {
+    const observed = [];
+    for (const id of ["0070", "0170"]) {
+      const root = await createQueue(t, scenario.definitions(id));
+      await scenario.mutate?.(root, id);
+      const result = await resolveTaskDispatch({
+        tasksRoot: root,
+        invocation: `$kyw-impl ${id}`,
+      });
+      const summary = {
+        outcome: result.outcome,
+        ...(result.action ? { action: result.action } : {}),
+        ...(result.code ? { code: result.code } : {}),
+      };
+      assert.equal(summary.outcome, scenario.expected.outcome, scenario.label);
+      if (scenario.expected.action) {
+        assert.equal(summary.action, scenario.expected.action, scenario.label);
+      }
+      if (scenario.expected.code) {
+        assert.equal(summary.code, scenario.expected.code, scenario.label);
+      }
+      observed.push(summary);
+    }
+    assert.deepEqual(observed[0], observed[1], scenario.label);
+  }
+});
+
 test("every non-highest current state prevents a false all-complete verdict", async (t) => {
   const rows = [
     {

@@ -109,6 +109,11 @@ const packedTextPatterns = Object.freeze([
     label: "local file dependency",
     pattern: /\bfile:(?:\.\.?[\\/]|\/|[A-Za-z]:[\\/])/i,
   },
+  {
+    label: "consumed Task-0070 recovery state",
+    pattern:
+      /(?:TASK_0070_EXPLICIT_REBASELINE|validateTask0070ExplicitRebaselineBootstrap|validateTask0070FrozenWorktreeStatus|parseFrozenPreDispatchStatus|allowBootstrapWorktreeCheckpoint|continuityBootstrapAuthority|explicitRebaselineValidator|EXPLICIT_BOOTSTRAP_WORKTREE|--continuity-bootstrap-authority|task\/0070-repair-mixed-attempt-delivery-hydration-and-one-step-rebaseline|184c0802a3327a1c287634e701206b31dec44b2f|ffc574a5f32cd52f2ad8003ffee1dc00ea2d9b52638e880aaaea1a722526959e|126567d86296f489bc5b522d13b08c510b2bf261e2e7e1792afd2a41d0bbc2f5|53d973f700ce91b3ee4f3c92692c7ba691e622732f36c9cb95f7691ee522e813|6da2f8f8f4af2734753d4f7adcb9ac357c0b528e3589053bda941612cb283a67|98443739a0cb936b669b77a403aca5ae602a6790f05993d88587515cd9b4f99b|430c2a3418cae51a330834a562bebd22dd9ff016cd440f24ffb764a2594b6135|frozenPairHashes|mutableAllowlist|limited existing-checkpoint rebaseline)/,
+  },
 ]);
 const isolatedEnvironmentKeys = Object.freeze([
   "HOME",
@@ -1517,25 +1522,176 @@ function runMarketplaceLifecycle(context, requireMarketplace) {
   run(["plugin", "add", "kyw-dev@kyw-dev-local", "--json"], "plugin install");
 
   const cachedFiles = collectRegularFiles(context.plan.isolatedCodexRoot);
+  const findCachedFile = (relativePath) => {
+    const suffix = `/${relativePath.replaceAll("\\", "/")}`;
+    const matches = cachedFiles.filter((filePath) =>
+      filePath.replaceAll("\\", "/").endsWith(suffix),
+    );
+    if (matches.length !== 1) {
+      throw isolationError(
+        ISOLATION_ERROR_CODES.CHILD_FAILED,
+        `Expected exactly one cached ${relativePath}`,
+      );
+    }
+    return matches[0];
+  };
   for (const skillName of managedSkillNames) {
     const packedSkillRoot = join(context.plan.extractedPackageRoot, "skills", skillName);
     for (const packedFile of collectRegularFiles(packedSkillRoot)) {
       const relativeSkillPath = relative(packedSkillRoot, packedFile).replaceAll("\\", "/");
-      const suffix = `/skills/${skillName}/${relativeSkillPath}`;
-      const matches = cachedFiles.filter((filePath) => filePath.replaceAll("\\", "/").endsWith(suffix));
-      if (matches.length !== 1) {
-        throw isolationError(
-          ISOLATION_ERROR_CODES.CHILD_FAILED,
-          `Expected exactly one cached ${skillName}/${relativeSkillPath}`,
-        );
-      }
-      if (!readFileSync(matches[0]).equals(readFileSync(packedFile))) {
+      const cachedFile = findCachedFile(
+        `skills/${skillName}/${relativeSkillPath}`,
+      );
+      if (!readFileSync(cachedFile).equals(readFileSync(packedFile))) {
         throw isolationError(
           ISOLATION_ERROR_CODES.CHILD_FAILED,
           `Cached ${skillName}/${relativeSkillPath} bytes differ`,
         );
       }
     }
+  }
+  const runtimeRelativePaths = EXPECTED_TARBALL_FILES.filter((relativePath) =>
+    relativePath.startsWith("src/core/"),
+  );
+  for (const relativePath of runtimeRelativePaths) {
+    const cachedFile = findCachedFile(relativePath);
+    const packedFile = join(
+      context.plan.extractedPackageRoot,
+      ...relativePath.split("/"),
+    );
+    if (!readFileSync(cachedFile).equals(readFileSync(packedFile))) {
+      throw isolationError(
+        ISOLATION_ERROR_CODES.CHILD_FAILED,
+        `Cached ${relativePath} bytes differ`,
+      );
+    }
+  }
+
+  const cachedAdapter = findCachedFile(
+    "skills/kyw-task/scripts/task-artifacts.mjs",
+  );
+  const cachedTarget = join(
+    context.plan.isolatedWorkRoot,
+    "cached-task-0070-target",
+  );
+  mkdirSync(cachedTarget, { recursive: true });
+  const runGit = (args, label) => {
+    const result = runChild({
+      ...context,
+      command: "git",
+      args,
+      cwd: cachedTarget,
+      label,
+    });
+    assertChildStatus(result, label);
+    return result.stdout.trim();
+  };
+  runGit(["init", "--initial-branch=main"], "cached adapter git init");
+  runGit(
+    ["config", "user.name", "Cached Adapter Fixture"],
+    "cached adapter git user name",
+  );
+  runGit(
+    ["config", "user.email", "cached-adapter@example.invalid"],
+    "cached adapter git user email",
+  );
+  writeFileSync(
+    join(cachedTarget, ".continuity-fixture"),
+    "aligned main\n",
+    "utf8",
+  );
+  runGit(["add", ".continuity-fixture"], "cached adapter git add");
+  runGit(
+    ["commit", "-m", "Initialize cached adapter fixture"],
+    "cached adapter git commit",
+  );
+  const cachedMainSha = runGit(
+    ["rev-parse", "HEAD"],
+    "cached adapter main SHA",
+  );
+  runGit(
+    ["remote", "add", "origin", "https://github.com/example/cached-adapter.git"],
+    "cached adapter remote",
+  );
+  runGit(
+    ["update-ref", "refs/remotes/origin/main", cachedMainSha],
+    "cached adapter cached main",
+  );
+  runGit(
+    ["config", "branch.main.remote", "origin"],
+    "cached adapter upstream remote",
+  );
+  runGit(
+    ["config", "branch.main.merge", "refs/heads/main"],
+    "cached adapter upstream branch",
+  );
+
+  const cachedTaskDirectory = join(
+    cachedTarget,
+    "docs",
+    "tasks",
+    "0070-cached-adapter",
+  );
+  mkdirSync(cachedTaskDirectory, { recursive: true });
+  const readyFixtureRoot = join(
+    context.repositoryRoot,
+    "test",
+    "fixtures",
+    "task-repositories",
+    "ergonomics",
+    "0101-standard-task",
+  );
+  for (const fileName of ["TASK.md", "TEST.md"]) {
+    writeFileSync(
+      join(cachedTaskDirectory, fileName),
+      readFileSync(join(readyFixtureRoot, fileName), "utf8")
+        .replaceAll("0101", "0070")
+        .replaceAll("Concise Standard Task", "Cached Adapter Task"),
+      "utf8",
+    );
+  }
+  const cachedDispatch = runChild({
+    ...context,
+    command: process.execPath,
+    args: [
+      cachedAdapter,
+      "dispatch",
+      "--tasks-root",
+      join(cachedTarget, "docs", "tasks"),
+      "--invocation",
+      "$kyw-impl 0070",
+      "--managed-routing",
+      "false",
+    ],
+    cwd: cachedTarget,
+    label: "cached Task 0070 dispatch",
+  });
+  assertChildStatus(cachedDispatch, "cached Task 0070 dispatch");
+  steps.push(
+    Object.freeze({
+      label: "cached Task 0070 dispatch",
+      status: cachedDispatch.status,
+    }),
+  );
+  let cachedDispatchOutput;
+  try {
+    cachedDispatchOutput = JSON.parse(cachedDispatch.stdout);
+  } catch (error) {
+    throw isolationError(
+      ISOLATION_ERROR_CODES.CHILD_FAILED,
+      "Cached Task 0070 dispatch returned malformed JSON",
+      error,
+    );
+  }
+  if (
+    cachedDispatchOutput.outcome !== "SELECTED" ||
+    cachedDispatchOutput.action !== "IMPLEMENT" ||
+    cachedDispatchOutput.task?.id !== "0070"
+  ) {
+    throw isolationError(
+      ISOLATION_ERROR_CODES.CHILD_FAILED,
+      "Cached Task 0070 did not use ordinary IMPLEMENT dispatch",
+    );
   }
   run(["plugin", "list", "--json"], "installed plugin list");
   run(["plugin", "remove", "kyw-dev@kyw-dev-local", "--json"], "plugin remove");
@@ -1545,6 +1701,12 @@ function runMarketplaceLifecycle(context, requireMarketplace) {
     status: "passed",
     version: version.stdout.trim(),
     skills: managedSkillNames,
+    cachedRuntime: Object.freeze({
+      fileCount: runtimeRelativePaths.length,
+      taskId: cachedDispatchOutput.task.id,
+      outcome: cachedDispatchOutput.outcome,
+      action: cachedDispatchOutput.action,
+    }),
     steps: Object.freeze(steps),
   });
 }

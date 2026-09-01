@@ -41,43 +41,6 @@ const MAX_LOG_BYTES = 8 * 1024 * 1024;
 const COMMAND_TIMEOUT_MS = 30_000;
 const WORKFLOW_PATH = ".github/workflows/ci.yml";
 const FUTURE_TERMINAL_CORRECTION_ROUTE = '$kyw-task "<correction outcome>"';
-const TASK_0070_EXPLICIT_REBASELINE = Object.freeze({
-  authority: "EXPLICIT_REBASELINE",
-  selectedTaskId: "0070",
-  priorTaskId: "0068",
-  frontierTaskId: "0069",
-  expectedBranch:
-    "task/0070-repair-mixed-attempt-delivery-hydration-and-one-step-rebaseline",
-  expectedMainSha: "184c0802a3327a1c287634e701206b31dec44b2f",
-  expectedCheckpointDigest:
-    "ffc574a5f32cd52f2ad8003ffee1dc00ea2d9b52638e880aaaea1a722526959e",
-  expectedCheckpointFileSha256:
-    "126567d86296f489bc5b522d13b08c510b2bf261e2e7e1792afd2a41d0bbc2f5",
-  expectedCheckpointTaskCount: 37,
-  expectedRequiredTaskCount: 38,
-  expectedFrontierMergeSha: "184c0802a3327a1c287634e701206b31dec44b2f",
-  frozenPairHashes: Object.freeze({
-    "docs/tasks/0069-publish-and-prove-kyw-dev-0-1-3-through-npm-oidc/TASK.md":
-      "53d973f700ce91b3ee4f3c92692c7ba691e622732f36c9cb95f7691ee522e813",
-    "docs/tasks/0069-publish-and-prove-kyw-dev-0-1-3-through-npm-oidc/TEST.md":
-      "6da2f8f8f4af2734753d4f7adcb9ac357c0b528e3589053bda941612cb283a67",
-    "docs/tasks/0070-repair-mixed-attempt-delivery-hydration-0d08b166/TASK.md":
-      "98443739a0cb936b669b77a403aca5ae602a6790f05993d88587515cd9b4f99b",
-    "docs/tasks/0070-repair-mixed-attempt-delivery-hydration-0d08b166/TEST.md":
-      "430c2a3418cae51a330834a562bebd22dd9ff016cd440f24ffb764a2594b6135",
-  }),
-  mutableAllowlist: Object.freeze([
-    "src/core/task-artifact-hydration.mjs",
-    "skills/kyw-task/scripts/task-artifacts.mjs",
-    "test/task-delivery-hydration.test.mjs",
-    "test/task-delivery-continuity.test.mjs",
-    "test/kyw-impl.test.mjs",
-    "docs/SPEC.md",
-    "docs/ARCHITECTURE.md",
-    "skills/kyw-impl/references/execution.md",
-    "skills/kyw-impl/SKILL.md",
-  ]),
-});
 
 function hydrationError(taskId, role, message, code = "DELIVERY_HYDRATION_FAILED") {
   const taskLabel = taskId ? `Task ${taskId}` : "delivery hydration";
@@ -1666,7 +1629,6 @@ export async function loadTrustedStandardDeliveryContinuity({
   coverageTasks = requiredTasks,
   commandCache,
   githubClient,
-  allowBootstrapWorktreeCheckpoint,
 }) {
   const identity = await discoverAlignedMainIdentity({
     tasksRoot,
@@ -1679,30 +1641,8 @@ export async function loadTrustedStandardDeliveryContinuity({
     identity.currentMainSha,
     STANDARD_DELIVERY_CONTINUITY_RELATIVE_PATH,
   );
-  let source = "ALIGNED_MAIN";
-  let bytes = mainBytes;
-  if (bytes === undefined && allowBootstrapWorktreeCheckpoint) {
-    const worktreePath = path.join(
-      path.resolve(tasksRoot),
-      STANDARD_DELIVERY_CONTINUITY_FILE,
-    );
-    let state;
-    try {
-      state = await lstat(worktreePath);
-    } catch (error) {
-      if (error.code !== "ENOENT") throw error;
-    }
-    if (!state || state.isSymbolicLink() || !state.isFile()) {
-      throw hydrationError(
-        undefined,
-        "CHECKPOINT_BOOTSTRAP",
-        "explicit bootstrap checkpoint is missing or unsafe",
-        "DELIVERY_CONTINUITY_REBASELINE_REQUIRED",
-      );
-    }
-    bytes = await readFile(worktreePath, "utf8");
-    source = "EXPLICIT_BOOTSTRAP_WORKTREE";
-  }
+  const source = "ALIGNED_MAIN";
+  const bytes = mainBytes;
   if (bytes === undefined) {
     throw hydrationError(
       undefined,
@@ -1795,16 +1735,6 @@ export async function loadTrustedStandardDeliveryContinuity({
         "rolling checkpoint does not bind the exact source-main predecessor",
       );
     }
-  }
-  if (
-    source === "EXPLICIT_BOOTSTRAP_WORKTREE" &&
-    checkpoint.sourceMainSha !== identity.currentMainSha
-  ) {
-    throw hydrationError(
-      undefined,
-      "CHECKPOINT_BOOTSTRAP",
-      "bootstrap checkpoint source main is stale",
-    );
   }
   const originalCoverageTaskIds = new Set(
     coverageTasks.map((task) => task.id),
@@ -4193,6 +4123,20 @@ export async function bootstrapStandardDeliveryContinuity({
     invocation,
     managedRoutingAvailable,
   });
+  const parsedInvocation = parseTaskInvocation(invocation, {
+    managedRoutingAvailable,
+  });
+  if (
+    parsedInvocation.mode === "EXACT" &&
+    requiredTasks.some((task) => task.id === parsedInvocation.taskId)
+  ) {
+    throw hydrationError(
+      parsedInvocation.taskId,
+      "CHECKPOINT_BOOTSTRAP",
+      "the invoked Task cannot attest to its own delivery; bootstrap must target selectable work after the terminal history",
+      "DELIVERY_CONTINUITY_INVALID",
+    );
+  }
   if (requiredTasks.length === 0) {
     throw hydrationError(
       undefined,
@@ -4582,315 +4526,6 @@ async function buildImmutableTerminalFallbackQueue({
   });
 }
 
-async function readExactRegularText(target, taskId, role) {
-  let state;
-  try {
-    state = await lstat(target);
-  } catch (error) {
-    if (error.code === "ENOENT") {
-      throw hydrationError(taskId, role, `${target} is missing`);
-    }
-    throw error;
-  }
-  if (state.isSymbolicLink() || !state.isFile()) {
-    throw hydrationError(taskId, role, `${target} is not a real regular file`);
-  }
-  return readFile(target, "utf8");
-}
-
-export function parseFrozenPreDispatchStatus(statusText, taskId) {
-  if (typeof statusText !== "string") {
-    throw hydrationError(
-      taskId,
-      "EXPLICIT_REBASELINE",
-      "pre-dispatch worktree status is malformed or contains a rename",
-    );
-  }
-  if (statusText.length === 0) return Object.freeze([]);
-
-  const framedStatus = stripFinalGitCommandDelimiter(statusText);
-  if (framedStatus.length === 0) {
-    throw hydrationError(
-      taskId,
-      "EXPLICIT_REBASELINE",
-      "pre-dispatch worktree status is malformed or contains a rename",
-    );
-  }
-  const entries = [];
-  for (const line of framedStatus.split(/\r?\n/)) {
-    if (
-      line.length < 4 ||
-      line[2] !== " " ||
-      line.includes("\r") ||
-      line.includes("\0") ||
-      line.includes(" -> ")
-    ) {
-      throw hydrationError(
-        taskId,
-        "EXPLICIT_REBASELINE",
-        "pre-dispatch worktree status is malformed or contains a rename",
-      );
-    }
-    const code = line.slice(0, 2);
-    if (
-      code === "  " ||
-      !/^[ MADRCU?!]{2}$/u.test(code) ||
-      (code.includes("?") && code !== "??") ||
-      (code.includes("!") && code !== "!!")
-    ) {
-      throw hydrationError(
-        taskId,
-        "EXPLICIT_REBASELINE",
-        "pre-dispatch worktree status is malformed or contains a rename",
-      );
-    }
-    const relativePath = line.slice(3);
-    if (
-      relativePath.startsWith('"') ||
-      path.isAbsolute(relativePath) ||
-      relativePath === ".." ||
-      relativePath.startsWith("../") ||
-      relativePath.startsWith("..\\")
-    ) {
-      throw hydrationError(
-        taskId,
-        "EXPLICIT_REBASELINE",
-        "pre-dispatch worktree path is unsafe",
-      );
-    }
-    entries.push(Object.freeze({ code, relativePath }));
-  }
-  return Object.freeze(entries);
-}
-
-export function validateTask0070FrozenWorktreeStatus(statusText) {
-  const contract = TASK_0070_EXPLICIT_REBASELINE;
-  const frozenPairPaths = new Set(
-    Object.keys(contract.frozenPairHashes).filter((relativePath) =>
-      relativePath.includes("/0070-"),
-    ),
-  );
-  const mutableAllowlist = new Set(contract.mutableAllowlist);
-  const statusEntries = parseFrozenPreDispatchStatus(
-    statusText,
-    contract.selectedTaskId,
-  );
-  const observedFrozenPairs = new Set();
-  for (const entry of statusEntries) {
-    if (frozenPairPaths.has(entry.relativePath)) {
-      if (entry.code !== "??") {
-        throw hydrationError(
-          contract.selectedTaskId,
-          "EXPLICIT_REBASELINE",
-          "Task 0070 pair must remain untracked and byte-frozen before selection",
-        );
-      }
-      observedFrozenPairs.add(entry.relativePath);
-      continue;
-    }
-    if (!mutableAllowlist.has(entry.relativePath) || entry.code !== " M") {
-      throw hydrationError(
-        contract.selectedTaskId,
-        "EXPLICIT_REBASELINE",
-        `pre-dispatch change is outside the frozen allowlist: ${entry.relativePath}`,
-      );
-    }
-  }
-  if (
-    observedFrozenPairs.size !== frozenPairPaths.size ||
-    [...frozenPairPaths].some(
-      (relativePath) => !observedFrozenPairs.has(relativePath),
-    )
-  ) {
-    throw hydrationError(
-      contract.selectedTaskId,
-      "EXPLICIT_REBASELINE",
-      "both frozen Task 0070 pair files must be present before selection",
-    );
-  }
-  return statusEntries;
-}
-
-async function validateTask0070ExplicitRebaselineBootstrap({
-  tasksRoot,
-  invocation,
-  managedRoutingAvailable,
-  queue,
-  requiredTasks,
-  commandCache,
-}) {
-  const contract = TASK_0070_EXPLICIT_REBASELINE;
-  const parsed = parseTaskInvocation(invocation, { managedRoutingAvailable });
-  if (
-    !parsed.recognized ||
-    parsed.mode !== "EXACT" ||
-    parsed.source !== "PORTABLE_SKILL" ||
-    parsed.taskId !== contract.selectedTaskId ||
-    managedRoutingAvailable
-  ) {
-    throw hydrationError(
-      contract.selectedTaskId,
-      "EXPLICIT_REBASELINE",
-      "limited bootstrap requires the exact portable Task 0070 invocation",
-      "MIGRATION_AUTHORITY_REQUIRED",
-    );
-  }
-  const selectedTask = queue.tasks.find(
-    (task) => task.id === contract.selectedTaskId,
-  );
-  const frontierTask = queue.tasks.find(
-    (task) => task.id === contract.frontierTaskId,
-  );
-  if (
-    !selectedTask ||
-    selectedTask.taskStatus !== "READY" ||
-    selectedTask.testStatus !== "READY" ||
-    selectedTask.contractVersion !==
-      IMMUTABLE_TERMINAL_TASK_CONTRACT_VERSION ||
-    selectedTask.dependencies?.length !== 1 ||
-    selectedTask.dependencies[0] !== contract.priorTaskId
-  ) {
-    throw hydrationError(
-      contract.selectedTaskId,
-      "EXPLICIT_REBASELINE",
-      "Task 0070 must remain the exact READY/READY correction pair",
-    );
-  }
-  if (
-    !frontierTask ||
-    !completeTask(frontierTask) ||
-    !requiresStandardDelivery(frontierTask)
-  ) {
-    throw hydrationError(
-      contract.frontierTaskId,
-      "EXPLICIT_REBASELINE",
-      "Task 0069 must remain the sole terminal STANDARD frontier",
-    );
-  }
-  if (
-    requiredTasks.length !== contract.expectedRequiredTaskCount ||
-    requiredTasks.at(-2)?.id !== contract.priorTaskId ||
-    requiredTasks.at(-1)?.id !== contract.frontierTaskId
-  ) {
-    throw hydrationError(
-      contract.selectedTaskId,
-      "EXPLICIT_REBASELINE",
-      "required STANDARD history is not the exact Task 0068 to 0069 frontier",
-      "DELIVERY_CONTINUITY_REBASELINE_REQUIRED",
-    );
-  }
-
-  const requestedRoot = path.resolve(tasksRoot);
-  const repositoryRoot = await gitScalarText(
-    commandCache,
-    requestedRoot,
-    ["rev-parse", "--show-toplevel"],
-    { taskId: contract.selectedTaskId, role: "EXPLICIT_REBASELINE" },
-  );
-  if (!(await tasksRootMatchesRepository(requestedRoot, repositoryRoot))) {
-    throw hydrationError(
-      contract.selectedTaskId,
-      "EXPLICIT_REBASELINE",
-      "tasks root must be the repository docs/tasks directory",
-    );
-  }
-  const [branch, headSha, mainSha, statusText] = await Promise.all([
-    gitScalarText(commandCache, repositoryRoot, ["branch", "--show-current"], {
-      taskId: contract.selectedTaskId,
-      role: "EXPLICIT_REBASELINE",
-    }),
-    gitScalarText(commandCache, repositoryRoot, ["rev-parse", "HEAD"], {
-      taskId: contract.selectedTaskId,
-      role: "EXPLICIT_REBASELINE",
-    }),
-    gitScalarText(commandCache, repositoryRoot, ["rev-parse", "refs/heads/main"], {
-      taskId: contract.selectedTaskId,
-      role: "EXPLICIT_REBASELINE",
-    }),
-    gitPorcelainText(
-      commandCache,
-      repositoryRoot,
-      ["status", "--porcelain=v1", "--untracked-files=all"],
-      { taskId: contract.selectedTaskId, role: "EXPLICIT_REBASELINE" },
-    ),
-  ]);
-  exact(
-    branch,
-    contract.expectedBranch,
-    contract.selectedTaskId,
-    "EXPLICIT_REBASELINE",
-    "active branch",
-  );
-  exact(
-    headSha,
-    contract.expectedMainSha,
-    contract.selectedTaskId,
-    "EXPLICIT_REBASELINE",
-    "pre-dispatch HEAD",
-  );
-  exact(
-    mainSha,
-    contract.expectedMainSha,
-    contract.selectedTaskId,
-    "EXPLICIT_REBASELINE",
-    "local main",
-  );
-
-  validateTask0070FrozenWorktreeStatus(statusText);
-
-  for (const [relativePath, expectedHash] of Object.entries(
-    contract.frozenPairHashes,
-  )) {
-    const bytes = await readExactRegularText(
-      path.join(repositoryRoot, ...relativePath.split("/")),
-      contract.selectedTaskId,
-      "EXPLICIT_REBASELINE",
-    );
-    exact(
-      sha256Text(bytes),
-      expectedHash,
-      contract.selectedTaskId,
-      "EXPLICIT_REBASELINE",
-      `${relativePath} SHA-256`,
-    );
-  }
-  const checkpointBytes = await readExactRegularText(
-    path.join(requestedRoot, STANDARD_DELIVERY_CONTINUITY_FILE),
-    contract.selectedTaskId,
-    "EXPLICIT_REBASELINE",
-  );
-  exact(
-    sha256Text(checkpointBytes),
-    contract.expectedCheckpointFileSha256,
-    contract.selectedTaskId,
-    "EXPLICIT_REBASELINE",
-    "checkpoint file SHA-256",
-  );
-  const checkpoint = parseStandardDeliveryContinuityCheckpoint(checkpointBytes);
-  exact(
-    checkpoint.checkpointDigest,
-    contract.expectedCheckpointDigest,
-    contract.selectedTaskId,
-    "EXPLICIT_REBASELINE",
-    "checkpoint digest",
-  );
-  exact(
-    checkpoint.coverage.taskCount,
-    contract.expectedCheckpointTaskCount,
-    contract.selectedTaskId,
-    "EXPLICIT_REBASELINE",
-    "checkpoint task count",
-  );
-  exact(
-    checkpoint.coverage.lastTaskId,
-    contract.priorTaskId,
-    contract.selectedTaskId,
-    "EXPLICIT_REBASELINE",
-    "checkpoint last Task",
-  );
-  return contract;
-}
-
 export async function hydratePriorStandardDeliveries({
   tasksRoot,
   invocation,
@@ -4899,15 +4534,11 @@ export async function hydratePriorStandardDeliveries({
   queueInspector = inspectTaskQueue,
   localDiscovery = discoverLocalDeliveryOutcomes,
   githubClient,
-  allowBootstrapWorktreeCheckpoint = false,
-  continuityBootstrapAuthority,
   allowUncheckpointedCompatibility = false,
   continuityLoader = loadTrustedStandardDeliveryContinuity,
   emptyContinuityPreparer = prepareEmptyHistoryStandardDeliveryContinuity,
   deliveryCollector = collectNormalizedDeliveryOutcomes,
   continuityRecordBuilder = buildContinuityCoveredRecord,
-  explicitRebaselineValidator =
-    validateTask0070ExplicitRebaselineBootstrap,
   _skipImmutableTerminalFallback = false,
 } = {}) {
   const queue = await queueInspector(path.resolve(tasksRoot));
@@ -4940,14 +4571,11 @@ export async function hydratePriorStandardDeliveries({
         queueInspector: async () => fallbackQueue,
         localDiscovery,
         githubClient,
-        allowBootstrapWorktreeCheckpoint,
-        continuityBootstrapAuthority,
         allowUncheckpointedCompatibility,
         continuityLoader,
         emptyContinuityPreparer,
         deliveryCollector,
         continuityRecordBuilder,
-        explicitRebaselineValidator,
         _skipImmutableTerminalFallback: true,
       });
     } catch (error) {
@@ -4972,43 +4600,6 @@ export async function hydratePriorStandardDeliveries({
     invocation,
     managedRoutingAvailable,
   });
-  const parsedInvocation = parseTaskInvocation(invocation, {
-    managedRoutingAvailable,
-  });
-  const task0070 = queue.tasks.find(
-    (task) => task.id === TASK_0070_EXPLICIT_REBASELINE.selectedTaskId,
-  );
-  const limitedBootstrapPending =
-    parsedInvocation.recognized &&
-    parsedInvocation.mode === "EXACT" &&
-    parsedInvocation.taskId ===
-      TASK_0070_EXPLICIT_REBASELINE.selectedTaskId &&
-    task0070?.taskStatus === "READY" &&
-    task0070?.testStatus === "READY";
-  if (
-    continuityBootstrapAuthority !== undefined &&
-    continuityBootstrapAuthority !==
-      TASK_0070_EXPLICIT_REBASELINE.authority
-  ) {
-    throw hydrationError(
-      TASK_0070_EXPLICIT_REBASELINE.selectedTaskId,
-      "EXPLICIT_REBASELINE",
-      "limited bootstrap requires EXPLICIT_REBASELINE authority",
-      "MIGRATION_AUTHORITY_REQUIRED",
-    );
-  }
-  if (
-    limitedBootstrapPending &&
-    continuityBootstrapAuthority !==
-      TASK_0070_EXPLICIT_REBASELINE.authority
-  ) {
-    throw hydrationError(
-      TASK_0070_EXPLICIT_REBASELINE.selectedTaskId,
-      "EXPLICIT_REBASELINE",
-      "the READY Task 0070 correction requires separate explicit rebaseline authority",
-      "MIGRATION_AUTHORITY_REQUIRED",
-    );
-  }
   if (requiredTasks.length === 0) {
     await rethrowProvenImmutableTerminalDrift();
     if (!allowUncheckpointedCompatibility) {
@@ -5084,18 +4675,6 @@ export async function hydratePriorStandardDeliveries({
 
   if (!allowUncheckpointedCompatibility) {
     const commandCache = createInvocationCommandCache({ runner: commandRunner });
-    const explicitRebaselineContract =
-      continuityBootstrapAuthority ===
-      TASK_0070_EXPLICIT_REBASELINE.authority
-        ? await explicitRebaselineValidator({
-            tasksRoot: path.resolve(tasksRoot),
-            invocation,
-            managedRoutingAvailable,
-            queue,
-            requiredTasks,
-            commandCache,
-          })
-        : undefined;
     const coverageTasks = queue.tasks
       .filter(
         (task) =>
@@ -5110,38 +4689,7 @@ export async function hydratePriorStandardDeliveries({
       coverageTasks,
       commandCache,
       githubClient,
-      allowBootstrapWorktreeCheckpoint,
     });
-    if (explicitRebaselineContract) {
-      exact(
-        continuity.source,
-        "ALIGNED_MAIN",
-        explicitRebaselineContract.selectedTaskId,
-        "EXPLICIT_REBASELINE",
-        "checkpoint source",
-      );
-      exact(
-        continuity.checkpoint.checkpointDigest,
-        explicitRebaselineContract.expectedCheckpointDigest,
-        explicitRebaselineContract.selectedTaskId,
-        "EXPLICIT_REBASELINE",
-        "trusted checkpoint digest",
-      );
-      exact(
-        continuity.checkpoint.coverage.taskCount,
-        explicitRebaselineContract.expectedCheckpointTaskCount,
-        explicitRebaselineContract.selectedTaskId,
-        "EXPLICIT_REBASELINE",
-        "trusted checkpoint task count",
-      );
-      exact(
-        continuity.checkpoint.coverage.lastTaskId,
-        explicitRebaselineContract.priorTaskId,
-        explicitRebaselineContract.selectedTaskId,
-        "EXPLICIT_REBASELINE",
-        "trusted checkpoint last Task",
-      );
-    }
     const coveredState = buildStandardDeliveryContinuityState({
       checkpoint: continuity.checkpoint,
       coveredTasks: continuity.partition.coveredTasks,
@@ -5181,22 +4729,9 @@ export async function hydratePriorStandardDeliveries({
           recoveredImmutableTaskIds.has(task.id) &&
           !continuity.partition.uncoveredTasks.some(
             (requiredTask) => requiredTask.id === task.id,
-          ),
+        ),
       ),
     ]);
-    if (
-      explicitRebaselineContract &&
-      (uncoveredTasks.length !== 1 ||
-        uncoveredTasks[0]?.id !==
-          explicitRebaselineContract.frontierTaskId)
-    ) {
-      throw hydrationError(
-        explicitRebaselineContract.selectedTaskId,
-        "EXPLICIT_REBASELINE",
-        "limited bootstrap requires exactly the Task 0069 uncovered frontier",
-        "DELIVERY_CONTINUITY_REBASELINE_REQUIRED",
-      );
-    }
     if (uncoveredTasks.length > 1) {
       throw hydrationError(
         undefined,
@@ -5242,16 +4777,6 @@ export async function hydratePriorStandardDeliveries({
           `production evaluator rejected uncovered evidence: ${freshEvaluation.issues.join("; ")}`,
         );
       }
-      if (
-        explicitRebaselineContract &&
-        freshEvaluation.classification !== "HARDENED_EXACT_HEAD"
-      ) {
-        throw hydrationError(
-          uncoveredTask.id,
-          "EXPLICIT_REBASELINE",
-          "fresh production evaluator verdict must be HARDENED_EXACT_HEAD",
-        );
-      }
       assertFutureTerminalOutcomeImmutable(uncoveredTask, outcome);
       const coveredRecord = await continuityRecordBuilder({
         task: uncoveredTask,
@@ -5269,36 +4794,6 @@ export async function hydratePriorStandardDeliveries({
         coveredRecords: [coveredRecord],
         previousCheckpoint: continuity.checkpoint,
       }).checkpoint;
-      if (explicitRebaselineContract) {
-        exact(
-          preparedCheckpoint.previousCheckpointDigest,
-          explicitRebaselineContract.expectedCheckpointDigest,
-          explicitRebaselineContract.selectedTaskId,
-          "EXPLICIT_REBASELINE",
-          "prepared previous checkpoint digest",
-        );
-        exact(
-          preparedCheckpoint.coverage.taskCount,
-          explicitRebaselineContract.expectedCheckpointTaskCount + 1,
-          explicitRebaselineContract.selectedTaskId,
-          "EXPLICIT_REBASELINE",
-          "prepared checkpoint task count",
-        );
-        exact(
-          preparedCheckpoint.coverage.lastTaskId,
-          explicitRebaselineContract.frontierTaskId,
-          explicitRebaselineContract.selectedTaskId,
-          "EXPLICIT_REBASELINE",
-          "prepared checkpoint last Task",
-        );
-        exact(
-          preparedCheckpoint.coveredMainSha,
-          explicitRebaselineContract.expectedFrontierMergeSha,
-          explicitRebaselineContract.selectedTaskId,
-          "EXPLICIT_REBASELINE",
-          "prepared checkpoint covered main",
-        );
-      }
     }
     const classifications = Object.fromEntries(
       continuity.partition.coveredTasks.map((task) => [
@@ -5349,20 +4844,6 @@ export async function hydratePriorStandardDeliveries({
           preparedAdvancement: Boolean(preparedCheckpoint),
           fullHistoryFallback: false,
         }),
-        ...(explicitRebaselineContract
-          ? {
-              explicitRebaseline: Object.freeze({
-                authority: explicitRebaselineContract.authority,
-                selectedTaskId: explicitRebaselineContract.selectedTaskId,
-                priorTaskId: explicitRebaselineContract.priorTaskId,
-                frontierTaskId: explicitRebaselineContract.frontierTaskId,
-                evaluatorVerdict: "HARDENED_EXACT_HEAD",
-                preparedCheckpointDigest:
-                  preparedCheckpoint.checkpointDigest,
-                checkpointWritten: false,
-              }),
-            }
-          : {}),
         cache: commandCache.stats(),
         queryCounts: Object.freeze({
           commands: metrics.misses,

@@ -17,6 +17,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   buildStandardDeliveryContinuityState,
+  bootstrapStandardDeliveryContinuity,
   classifyLocalDeliveryContracts,
   createStandardDeliveryContinuityCheckpoint,
   createGitHubEvidenceClient,
@@ -34,11 +35,9 @@ import {
 import {
   gitPorcelainText,
   gitScalarText,
-  parseFrozenPreDispatchStatus,
   parseTerminalPairWorktreeStatus,
   reconcileAuthoritativeJobs,
   terminalArtifactNewlineEquivalent,
-  validateTask0070FrozenWorktreeStatus,
 } from "../src/core/task-artifact-hydration.mjs";
 import { runTaskArtifactCommand } from "../skills/kyw-task/scripts/task-artifacts.mjs";
 import {
@@ -2147,134 +2146,31 @@ test("checkpoint hydration freshly evaluates only one uncovered hardened outcome
   );
 });
 
-test("explicit Task 0070 rebaseline prepares exactly one existing-checkpoint frontier without writing", async () => {
-  const fixture = hardenedFixture();
-  fixture.outcome.taskId = "0069";
-  const normalized = normalizeFixture(fixture);
-  const checkpoint = createStandardDeliveryContinuityCheckpoint({
-    repository: fixture.repository,
-    sourceMainSha: "f".repeat(40),
-    coveredRecords: [
-      {
-        taskId: "0068",
-        taskSha256: "1".repeat(64),
-        testSha256: "2".repeat(64),
-        taskStatus: "DONE",
-        testStatus: "PASSED",
-        classification: "HARDENED_EXACT_HEAD",
-        outcomeSha: "3".repeat(40),
-        mergeSha: "4".repeat(40),
-        evidenceSha256: "5".repeat(64),
-      },
-    ],
-  }).checkpoint;
-  const coveredTask = task({ id: "0068", contractVersion: 3 });
-  const frontierTask = task({ id: "0069", contractVersion: 3 });
-  const selectedTask = task({
-    id: "0070",
-    status: "READY",
-    dependencies: ["0068"],
-    contractVersion: 3,
-  });
-  let validatorCalls = 0;
-  let recordBuilds = 0;
-  const options = {
-    tasksRoot: path.join(REPOSITORY_ROOT, "docs", "tasks"),
-    invocation: "$kyw-impl 0070",
-    queueInspector: async () => ({
-      tasks: [coveredTask, frontierTask, selectedTask],
-      errors: [],
-    }),
-    continuityLoader: async () => ({
-      checkpoint,
-      partition: {
-        coveredTasks: [coveredTask],
-        uncoveredTasks: [frontierTask],
-      },
-      source: "ALIGNED_MAIN",
-      identity: {
-        repository: fixture.repository,
-        repositoryRoot: REPOSITORY_ROOT,
-        currentMainSha: "f".repeat(40),
-        upstreamSha: "f".repeat(40),
-        cachedMainSha: "f".repeat(40),
-        directRemoteSha: "f".repeat(40),
-        githubMainSha: "f".repeat(40),
-        githubClient: {},
-      },
-    }),
-    localDiscovery: async () => ({
-      repository: fixture.repository,
-      repositoryRoot: REPOSITORY_ROOT,
-      currentMainSha: "f".repeat(40),
-      upstreamSha: "f".repeat(40),
-      cachedMainSha: "f".repeat(40),
-      directRemoteSha: "f".repeat(40),
-      contractAnchorSha: fixture.outcome.baseSha,
-      outcomes: [fixture.outcome],
-    }),
-    deliveryCollector: async () => ({
-      deliveryLedger: { "0069": normalized.entry },
-      deliveryExpectations: { "0069": normalized.expectation },
-      classifications: { "0069": "HARDENED_EXACT_HEAD" },
-      chronology: normalized.chronology,
-      githubMainSha: "f".repeat(40),
-    }),
-    continuityRecordBuilder: async () => {
-      recordBuilds += 1;
-      return {
-        taskId: "0069",
-        taskSha256: "6".repeat(64),
-        testSha256: "7".repeat(64),
-        taskStatus: "DONE",
-        testStatus: "PASSED",
-        classification: "HARDENED_EXACT_HEAD",
-        outcomeSha: fixture.outcome.outcomeSha,
-        mergeSha: fixture.outcome.mergeSha,
-        evidenceSha256: "8".repeat(64),
-      };
-    },
-    explicitRebaselineValidator: async () => {
-      validatorCalls += 1;
-      return {
-        authority: "EXPLICIT_REBASELINE",
-        selectedTaskId: "0070",
-        priorTaskId: "0068",
-        frontierTaskId: "0069",
-        expectedCheckpointDigest: checkpoint.checkpointDigest,
-        expectedCheckpointTaskCount: 1,
-        expectedFrontierMergeSha: fixture.outcome.mergeSha,
-      };
-    },
-  };
-  await assert.rejects(
-    hydratePriorStandardDeliveries(options),
-    /Task 0070 EXPLICIT_REBASELINE.*separate explicit rebaseline authority/,
-  );
-  assert.equal(validatorCalls, 0);
-  assert.equal(recordBuilds, 0);
+test("ordinary READY Task 0070 hydration is ID-isomorphic", async () => {
+  const results = [];
+  for (const id of ["0070", "0170"]) {
+    const hydrated = await hydratePriorStandardDeliveries({
+      tasksRoot: path.join(REPOSITORY_ROOT, "docs", "tasks"),
+      invocation: `$kyw-impl ${id}`,
+      queueInspector: async () => ({
+        tasks: [task({ id, status: "READY", contractVersion: 3 })],
+        errors: [],
+      }),
+      allowUncheckpointedCompatibility: true,
+      _skipImmutableTerminalFallback: true,
+    });
+    results.push({
+      deliveryLedger: hydrated.deliveryLedger,
+      deliveryExpectations: hydrated.deliveryExpectations,
+      requiredTaskIds: hydrated.diagnostics.requiredTaskIds,
+    });
+  }
 
-  const hydrated = await hydratePriorStandardDeliveries({
-    ...options,
-    continuityBootstrapAuthority: "EXPLICIT_REBASELINE",
-  });
-  assert.equal(validatorCalls, 1);
-  assert.equal(recordBuilds, 1);
-  assert.equal(hydrated.preparedCheckpoint.coverage.taskCount, 2);
-  assert.equal(hydrated.preparedCheckpoint.coverage.lastTaskId, "0069");
-  assert.equal(
-    hydrated.preparedCheckpoint.previousCheckpointDigest,
-    checkpoint.checkpointDigest,
-  );
-  assert.deepEqual(hydrated.diagnostics.explicitRebaseline, {
-    authority: "EXPLICIT_REBASELINE",
-    selectedTaskId: "0070",
-    priorTaskId: "0068",
-    frontierTaskId: "0069",
-    evaluatorVerdict: "HARDENED_EXACT_HEAD",
-    preparedCheckpointDigest:
-      hydrated.preparedCheckpoint.checkpointDigest,
-    checkpointWritten: false,
+  assert.deepEqual(results[0], results[1]);
+  assert.deepEqual(results[0], {
+    deliveryLedger: {},
+    deliveryExpectations: {},
+    requiredTaskIds: [],
   });
 });
 
@@ -2485,8 +2381,8 @@ test("Git scalar and porcelain helpers keep command-output boundaries distinct",
     ["sha", `${"a".repeat(40)}\n`, "a".repeat(40)],
     [
       "branch",
-      "task/0070-repair-mixed-attempt-delivery-hydration-and-one-step-rebaseline\r\n",
-      "task/0070-repair-mixed-attempt-delivery-hydration-and-one-step-rebaseline",
+      "task/0123-portable-dispatch\r\n",
+      "task/0123-portable-dispatch",
     ],
     [
       "remote",
@@ -2517,82 +2413,6 @@ test("Git scalar and porcelain helpers keep command-output boundaries distinct",
   );
 });
 
-test("pre-dispatch porcelain parser preserves fixed-width first records and delimiters", () => {
-  assert.deepEqual(
-    parseFrozenPreDispatchStatus(" M docs/ARCHITECTURE.md\n", "0070"),
-    [{ code: " M", relativePath: "docs/ARCHITECTURE.md" }],
-  );
-  assert.deepEqual(
-    parseFrozenPreDispatchStatus("M  staged-file\n", "0070"),
-    [{ code: "M ", relativePath: "staged-file" }],
-  );
-  assert.deepEqual(
-    parseFrozenPreDispatchStatus("?? untracked-file\n", "0070"),
-    [{ code: "??", relativePath: "untracked-file" }],
-  );
-
-  const expected = [
-    { code: " M", relativePath: "docs/ARCHITECTURE.md" },
-    { code: "M ", relativePath: "staged-file" },
-    { code: "??", relativePath: "untracked-file" },
-  ];
-  assert.deepEqual(
-    parseFrozenPreDispatchStatus(
-      " M docs/ARCHITECTURE.md\nM  staged-file\n?? untracked-file\n",
-      "0070",
-    ),
-    expected,
-  );
-  assert.deepEqual(
-    parseFrozenPreDispatchStatus(
-      " M docs/ARCHITECTURE.md\r\nM  staged-file\r\n?? untracked-file\r\n",
-      "0070",
-    ),
-    expected,
-  );
-  assert.deepEqual(parseFrozenPreDispatchStatus("", "0070"), []);
-  assert.deepEqual(
-    parseFrozenPreDispatchStatus(" M trailing-path-space \n", "0070"),
-    [{ code: " M", relativePath: "trailing-path-space " }],
-  );
-});
-
-test("pre-dispatch porcelain parser fails closed on malformed or ambiguous records", () => {
-  for (const statusText of [
-    " Mdocs/ARCHITECTURE.md\n",
-    " M\n",
-    " M \n",
-    "\n",
-    " M valid-path\n\n",
-    "XY invalid-status\n",
-    "R  old-path -> new-path\n",
-  ]) {
-    assert.throws(
-      () => parseFrozenPreDispatchStatus(statusText, "0070"),
-      /Task 0070 EXPLICIT_REBASELINE: pre-dispatch worktree status is malformed or contains a rename/,
-    );
-  }
-});
-
-test("pre-dispatch allowlist diagnostic preserves an exact first-record path", () => {
-  const expectedPath = "docs/not-in-the-frozen-allowlist.md";
-  const statusText = [
-    ` M ${expectedPath}`,
-    "?? docs/tasks/0070-repair-mixed-attempt-delivery-hydration-0d08b166/TASK.md",
-    "?? docs/tasks/0070-repair-mixed-attempt-delivery-hydration-0d08b166/TEST.md",
-    "",
-  ].join("\n");
-  assert.throws(
-    () => validateTask0070FrozenWorktreeStatus(statusText),
-    (error) => {
-      assert.equal(
-        error.message,
-        `Task 0070 EXPLICIT_REBASELINE: pre-dispatch change is outside the frozen allowlist: ${expectedPath}`,
-      );
-      return true;
-    },
-  );
-});
 
 test("GitHub adapter fails closed on malformed JSON and partial pagination", async () => {
   const malformedCache = createInvocationCommandCache({
@@ -2805,13 +2625,13 @@ test("normal adapter hydrates before one dispatcher call and failure invokes non
   assert.equal(dispatchCalls, 0);
 });
 
-test("explicit Task 0070 adapter permits one hydrated IMPLEMENT dispatch and no manual or second path", async () => {
+test("ordinary Task 0070 adapter matches a control ID", async () => {
   const prepared = createStandardDeliveryContinuityCheckpoint({
     repository: "owner/repository",
     sourceMainSha: "f".repeat(40),
     coveredRecords: [
       {
-        taskId: "0069",
+        taskId: "0100",
         taskSha256: "1".repeat(64),
         testSha256: "2".repeat(64),
         taskStatus: "DONE",
@@ -2823,111 +2643,194 @@ test("explicit Task 0070 adapter permits one hydrated IMPLEMENT dispatch and no 
       },
     ],
   }).checkpoint;
-  const argumentsList = [
-    "dispatch",
-    "--tasks-root",
-    path.join(REPOSITORY_ROOT, "docs", "tasks"),
-    "--invocation",
-    "$kyw-impl 0070 separate explicit authority",
-    "--managed-routing",
-    "false",
-    "--continuity-bootstrap-authority",
-    "EXPLICIT_REBASELINE",
-  ];
-  const events = [];
-  const result = await runTaskArtifactCommand(argumentsList, {
-    hydratePriorStandardDeliveries: async (options) => {
-      events.push("hydrate");
-      assert.equal(
-        options.continuityBootstrapAuthority,
-        "EXPLICIT_REBASELINE",
-      );
-      return {
-        deliveryLedger: {},
-        deliveryExpectations: {},
-        preparedCheckpoint: prepared,
-        diagnostics: {
-          explicitRebaseline: {
-            evaluatorVerdict: "HARDENED_EXACT_HEAD",
-            frontierTaskId: "0069",
-          },
-        },
-      };
-    },
-    resolveTaskDispatch: async () => {
-      events.push("dispatch");
-      return {
-        outcome: "SELECTED",
-        action: "IMPLEMENT",
-        task: { id: "0070" },
-      };
-    },
-  });
-  assert.deepEqual(events, ["hydrate", "dispatch"]);
-  const transition = parseStandardDeliveryContinuityTransitionToken(
-    result.continuityTransitionToken,
-  );
-  assert.equal(transition.selectedTaskId, "0070");
-  assert.equal(transition.checkpoint.coverage.lastTaskId, "0069");
+  const observed = [];
 
-  let wrongInvocationHydration = 0;
-  await assert.rejects(
-    runTaskArtifactCommand(
-      argumentsList.map((value) =>
-        value === "$kyw-impl 0070 separate explicit authority"
-          ? "$kyw-impl 0069"
-          : value,
-      ),
+  for (const id of ["0070", "0170"]) {
+    const invocation = `$kyw-impl ${id}`;
+    const events = [];
+    const result = await runTaskArtifactCommand(
+      [
+        "dispatch",
+        "--tasks-root",
+        path.join(REPOSITORY_ROOT, "docs", "tasks"),
+        "--invocation",
+        invocation,
+        "--managed-routing",
+        "false",
+      ],
       {
-        hydratePriorStandardDeliveries: async () => {
-          wrongInvocationHydration += 1;
+        hydratePriorStandardDeliveries: async (options) => {
+          events.push("hydrate");
+          assert.equal(options.invocation, invocation);
+          assert.equal("continuityBootstrapAuthority" in options, false);
+          assert.equal("allowBootstrapWorktreeCheckpoint" in options, false);
+          return {
+            deliveryLedger: {},
+            deliveryExpectations: {},
+            preparedCheckpoint: prepared,
+            diagnostics: { requiredTaskIds: ["0100"] },
+          };
+        },
+        resolveTaskDispatch: async () => {
+          events.push("dispatch");
+          return {
+            outcome: "SELECTED",
+            action: "IMPLEMENT",
+            task: { id },
+          };
         },
       },
-    ),
-    /restricted to the exact portable Task 0070 invocation/,
-  );
-  assert.equal(wrongInvocationHydration, 0);
+    );
+    const transition = parseStandardDeliveryContinuityTransitionToken(
+      result.continuityTransitionToken,
+    );
+    assert.equal(transition.selectedTaskId, id);
+    assert.equal(transition.checkpoint.coverage.lastTaskId, "0100");
+    assert.deepEqual(events, ["hydrate", "dispatch"]);
+    observed.push({
+      outcome: result.outcome,
+      action: result.action,
+      taskId: result.task.id === id ? "SELECTED_ID" : result.task.id,
+    });
+  }
 
+  assert.deepEqual(observed[0], observed[1]);
+});
+
+test("retired dispatch rebaseline option is rejected before hydration", async () => {
+  let hydrationCalls = 0;
   await assert.rejects(
     runTaskArtifactCommand(
       [
-        ...argumentsList,
-        "--delivery-ledger-json",
-        "{}",
-        "--delivery-expectations-json",
-        "{}",
+        "dispatch",
+        "--tasks-root",
+        path.join(REPOSITORY_ROOT, "docs", "tasks"),
+        "--invocation",
+        "$kyw-impl 0070",
+        "--managed-routing",
+        "false",
+        "--continuity-bootstrap-authority",
+        "EXPLICIT_REBASELINE",
       ],
-      {},
+      {
+        hydratePriorStandardDeliveries: async () => {
+          hydrationCalls += 1;
+        },
+      },
     ),
-    /forbids manual delivery ledger or expectation input/,
+    /Unknown option --continuity-bootstrap-authority/,
+  );
+  assert.equal(hydrationCalls, 0);
+});
+
+test("bootstrap-continuity remains a separate explicit migration command", async () => {
+  const baseArguments = [
+    "bootstrap-continuity",
+    "--tasks-root",
+    path.join(REPOSITORY_ROOT, "docs", "tasks"),
+    "--invocation",
+    "$kyw-impl 0170",
+    "--managed-routing",
+    "false",
+  ];
+  let bootstrapCalls = 0;
+  const runtime = {
+    bootstrapStandardDeliveryContinuity: async (options) => {
+      bootstrapCalls += 1;
+      assert.equal(options.invocation, "$kyw-impl 0170");
+      assert.equal(options.managedRoutingAvailable, false);
+      return {
+        checkpoint: { checkpointDigest: "a".repeat(64) },
+        write: { applied: true },
+        diagnostics: { requiredTaskIds: ["0169"] },
+      };
+    },
+  };
+
+  await assert.rejects(
+    runTaskArtifactCommand(baseArguments, runtime),
+    /Missing required option --migration-authority/,
+  );
+  await assert.rejects(
+    runTaskArtifactCommand(
+      [...baseArguments, "--migration-authority", "IMPLICIT"],
+      runtime,
+    ),
+    /requires explicit migration\/rebaseline authority/,
+  );
+  assert.equal(bootstrapCalls, 0);
+
+  const result = await runTaskArtifactCommand(
+    [...baseArguments, "--migration-authority", "EXPLICIT_REBASELINE"],
+    runtime,
+  );
+  assert.equal(bootstrapCalls, 1);
+  assert.equal(result.command, "bootstrap-continuity");
+  assert.equal(result.checkpoint.checkpointDigest, "a".repeat(64));
+});
+
+test("bootstrap backend rejects self-coverage, partial history, and an existing checkpoint", async () => {
+  let localDiscoveryCalls = 0;
+  await assert.rejects(
+    bootstrapStandardDeliveryContinuity({
+      tasksRoot: REPOSITORY_TASKS_ROOT,
+      invocation: "$kyw-impl 0070",
+      queueInspector: async () => ({
+        tasks: [task({ id: "0070", contractVersion: 3 })],
+        errors: [],
+      }),
+      localDiscovery: async () => {
+        localDiscoveryCalls += 1;
+      },
+      writeCheckpoint: false,
+    }),
+    /Task 0070 CHECKPOINT_BOOTSTRAP: the invoked Task cannot attest to its own delivery/,
+  );
+  assert.equal(localDiscoveryCalls, 0);
+
+  await assert.rejects(
+    bootstrapStandardDeliveryContinuity({
+      tasksRoot: REPOSITORY_TASKS_ROOT,
+      invocation: "$kyw-impl 0102",
+      queueInspector: async () => ({
+        tasks: [
+          task({ id: "0100", contractVersion: 3 }),
+          task({ id: "0101", contractVersion: 3 }),
+          task({ id: "0102", status: "READY", contractVersion: 3 }),
+        ],
+        errors: [],
+      }),
+      localDiscovery: async () => ({ outcomes: [{ taskId: "0100" }] }),
+      writeCheckpoint: false,
+    }),
+    /local discovery returned a partial or malformed outcome set/,
   );
 
-  let dispatchCalls = 0;
   await assert.rejects(
-    runTaskArtifactCommand(argumentsList, {
-      hydratePriorStandardDeliveries: async () => ({
-        deliveryLedger: {},
-        deliveryExpectations: {},
-        preparedCheckpoint: prepared,
-        diagnostics: {
-          explicitRebaseline: {
-            evaluatorVerdict: "HARDENED_EXACT_HEAD",
-            frontierTaskId: "0069",
-          },
-        },
+    bootstrapStandardDeliveryContinuity({
+      tasksRoot: REPOSITORY_TASKS_ROOT,
+      invocation: "$kyw-impl 0101",
+      queueInspector: async () => ({
+        tasks: [
+          task({ id: "0100", contractVersion: 3 }),
+          task({ id: "0101", status: "READY", contractVersion: 3 }),
+        ],
+        errors: [],
       }),
-      resolveTaskDispatch: async () => {
-        dispatchCalls += 1;
-        return {
-          outcome: "SELECTED",
-          action: "RESUME",
-          task: { id: "0070" },
-        };
-      },
+      localDiscovery: async () => ({
+        repositoryRoot: REPOSITORY_ROOT,
+        currentMainSha: "f".repeat(40),
+        outcomes: [{ taskId: "0100" }],
+      }),
+      commandRunner: () => ({
+        status: 0,
+        stdout: "noncanonical existing checkpoint bytes\n",
+        stderr: "",
+      }),
+      writeCheckpoint: false,
     }),
-    /sole dispatcher did not select Task 0070 for IMPLEMENT/,
+    /aligned main already contains a continuity checkpoint/,
   );
-  assert.equal(dispatchCalls, 1);
 });
 
 test("manual delivery objects remain a low-level seam and bypass automatic hydration", async () => {

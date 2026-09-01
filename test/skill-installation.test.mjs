@@ -11,6 +11,7 @@ import {
   readlinkSync,
   readdirSync,
   realpathSync,
+  renameSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -199,6 +200,39 @@ function readyBatchSpecification(title = "Installed ready batch") {
     schemaVersion: 1,
     tasks: [{ title, taskMarkdown, testMarkdown, dependencies: [] }],
   };
+}
+
+const consumedTask0070RecoveryPattern =
+  /(?:TASK_0070_EXPLICIT_REBASELINE|validateTask0070ExplicitRebaselineBootstrap|validateTask0070FrozenWorktreeStatus|parseFrozenPreDispatchStatus|allowBootstrapWorktreeCheckpoint|continuityBootstrapAuthority|explicitRebaselineValidator|EXPLICIT_BOOTSTRAP_WORKTREE|--continuity-bootstrap-authority|task\/0070-repair-mixed-attempt-delivery-hydration-and-one-step-rebaseline|184c0802a3327a1c287634e701206b31dec44b2f|ffc574a5f32cd52f2ad8003ffee1dc00ea2d9b52638e880aaaea1a722526959e|126567d86296f489bc5b522d13b08c510b2bf261e2e7e1792afd2a41d0bbc2f5|53d973f700ce91b3ee4f3c92692c7ba691e622732f36c9cb95f7691ee522e813|6da2f8f8f4af2734753d4f7adcb9ac357c0b528e3589053bda941612cb283a67|98443739a0cb936b669b77a403aca5ae602a6790f05993d88587515cd9b4f99b|430c2a3418cae51a330834a562bebd22dd9ff016cd440f24ffb764a2594b6135|frozenPairHashes|mutableAllowlist|limited existing-checkpoint rebaseline)/;
+
+function assertNoConsumedTask0070RecoveryState(filePaths) {
+  for (const filePath of filePaths) {
+    assert.doesNotMatch(
+      readFileSync(filePath, "utf8"),
+      consumedTask0070RecoveryPattern,
+      filePath,
+    );
+  }
+}
+
+function renumberCreatedTaskPair(createdTask, targetId) {
+  const sourceDirectory = path.dirname(createdTask.taskPath);
+  const sourceId = path.basename(sourceDirectory).slice(0, 4);
+  const targetDirectory = join(
+    path.dirname(sourceDirectory),
+    `${targetId}-${createdTask.key}`,
+  );
+  renameSync(sourceDirectory, targetDirectory);
+  const taskPath = join(targetDirectory, "TASK.md");
+  const testPath = join(targetDirectory, "TEST.md");
+  for (const filePath of [taskPath, testPath]) {
+    writeFileSync(
+      filePath,
+      readFileSync(filePath, "utf8").replaceAll(sourceId, targetId),
+      "utf8",
+    );
+  }
+  return Object.freeze({ directory: targetDirectory, taskPath, testPath });
 }
 
 function installPluginCacheFixture(
@@ -639,6 +673,19 @@ test("user install writes complete hashed Skills and a runnable direct-install T
   for (const skillName of MANAGED_SKILL_NAMES) {
     assert.ok(existsSync(join(location.skillsRoot, skillName, "SKILL.md")));
   }
+  assertNoConsumedTask0070RecoveryState([
+    join(location.skillsRoot, "kyw-task", "scripts", "task-artifacts.mjs"),
+    join(
+      location.skillsRoot,
+      ".kyw-dev",
+      "runtime",
+      "src",
+      "core",
+      "task-artifact-hydration.mjs",
+    ),
+    join(location.skillsRoot, "kyw-impl", "SKILL.md"),
+    join(location.skillsRoot, "kyw-impl", "references", "execution.md"),
+  ]);
 
   const targetRepository = createAlignedRepository(
     join(temporaryDirectory(t, "kyw-dev-target-"), "repository"),
@@ -1775,6 +1822,19 @@ test("actual npm tarball installs, diagnoses, runs its installed adapter, and un
     encoding: "utf8",
   });
   assert.equal(extracted.status, 0, extracted.stderr);
+  assertNoConsumedTask0070RecoveryState([
+    join(extractRoot, "package", "skills", "kyw-task", "scripts", "task-artifacts.mjs"),
+    join(extractRoot, "package", "src", "core", "task-artifact-hydration.mjs"),
+    join(extractRoot, "package", "skills", "kyw-impl", "SKILL.md"),
+    join(
+      extractRoot,
+      "package",
+      "skills",
+      "kyw-impl",
+      "references",
+      "execution.md",
+    ),
+  ]);
 
   const home = join(root, "home");
   const work = join(root, "work");
@@ -1790,6 +1850,21 @@ test("actual npm tarball installs, diagnoses, runs its installed adapter, and un
     encoding: "utf8",
   });
   assert.equal(install.status, 0, install.stderr);
+  assertNoConsumedTask0070RecoveryState([
+    join(home, ".agents", "skills", "kyw-task", "scripts", "task-artifacts.mjs"),
+    join(
+      home,
+      ".agents",
+      "skills",
+      ".kyw-dev",
+      "runtime",
+      "src",
+      "core",
+      "task-artifact-hydration.mjs",
+    ),
+    join(home, ".agents", "skills", "kyw-impl", "SKILL.md"),
+    join(home, ".agents", "skills", "kyw-impl", "references", "execution.md"),
+  ]);
 
   const doctor = spawnSync(process.execPath, [cli, "doctor"], { cwd: work, env, encoding: "utf8" });
   assert.equal(doctor.status, 0, doctor.stderr);
@@ -1816,6 +1891,9 @@ test("actual npm tarball installs, diagnoses, runs its installed adapter, and un
   assert.equal(created.tasks[0].key, "packed-ready-batch");
   assert.ok(existsSync(created.tasks[0].taskPath));
   assert.ok(existsSync(created.tasks[0].testPath));
+  const task0070 = renumberCreatedTaskPair(created.tasks[0], "0070");
+  assert.ok(existsSync(task0070.taskPath));
+  assert.ok(existsSync(task0070.testPath));
   const transactionInspection = spawnSync(
     process.execPath,
     [
@@ -1836,7 +1914,7 @@ test("actual npm tarball installs, diagnoses, runs its installed adapter, and un
       "--tasks-root",
       join(target, "docs", "tasks"),
       "--invocation",
-      "task 0001 실행해줘",
+      "task 0070 실행해줘",
       "--managed-routing",
       "false",
     ],
@@ -1845,7 +1923,7 @@ test("actual npm tarball installs, diagnoses, runs its installed adapter, and un
   assert.equal(dispatchResult.status, 0, dispatchResult.stderr);
   const dispatchOutput = JSON.parse(dispatchResult.stdout);
   assert.equal(dispatchOutput.outcome, "FALLBACK_REQUIRED");
-  assert.equal(dispatchOutput.portableFallback, "$kyw-impl 0001");
+  assert.equal(dispatchOutput.portableFallback, "$kyw-impl 0070");
   const portableDispatch = spawnSync(
     process.execPath,
     [
@@ -1854,7 +1932,7 @@ test("actual npm tarball installs, diagnoses, runs its installed adapter, and un
       "--tasks-root",
       join(target, "docs", "tasks"),
       "--invocation",
-      "$kyw-impl 0001",
+      "$kyw-impl 0070",
       "--managed-routing",
       "false",
     ],
@@ -1866,18 +1944,18 @@ test("actual npm tarball installs, diagnoses, runs its installed adapter, and un
   assert.equal(portableOutput.action, "IMPLEMENT");
   assert.deepEqual(portableOutput.hydration.requiredTaskIds, []);
   assert.equal(typeof portableOutput.continuityTransitionToken, "string");
-  runFixtureGit(target, ["switch", "-c", "task/0001-packed-ready-batch"]);
+  runFixtureGit(target, ["switch", "-c", "task/0070-packed-ready-batch"]);
   writeFileSync(
-    created.tasks[0].taskPath,
-    readFileSync(created.tasks[0].taskPath, "utf8").replace(
+    task0070.taskPath,
+    readFileSync(task0070.taskPath, "utf8").replace(
       "\nREADY\n",
       "\nIN_PROGRESS\n",
     ),
     "utf8",
   );
   writeFileSync(
-    created.tasks[0].testPath,
-    readFileSync(created.tasks[0].testPath, "utf8").replace(
+    task0070.testPath,
+    readFileSync(task0070.testPath, "utf8").replace(
       "\nREADY\n",
       "\nRUNNING\n",
     ),
@@ -1891,7 +1969,7 @@ test("actual npm tarball installs, diagnoses, runs its installed adapter, and un
       "--tasks-root",
       join(target, "docs", "tasks"),
       "--selected-task",
-      "0001",
+      "0070",
       "--transition-token",
       portableOutput.continuityTransitionToken,
     ],

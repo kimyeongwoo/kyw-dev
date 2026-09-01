@@ -566,7 +566,6 @@ test("trusted continuity reads aligned main and rejects pair, predecessor, or Gi
     requiredTasks: [requiredTask],
     commandCache: createInvocationCommandCache({ runner }),
     githubClient,
-    allowBootstrapWorktreeCheckpoint: false,
   });
   assert.equal(loaded.source, "ALIGNED_MAIN");
   assert.equal(
@@ -581,7 +580,6 @@ test("trusted continuity reads aligned main and rejects pair, predecessor, or Gi
       requiredTasks: [requiredTask],
       commandCache: createInvocationCommandCache({ runner }),
       githubClient,
-      allowBootstrapWorktreeCheckpoint: false,
     }),
     /working-tree substitution/,
   );
@@ -594,7 +592,6 @@ test("trusted continuity reads aligned main and rejects pair, predecessor, or Gi
       githubClient: {
         getMainRef: async () => ({ object: { sha: "f".repeat(40) } }),
       },
-      allowBootstrapWorktreeCheckpoint: false,
     }),
     /GitHub main SHA/,
   );
@@ -652,7 +649,6 @@ test("trusted continuity reads aligned main and rejects pair, predecessor, or Gi
     requiredTasks: [requiredTask, requiredSecond],
     commandCache: createInvocationCommandCache({ runner }),
     githubClient,
-    allowBootstrapWorktreeCheckpoint: false,
   });
   assert.equal(
     rollingLoaded.checkpoint.previousCheckpointDigest,
@@ -664,7 +660,6 @@ test("trusted continuity reads aligned main and rejects pair, predecessor, or Gi
     coverageTasks: [requiredTask, requiredSecond],
     commandCache: createInvocationCommandCache({ runner }),
     githubClient,
-    allowBootstrapWorktreeCheckpoint: false,
   });
   assert.deepEqual(
     subsetLoaded.partition.coveredTasks.map((task) => task.id),
@@ -701,7 +696,6 @@ test("trusted continuity reads aligned main and rejects pair, predecessor, or Gi
       requiredTasks: [requiredTask, requiredSecond],
       commandCache: createInvocationCommandCache({ runner }),
       githubClient,
-      allowBootstrapWorktreeCheckpoint: false,
     }),
     /does not bind the exact source-main predecessor/,
   );
@@ -997,13 +991,13 @@ test("adapter emits an opaque transition only for recognized selected work", asy
   assert.equal("continuityTransitionToken" in terminal, false);
 });
 
-test("existing-checkpoint explicit rebaseline remains one-step and cannot cover selected Task 0070", () => {
-  const through0068 = createStandardDeliveryContinuityCheckpoint({
+test("rolling continuity remains one-step and cannot cover the selected Task", () => {
+  const through0101 = createStandardDeliveryContinuityCheckpoint({
     repository: "owner/repository",
     sourceMainSha: "a".repeat(40),
     coveredRecords: [
       coveredRecord({
-        taskId: "0068",
+        taskId: "0101",
         classification: "HARDENED_EXACT_HEAD",
         outcomeSha: "b".repeat(40),
         mergeSha: "c".repeat(40),
@@ -1011,13 +1005,13 @@ test("existing-checkpoint explicit rebaseline remains one-step and cannot cover 
       }),
     ],
   });
-  const through0069 = createStandardDeliveryContinuityCheckpoint({
+  const through0102 = createStandardDeliveryContinuityCheckpoint({
     repository: "owner/repository",
     sourceMainSha: "d".repeat(40),
-    previousCheckpoint: through0068.checkpoint,
+    previousCheckpoint: through0101.checkpoint,
     coveredRecords: [
       coveredRecord({
-        taskId: "0069",
+        taskId: "0102",
         classification: "HARDENED_EXACT_HEAD",
         outcomeSha: "e".repeat(40),
         mergeSha: "f".repeat(40),
@@ -1026,23 +1020,23 @@ test("existing-checkpoint explicit rebaseline remains one-step and cannot cover 
     ],
   });
   assert.equal(
-    through0069.checkpoint.previousCheckpointDigest,
-    through0068.checkpoint.checkpointDigest,
+    through0102.checkpoint.previousCheckpointDigest,
+    through0101.checkpoint.checkpointDigest,
   );
-  assert.equal(through0069.checkpoint.coverage.taskCount, 2);
-  assert.equal(through0069.checkpoint.coverage.lastTaskId, "0069");
+  assert.equal(through0102.checkpoint.coverage.taskCount, 2);
+  assert.equal(through0102.checkpoint.coverage.lastTaskId, "0102");
   const token = createStandardDeliveryContinuityTransitionToken({
-    selectedTaskId: "0070",
-    checkpoint: through0069.checkpoint,
+    selectedTaskId: "0103",
+    checkpoint: through0102.checkpoint,
   });
   const parsed = parseStandardDeliveryContinuityTransitionToken(token);
-  assert.equal(parsed.selectedTaskId, "0070");
-  assert.equal(parsed.checkpoint.coverage.lastTaskId, "0069");
+  assert.equal(parsed.selectedTaskId, "0103");
+  assert.equal(parsed.checkpoint.coverage.lastTaskId, "0102");
   assert.throws(
     () =>
       createStandardDeliveryContinuityTransitionToken({
-        selectedTaskId: "0069",
-        checkpoint: through0069.checkpoint,
+        selectedTaskId: "0102",
+        checkpoint: through0102.checkpoint,
       }),
     /cannot attest to its own delivery/,
   );
@@ -1051,17 +1045,17 @@ test("existing-checkpoint explicit rebaseline remains one-step and cannot cover 
       createStandardDeliveryContinuityCheckpoint({
         repository: "owner/repository",
         sourceMainSha: "d".repeat(40),
-        previousCheckpoint: through0068.checkpoint,
+        previousCheckpoint: through0101.checkpoint,
         coveredRecords: [
           coveredRecord({
-            taskId: "0069",
+            taskId: "0102",
             classification: "HARDENED_EXACT_HEAD",
             outcomeSha: "e".repeat(40),
             mergeSha: "f".repeat(40),
             seed: "2",
           }),
           coveredRecord({
-            taskId: "0070",
+            taskId: "0103",
             classification: "HARDENED_EXACT_HEAD",
             outcomeSha: "1".repeat(40),
             mergeSha: "2".repeat(40),

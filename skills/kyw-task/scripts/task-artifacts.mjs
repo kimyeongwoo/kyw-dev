@@ -28,7 +28,6 @@ const {
   createStandardDeliveryContinuityTransitionToken,
   hydratePriorStandardDeliveries,
   inspectTaskBatchTransaction,
-  parseTaskInvocation,
   recoverTaskBatchTransaction,
   resolveTaskDispatch,
   validateTaskDirectory,
@@ -48,7 +47,6 @@ const usage =
   "--selected-task <NNNN> --transition-token <opaque-token>\n" +
   "   or: task-artifacts.mjs dispatch --tasks-root <path> --invocation <text> " +
   "--managed-routing <true|false> " +
-  "[--continuity-bootstrap-authority EXPLICIT_REBASELINE] " +
   "[--execution-preflight <json-path> | --execution-preflight-json <json>]";
 
 function parseOptions(args, requiredNames, optionalNames = []) {
@@ -147,6 +145,9 @@ export async function runTaskArtifactCommand(argv, runtime = {}) {
   const hydrateDeliveries =
     runtime.hydratePriorStandardDeliveries ?? hydratePriorStandardDeliveries;
   const dispatchTask = runtime.resolveTaskDispatch ?? resolveTaskDispatch;
+  const bootstrapContinuity =
+    runtime.bootstrapStandardDeliveryContinuity ??
+    bootstrapStandardDeliveryContinuity;
 
   if (command === "create") {
     const options = parseOptions(args, ["--tasks-root", "--title"]);
@@ -239,7 +240,7 @@ export async function runTaskArtifactCommand(argv, runtime = {}) {
         "continuity bootstrap requires explicit migration/rebaseline authority",
       );
     }
-    const bootstrapped = await bootstrapStandardDeliveryContinuity({
+    const bootstrapped = await bootstrapContinuity({
       tasksRoot: resolve(options.get("--tasks-root")),
       invocation: options.get("--invocation"),
       managedRoutingAvailable: managedRoutingValue === "true",
@@ -277,7 +278,6 @@ export async function runTaskArtifactCommand(argv, runtime = {}) {
       args,
       ["--tasks-root", "--invocation", "--managed-routing"],
       [
-        "--continuity-bootstrap-authority",
         "--delivery-ledger",
         "--delivery-ledger-json",
         "--delivery-expectations",
@@ -304,49 +304,12 @@ export async function runTaskArtifactCommand(argv, runtime = {}) {
     const tasksRoot = resolve(options.get("--tasks-root"));
     const invocation = options.get("--invocation");
     const managedRoutingAvailable = managedRoutingValue === "true";
-    const continuityBootstrapAuthority = options.get(
-      "--continuity-bootstrap-authority",
-    );
-    if (
-      continuityBootstrapAuthority !== undefined &&
-      continuityBootstrapAuthority !== "EXPLICIT_REBASELINE"
-    ) {
-      throw new TaskArtifactError(
-        "MIGRATION_AUTHORITY_REQUIRED",
-        "continuity bootstrap dispatch requires explicit migration/rebaseline authority",
-      );
-    }
     const manualDeliveryInput = [
       "--delivery-ledger",
       "--delivery-ledger-json",
       "--delivery-expectations",
       "--delivery-expectations-json",
     ].some((name) => options.has(name));
-    const explicitRebaseline =
-      continuityBootstrapAuthority === "EXPLICIT_REBASELINE";
-    if (explicitRebaseline) {
-      const parsedInvocation = parseTaskInvocation(invocation, {
-        managedRoutingAvailable,
-      });
-      if (
-        managedRoutingAvailable ||
-        !parsedInvocation.recognized ||
-        parsedInvocation.mode !== "EXACT" ||
-        parsedInvocation.source !== "PORTABLE_SKILL" ||
-        parsedInvocation.taskId !== "0070"
-      ) {
-        throw new TaskArtifactError(
-          "MIGRATION_AUTHORITY_REQUIRED",
-          "limited existing-checkpoint rebaseline is restricted to the exact portable Task 0070 invocation",
-        );
-      }
-      if (manualDeliveryInput) {
-        throw new TaskArtifactError(
-          "INVALID_DELIVERY_LEDGER",
-          "limited existing-checkpoint rebaseline forbids manual delivery ledger or expectation input",
-        );
-      }
-    }
     let deliveryLedger;
     let deliveryExpectations;
     let hydrationDiagnostics;
@@ -369,26 +332,11 @@ export async function runTaskArtifactCommand(argv, runtime = {}) {
         tasksRoot,
         invocation,
         managedRoutingAvailable,
-        allowBootstrapWorktreeCheckpoint:
-          explicitRebaseline,
-        continuityBootstrapAuthority,
       });
       deliveryLedger = hydrated.deliveryLedger;
       deliveryExpectations = hydrated.deliveryExpectations;
       hydrationDiagnostics = hydrated.diagnostics;
       preparedCheckpoint = hydrated.preparedCheckpoint;
-      if (
-        explicitRebaseline &&
-        (!preparedCheckpoint ||
-          hydrationDiagnostics?.explicitRebaseline?.evaluatorVerdict !==
-            "HARDENED_EXACT_HEAD" ||
-          hydrationDiagnostics.explicitRebaseline.frontierTaskId !== "0069")
-      ) {
-        throw new TaskArtifactError(
-          "DELIVERY_CONTINUITY_REBASELINE_REQUIRED",
-          "limited Task 0070 rebaseline did not prepare the exact evaluator-satisfied Task 0069 frontier",
-        );
-      }
     }
 
     const result = await dispatchTask({
@@ -399,23 +347,10 @@ export async function runTaskArtifactCommand(argv, runtime = {}) {
       deliveryExpectations,
       executionPreflight,
     });
-    if (
-      explicitRebaseline &&
-      (result.outcome !== "SELECTED" ||
-        result.action !== "IMPLEMENT" ||
-        result.task?.id !== "0070")
-    ) {
-      throw new TaskArtifactError(
-        "DELIVERY_CONTINUITY_REBASELINE_REQUIRED",
-        "the sole dispatcher did not select Task 0070 for IMPLEMENT",
-      );
-    }
     const continuityTransitionToken =
       preparedCheckpoint &&
       result.outcome === "SELECTED" &&
-      (explicitRebaseline
-        ? result.action === "IMPLEMENT" && result.task?.id === "0070"
-        : ["IMPLEMENT", "RESUME", "DELIVER"].includes(result.action)) &&
+      ["IMPLEMENT", "RESUME", "DELIVER"].includes(result.action) &&
       result.task?.id
         ? createStandardDeliveryContinuityTransitionToken({
             selectedTaskId: result.task.id,

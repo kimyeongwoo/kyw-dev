@@ -44,10 +44,10 @@ delivery classification, install containment, hashing, and CLI dispatch.
 
 Permanent documents do not copy those algorithms. They state only stable
 product or architecture meaning and link to the canonical procedural owner.
-The Task runtime also owns a closed rolling continuity checkpoint: Skills
-decide when separately authorized migration or selected-branch application is
-permitted, while deterministic code owns canonical bytes, digests, trust,
-coverage, and atomic replacement.
+The runtime owns the closed rolling continuity checkpoint. Generic dispatch has
+only the ordinary one-outcome transition; separate `bootstrap-continuity`
+requires `EXPLICIT_REBASELINE`. Deterministic code owns canonical bytes,
+digests, trust, coverage, and atomic replacement for both boundaries.
 
 ### A-02 — Explicit heavyweight workflows
 
@@ -198,7 +198,8 @@ The Task runtime is grouped by responsibility:
 - continuity logic owns the canonical rolling checkpoint, ordered coverage and
   terminal-state digests, aligned-main trust, opaque transition, and atomic
   idempotent replacement;
-- one facade and one process adapter expose the combined public surface.
+- one facade and one process adapter expose generic dispatch and separate
+  bootstrap entry without an ID-specific intercept.
 
 The process adapter accepts explicit validated arguments and delegates all
 meaningful mechanics. In an npm/plugin tree it imports the package core. A
@@ -312,7 +313,7 @@ explicit existing-Task invocation
    → aligned-main checkpoint trust + exact covered-prefix evaluation
    → zero or one local ancestry / fresh GitHub hardened evaluation
    → read-only checkpoint transition preparation
-   → one dispatcher call
+   → one generic dispatcher call with no Task-ID or migration intercept
    → IMPLEMENT | RESUME | DELIVER
    → selected active Task branch + atomic/idempotent transition application
    → one current mutation boundary
@@ -369,13 +370,11 @@ identities, previous digest/genesis, and one sanitized receipt. Preparation is
 read-only before dispatch. Application requires the selected Task's
 `IN_PROGRESS/RUNNING` branch and can cover only already delivered predecessors,
 preserving one-delivery causal lag. Missing/corrupt checkpoints and gaps larger
-than one stop for explicit migration/rebaseline rather than replaying history.
-A separately authorized one-time correction may repair only a frozen
-pre-dispatch owner allowlist and prepare one evaluator-satisfied terminal
-frontier from an already valid checkpoint. It reuses the same read-only prepare
-→ sole selected-dispatch token → active-branch atomic apply boundary, forbids
-manual proof and pre-dispatch checkpoint writes, and cannot cover the selected
-correction Task or create a wider recovery subsystem.
+than one stop ordinary dispatch rather than replaying history. The separate
+`bootstrap-continuity` entry requires exact `EXPLICIT_REBASELINE` authority and
+applies general fail-closed checkpoint/history, gap, drift, evaluator, and
+self-coverage guards. It is not a dispatch option, source-repair path, or
+Task-ID exception.
 
 For artifact contract 3, the first evaluator-satisfied hardened graph is the
 only delivery graph for its Task. The protected merge tree binds the exact
@@ -600,8 +599,9 @@ A positive package allowlist includes runtime, Skills, templates, plugin
 metadata, README, and legal notices. It excludes repository Tasks and their
 continuity checkpoint state, development tests/evaluators, local marketplace
 fixtures, archives, credentials, machine paths, and raw model output. The
-package has no production dependency and no installation or publication
-lifecycle script.
+packaged runtime and Skills are repository-neutral, with no reserved Task ID or
+embedded repository recovery state. The package has no production dependency
+and no installation or publication lifecycle script.
 
 ### 8.4 Publication boundary
 
