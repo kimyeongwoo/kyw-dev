@@ -35,6 +35,7 @@ import {
 import {
   gitPorcelainText,
   gitScalarText,
+  parseProtectedMergeTaskIdentity,
   parseTerminalPairWorktreeStatus,
   reconcileAuthoritativeJobs,
   terminalArtifactNewlineEquivalent,
@@ -104,15 +105,16 @@ function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
 }
 
-async function futureTerminalFixture(t) {
+async function futureTerminalFixture(t, { taskId = "0001" } = {}) {
   const root = await mkdtemp(path.join(tmpdir(), "kyw-future-terminal-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const tasksRoot = path.join(root, "docs", "tasks");
-  const directory = path.join(tasksRoot, "0001-immutable");
+  const directoryName = `${taskId}-immutable`;
+  const directory = path.join(tasksRoot, directoryName);
   const taskPath = path.join(directory, "TASK.md");
   const testPath = path.join(directory, "TEST.md");
   const workflowPath = path.join(root, ".github", "workflows", "ci.yml");
-  const taskBytes = `# TASK 0001 — Immutable
+  const taskBytes = `# TASK ${taskId} — Immutable
 
 <!-- kyw-task-contract: 3 -->
 
@@ -185,7 +187,7 @@ Prove immutable terminal delivery behavior.
 
 - Not applicable — no blocker is known.
 `;
-  const testBytes = `# TEST 0001 — Immutable
+  const testBytes = `# TEST ${taskId} — Immutable
 
 <!-- kyw-task-contract: 3 -->
 
@@ -238,22 +240,23 @@ PASSED
   git(root, ["config", "core.autocrlf", "false"]);
   git(root, ["add", "README.md", ".gitattributes", ".github/workflows/ci.yml"]);
   git(root, ["commit", "-m", "Initialize immutable delivery fixture"]);
-  git(root, ["switch", "-c", "task/0001-immutable"]);
+  const canonicalBranch = `task/${taskId}-immutable`;
+  git(root, ["switch", "-c", canonicalBranch]);
   await mkdir(directory, { recursive: true });
   await Promise.all([
     writeFile(taskPath, taskBytes, "utf8"),
     writeFile(testPath, testBytes, "utf8"),
   ]);
-  git(root, ["add", "docs/tasks/0001-immutable"]);
+  git(root, ["add", `docs/tasks/${directoryName}`]);
   git(root, ["commit", "-m", "Complete immutable Task"]);
   const outcomeSha = git(root, ["rev-parse", "HEAD"]);
   git(root, ["switch", "main"]);
   git(root, [
     "merge",
     "--no-ff",
-    "task/0001-immutable",
+    canonicalBranch,
     "-m",
-    "Merge pull request #1 from owner/task/0001-immutable",
+    `Merge pull request #1 from owner/${canonicalBranch}`,
   ]);
   let alignedMainSha = git(root, ["rev-parse", "HEAD"]);
   git(root, [
@@ -267,8 +270,8 @@ PASSED
   git(root, ["config", "branch.main.merge", "refs/heads/main"]);
   let worktreeStatusOverride;
   const queueTask = {
-    ...task({ id: "0001", contractVersion: 3 }),
-    name: "0001-immutable",
+    ...task({ id: taskId, contractVersion: 3 }),
+    name: directoryName,
     directory,
     taskPath,
     testPath,
@@ -347,7 +350,7 @@ PASSED
   const hydrate = () =>
     hydratePriorStandardDeliveries({
       tasksRoot,
-      invocation: "$kyw-impl 0001",
+      invocation: `$kyw-impl ${taskId}`,
       commandRunner,
       queueInspector: async () => ({ tasks: [queueTask], errors: [] }),
       deliveryCollector,
@@ -356,7 +359,7 @@ PASSED
   const hydrateFromQueue = () =>
     hydratePriorStandardDeliveries({
       tasksRoot,
-      invocation: "$kyw-impl 0001",
+      invocation: `$kyw-impl ${taskId}`,
       commandRunner,
       deliveryCollector,
       allowUncheckpointedCompatibility: true,
@@ -373,6 +376,13 @@ PASSED
     queueTask,
     hydrate,
     hydrateFromQueue,
+    discover: () =>
+      discoverLocalDeliveryOutcomes({
+        tasksRoot,
+        requiredTasks: [queueTask],
+        contractTasks: [queueTask],
+        commandCache: createInvocationCommandCache({ runner: commandRunner }),
+      }),
     setWorktreeStatusOverride(value) {
       worktreeStatusOverride = value;
     },
@@ -411,7 +421,7 @@ PASSED
       return () =>
         hydratePriorStandardDeliveries({
           tasksRoot,
-          invocation: "$kyw-impl 0001",
+          invocation: `$kyw-impl ${taskId}`,
           commandRunner,
           githubClient,
         });
@@ -420,6 +430,15 @@ PASSED
       alignedMainSha = git(root, ["rev-parse", "HEAD"]);
       git(root, ["update-ref", "refs/remotes/origin/main", alignedMainSha]);
       return alignedMainSha;
+    },
+    async addProtectedMerge({ branch, subject, fileName }) {
+      git(root, ["switch", "-c", branch]);
+      await writeFile(path.join(root, fileName), `${subject}\n`, "utf8");
+      git(root, ["add", fileName]);
+      git(root, ["commit", "-m", `Prepare ${branch}`]);
+      git(root, ["switch", "main"]);
+      git(root, ["merge", "--no-ff", branch, "-m", subject]);
+      return this.advanceMain();
     },
   };
 }
@@ -810,27 +829,266 @@ test("future terminal history rejects committed mutation even after byte reversi
   );
 });
 
+test("protected merge source branch has one leading Task identity", () => {
+  const parents = ["a".repeat(40), "b".repeat(40)];
+  for (const [subject, expected] of [
+    [
+      "Merge pull request #60 from kimyeongwoo/task/0072-retire-consumed-task-0070-rebaseline-shim",
+      {
+        pullRequestNumber: 60,
+        owner: "kimyeongwoo",
+        sourceBranch: "task/0072-retire-consumed-task-0070-rebaseline-shim",
+        taskId: "0072",
+      },
+    ],
+    [
+      "Merge pull request #61 from owner/task/0070",
+      {
+        pullRequestNumber: 61,
+        owner: "owner",
+        sourceBranch: "task/0070",
+        taskId: "0070",
+      },
+    ],
+    [
+      "Merge pull request #62 from owner/task-0070-correction",
+      {
+        pullRequestNumber: 62,
+        owner: "owner",
+        sourceBranch: "task-0070-correction",
+        taskId: "0070",
+      },
+    ],
+    [
+      "Merge pull request #63 from owner/agent/task/0070-correction",
+      {
+        pullRequestNumber: 63,
+        owner: "owner",
+        sourceBranch: "agent/task/0070-correction",
+        taskId: "0070",
+      },
+    ],
+    [
+      "Merge pull request #64 from owner/agent/task-0070",
+      {
+        pullRequestNumber: 64,
+        owner: "owner",
+        sourceBranch: "agent/task-0070",
+        taskId: "0070",
+      },
+    ],
+    [
+      "Merge pull request #65 from task-0070/task/0072-owner-token-is-ignored",
+      {
+        pullRequestNumber: 65,
+        owner: "task-0070",
+        sourceBranch: "task/0072-owner-token-is-ignored",
+        taskId: "0072",
+      },
+    ],
+  ]) {
+    assert.deepEqual(
+      parseProtectedMergeTaskIdentity({ parents, subject }),
+      expected,
+      subject,
+    );
+  }
+
+  for (const record of [
+    {
+      parents,
+      subject: "Merge pull request #66 from owner/feature/task/0070-nested",
+    },
+    {
+      parents,
+      subject: "Merge pull request #67 from owner/team/agent/task-0070-nested",
+    },
+    { parents, subject: "Merge pull request #68 from owner/task/00700-near" },
+    { parents, subject: "Merge pull request #69 from owner/task/00701-near" },
+    { parents, subject: "Merge pull request #70 from owner/task/0070x-near" },
+    { parents, subject: "Merge pull request #71 from owner/task/0070/nested" },
+    { parents, subject: "Merge pull request #0 from owner/task/0070-invalid" },
+    { parents, subject: "Merge pull request #72 from /task/0070-no-owner" },
+    { parents, subject: "Merge pull request #73 from owner/" },
+    { parents, subject: "Merge pull request #74 from owner/task/0070 trailing" },
+    { parents, subject: "Complete Task 0070 (#75)" },
+    {
+      parents: [parents[0]],
+      subject: "Merge pull request #76 from owner/task/0070-one-parent",
+    },
+    {
+      parents: [...parents, "c".repeat(40)],
+      subject: "Merge pull request #77 from owner/task/0070-three-parents",
+    },
+  ]) {
+    assert.equal(parseProtectedMergeTaskIdentity(record), undefined, record.subject);
+  }
+});
+
+test("PR #60-isomorphic protected merge ignores a later Task token in its slug", async (t) => {
+  const fixture = await futureTerminalFixture(t, { taskId: "0070" });
+  const branch = "task/0072-retire-consumed-task-0070-rebaseline-shim";
+  const subject = `Merge pull request #60 from kimyeongwoo/${branch}`;
+  const mergeSha = await fixture.addProtectedMerge({
+    branch,
+    subject,
+    fileName: "task-0072-outcome.txt",
+  });
+  const local = await fixture.discover();
+  assert.equal(local.currentMainSha, mergeSha);
+  assert.deepEqual(local.outcomes[0].immutableDrift.additionalDeliveries, []);
+  const hydrated = await fixture.hydrate();
+  assert.equal(
+    evaluateDeliveryEvidence(
+      "0070",
+      hydrated.deliveryLedger["0070"],
+      hydrated.deliveryExpectations["0070"],
+    ).satisfied,
+    true,
+  );
+});
+
 test("future terminal history rejects a second Task-scoped delivery graph", async (t) => {
-  const fixture = await futureTerminalFixture(t);
-  git(fixture.root, ["switch", "-c", "task/0001-immutable-followup"]);
-  await writeFile(path.join(fixture.root, "followup.txt"), "second delivery\n", "utf8");
-  git(fixture.root, ["add", "followup.txt"]);
-  git(fixture.root, ["commit", "-m", "Attempt a second delivery"]);
-  git(fixture.root, ["switch", "main"]);
-  git(fixture.root, [
-    "merge",
-    "--no-ff",
-    "task/0001-immutable-followup",
-    "-m",
-    "Merge pull request #2 from owner/task/0001-immutable-followup",
+  const fixture = await futureTerminalFixture(t, { taskId: "0070" });
+  const branch = "task/0070-immutable-followup";
+  const subject = `Merge pull request #61 from owner/${branch}`;
+  const mergeSha = await fixture.addProtectedMerge({
+    branch,
+    subject,
+    fileName: "followup.txt",
+  });
+  const local = await fixture.discover();
+  assert.deepEqual(local.outcomes[0].immutableDrift.additionalDeliveries, [
+    {
+      mergeSha,
+      path: "docs/tasks/0070-immutable/TASK.md",
+    },
   ]);
-  fixture.advanceMain();
   await assert.rejects(
     fixture.hydrate(),
     (error) =>
       error.code === "FUTURE_TERMINAL_PAIR_IMMUTABLE" &&
-      /another Task-scoped protected merge/.test(error.message),
+      error.message.includes("docs/tasks/0070-immutable/TASK.md") &&
+      error.message.includes(mergeSha) &&
+      /another Task-scoped protected merge/.test(error.message) &&
+      error.message.includes('$kyw-task "<correction outcome>"') &&
+      error.message.includes("hard-depend on Task 0070"),
   );
+});
+
+test("current tracked-main redelivery identity scan is read-only", async (t) => {
+  const statusArgs = ["status", "--porcelain=v1", "--untracked-files=all"];
+  const refNames = [
+    "HEAD",
+    "refs/heads/main",
+    "main@{upstream}",
+    "refs/remotes/origin/main",
+  ];
+  const trackedMainResults = refNames.slice(1).map((ref) =>
+    spawnSync("git", ["rev-parse", "--verify", `${ref}^{commit}`], {
+      cwd: REPOSITORY_ROOT,
+      encoding: "utf8",
+      windowsHide: true,
+      shell: false,
+    }),
+  );
+  if (trackedMainResults.some(({ status }) => status !== 0)) {
+    t.skip("aligned tracked-main refs are unavailable in this exact-SHA checkout");
+    return;
+  }
+  const statusBefore = git(REPOSITORY_ROOT, statusArgs);
+  const refsBefore = [
+    git(REPOSITORY_ROOT, ["rev-parse", "HEAD"]),
+    ...trackedMainResults.map(({ stdout }) => stdout.trim()),
+  ];
+  const mainSha = refsBefore[1];
+  assert.equal(refsBefore[1], refsBefore[2]);
+  assert.equal(refsBefore[1], refsBefore[3]);
+  const checkpointPath = path.join(
+    REPOSITORY_TASKS_ROOT,
+    STANDARD_DELIVERY_CONTINUITY_FILE,
+  );
+  const checkpointBefore = sha256(await readFile(checkpointPath));
+  const queue = await inspectTaskQueue(REPOSITORY_TASKS_ROOT);
+  assert.deepEqual(queue.errors, []);
+  const requiredTasks = ["0070", "0072"].map((taskId) => {
+    const matched = queue.tasks.find(({ id }) => id === taskId);
+    assert.ok(matched, `Task ${taskId} must exist in the current queue`);
+    return matched;
+  });
+  const commandCache = createInvocationCommandCache({
+    runner: ({ command, args, cwd, timeoutMs, maxBuffer }) => {
+      assert.equal(command, "git");
+      if (args[0] === "ls-remote") {
+        return {
+          status: 0,
+          signal: null,
+          stdout: `${mainSha}\trefs/heads/main\n`,
+          stderr: "",
+        };
+      }
+      const result = spawnSync(command, args, {
+        cwd,
+        encoding: "utf8",
+        windowsHide: true,
+        timeout: timeoutMs,
+        maxBuffer,
+        shell: false,
+      });
+      return {
+        status: result.status,
+        signal: result.signal,
+        stdout: result.stdout ?? "",
+        stderr: result.stderr ?? "",
+        error: result.error,
+      };
+    },
+  });
+  const local = await discoverLocalDeliveryOutcomes({
+    tasksRoot: REPOSITORY_TASKS_ROOT,
+    requiredTasks,
+    contractTasks: requiredTasks,
+    commandCache,
+  });
+  const outcomes = new Map(local.outcomes.map((outcome) => [outcome.taskId, outcome]));
+  assert.deepEqual(outcomes.get("0070").immutableDrift.additionalDeliveries, []);
+  assert.equal(
+    outcomes.get("0070").terminalPair.taskPath,
+    "docs/tasks/0070-repair-mixed-attempt-delivery-hydration-0d08b166/TASK.md",
+  );
+  assert.equal(outcomes.get("0072").pullRequestNumber, 60);
+  assert.equal(outcomes.get("0072").mergeSha, mainSha);
+  assert.equal(
+    outcomes.get("0072").headRefHint,
+    "task/0072-retire-consumed-task-0070-rebaseline-shim",
+  );
+
+  const [mergeSha, parentText, ...subjectParts] = git(REPOSITORY_ROOT, [
+    "log",
+    "-1",
+    "--first-parent",
+    "--format=%H%x09%P%x09%s",
+    "refs/heads/main",
+  ]).split("\t");
+  assert.equal(mergeSha, mainSha);
+  assert.deepEqual(
+    parseProtectedMergeTaskIdentity({
+      parents: parentText.split(" "),
+      subject: subjectParts.join("\t"),
+    }),
+    {
+      pullRequestNumber: 60,
+      owner: "kimyeongwoo",
+      sourceBranch: "task/0072-retire-consumed-task-0070-rebaseline-shim",
+      taskId: "0072",
+    },
+  );
+  assert.equal(git(REPOSITORY_ROOT, statusArgs), statusBefore);
+  assert.deepEqual(
+    refNames.map((ref) => git(REPOSITORY_ROOT, ["rev-parse", ref])),
+    refsBefore,
+  );
+  assert.equal(sha256(await readFile(checkpointPath)), checkpointBefore);
 });
 
 test("future terminal history rejects ambiguous canonical delivery candidates", async (t) => {

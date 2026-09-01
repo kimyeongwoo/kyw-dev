@@ -970,10 +970,28 @@ async function discoverTaskOutcomeCandidatesAtPair({
   return Object.freeze(candidates);
 }
 
-function futureTaskMergeSubject(taskId, subject) {
-  return new RegExp(
-    `^Merge pull request #\\d+ from .*?(?:agent/)?task(?:/|-)${taskId}(?:-|$)`,
-  ).test(subject);
+export function parseProtectedMergeTaskIdentity(record) {
+  if (record?.parents?.length !== 2) return undefined;
+  const standardMerge = /^Merge pull request #(\d+) from ([^/\s]+)\/(\S+)$/.exec(
+    record.subject ?? "",
+  );
+  const pullRequestNumber = Number(standardMerge?.[1]);
+  if (!positiveInteger(pullRequestNumber)) return undefined;
+  const [, , owner, sourceBranch] = standardMerge;
+  const leadingIdentity = /^(?:agent\/)?task(?:\/|-)(\d{4})(?:-|$)/.exec(
+    sourceBranch,
+  );
+  if (!leadingIdentity) return undefined;
+  return Object.freeze({
+    pullRequestNumber,
+    owner,
+    sourceBranch,
+    taskId: leadingIdentity[1],
+  });
+}
+
+function futureTaskMergeSubject(taskId, record) {
+  return parseProtectedMergeTaskIdentity(record)?.taskId === taskId;
 }
 
 function changedFutureTaskArtifactPaths(taskId, nameStatus) {
@@ -1236,7 +1254,7 @@ async function inspectFutureTerminalPairDrift({
       .filter(
         (record) =>
           record.index > outcome.firstParentIndex &&
-          futureTaskMergeSubject(task.id, record.subject),
+          futureTaskMergeSubject(task.id, record),
       )
       .map((record) =>
         Object.freeze({

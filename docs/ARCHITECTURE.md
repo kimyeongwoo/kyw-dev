@@ -385,6 +385,13 @@ routes the correction to a new hard-dependent Task. The graph, rolling
 checkpoint, and Git history provide the binding; there is no PR-chain array,
 correction receipt collection, second checkpoint, or alternate ledger.
 
+First-parent redelivery inspection parses a standard two-parent protected-merge
+subject into owner and source branch, then compares only the source branch's
+leading `task/NNNN`, `task-NNNN`, `agent/task/NNNN`, or `agent/task-NNNN`
+identity at the exact ID boundary. Owner, nested-branch, and later slug tokens
+are not attribution inputs; a genuine later same-Task leading identity still
+enters terminal-pair immutability rejection.
+
 Terminal worktree inspection preserves fixed-width porcelain status records
 and rejects malformed, staged, added, deleted, renamed, linked, or unsupported
 pair states before content comparison. For an unstaged regular-file
