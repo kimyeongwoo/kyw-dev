@@ -192,9 +192,9 @@ The Task runtime is grouped by responsibility:
 - queue logic validates the dependency graph and deterministic selection;
 - creation logic publishes complete authored sets under ownership proof;
 - delivery logic parses invocation, preflight, and exact-SHA evidence roles;
-- hydration binds a future terminal pair's canonical path and bytes to its
-  first evaluator-satisfied hardened merge and rejects later history/worktree
-  drift before dispatch;
+- hydration binds a future terminal pair's canonical path, regular-file Git
+  mode, and bytes to its first evaluator-satisfied hardened merge and rejects
+  later history/worktree drift before dispatch;
 - continuity logic owns the canonical rolling checkpoint, ordered coverage and
   terminal-state digests, aligned-main trust, opaque transition, and atomic
   idempotent replacement;
@@ -378,12 +378,13 @@ Task-ID exception.
 
 For artifact contract 3, the first evaluator-satisfied hardened graph is the
 only delivery graph for its Task. The protected merge tree binds the exact
-terminal Task/Test paths and bytes. Fresh uncovered evaluation and later
-checkpoint reads compare that binding with aligned-main history, filesystem
-type, and worktree bytes before dispatch. A mismatch names the Task/path and
-routes the correction to a new hard-dependent Task. The graph, rolling
-checkpoint, and Git history provide the binding; there is no PR-chain array,
-correction receipt collection, second checkpoint, or alternate ledger.
+terminal Task/Test paths, regular-file Git modes, and canonical blob bytes.
+Fresh uncovered evaluation and checkpoint-covered closure apply the same rule
+against aligned-main history, the current index, filesystem type/mode, and raw
+worktree bytes before dispatch. A mismatch names the Task/path and routes the
+correction to a new hard-dependent Task. The graph, rolling checkpoint, and Git
+history provide the binding; there is no PR-chain array, correction receipt
+collection, second checkpoint, or alternate ledger.
 
 First-parent redelivery inspection parses a standard two-parent protected-merge
 subject into owner and source branch, then compares only the source branch's
@@ -392,13 +393,18 @@ identity at the exact ID boundary. Owner, nested-branch, and later slug tokens
 are not attribution inputs; a genuine later same-Task leading identity still
 enters terminal-pair immutability rejection.
 
-Terminal worktree inspection preserves fixed-width porcelain status records
-and rejects malformed, staged, added, deleted, renamed, linked, or unsupported
-pair states before content comparison. For an unstaged regular-file
-modification only, it reads the canonical Git blob and worktree bytes and
-suppresses the status record only when CRLF-pair-to-LF normalization is exactly
-equal; it performs no other whitespace, final-newline, or Unicode
-normalization.
+Terminal worktree inspection first preserves and parses the exact fixed-width
+porcelain path/status, with only one exact ` M` record at the bound path eligible
+for later suppression. It then rejects a missing, linked, or unsupported
+filesystem type; compares the canonical tree's regular-file mode and object
+with aligned main and the stage-zero index plus the host-observable worktree
+executable class; and finally compares raw canonical/worktree bytes. Only
+unchanged modes plus genuinely different bytes whose worktree-only CRLF-pair
+conversion equals the untouched canonical blob suppress that ` M` record.
+Malformed or ambiguous, staged, added, deleted, renamed, copied, alternate-path,
+metadata-only, type, and mode states—including chmod plus CRLF—remain drift.
+Canonical bytes, bare CR, final newline, other whitespace, and Unicode are
+never normalized.
 
 ### 5.5 Independent audit
 
@@ -454,8 +460,8 @@ neither active nor hard dependencies do not freeze unrelated work.
 
 Contract-2 and unmarked legacy pairs retain their historical readers and
 delivery meaning, including pre-cutover multi-merge history. Only contract 3
-acquires the post-delivery path/byte invariant. No reader rewrites history into
-the current schema.
+acquires the post-delivery path/mode/byte invariant. No reader rewrites history
+into the current schema.
 
 ### 6.2 Artifact shape and traceability
 
