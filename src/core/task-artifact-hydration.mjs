@@ -188,29 +188,63 @@ function defaultCommandRunner({ command, args, cwd, timeoutMs, maxBuffer }) {
 }
 
 function failureKind(result) {
-  const diagnostic = `${result.error?.message ?? ""}\n${result.stderr ?? ""}`.toLowerCase();
-  if (result.error?.code === "ETIMEDOUT" || diagnostic.includes("timed out")) return "timeout";
-  if (
-    diagnostic.includes("not logged") ||
-    diagnostic.includes("authentication") ||
-    diagnostic.includes("bad credentials")
-  ) {
-    return "authentication failure";
+  try {
+    const errorCode = result?.error?.code;
+    const diagnostic = `${result?.error?.message ?? ""}\n${result?.stderr ?? ""}`.toLowerCase();
+    if (errorCode === "ETIMEDOUT" || diagnostic.includes("timed out")) return "timeout";
+    if (
+      diagnostic.includes("not logged") ||
+      diagnostic.includes("authentication") ||
+      diagnostic.includes("bad credentials")
+    ) {
+      return "authentication failure";
+    }
+    if (diagnostic.includes("rate limit") || diagnostic.includes("secondary rate")) {
+      return "rate limit";
+    }
+    if (diagnostic.includes("forbidden") || diagnostic.includes("resource not accessible")) {
+      return "authorization failure";
+    }
+    if (errorCode === "ENOENT") return "command unavailable";
+  } catch {
+    // Hostile or malformed runner diagnostics must not escape the redaction boundary.
   }
-  if (diagnostic.includes("rate limit") || diagnostic.includes("secondary rate")) {
-    return "rate limit";
-  }
-  if (diagnostic.includes("forbidden") || diagnostic.includes("resource not accessible")) {
-    return "authorization failure";
-  }
-  if (result.error?.code === "ENOENT") return "command unavailable";
   return "command failure";
+}
+
+function normalizeCommandRunnerFailure(error) {
+  return Object.freeze({
+    kind: "RUNNER_ERROR",
+    failureKind: failureKind({ error }),
+  });
+}
+
+function normalizeCommandCompletion(result) {
+  try {
+    const normalized = Object.freeze({
+      status: result?.status,
+      stdout: String(result?.stdout ?? ""),
+      stderr: String(result?.stderr ?? ""),
+      signal: result?.signal,
+      error: result?.error,
+    });
+    return Object.freeze({
+      kind: "COMPLETION",
+      result: normalized,
+      failureKind: failureKind(normalized),
+    });
+  } catch (error) {
+    return normalizeCommandRunnerFailure(error);
+  }
 }
 
 export function createInvocationCommandCache({
   runner = defaultCommandRunner,
   maxCommands = MAX_COMMANDS,
 } = {}) {
+  if (!Number.isSafeInteger(maxCommands) || maxCommands < 0) {
+    throw new TypeError("maxCommands must be a non-negative safe integer");
+  }
   const cache = new Map();
   let hits = 0;
   let misses = 0;
@@ -227,52 +261,75 @@ export function createInvocationCommandCache({
     allowFailure = false,
     maxBuffer = MAX_LOG_BYTES,
   }) {
-    const key = JSON.stringify([command, args, path.resolve(cwd)]);
-    if (cache.has(key)) {
-      hits += 1;
-      return cache.get(key);
-    }
-    if (misses >= maxCommands) {
+    if (!Number.isSafeInteger(maxBuffer) || maxBuffer < 0) {
       throw hydrationError(
         taskId,
         role,
-        `query bound ${maxCommands} was exhausted`,
+        "maxBuffer must be a non-negative safe integer",
         "DELIVERY_HYDRATION_BOUND_EXCEEDED",
       );
     }
-    misses += 1;
-    if (command === "git") gitCommands += 1;
-    if (command === "gh" && args[0] === "api") githubApiCommands += 1;
-    if (command === "gh" && args[0] === "run" && args.includes("--log")) {
-      jobLogFetches += 1;
-    }
-    const pending = Promise.resolve(
-      runner({
-        command,
-        args: [...args],
-        cwd,
-        timeoutMs: COMMAND_TIMEOUT_MS,
-        maxBuffer,
-      }),
-    ).then((result) => {
-      if (result?.status !== 0 && !allowFailure) {
+    const executionArgs = Object.freeze([...args]);
+    const executionCwd = path.resolve(cwd);
+    const key = JSON.stringify([command, executionArgs, executionCwd, maxBuffer]);
+    if (cache.has(key)) {
+      hits += 1;
+    } else {
+      if (misses >= maxCommands) {
         throw hydrationError(
           taskId,
           role,
-          `${failureKind(result ?? {})}; required evidence is unavailable`,
-          "DELIVERY_HYDRATION_EXTERNAL_FAILURE",
+          `query bound ${maxCommands} was exhausted`,
+          "DELIVERY_HYDRATION_BOUND_EXCEEDED",
         );
       }
-      return Object.freeze({
-        status: result?.status,
-        stdout: String(result?.stdout ?? ""),
-        stderr: String(result?.stderr ?? ""),
-        signal: result?.signal,
-        error: result?.error,
-      });
-    });
-    cache.set(key, pending);
-    return pending;
+      misses += 1;
+      if (command === "git") gitCommands += 1;
+      if (command === "gh" && executionArgs[0] === "api") githubApiCommands += 1;
+      if (
+        command === "gh" &&
+        executionArgs[0] === "run" &&
+        executionArgs.includes("--log")
+      ) {
+        jobLogFetches += 1;
+      }
+      let pending;
+      try {
+        const runnerResult = runner({
+          command,
+          args: [...executionArgs],
+          cwd: executionCwd,
+          timeoutMs: COMMAND_TIMEOUT_MS,
+          maxBuffer,
+        });
+        pending = Promise.resolve(runnerResult).then(
+          normalizeCommandCompletion,
+          normalizeCommandRunnerFailure,
+        );
+      } catch (error) {
+        pending = Promise.resolve(normalizeCommandRunnerFailure(error));
+      }
+      cache.set(key, pending);
+    }
+    const record = await cache.get(key);
+    if (record.kind === "RUNNER_ERROR") {
+      throw hydrationError(
+        taskId,
+        role,
+        `${record.failureKind}; required evidence is unavailable`,
+        "DELIVERY_HYDRATION_EXTERNAL_FAILURE",
+      );
+    }
+    const { result } = record;
+    if (result.status !== 0 && !allowFailure) {
+      throw hydrationError(
+        taskId,
+        role,
+        `${record.failureKind}; required evidence is unavailable`,
+        "DELIVERY_HYDRATION_EXTERNAL_FAILURE",
+      );
+    }
+    return result;
   }
 
   return Object.freeze({
