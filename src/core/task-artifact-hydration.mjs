@@ -897,27 +897,60 @@ async function discoverTaskOutcomeCandidatesAtPair({
     );
     let terminalPair;
     if (isImmutableTerminalTaskContractVersion(taskContractVersion)) {
+      const terminalPaths = [taskRelative, testRelative];
       const [
         mergeTaskMarkdown,
         mergeTestMarkdown,
-        taskBlobSha,
-        testBlobSha,
+        outcomeTreeEntries,
+        mergeTreeEntries,
       ] = await Promise.all([
         showGitFile(cache, repositoryRoot, mergeSha, taskRelative, task.id),
         showGitFile(cache, repositoryRoot, mergeSha, testRelative, task.id),
-        gitText(
+        readTerminalArtifactGitEntries({
           cache,
           repositoryRoot,
-          ["rev-parse", `${mergeSha}:${taskRelative}`],
-          { taskId: task.id, role: "TERMINAL_PAIR_BINDING" },
-        ),
-        gitText(
+          source: "tree",
+          revision: outcomeSha,
+          relativePaths: terminalPaths,
+          taskId: task.id,
+          role: "TERMINAL_PAIR_BINDING",
+        }),
+        readTerminalArtifactGitEntries({
           cache,
           repositoryRoot,
-          ["rev-parse", `${mergeSha}:${testRelative}`],
-          { taskId: task.id, role: "TERMINAL_PAIR_BINDING" },
-        ),
+          source: "tree",
+          revision: mergeSha,
+          relativePaths: terminalPaths,
+          taskId: task.id,
+          role: "TERMINAL_PAIR_BINDING",
+        }),
       ]);
+      for (const relativePath of terminalPaths) {
+        const outcomeEntry = outcomeTreeEntries?.get(relativePath);
+        const mergeEntry = mergeTreeEntries?.get(relativePath);
+        if (
+          !terminalArtifactGitEntryIsRegular(outcomeEntry, {
+            source: "tree",
+          }) ||
+          !terminalArtifactGitEntryIsRegular(mergeEntry, { source: "tree" })
+        ) {
+          throw immutableTerminalPairError(
+            task.id,
+            relativePath,
+            "canonical terminal artifact Git mode or type is not a regular file",
+          );
+        }
+        if (
+          outcomeEntry.mode !== mergeEntry.mode ||
+          outcomeEntry.objectSha !== mergeEntry.objectSha
+        ) {
+          throw immutableTerminalPairError(
+            task.id,
+            relativePath,
+            `protected merge ${mergeSha} does not preserve the outcome terminal artifact mode and bytes`,
+          );
+        }
+      }
       if (
         mergeTaskMarkdown !== taskMarkdown ||
         mergeTestMarkdown !== testMarkdown ||
@@ -937,18 +970,10 @@ async function discoverTaskOutcomeCandidatesAtPair({
         testPath: testRelative,
         taskSha256: sha256Text(mergeTaskMarkdown),
         testSha256: sha256Text(mergeTestMarkdown),
-        taskBlobSha: requireSha(
-          taskBlobSha,
-          task.id,
-          "TERMINAL_PAIR_BINDING",
-          "TASK.md blob",
-        ),
-        testBlobSha: requireSha(
-          testBlobSha,
-          task.id,
-          "TERMINAL_PAIR_BINDING",
-          "TEST.md blob",
-        ),
+        taskBlobSha: mergeTreeEntries.get(taskRelative).objectSha,
+        testBlobSha: mergeTreeEntries.get(testRelative).objectSha,
+        taskMode: mergeTreeEntries.get(taskRelative).mode,
+        testMode: mergeTreeEntries.get(testRelative).mode,
       });
     }
     candidates.push(Object.freeze({
@@ -1010,6 +1035,100 @@ function changedFutureTaskArtifactPaths(taskId, nameStatus) {
   return Object.freeze(paths);
 }
 
+export function terminalArtifactGitModeClass(mode) {
+  if (mode === "100644") return "REGULAR_FILE";
+  if (mode === "100755") return "EXECUTABLE_FILE";
+  return undefined;
+}
+
+export function parseTerminalArtifactGitEntries(
+  entryText,
+  { source = "tree" } = {},
+) {
+  if (typeof entryText !== "string" || !["tree", "index"].includes(source)) {
+    return undefined;
+  }
+  if (entryText.length === 0) return Object.freeze([]);
+  const framed = stripFinalGitCommandDelimiter(entryText);
+  if (framed.length === 0) return undefined;
+  const entries = [];
+  for (const line of framed.split(/\r?\n/)) {
+    const match =
+      source === "tree"
+        ? /^([0-7]{6}) ([a-z]+) ([a-f0-9]{40})\t([^\t\r\n]+)$/u.exec(line)
+        : /^([0-7]{6}) ([a-f0-9]{40}) ([0-3])\t([^\t\r\n]+)$/u.exec(
+            line,
+          );
+    if (!match) return undefined;
+    entries.push(
+      Object.freeze(
+        source === "tree"
+          ? {
+              mode: match[1],
+              type: match[2],
+              objectSha: match[3],
+              relativePath: match[4].replaceAll("\\", "/"),
+            }
+          : {
+              mode: match[1],
+              objectSha: match[2],
+              stage: Number(match[3]),
+              relativePath: match[4].replaceAll("\\", "/"),
+            },
+      ),
+    );
+  }
+  return Object.freeze(entries);
+}
+
+async function readTerminalArtifactGitEntries({
+  cache,
+  repositoryRoot,
+  source,
+  revision,
+  relativePaths,
+  taskId,
+  role,
+}) {
+  const args =
+    source === "tree"
+      ? ["ls-tree", revision, "--", ...relativePaths]
+      : ["ls-files", "--stage", "--", ...relativePaths];
+  const text = await gitPorcelainText(cache, repositoryRoot, args, {
+    taskId,
+    role,
+  });
+  const entries = parseTerminalArtifactGitEntries(text, { source });
+  if (!entries) return undefined;
+  const expected = new Set(relativePaths);
+  const byPath = new Map();
+  for (const entry of entries) {
+    if (!expected.has(entry.relativePath)) return undefined;
+    byPath.set(
+      entry.relativePath,
+      byPath.has(entry.relativePath) ? undefined : entry,
+    );
+  }
+  return byPath;
+}
+
+function terminalArtifactGitEntryIsRegular(entry, { source }) {
+  return Boolean(
+    entry &&
+      terminalArtifactGitModeClass(entry.mode) &&
+      (source === "tree"
+        ? entry.type === "blob"
+        : entry.stage === 0),
+  );
+}
+
+function terminalArtifactWorktreeModeMatches(canonicalMode, state) {
+  if (process.platform === "win32") return true;
+  const canonicalExecutable = canonicalMode === "100755";
+  const worktreeExecutable = (state.mode & 0o111) !== 0;
+  return canonicalExecutable === worktreeExecutable;
+}
+
 function normalizeTerminalArtifactLineEndings(bytes) {
   const source = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes);
   const normalized = Buffer.allocUnsafe(source.length);
@@ -1038,12 +1157,9 @@ export function terminalArtifactNewlineEquivalent(canonicalBytes, worktreeBytes)
   const worktree = Buffer.isBuffer(worktreeBytes)
     ? worktreeBytes
     : Buffer.from(worktreeBytes);
-  return (
-    canonical.equals(worktree) ||
-    normalizeTerminalArtifactLineEndings(canonical).equals(
-      normalizeTerminalArtifactLineEndings(worktree),
-    )
-  );
+  if (canonical.equals(worktree)) return true;
+  if (canonical.includes(0x0d)) return false;
+  return normalizeTerminalArtifactLineEndings(worktree).equals(canonical);
 }
 
 export function parseTerminalPairWorktreeStatus(statusText, taskId) {
@@ -1147,12 +1263,59 @@ async function inspectFutureTerminalPairDrift({
     worktreeStatus,
     task.id,
   );
+  const terminalArtifacts = [
+    {
+      relativePath: pair.taskPath,
+      expectedBlobSha: pair.taskBlobSha,
+      expectedMode: pair.taskMode,
+    },
+    {
+      relativePath: pair.testPath,
+      expectedBlobSha: pair.testBlobSha,
+      expectedMode: pair.testMode,
+    },
+  ];
+  const terminalPaths = terminalArtifacts.map(({ relativePath }) => relativePath);
+  const [currentTreeEntries, indexEntries] = await Promise.all([
+    readTerminalArtifactGitEntries({
+      cache,
+      repositoryRoot,
+      source: "tree",
+      revision: currentMainSha,
+      relativePaths: terminalPaths,
+      taskId: task.id,
+      role: "TERMINAL_PAIR_WORKTREE",
+    }),
+    readTerminalArtifactGitEntries({
+      cache,
+      repositoryRoot,
+      source: "index",
+      relativePaths: terminalPaths,
+      taskId: task.id,
+      role: "TERMINAL_PAIR_WORKTREE",
+    }),
+  ]);
+  const exactSpaceMPaths = new Set();
+  for (const relativePath of terminalPaths) {
+    const matchingEntries = worktreeStatusEntries.filter((entry) =>
+      entry.relativePaths.some(
+        (candidate) =>
+          candidate.replaceAll("\\", "/").toLowerCase() ===
+          relativePath.toLowerCase(),
+      ),
+    );
+    if (
+      matchingEntries.length === 1 &&
+      matchingEntries[0].code === " M" &&
+      matchingEntries[0].relativePaths.length === 1 &&
+      matchingEntries[0].relativePaths[0] === relativePath
+    ) {
+      exactSpaceMPaths.add(relativePath);
+    }
+  }
   const worktreePairIssues = [];
-  const equivalentPairPaths = new Set();
-  for (const [relativePath, expectedBlobSha] of [
-    [pair.taskPath, pair.taskBlobSha],
-    [pair.testPath, pair.testBlobSha],
-  ]) {
+  const newlineEquivalentPairPaths = new Set();
+  for (const { relativePath, expectedBlobSha, expectedMode } of terminalArtifacts) {
     const absolutePath = path.resolve(repositoryRoot, relativePath);
     let state;
     try {
@@ -1179,6 +1342,70 @@ async function inspectFutureTerminalPairDrift({
         Object.freeze({
           path: relativePath,
           detail: "terminal artifact was replaced by a link or unsupported filesystem type",
+        }),
+      );
+      continue;
+    }
+    if (!terminalArtifactGitModeClass(expectedMode)) {
+      worktreePairIssues.push(
+        Object.freeze({
+          path: relativePath,
+          detail: "canonical terminal artifact Git mode is unsupported",
+        }),
+      );
+      continue;
+    }
+    const currentTreeEntry = currentTreeEntries?.get(relativePath);
+    if (
+      !terminalArtifactGitEntryIsRegular(currentTreeEntry, {
+        source: "tree",
+      }) ||
+      currentTreeEntry.mode !== expectedMode
+    ) {
+      worktreePairIssues.push(
+        Object.freeze({
+          path: relativePath,
+          detail: "aligned main terminal artifact mode or type differs from the canonical merge",
+        }),
+      );
+      continue;
+    }
+    if (currentTreeEntry.objectSha !== expectedBlobSha) {
+      worktreePairIssues.push(
+        Object.freeze({
+          path: relativePath,
+          detail: "aligned main terminal artifact bytes differ from the canonical merge",
+        }),
+      );
+      continue;
+    }
+    const indexEntry = indexEntries?.get(relativePath);
+    if (
+      !terminalArtifactGitEntryIsRegular(indexEntry, { source: "index" }) ||
+      indexEntry.mode !== expectedMode
+    ) {
+      worktreePairIssues.push(
+        Object.freeze({
+          path: relativePath,
+          detail: "terminal artifact index mode or stage differs from the canonical merge",
+        }),
+      );
+      continue;
+    }
+    if (indexEntry.objectSha !== expectedBlobSha) {
+      worktreePairIssues.push(
+        Object.freeze({
+          path: relativePath,
+          detail: "terminal artifact index bytes differ from the canonical merge",
+        }),
+      );
+      continue;
+    }
+    if (!terminalArtifactWorktreeModeMatches(expectedMode, state)) {
+      worktreePairIssues.push(
+        Object.freeze({
+          path: relativePath,
+          detail: "terminal artifact worktree mode differs from the canonical merge",
         }),
       );
       continue;
@@ -1214,11 +1441,12 @@ async function inspectFutureTerminalPairDrift({
       );
       continue;
     }
+    const canonicalBytes = Buffer.from(canonicalBlob.stdout, "utf8");
+    const rawBytesDiffer = !canonicalBytes.equals(worktreeBytes);
+    if (!rawBytesDiffer) continue;
     if (
-      !terminalArtifactNewlineEquivalent(
-        Buffer.from(canonicalBlob.stdout, "utf8"),
-        worktreeBytes,
-      )
+      !terminalArtifactNewlineEquivalent(canonicalBytes, worktreeBytes) ||
+      !exactSpaceMPaths.has(relativePath)
     ) {
       worktreePairIssues.push(
         Object.freeze({
@@ -1228,7 +1456,7 @@ async function inspectFutureTerminalPairDrift({
       );
       continue;
     }
-    equivalentPairPaths.add(relativePath);
+    newlineEquivalentPairPaths.add(relativePath);
   }
   const worktreeChanges = Object.freeze(
     worktreeStatusEntries
@@ -1243,7 +1471,7 @@ async function inspectFutureTerminalPairDrift({
             entry.relativePaths.length === 1 &&
             (matched.relativePath === pair.taskPath ||
               matched.relativePath === pair.testPath) &&
-            equivalentPairPaths.has(matched.relativePath);
+            newlineEquivalentPairPaths.has(matched.relativePath);
           return newlineOnlyCanonicalPair ? [] : [matched.relativePath];
         }),
       )
@@ -1267,6 +1495,9 @@ async function inspectFutureTerminalPairDrift({
     mainChanges,
     worktreeChanges,
     worktreePairIssues: Object.freeze(worktreePairIssues),
+    newlineEquivalentPairPaths: Object.freeze([
+      ...newlineEquivalentPairPaths,
+    ]),
     additionalDeliveries,
   });
 }
@@ -1797,6 +2028,7 @@ export async function loadTrustedStandardDeliveryContinuity({
   const immutableCoveredTasks = coveragePartition.coveredTasks.filter((task) =>
     isImmutableTerminalTaskContractVersion(task.contractVersion),
   );
+  const immutableNewlineEquivalentPaths = new Set();
   if (immutableCoveredTasks.length > 0) {
     const { history: firstParentHistory, indexBySha } =
       await collectFirstParentHistory({
@@ -1815,6 +2047,10 @@ export async function loadTrustedStandardDeliveryContinuity({
         firstParentHistory,
       );
       assertFutureTerminalOutcomeImmutable(task, outcome);
+      for (const relativePath of
+        outcome.immutableDrift?.newlineEquivalentPairPaths ?? []) {
+        immutableNewlineEquivalentPaths.add(relativePath);
+      }
     }
   }
   const coverageTaskIds = new Set(
@@ -1946,54 +2182,6 @@ export async function loadTrustedStandardDeliveryContinuity({
               "aligned main bytes differ from the checkpoint-bound canonical terminal artifact",
             );
           }
-          const absolutePath = path.resolve(
-            identity.repositoryRoot,
-            relativePath,
-          );
-          let worktreeState;
-          try {
-            worktreeState = await lstat(absolutePath);
-          } catch (error) {
-            if (error.code !== "ENOENT") throw error;
-          }
-          if (
-            !worktreeState ||
-            worktreeState.isSymbolicLink() ||
-            !worktreeState.isFile()
-          ) {
-            throw immutableTerminalPairError(
-              covered.task.id,
-              relativePath,
-              "worktree artifact is missing, linked, or an unsupported type",
-            );
-          }
-          const [canonicalBlobSha, worktreeBlobSha] = await Promise.all([
-            gitText(
-              commandCache,
-              identity.repositoryRoot,
-              ["rev-parse", `${checkpoint.sourceMainSha}:${relativePath}`],
-              {
-                taskId: covered.task.id,
-                role: "CHECKPOINT_PAIR_STATE",
-              },
-            ),
-            gitText(
-              commandCache,
-              identity.repositoryRoot,
-              ["hash-object", `--path=${relativePath}`, absolutePath],
-              {
-                taskId: covered.task.id,
-                role: "CHECKPOINT_PAIR_STATE",
-              },
-            ),
-          ]);
-          if (worktreeBlobSha !== canonicalBlobSha) {
-            throw immutableTerminalPairError(
-              covered.task.id,
-              relativePath,
-              "worktree bytes shadow the checkpoint-bound canonical terminal artifact",
-            );
-          }
         }
       }
       terminalPairs.push({
@@ -2056,20 +2244,25 @@ export async function loadTrustedStandardDeliveryContinuity({
       const changedPath = worktreeChanges
         .split(/\r?\n/)
         .map((value) => value.trim().replaceAll("\\", "/"))
-        .find(Boolean);
-      const immutableTaskId = immutableCoveredPaths.get(changedPath);
-      if (immutableTaskId) {
-        throw immutableTerminalPairError(
-          immutableTaskId,
-          changedPath,
-          "working-tree substitution changed a canonical terminal artifact",
+        .find(
+          (value) =>
+            Boolean(value) && !immutableNewlineEquivalentPaths.has(value),
+        );
+      if (changedPath) {
+        const immutableTaskId = immutableCoveredPaths.get(changedPath);
+        if (immutableTaskId) {
+          throw immutableTerminalPairError(
+            immutableTaskId,
+            changedPath,
+            "working-tree substitution changed a canonical terminal artifact",
+          );
+        }
+        throw hydrationError(
+          undefined,
+          "CHECKPOINT_PAIR_STATE",
+          "working-tree substitution changed a checkpoint-covered terminal pair",
         );
       }
-      throw hydrationError(
-        undefined,
-        "CHECKPOINT_PAIR_STATE",
-        "working-tree substitution changed a checkpoint-covered terminal pair",
-      );
     }
   }
   return Object.freeze({

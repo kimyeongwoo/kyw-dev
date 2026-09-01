@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
+  chmod,
   mkdir,
   mkdtemp,
   readFile,
@@ -36,8 +37,10 @@ import {
   gitPorcelainText,
   gitScalarText,
   parseProtectedMergeTaskIdentity,
+  parseTerminalArtifactGitEntries,
   parseTerminalPairWorktreeStatus,
   reconcileAuthoritativeJobs,
+  terminalArtifactGitModeClass,
   terminalArtifactNewlineEquivalent,
 } from "../src/core/task-artifact-hydration.mjs";
 import { runTaskArtifactCommand } from "../skills/kyw-task/scripts/task-artifacts.mjs";
@@ -105,7 +108,14 @@ function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
 }
 
-async function futureTerminalFixture(t, { taskId = "0001" } = {}) {
+async function futureTerminalFixture(
+  t,
+  {
+    taskId = "0001",
+    canonicalLineEndings = "LF",
+    canonicalExecutable = false,
+  } = {},
+) {
   const root = await mkdtemp(path.join(tmpdir(), "kyw-future-terminal-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const tasksRoot = path.join(root, "docs", "tasks");
@@ -114,7 +124,7 @@ async function futureTerminalFixture(t, { taskId = "0001" } = {}) {
   const taskPath = path.join(directory, "TASK.md");
   const testPath = path.join(directory, "TEST.md");
   const workflowPath = path.join(root, ".github", "workflows", "ci.yml");
-  const taskBytes = `# TASK ${taskId} — Immutable
+  const taskLfBytes = `# TASK ${taskId} — Immutable
 
 <!-- kyw-task-contract: 3 -->
 
@@ -187,7 +197,7 @@ Prove immutable terminal delivery behavior.
 
 - Not applicable — no blocker is known.
 `;
-  const testBytes = `# TEST ${taskId} — Immutable
+  const testLfBytes = `# TEST ${taskId} — Immutable
 
 <!-- kyw-task-contract: 3 -->
 
@@ -226,6 +236,15 @@ PASSED
 - [x] Compare the final diff to the matrix.
 - [x] Map every acceptance criterion to one or more test rows.
 `;
+  assert.match(canonicalLineEndings, /^(?:LF|CRLF)$/);
+  const taskBytes =
+    canonicalLineEndings === "CRLF"
+      ? taskLfBytes.replaceAll("\n", "\r\n")
+      : taskLfBytes;
+  const testBytes =
+    canonicalLineEndings === "CRLF"
+      ? testLfBytes.replaceAll("\n", "\r\n")
+      : testLfBytes;
   await mkdir(path.dirname(workflowPath), { recursive: true });
   await writeFile(
     workflowPath,
@@ -233,7 +252,11 @@ PASSED
     "utf8",
   );
   await writeFile(path.join(root, "README.md"), "# Fixture\n", "utf8");
-  await writeFile(path.join(root, ".gitattributes"), "*.md text eol=lf\n", "utf8");
+  await writeFile(
+    path.join(root, ".gitattributes"),
+    canonicalLineEndings === "CRLF" ? "*.md -text\n" : "*.md text eol=lf\n",
+    "utf8",
+  );
   git(root, ["init", "--initial-branch=main"]);
   git(root, ["config", "user.name", "Future Terminal Fixture"]);
   git(root, ["config", "user.email", "future-terminal@example.invalid"]);
@@ -248,6 +271,18 @@ PASSED
     writeFile(testPath, testBytes, "utf8"),
   ]);
   git(root, ["add", `docs/tasks/${directoryName}`]);
+  if (canonicalExecutable) {
+    if (process.platform !== "win32") {
+      await Promise.all([chmod(taskPath, 0o755), chmod(testPath, 0o755)]);
+    }
+    git(root, [
+      "update-index",
+      "--chmod=+x",
+      "--",
+      `docs/tasks/${directoryName}/TASK.md`,
+      `docs/tasks/${directoryName}/TEST.md`,
+    ]);
+  }
   git(root, ["commit", "-m", "Complete immutable Task"]);
   const outcomeSha = git(root, ["rev-parse", "HEAD"]);
   git(root, ["switch", "main"]);
@@ -624,16 +659,19 @@ test("production queue validation cannot mask a delivered pair link", async (t) 
   );
 });
 
-test("terminal artifact newline equivalence normalizes only CRLF byte pairs", () => {
+test("terminal artifact newline equivalence converts only worktree CRLF pairs toward canonical bytes", () => {
   for (const [canonical, worktree] of [
+    ["line1\nline2\n", "line1\nline2\n"],
+    ["line1\r\nline2\r\n", "line1\r\nline2\r\n"],
     ["line1\nline2\n", "line1\r\nline2\r\n"],
-    ["line1\r\nline2\r\n", "line1\nline2\n"],
     ["line1\n\nline2\n", "line1\r\n\r\nline2\r\n"],
-    ["line1\r\nline2", "line1\nline2"],
+    ["line1\nline2", "line1\r\nline2"],
   ]) {
     assert.equal(terminalArtifactNewlineEquivalent(canonical, worktree), true);
   }
   for (const [canonical, worktree] of [
+    ["line1\r\nline2\r\n", "line1\nline2\n"],
+    ["line1\r\nline2", "line1\nline2"],
     ["line1\nline2\n", "line1\r\nchanged\r\n"],
     ["line1\nline2\n", "line1\r\nline2\r\nadded\r\n"],
     ["line1\nline2\n", "line1\r\n"],
@@ -641,33 +679,363 @@ test("terminal artifact newline equivalence normalizes only CRLF byte pairs", ()
     ["line1 \nline2\n", "line1\r\nline2\r\n"],
     ["line1\nline2\n", "line1\r\nline2"],
     ["line1\nline2\n", "line1\rline2\n"],
+    ["line1\r\nline2\r\n", "line1\r\r\nline2\r\r\n"],
+    ["café\n", "cafe\u0301\r\n"],
   ]) {
     assert.equal(terminalArtifactNewlineEquivalent(canonical, worktree), false);
   }
 });
 
-test("terminal-pair type changes cannot use newline equivalence", async (t) => {
+test("terminal artifact Git entry parsing preserves regular-file mode classes and exact stages", () => {
+  const taskRelative = "docs/tasks/0001-immutable/TASK.md";
+  const testRelative = "docs/tasks/0001-immutable/TEST.md";
+  assert.deepEqual(
+    parseTerminalArtifactGitEntries(
+      `100644 blob ${"a".repeat(40)}\t${taskRelative}\n100755 blob ${"b".repeat(40)}\t${testRelative}\n`,
+      { source: "tree" },
+    ),
+    [
+      {
+        mode: "100644",
+        type: "blob",
+        objectSha: "a".repeat(40),
+        relativePath: taskRelative,
+      },
+      {
+        mode: "100755",
+        type: "blob",
+        objectSha: "b".repeat(40),
+        relativePath: testRelative,
+      },
+    ],
+  );
+  assert.deepEqual(
+    parseTerminalArtifactGitEntries(
+      `100644 ${"a".repeat(40)} 0\t${taskRelative}\n100755 ${"b".repeat(40)} 0\t${testRelative}\n`,
+      { source: "index" },
+    ),
+    [
+      {
+        mode: "100644",
+        objectSha: "a".repeat(40),
+        stage: 0,
+        relativePath: taskRelative,
+      },
+      {
+        mode: "100755",
+        objectSha: "b".repeat(40),
+        stage: 0,
+        relativePath: testRelative,
+      },
+    ],
+  );
+  assert.equal(terminalArtifactGitModeClass("100644"), "REGULAR_FILE");
+  assert.equal(terminalArtifactGitModeClass("100755"), "EXECUTABLE_FILE");
+  assert.equal(terminalArtifactGitModeClass("120000"), undefined);
+  assert.equal(
+    parseTerminalArtifactGitEntries(
+      `100644 ${"a".repeat(40)} 4\t${taskRelative}\n`,
+      { source: "index" },
+    ),
+    undefined,
+  );
+});
+
+test("terminal newline exception is directional and requires a real worktree byte difference", async (t) => {
   const fixture = await futureTerminalFixture(t);
+  const taskRelative = "docs/tasks/0001-immutable/TASK.md";
+
+  fixture.setWorktreeStatusOverride(` M ${taskRelative}\n`);
+  await assert.rejects(
+    fixture.hydrate(),
+    (error) =>
+      error.code === "FUTURE_TERMINAL_PAIR_IMMUTABLE" &&
+      error.message.includes(taskRelative) &&
+      /worktree state shadows the canonical terminal artifact/.test(error.message),
+  );
+
+  await writeFile(
+    fixture.taskPath,
+    fixture.taskBytes.replaceAll("\n", "\r\n"),
+    "utf8",
+  );
+  fixture.setWorktreeStatusOverride("");
+  await assert.rejects(
+    fixture.hydrate(),
+    (error) =>
+      error.code === "FUTURE_TERMINAL_PAIR_IMMUTABLE" &&
+      error.message.includes(taskRelative) &&
+      /terminal artifact bytes differ from the canonical merge/.test(error.message),
+  );
+  fixture.setWorktreeStatusOverride(` M ${taskRelative}\n`);
+  await fixture.hydrate();
+  await writeFile(fixture.taskPath, fixture.taskBytes, "utf8");
+  fixture.setWorktreeStatusOverride(undefined);
+
+  const hydrateCovered = await fixture.checkpointDelivery();
+  fixture.setWorktreeStatusOverride(` M ${taskRelative}\n`);
+  await assert.rejects(
+    hydrateCovered(),
+    (error) =>
+      error.code === "FUTURE_TERMINAL_PAIR_IMMUTABLE" &&
+      error.message.includes(taskRelative) &&
+      /worktree state shadows the canonical terminal artifact/.test(error.message),
+  );
+  await writeFile(
+    fixture.taskPath,
+    fixture.taskBytes.replaceAll("\n", "\r\n"),
+    "utf8",
+  );
+  fixture.setWorktreeStatusOverride("");
+  await assert.rejects(
+    hydrateCovered(),
+    (error) =>
+      error.code === "FUTURE_TERMINAL_PAIR_IMMUTABLE" &&
+      error.message.includes(taskRelative) &&
+      /terminal artifact bytes differ from the canonical merge/.test(error.message),
+  );
+  fixture.setWorktreeStatusOverride(` M ${taskRelative}\n`);
+  await hydrateCovered();
+  await writeFile(fixture.taskPath, fixture.taskBytes, "utf8");
+  fixture.setWorktreeStatusOverride(undefined);
+
+  const reverse = await futureTerminalFixture(t, {
+    taskId: "0002",
+    canonicalLineEndings: "CRLF",
+  });
+  const reverseRelative = "docs/tasks/0002-immutable/TASK.md";
+  await writeFile(
+    reverse.taskPath,
+    reverse.taskBytes.replaceAll("\r\n", "\n"),
+    "utf8",
+  );
+  reverse.setWorktreeStatusOverride(` M ${reverseRelative}\n`);
+  await assert.rejects(
+    reverse.hydrate(),
+    (error) =>
+      error.code === "FUTURE_TERMINAL_PAIR_IMMUTABLE" &&
+      error.message.includes(reverseRelative) &&
+      /terminal artifact bytes differ from the canonical merge/.test(error.message),
+  );
+  await writeFile(
+    reverse.taskPath,
+    reverse.taskBytes.replaceAll("\r\n", "\r\r\n"),
+    "utf8",
+  );
+  reverse.setWorktreeStatusOverride(` M ${reverseRelative}\n`);
+  await assert.rejects(
+    reverse.hydrate(),
+    (error) =>
+      error.code === "FUTURE_TERMINAL_PAIR_IMMUTABLE" &&
+      error.message.includes(reverseRelative) &&
+      /terminal artifact bytes differ from the canonical merge/.test(error.message),
+  );
+  await writeFile(reverse.taskPath, reverse.taskBytes, "utf8");
+  reverse.setWorktreeStatusOverride(undefined);
+  const hydrateReverseCovered = await reverse.checkpointDelivery();
+  await writeFile(
+    reverse.taskPath,
+    reverse.taskBytes.replaceAll("\r\n", "\n"),
+    "utf8",
+  );
+  reverse.setWorktreeStatusOverride(` M ${reverseRelative}\n`);
+  await assert.rejects(
+    hydrateReverseCovered(),
+    (error) =>
+      error.code === "FUTURE_TERMINAL_PAIR_IMMUTABLE" &&
+      error.message.includes(reverseRelative) &&
+      /terminal artifact bytes differ from the canonical merge/.test(error.message),
+  );
+  await writeFile(
+    reverse.taskPath,
+    reverse.taskBytes.replaceAll("\r\n", "\r\r\n"),
+    "utf8",
+  );
+  reverse.setWorktreeStatusOverride(` M ${reverseRelative}\n`);
+  await assert.rejects(
+    hydrateReverseCovered(),
+    (error) =>
+      error.code === "FUTURE_TERMINAL_PAIR_IMMUTABLE" &&
+      error.message.includes(reverseRelative) &&
+      /terminal artifact bytes differ from the canonical merge/.test(error.message),
+  );
+});
+
+test("terminal-pair Git modes bind canonical, index, and supported worktree executable state", async (t) => {
+  const fixture = await futureTerminalFixture(t);
+  const taskRelative = "docs/tasks/0001-immutable/TASK.md";
+  const testRelative = "docs/tasks/0001-immutable/TEST.md";
+  await fixture.hydrate();
+
+  git(fixture.root, ["update-index", "--chmod=+x", "--", taskRelative]);
+  fixture.setWorktreeStatusOverride(` M ${taskRelative}\n`);
+  await assert.rejects(
+    fixture.hydrate(),
+    (error) =>
+      error.code === "FUTURE_TERMINAL_PAIR_IMMUTABLE" &&
+      error.message.includes(taskRelative) &&
+      /mode/i.test(error.message),
+  );
+  await writeFile(
+    fixture.taskPath,
+    fixture.taskBytes.replaceAll("\n", "\r\n"),
+    "utf8",
+  );
+  await assert.rejects(
+    fixture.hydrate(),
+    (error) =>
+      error.code === "FUTURE_TERMINAL_PAIR_IMMUTABLE" &&
+      error.message.includes(taskRelative) &&
+      /mode/i.test(error.message),
+  );
+  await writeFile(fixture.taskPath, fixture.taskBytes, "utf8");
+  git(fixture.root, ["update-index", "--chmod=-x", "--", taskRelative]);
+  fixture.setWorktreeStatusOverride(undefined);
+
+  git(fixture.root, ["rm", "--cached", "--", testRelative]);
+  await assert.rejects(
+    fixture.hydrate(),
+    (error) =>
+      error.code === "FUTURE_TERMINAL_PAIR_IMMUTABLE" &&
+      error.message.includes(testRelative) &&
+      !error.message.includes(taskRelative) &&
+      /index mode or stage/i.test(error.message),
+  );
+  git(fixture.root, ["add", "--", testRelative]);
+
   const hydrateCovered = await fixture.checkpointDelivery();
   await hydrateCovered();
+  git(fixture.root, ["update-index", "--chmod=+x", "--", taskRelative]);
+  fixture.setWorktreeStatusOverride(` M ${taskRelative}\n`);
+  await assert.rejects(
+    hydrateCovered(),
+    (error) =>
+      error.code === "FUTURE_TERMINAL_PAIR_IMMUTABLE" &&
+      error.message.includes(taskRelative) &&
+      /mode/i.test(error.message),
+  );
+  await writeFile(
+    fixture.taskPath,
+    fixture.taskBytes.replaceAll("\n", "\r\n"),
+    "utf8",
+  );
+  await assert.rejects(
+    hydrateCovered(),
+    (error) =>
+      error.code === "FUTURE_TERMINAL_PAIR_IMMUTABLE" &&
+      error.message.includes(taskRelative) &&
+      /mode/i.test(error.message),
+  );
+  await writeFile(fixture.taskPath, fixture.taskBytes, "utf8");
+  git(fixture.root, ["update-index", "--chmod=-x", "--", taskRelative]);
+  fixture.setWorktreeStatusOverride(undefined);
 
-  for (const [code, relativePath] of [
-    ["T ", "docs/tasks/0001-immutable/TASK.md"],
-    [" T", "docs/tasks/0001-immutable/TEST.md"],
-  ]) {
-    fixture.setWorktreeStatusOverride(`${code} ${relativePath}\n`);
-    await assert.rejects(
-      hydrateCovered(),
-      (error) =>
-        error.code === "FUTURE_TERMINAL_PAIR_IMMUTABLE" &&
-        error.message.includes(relativePath) &&
-        /worktree state shadows the canonical terminal artifact/.test(
-          error.message,
-        ) &&
-        !/malformed|ambiguous/i.test(error.message),
-      code,
-    );
-  }
+  const executable = await futureTerminalFixture(t, {
+    taskId: "0002",
+    canonicalExecutable: true,
+  });
+  await executable.hydrate();
+  const hydrateExecutableCovered = await executable.checkpointDelivery();
+  await hydrateExecutableCovered();
+});
+
+test(
+  "POSIX terminal-pair chmod wins over newline equivalence",
+  {
+    skip:
+      process.platform === "win32"
+        ? "POSIX executable-bit worktree state is unavailable on Windows"
+        : false,
+  },
+  async (t) => {
+    const fixture = await futureTerminalFixture(t);
+    const taskRelative = "docs/tasks/0001-immutable/TASK.md";
+    git(fixture.root, ["config", "core.filemode", "true"]);
+
+    const assertWorktreeModeAttacks = async (hydrate, phase) => {
+      await chmod(fixture.taskPath, 0o755);
+      assert.equal(
+        readRepositoryPorcelainStatus(fixture.root),
+        ` M ${taskRelative}\n`,
+        `${phase} chmod status`,
+      );
+      await assert.rejects(
+        hydrate(),
+        (error) =>
+          error.code === "FUTURE_TERMINAL_PAIR_IMMUTABLE" &&
+          error.message.includes(taskRelative) &&
+          /mode/i.test(error.message),
+        `${phase} chmod-only`,
+      );
+      await writeFile(
+        fixture.taskPath,
+        fixture.taskBytes.replaceAll("\n", "\r\n"),
+        "utf8",
+      );
+      assert.equal(
+        readRepositoryPorcelainStatus(fixture.root),
+        ` M ${taskRelative}\n`,
+        `${phase} chmod plus CRLF status`,
+      );
+      await assert.rejects(
+        hydrate(),
+        (error) =>
+          error.code === "FUTURE_TERMINAL_PAIR_IMMUTABLE" &&
+          error.message.includes(taskRelative) &&
+          /mode/i.test(error.message),
+        `${phase} chmod plus CRLF`,
+      );
+      await writeFile(fixture.taskPath, fixture.taskBytes, "utf8");
+      await chmod(fixture.taskPath, 0o644);
+      assert.equal(readRepositoryPorcelainStatus(fixture.root), "");
+    };
+
+    await assertWorktreeModeAttacks(fixture.hydrate, "fresh");
+    const hydrateCovered = await fixture.checkpointDelivery();
+    await assertWorktreeModeAttacks(hydrateCovered, "covered");
+  },
+);
+
+test("terminal-pair type, rename, and copy states cannot use newline equivalence", async (t) => {
+  const fixture = await futureTerminalFixture(t);
+  const taskRelative = "docs/tasks/0001-immutable/TASK.md";
+  const testRelative = "docs/tasks/0001-immutable/TEST.md";
+  const unsafeStates = [
+    ["index type change", `T  ${taskRelative}\n`, taskRelative],
+    ["worktree type change", ` T ${testRelative}\n`, testRelative],
+    [
+      "rename",
+      `R  docs/tasks/0001-immutable/previous.md -> ${taskRelative}\n`,
+      taskRelative,
+    ],
+    [
+      "copy",
+      `C  docs/tasks/0001-immutable/source.md -> ${testRelative}\n`,
+      testRelative,
+    ],
+  ];
+  const assertUnsafeStates = async (hydrate, phase) => {
+    for (const [label, statusText, relativePath] of unsafeStates) {
+      fixture.setWorktreeStatusOverride(statusText);
+      await assert.rejects(
+        hydrate(),
+        (error) =>
+          error.code === "FUTURE_TERMINAL_PAIR_IMMUTABLE" &&
+          error.message.includes(relativePath) &&
+          /worktree state shadows the canonical terminal artifact/.test(
+            error.message,
+          ) &&
+          !/malformed|ambiguous/i.test(error.message),
+        `${phase} ${label}`,
+      );
+    }
+  };
+
+  await assertUnsafeStates(fixture.hydrate, "fresh");
+  fixture.setWorktreeStatusOverride(undefined);
+  const hydrateCovered = await fixture.checkpointDelivery();
+  await hydrateCovered();
+  await assertUnsafeStates(hydrateCovered, "covered");
   fixture.setWorktreeStatusOverride(undefined);
 });
 
@@ -703,6 +1071,28 @@ test("terminal-pair porcelain parsing preserves exact first paths and rejects ma
     },
   ]);
   assert.equal(typeChanges[0].code[0], " ");
+  assert.deepEqual(
+    parseTerminalPairWorktreeStatus(
+      "R  docs/tasks/0001-immutable/previous.md -> docs/tasks/0001-immutable/TASK.md\nC  docs/tasks/0001-immutable/source.md -> docs/tasks/0001-immutable/TEST.md\n",
+      "0001",
+    ),
+    [
+      {
+        code: "R ",
+        relativePaths: [
+          "docs/tasks/0001-immutable/previous.md",
+          "docs/tasks/0001-immutable/TASK.md",
+        ],
+      },
+      {
+        code: "C ",
+        relativePaths: [
+          "docs/tasks/0001-immutable/source.md",
+          "docs/tasks/0001-immutable/TEST.md",
+        ],
+      },
+    ],
+  );
   for (const statusText of [
     " Mdocs/tasks/0001-immutable/TASK.md\n",
     " M \n",
@@ -720,26 +1110,10 @@ test("terminal-pair porcelain parsing preserves exact first paths and rejects ma
   }
 });
 
-test("checkpoint-covered future pairs remain exact without newline-normalization false positives", async (t) => {
+test("fresh and checkpoint-covered future pairs remain exact without newline-normalization false positives", async (t) => {
   const fixture = await futureTerminalFixture(t);
-  const hydrateCovered = await fixture.checkpointDelivery();
-  const unchanged = await hydrateCovered();
-  assert.equal(
-    unchanged.diagnostics.classifications["0001"],
-    "DURABLE_STANDARD_CONTINUITY",
-  );
-
-  for (const [label, target, canonical] of [
-    ["TASK.md", fixture.taskPath, fixture.taskBytes],
-    ["TEST.md", fixture.testPath, fixture.testBytes],
-  ]) {
-    await writeFile(target, canonical.replaceAll("\n", "\r\n"), "utf8");
-    await hydrateCovered();
-    await writeFile(target, canonical, "utf8");
-    assert.equal(await readFile(target, "utf8"), canonical, label);
-  }
-
-  for (const [name, changedBytes] of [
+  const taskRelative = "docs/tasks/0001-immutable/TASK.md";
+  const byteDriftCases = [
     [
       "CRLF with a character change",
       fixture.taskBytes
@@ -748,6 +1122,10 @@ test("checkpoint-covered future pairs remain exact without newline-normalization
           "Prove mutable terminal delivery behavior.",
         )
         .replaceAll("\n", "\r\n"),
+    ],
+    [
+      "character change",
+      fixture.taskBytes.replace("immutable terminal", "mutable terminal"),
     ],
     [
       "line addition",
@@ -768,20 +1146,63 @@ test("checkpoint-covered future pairs remain exact without newline-normalization
       ),
     ],
     ["missing final newline", fixture.taskBytes.slice(0, -1)],
+    [
+      "bare carriage return",
+      fixture.taskBytes.replace(
+        "Prove immutable terminal delivery behavior.",
+        "Prove immutable\rterminal delivery behavior.",
+      ),
+    ],
+    [
+      "Unicode drift",
+      fixture.taskBytes.replace("— Immutable", "– Immutable"),
+    ],
+  ];
+  const assertByteDriftMatrix = async (hydrate, phase) => {
+    for (const [name, changedBytes] of byteDriftCases) {
+      await writeFile(fixture.taskPath, changedBytes, "utf8");
+      fixture.setWorktreeStatusOverride(` M ${taskRelative}\n`);
+      await assert.rejects(
+        hydrate(),
+        (error) =>
+          error.code === "FUTURE_TERMINAL_PAIR_IMMUTABLE" &&
+          error.message.includes(taskRelative) &&
+          /terminal artifact bytes differ from the canonical merge/.test(
+            error.message,
+          ),
+        `${phase} ${name}`,
+      );
+      await writeFile(fixture.taskPath, fixture.taskBytes, "utf8");
+    }
+    fixture.setWorktreeStatusOverride(undefined);
+  };
+
+  await assertByteDriftMatrix(fixture.hydrate, "fresh");
+  const hydrateCovered = await fixture.checkpointDelivery();
+  const unchanged = await hydrateCovered();
+  assert.equal(
+    unchanged.diagnostics.classifications["0001"],
+    "DURABLE_STANDARD_CONTINUITY",
+  );
+
+  for (const [label, target, canonical, relativePath] of [
+    ["TASK.md", fixture.taskPath, fixture.taskBytes, taskRelative],
+    [
+      "TEST.md",
+      fixture.testPath,
+      fixture.testBytes,
+      "docs/tasks/0001-immutable/TEST.md",
+    ],
   ]) {
-    await writeFile(fixture.taskPath, changedBytes, "utf8");
-    await assert.rejects(
-      hydrateCovered(),
-      (error) =>
-        error.code === "FUTURE_TERMINAL_PAIR_IMMUTABLE" &&
-        /docs\/tasks\/0001-immutable\/TASK\.md/.test(error.message) &&
-        /terminal artifact bytes differ from the canonical merge/.test(
-          error.message,
-        ),
-      name,
-    );
-    await writeFile(fixture.taskPath, fixture.taskBytes, "utf8");
+    await writeFile(target, canonical.replaceAll("\n", "\r\n"), "utf8");
+    fixture.setWorktreeStatusOverride(` M ${relativePath}\n`);
+    await hydrateCovered();
+    await writeFile(target, canonical, "utf8");
+    assert.equal(await readFile(target, "utf8"), canonical, label);
   }
+  fixture.setWorktreeStatusOverride(undefined);
+
+  await assertByteDriftMatrix(hydrateCovered, "covered");
 
   await rm(fixture.testPath);
   await assert.rejects(
@@ -1057,7 +1478,15 @@ test("current tracked-main redelivery identity scan is read-only", async (t) => 
     "docs/tasks/0070-repair-mixed-attempt-delivery-hydration-0d08b166/TASK.md",
   );
   assert.equal(outcomes.get("0072").pullRequestNumber, 60);
-  assert.equal(outcomes.get("0072").mergeSha, mainSha);
+  assert.equal(
+    git(REPOSITORY_ROOT, [
+      "merge-base",
+      "--is-ancestor",
+      outcomes.get("0072").mergeSha,
+      mainSha,
+    ]),
+    "",
+  );
   assert.equal(
     outcomes.get("0072").headRefHint,
     "task/0072-retire-consumed-task-0070-rebaseline-shim",
@@ -1068,9 +1497,9 @@ test("current tracked-main redelivery identity scan is read-only", async (t) => 
     "-1",
     "--first-parent",
     "--format=%H%x09%P%x09%s",
-    "refs/heads/main",
+    outcomes.get("0072").mergeSha,
   ]).split("\t");
-  assert.equal(mergeSha, mainSha);
+  assert.equal(mergeSha, outcomes.get("0072").mergeSha);
   assert.deepEqual(
     parseProtectedMergeTaskIdentity({
       parents: parentText.split(" "),
