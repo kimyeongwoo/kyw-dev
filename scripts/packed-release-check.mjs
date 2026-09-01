@@ -80,6 +80,11 @@ const packedTextPatterns = [
     label: "local file dependency",
     pattern: /\bfile:(?:\.\.?[\\/]|\/|[A-Za-z]:[\\/])/i,
   },
+  {
+    label: "consumed Task-0070 recovery state",
+    pattern:
+      /(?:TASK_0070_EXPLICIT_REBASELINE|validateTask0070ExplicitRebaselineBootstrap|validateTask0070FrozenWorktreeStatus|parseFrozenPreDispatchStatus|allowBootstrapWorktreeCheckpoint|continuityBootstrapAuthority|explicitRebaselineValidator|EXPLICIT_BOOTSTRAP_WORKTREE|--continuity-bootstrap-authority|task\/0070-repair-mixed-attempt-delivery-hydration-and-one-step-rebaseline|184c0802a3327a1c287634e701206b31dec44b2f|ffc574a5f32cd52f2ad8003ffee1dc00ea2d9b52638e880aaaea1a722526959e|126567d86296f489bc5b522d13b08c510b2bf261e2e7e1792afd2a41d0bbc2f5|53d973f700ce91b3ee4f3c92692c7ba691e622732f36c9cb95f7691ee522e813|6da2f8f8f4af2734753d4f7adcb9ac357c0b528e3589053bda941612cb283a67|98443739a0cb936b669b77a403aca5ae602a6790f05993d88587515cd9b4f99b|430c2a3418cae51a330834a562bebd22dd9ff016cd440f24ffb764a2594b6135|frozenPairHashes|mutableAllowlist|limited existing-checkpoint rebaseline)/,
+  },
 ];
 
 function sha256(contents) {

@@ -156,7 +156,9 @@ test("instruction surfaces retain one canonical owner and minimal projections", 
   assert.match(execution, /HARDENED_EXACT_HEAD/);
   assert.match(execution, /LEGACY_PRE_CONTRACT/);
   assert.match(execution, /DURABLE_STANDARD_CONTINUITY/);
-  assert.match(execution, /no automatic whole-history fallback/);
+  assert.match(execution, /without automatic whole-history replay/);
+  assert.match(execution, /separate `bootstrap-continuity` command/);
+  assert.match(execution, /not a dispatch option, source-repair path, or Task-ID exception/);
   assert.match(execution, /apply-continuity/);
   assert.match(execution, /actualHead: "UNVERIFIED"/);
   assert.match(execution, /contracts 1\/2 are grandfathered/);

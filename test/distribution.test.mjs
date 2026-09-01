@@ -362,6 +362,17 @@ test("candidate root, pack report, hygiene, collision, and cleanup guards fail c
   );
   assert.throws(() => assertPackedHygiene(credentialRoot), /credential-shaped token/);
 
+  const consumedRecoveryRoot = join(temporaryParent, "consumed-recovery-package");
+  mkdirSync(consumedRecoveryRoot);
+  writeFileSync(
+    join(consumedRecoveryRoot, "runtime.mjs"),
+    'const option = "--continuity-bootstrap-authority";\n',
+  );
+  assert.throws(
+    () => assertPackedHygiene(consumedRecoveryRoot),
+    /consumed Task-0070 recovery state/,
+  );
+
   let malformedOwnedRoot;
   assert.throws(
     () =>
@@ -444,12 +455,19 @@ test("actual tarball passes the fail-closed isolated direct and marketplace life
   } else {
     assert.equal(summary.marketplace.status, "passed");
     assert.deepEqual(summary.marketplace.skills, managedSkillNames);
+    assert.deepEqual(summary.marketplace.cachedRuntime, {
+      fileCount: 16,
+      taskId: "0070",
+      outcome: "SELECTED",
+      action: "IMPLEMENT",
+    });
     assert.deepEqual(
       summary.marketplace.steps.map(({ label, status }) => [label, status]),
       [
         ["marketplace add", 0],
         ["marketplace plugin discovery", 0],
         ["plugin install", 0],
+        ["cached Task 0070 dispatch", 0],
         ["installed plugin list", 0],
         ["plugin remove", 0],
         ["marketplace remove", 0],
