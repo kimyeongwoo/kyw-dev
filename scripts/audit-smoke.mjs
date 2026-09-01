@@ -733,6 +733,7 @@ export async function runAuditSmoke(
     processTarget,
     gracefulTerminationMs,
     forcedTerminationMs,
+    spawnChild,
     scheduler,
   } = {},
 ) {
@@ -744,6 +745,7 @@ export async function runAuditSmoke(
     processTarget,
     gracefulTerminationMs,
     forcedTerminationMs,
+    spawnChild,
     scheduler,
     onChildSpawn: ({ pid }) => onState?.({ type: "child-spawn", pid }),
   });

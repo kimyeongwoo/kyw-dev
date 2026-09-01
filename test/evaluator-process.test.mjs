@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -21,6 +21,10 @@ import {
   publishReadiness,
   waitForReadiness,
 } from "./fixtures/evaluator-process/readiness.mjs";
+import {
+  createFixtureChildOwner,
+  FIXTURE_CHILD_CLOSE_TIMEOUT_MS,
+} from "./fixtures/evaluator-process/child-owner.mjs";
 
 const REPOSITORY_ROOT = fileURLToPath(new URL("../", import.meta.url));
 const FAKE_CHILD = join(
@@ -124,6 +128,49 @@ function controlledTimeout() {
   };
 }
 
+function controlledFixtureCloseTimeout() {
+  let nextHandle = 1;
+  const timers = new Map();
+  return {
+    fireAll() {
+      const callbacks = [...timers.values()].map(({ callback }) => callback);
+      timers.clear();
+      for (const callback of callbacks) callback();
+    },
+    pending() {
+      return timers.size;
+    },
+    scheduler: {
+      clearTimeout(handle) {
+        timers.delete(handle);
+      },
+      setTimeout(callback, milliseconds) {
+        assert.equal(milliseconds, FIXTURE_CHILD_CLOSE_TIMEOUT_MS);
+        const handle = nextHandle;
+        nextHandle += 1;
+        timers.set(handle, { callback, milliseconds });
+        return handle;
+      },
+    },
+  };
+}
+
+function fixtureCleanupRegistration() {
+  let cleanup;
+  return {
+    context: {
+      after(callback) {
+        assert.equal(cleanup, undefined, "fixture cleanup must register exactly once");
+        cleanup = callback;
+      },
+    },
+    registered() {
+      assert.equal(typeof cleanup, "function", "fixture cleanup must register eagerly");
+      return cleanup;
+    },
+  };
+}
+
 async function settleMicrotasks() {
   for (let index = 0; index < 4; index += 1) await Promise.resolve();
 }
@@ -169,42 +216,6 @@ async function readReady(path, expectedRunId, pathLabel) {
   return waitForReadiness({ path, expectedRunId, pathLabel });
 }
 
-function stopExactPid(pid) {
-  if (!Number.isInteger(pid)) return;
-  try {
-    process.kill(pid, "SIGKILL");
-  } catch (error) {
-    if (new Set(["ESRCH", "ENOENT"]).has(error?.code)) return;
-    throw error;
-  }
-}
-
-function stopFixtureProcesses(ready) {
-  if (!ready) return;
-  if (process.platform === "win32") {
-    if (!Number.isInteger(ready.pid)) return;
-    const result = spawnSync(
-      "taskkill.exe",
-      ["/PID", String(ready.pid), "/T", "/F"],
-      {
-        encoding: "utf8",
-        timeout: 5_000,
-        windowsHide: true,
-      },
-    );
-    if (result.error) throw result.error;
-    // taskkill uses status 128 when the exact PID is already absent.
-    if (!new Set([0, 128]).has(result.status)) {
-      const error = new Error(`taskkill failed with status=${result.status ?? "unknown"}`);
-      error.code = "TASKKILL_FAILED";
-      throw error;
-    }
-    return;
-  }
-  stopExactPid(ready.descendantPid);
-  stopExactPid(ready.pid);
-}
-
 function newScope(target, options = {}) {
   return createEvaluatorRunScope({
     forcedTerminationMs: 1_000,
@@ -213,6 +224,255 @@ function newScope(target, options = {}) {
     ...options,
   });
 }
+
+test("retained fixture child close ownership registers before spawn and is repeat-safe", async () => {
+  const registration = fixtureCleanupRegistration();
+  const child = controlledChild(42_101);
+  const taskkillCalls = [];
+  const owner = createFixtureChildOwner(registration.context, {
+    platform: "win32",
+    spawnChild() {
+      registration.registered();
+      return child;
+    },
+    taskkill(...args) {
+      taskkillCalls.push(args);
+      return { status: 0 };
+    },
+  });
+
+  assert.equal(owner.spawnChild("fixture", [], { detached: true }), child);
+  assert.equal(child.listenerCount("exit"), 1);
+  assert.equal(child.listenerCount("close"), 1);
+  assert.equal(owner.retain(child), child, "retaining the same handle is idempotent");
+  assert.equal(child.listenerCount("exit"), 1);
+  assert.equal(child.listenerCount("close"), 1);
+
+  child.emit("exit", 0, null);
+  child.emit("close", 0, null);
+  const firstCleanup = owner.cleanup();
+  assert.equal(owner.cleanup(), firstCleanup);
+  assert.equal(registration.registered()(), firstCleanup);
+  await firstCleanup;
+
+  assert.deepEqual(taskkillCalls, []);
+  assert.equal(child.listenerCount("exit"), 0);
+  assert.equal(child.listenerCount("close"), 0);
+});
+
+test("retained fixture child close ownership is safe without a child and after spawn failure", async () => {
+  const absentRegistration = fixtureCleanupRegistration();
+  const absentOwner = createFixtureChildOwner(absentRegistration.context, {
+    spawnChild() {
+      throw Object.assign(new Error("synthetic spawn failure"), { code: "ENOENT" });
+    },
+  });
+  assert.throws(
+    () => absentOwner.spawnChild("missing-fixture"),
+    (error) => error?.code === "ENOENT",
+  );
+  await absentOwner.cleanup();
+
+  const missingRegistration = fixtureCleanupRegistration();
+  const missingOwner = createFixtureChildOwner(missingRegistration.context, {
+    spawnChild: () => undefined,
+  });
+  assert.throws(
+    () => missingOwner.spawnChild("missing-handle"),
+    (error) => error?.code === "FIXTURE_CHILD_HANDLE_MISSING",
+  );
+  await missingOwner.cleanup();
+
+  const pendingRegistration = fixtureCleanupRegistration();
+  const closeControl = controlledFixtureCloseTimeout();
+  const child = controlledChild(42_102);
+  const taskkillCalls = [];
+  const pendingOwner = createFixtureChildOwner(pendingRegistration.context, {
+    platform: "win32",
+    scheduler: closeControl.scheduler,
+    spawnChild: () => child,
+    taskkill(...args) {
+      taskkillCalls.push(args);
+      return { status: 0 };
+    },
+  });
+  pendingOwner.spawnChild("fixture", [], { detached: true });
+  child.emit("exit", 1, null);
+  const cleanup = pendingOwner.cleanup();
+  assert.equal(closeControl.pending(), 1, "close remains the postcondition after exit");
+  assert.deepEqual(taskkillCalls, [], "an exited handle must not trigger PID reuse action");
+  child.emit("close", 1, null);
+  await cleanup;
+  assert.equal(closeControl.pending(), 0);
+  assert.equal(child.listenerCount("exit"), 0);
+  assert.equal(child.listenerCount("close"), 0);
+});
+
+test("retained fixture child close accepts taskkill diagnostics only after close", async () => {
+  for (const taskkillResult of [
+    { status: 255 },
+    {
+      error: Object.assign(new Error("synthetic taskkill launch failure"), {
+        code: "ENOENT",
+      }),
+      status: null,
+    },
+  ]) {
+    const registration = fixtureCleanupRegistration();
+    const closeControl = controlledFixtureCloseTimeout();
+    const alreadyClosed = controlledChild(42_103);
+    const live = controlledChild(42_104);
+    const taskkillCalls = [];
+    const owner = createFixtureChildOwner(registration.context, {
+      platform: "win32",
+      scheduler: closeControl.scheduler,
+      spawnChild: (() => {
+        const children = [alreadyClosed, live];
+        return () => children.shift();
+      })(),
+      taskkill(...args) {
+        taskkillCalls.push(args);
+        return taskkillResult;
+      },
+    });
+    owner.spawnChild("closed-fixture", [], { detached: true });
+    owner.spawnChild("live-fixture", [], { detached: true });
+    alreadyClosed.emit("exit", 0, null);
+    alreadyClosed.emit("close", 0, null);
+
+    const cleanup = registration.registered()();
+    assert.deepEqual(taskkillCalls, [
+      [
+        "taskkill.exe",
+        ["/PID", "42104", "/T", "/F"],
+        {
+          encoding: "utf8",
+          timeout: FIXTURE_CHILD_CLOSE_TIMEOUT_MS,
+          windowsHide: true,
+        },
+      ],
+    ]);
+    assert.equal(closeControl.pending(), 1);
+    live.emit("exit", taskkillResult.status, null);
+    live.emit("close", taskkillResult.status, null);
+    await cleanup;
+
+    assert.equal(closeControl.pending(), 0);
+    assert.equal(alreadyClosed.listenerCount("exit"), 0);
+    assert.equal(alreadyClosed.listenerCount("close"), 0);
+    assert.equal(live.listenerCount("exit"), 0);
+    assert.equal(live.listenerCount("close"), 0);
+  }
+});
+
+test("retained fixture child close requests only its captured POSIX ownership boundary", async () => {
+  for (const expectation of [
+    { detached: true, target: -42_106, error: null },
+    { detached: false, target: 42_106, error: "EPERM" },
+  ]) {
+    const registration = fixtureCleanupRegistration();
+    const closeControl = controlledFixtureCloseTimeout();
+    const child = controlledChild(42_106);
+    const killCalls = [];
+    const owner = createFixtureChildOwner(registration.context, {
+      killProcess(target, signal) {
+        killCalls.push([target, signal]);
+        if (expectation.error) {
+          throw Object.assign(new Error("synthetic POSIX kill failure"), {
+            code: expectation.error,
+          });
+        }
+      },
+      platform: "linux",
+      scheduler: closeControl.scheduler,
+      spawnChild: () => child,
+    });
+    owner.spawnChild("fixture", [], { detached: expectation.detached });
+    const cleanup = registration.registered()();
+    assert.deepEqual(killCalls, [[expectation.target, "SIGKILL"]]);
+    child.emit("exit", 0, null);
+    child.emit("close", 0, null);
+    await cleanup;
+    assert.equal(closeControl.pending(), 0);
+    assert.equal(child.listenerCount("exit"), 0);
+    assert.equal(child.listenerCount("close"), 0);
+  }
+});
+
+test("retained fixture child close times out with bounded taskkill state", async () => {
+  for (const expectation of [
+    { result: { status: 255 }, status: "255", error: "none" },
+    {
+      result: {
+        error: Object.assign(new Error("synthetic taskkill failure"), { code: "EACCES" }),
+        status: null,
+      },
+      status: "null",
+      error: "EACCES",
+    },
+  ]) {
+    const registration = fixtureCleanupRegistration();
+    const closeControl = controlledFixtureCloseTimeout();
+    const child = controlledChild(42_105);
+    let taskkillCount = 0;
+    const owner = createFixtureChildOwner(registration.context, {
+      platform: "win32",
+      scheduler: closeControl.scheduler,
+      spawnChild: () => child,
+      taskkill() {
+        taskkillCount += 1;
+        return expectation.result;
+      },
+    });
+    owner.spawnChild("fixture", [], { detached: true });
+    const cleanup = owner.cleanup();
+    assert.equal(owner.cleanup(), cleanup);
+    assert.equal(closeControl.pending(), 1);
+    closeControl.fireAll();
+    await assert.rejects(
+      cleanup,
+      (error) =>
+        error?.code === "FIXTURE_CHILD_CLOSE_TIMEOUT" &&
+        error.message.includes("state=close-pending") &&
+        error.message.includes("pid=42105") &&
+        error.message.includes("closeObserved=false") &&
+        error.message.includes(`terminationStatus=${expectation.status}`) &&
+        error.message.includes(`terminationError=${expectation.error}`) &&
+        error.message.includes(`timeoutMs=${FIXTURE_CHILD_CLOSE_TIMEOUT_MS}`),
+    );
+    assert.equal(taskkillCount, 1);
+    assert.equal(closeControl.pending(), 0);
+    assert.equal(child.listenerCount("exit"), 0);
+    assert.equal(child.listenerCount("close"), 0);
+  }
+
+  const registration = fixtureCleanupRegistration();
+  const closeControl = controlledFixtureCloseTimeout();
+  const children = [controlledChild(42_107), controlledChild(42_108)];
+  const owner = createFixtureChildOwner(registration.context, {
+    platform: "win32",
+    scheduler: closeControl.scheduler,
+    spawnChild: () => children.find((child) => child.listenerCount("close") === 0),
+    taskkill: () => ({ status: 255 }),
+  });
+  owner.spawnChild("fixture-one", [], { detached: true });
+  owner.spawnChild("fixture-two", [], { detached: true });
+  const cleanup = registration.registered()();
+  assert.equal(closeControl.pending(), 2);
+  closeControl.fireAll();
+  await assert.rejects(
+    cleanup,
+    (error) =>
+      error?.code === "FIXTURE_CHILD_CLEANUP_FAILED" &&
+      error.errors.length === 2 &&
+      error.errors.every((failure) => failure?.code === "FIXTURE_CHILD_CLOSE_TIMEOUT"),
+  );
+  assert.equal(closeControl.pending(), 0);
+  for (const child of children) {
+    assert.equal(child.listenerCount("exit"), 0);
+    assert.equal(child.listenerCount("close"), 0);
+  }
+});
 
 test("readiness publication is atomic and consumption validates the owned run", async () => {
   const path = "fixture-ready.json";
@@ -444,10 +704,11 @@ test(
   "Windows evaluator cleanup awaits bounded release of an owned exclusive handle",
   { skip: process.platform !== "win32" },
   async (t) => {
+    const fixtureChildOwner = createFixtureChildOwner(t);
     const root = mkdtempSync(join(tmpdir(), "kyw-evaluator-handle-"));
     const heldPath = join(root, "held.tmp");
     writeFileSync(heldPath, "task-0028\n", "utf8");
-    const holder = spawn(
+    const holder = fixtureChildOwner.spawnChild(
       "powershell.exe",
       [
         "-NoProfile",
@@ -460,10 +721,7 @@ test(
         windowsHide: true,
       },
     );
-    t.after(() => {
-      if (processAlive(holder.pid)) stopFixtureProcesses({ pid: holder.pid });
-      rmSync(root, { recursive: true, force: true });
-    });
+    t.after(() => rmSync(root, { recursive: true, force: true }));
     let holderStderr = "";
     holder.stderr.on("data", (chunk) => {
       holderStderr += chunk;
@@ -567,9 +825,13 @@ test(
       { code: "ETIMEDOUT", maxBuffer: 1_024, mode: "hang" },
       { code: "ENOBUFS", maxBuffer: 128, mode: "overflow" },
     ]) {
+      const fixtureChildOwner = createFixtureChildOwner(t);
       const target = processTarget();
       const timeoutControl = controlledTimeout();
-      const scope = newScope(target, { scheduler: timeoutControl.scheduler });
+      const scope = newScope(target, {
+        scheduler: timeoutControl.scheduler,
+        spawnChild: fixtureChildOwner.spawnChild,
+      });
       const readyPath = join(root, `${expectation.mode}.json`);
       const readinessRunId = `process-${expectation.mode}-owned-tree`;
       let ready;
@@ -587,9 +849,6 @@ test(
             readinessRunId,
             "process-timeout-owned-tree",
           );
-          t.after(() => {
-            stopFixtureProcesses(ready);
-          });
           timeoutControl.fire();
         }
         result = await running;
@@ -635,7 +894,11 @@ test("repeated interruption owns only the tracked tree, is idempotent, and remov
     if (processAlive(unrelated.pid)) unrelated.kill("SIGKILL");
   });
   const timeoutControl = controlledTimeout();
-  const scope = newScope(target, { scheduler: timeoutControl.scheduler });
+  const fixtureChildOwner = createFixtureChildOwner(t);
+  const scope = newScope(target, {
+    scheduler: timeoutControl.scheduler,
+    spawnChild: fixtureChildOwner.spawnChild,
+  });
   let ready;
   try {
     const running = scope.runChild({
@@ -648,9 +911,6 @@ test("repeated interruption owns only the tracked tree, is idempotent, and remov
       readinessRunId,
       "process-repeated-interruption-ready",
     );
-    t.after(() => {
-      stopFixtureProcesses(ready);
-    });
     target.emit("SIGINT");
     target.emit("SIGINT");
     await assert.rejects(
