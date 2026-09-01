@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
 import { EventEmitter } from "node:events";
 import {
   existsSync,
@@ -21,6 +20,7 @@ import {
   createEvaluatorRunScope,
 } from "../scripts/evaluator-process.mjs";
 import { runComparison, runEvaluation } from "../scripts/grilling-eval/core.mjs";
+import { createFixtureChildOwner } from "./fixtures/evaluator-process/child-owner.mjs";
 import {
   readReadiness,
   readinessDiagnostic,
@@ -118,42 +118,6 @@ async function readReady(invocation) {
   });
 }
 
-function stopExactPid(pid) {
-  if (!Number.isInteger(pid)) return;
-  try {
-    process.kill(pid, "SIGKILL");
-  } catch (error) {
-    if (new Set(["ESRCH", "ENOENT"]).has(error?.code)) return;
-    throw error;
-  }
-}
-
-function stopFixtureProcesses(ready) {
-  if (!ready) return;
-  if (process.platform === "win32") {
-    if (!Number.isInteger(ready.pid)) return;
-    const result = spawnSync(
-      "taskkill.exe",
-      ["/PID", String(ready.pid), "/T", "/F"],
-      {
-        encoding: "utf8",
-        timeout: 5_000,
-        windowsHide: true,
-      },
-    );
-    if (result.error) throw result.error;
-    // taskkill uses status 128 when the exact PID is already absent.
-    if (!new Set([0, 128]).has(result.status)) {
-      const error = new Error(`taskkill failed with status=${result.status ?? "unknown"}`);
-      error.code = "TASKKILL_FAILED";
-      throw error;
-    }
-    return;
-  }
-  stopExactPid(ready.descendantPid);
-  stopExactPid(ready.pid);
-}
-
 function startFlow(
   t,
   flow,
@@ -170,6 +134,7 @@ function startFlow(
     scheduler,
   } = {},
 ) {
+  const fixtureChildOwner = createFixtureChildOwner(t);
   const root = temporaryDirectory(t, `kyw-${flow}-flow-`);
   const authFile = join(root, "auth-source.json");
   const outputRoot = join(root, "results");
@@ -207,6 +172,7 @@ function startFlow(
             processTarget: target,
             removeOwnedPath,
             scheduler,
+            spawnChild: fixtureChildOwner.spawnChild,
           },
         )
       : runEvaluation({
@@ -224,6 +190,7 @@ function startFlow(
           reasoningEffort: "high",
           removeOwnedPath,
           scheduler,
+          spawnChild: fixtureChildOwner.spawnChild,
           scenario: "existing-code-facts",
           variant: "kyw",
         });
@@ -398,9 +365,6 @@ test("both evaluator flows preserve timeout classification and remove the timed-
       scheduler: timeoutControl.scheduler,
     });
     const ready = await readReady(invocation);
-    t.after(() => {
-      stopFixtureProcesses(ready);
-    });
     timeoutControl.fire();
     await assert.rejects(
       invocation.promise,
@@ -455,9 +419,6 @@ test("both evaluator flows interrupt active children idempotently without listen
       processTarget: target,
     });
     const ready = await readReady(invocation);
-    t.after(() => {
-      stopFixtureProcesses(ready);
-    });
     target.emit("SIGINT");
     target.emit("SIGINT");
     await assert.rejects(
@@ -668,9 +629,6 @@ test("cleanup failures append one safe diagnostic while interruption stays prima
       for (const path of leakedRoots) rmSync(path, { recursive: true, force: true });
     });
     const ready = await readReady(invocation);
-    t.after(() => {
-      stopFixtureProcesses(ready);
-    });
     let observed;
     target.emit("SIGINT");
     await assert.rejects(invocation.promise, (error) => {
