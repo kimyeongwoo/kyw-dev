@@ -755,11 +755,24 @@ the candidate, while publishing the same prebuilt tarball cannot synthesize
 `gitHead`. Its isolated loopback auth value is not a production credential, and
 guards reject source-manifest fabrication or post-capture registry rewriting.
 
-The retained-evidence harness may wrap an explicitly approved release command
-and retain redacted evidence outside the repository. It is not a runtime
-component, release verdict, publication approval, or automatic cleanup system.
-Detailed path algorithms, provenance fields, retry behavior, and evidence
-format stay in source/tests.
+The development-only manual runner requires a literal committed SHA, verifies
+the clean source without changing its Git metadata, materializes a separate
+detached checkout from committed objects, and projects an owned credential-free
+home, Codex, app-data, XDG, temporary, Git, and npm environment. It owns the
+outer one-shot gate and retained evidence. Its proof-gated harness remains the
+sole owner of command planning, npm provenance, raw-first child evidence,
+redaction, protected-state comparison, and the single `npm run release:check`
+child; direct actual mode without the runner proof stops before that child,
+while harmless self-test and dry validation remain available.
+
+Protected-state comparison stays fail-closed inside the hermetic roots.
+Interactive Codex and plugin-cache state is outside the child-addressable
+environment, so its churn is neither scanned nor reclassified. Evidence is
+preserved by default, and cleanup is limited to sealed identity-proved owned
+roots. Neither layer is a runtime component, release verdict, publication
+approval, retry system, or automatic repair service. Exact proof fields,
+environment inventories, path algorithms, and evidence formats stay in
+source/tests.
 
 ### 9.5 Optional evaluators
 

@@ -140,7 +140,11 @@ test("runtime, mixed, unknown, and release-sensitive paths escalate conservative
 
   for (const changedPath of [
     ".github/workflows/publish.yml",
+    "scripts/release-evidence-harness.mjs",
+    "scripts/release-evidence-manual-runner.mjs",
     "test/publish-workflow.test.mjs",
+    "test/release-evidence-harness.test.mjs",
+    "test/release-evidence-manual-runner.test.mjs",
   ]) {
     const trustedPublishing = planVerification({ changedPaths: [changedPath] });
     assert.equal(trustedPublishing.changeClass, "release");

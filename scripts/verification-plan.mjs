@@ -170,10 +170,14 @@ const releaseSensitiveExactPaths = new Set([
   "scripts/lib/validate-foundation.mjs",
   "scripts/pack-check.mjs",
   "scripts/packed-release-check.mjs",
+  "scripts/release-evidence-harness.mjs",
+  "scripts/release-evidence-manual-runner.mjs",
   "scripts/release-gate-isolation.mjs",
   "test/continuous-integration.test.mjs",
   "test/distribution.test.mjs",
   "test/publish-workflow.test.mjs",
+  "test/release-evidence-harness.test.mjs",
+  "test/release-evidence-manual-runner.test.mjs",
   "test/release-gate-isolation.test.mjs",
 ]);
 

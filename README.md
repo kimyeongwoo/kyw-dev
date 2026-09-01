@@ -195,6 +195,22 @@ Use the read-only planner with explicit repository-relative changed paths:
 publishing; `release:ci` combines Stable verification with that gate. `npm run release:check` additionally performs
 `npm publish --dry-run --json` and is a separate registry-evidence boundary, not publication permission.
 
+Source maintainers can validate or consume one retained `release:check` attempt from a clean literal committed SHA. The allowed
+parent must be an existing real directory outside the repository and interactive user roots; the existing evidence root must be
+its strict real child. The runner makes a separate detached checkout and hermetic profile/config/cache/temp state, then preserves
+evidence on success or failure:
+
+```bash
+node ./scripts/release-evidence-manual-runner.mjs --dry-validate --repository <source-repository> --source-sha <literal-40-hex-commit> --allowed-parent <caller-owned-external-parent> --evidence-root <caller-owned-external-evidence-root>
+node ./scripts/release-evidence-manual-runner.mjs --run --allow-release-command --repository <source-repository> --source-sha <literal-40-hex-commit> --allowed-parent <caller-owned-external-parent> --evidence-root <caller-owned-external-evidence-root>
+```
+
+The actual form invokes the composite command once with zero retries. `--allow-release-command` authorizes only this
+non-publishing evidence run; it does not authorize `npm publish`, workflow dispatch, registry/tag/Release mutation, or public
+submission. Its first accepted actual invocation leaves a parent-scoped attempt marker, so another evidence child cannot become a
+retry; the hermetic state and evidence remain preserved by default. The runner is development-only and is not included in package
+bytes.
+
 Hosted PR CI proves actual-head behavioral jobs across every supported OS/runtime, runs platform-independent lint, format, and
 package selection once in a quality job, and keeps packed bytes separate. Synthetic merge compatibility runs the complete
 combined-state check; `main` jobs prove the exact event SHA. Model-backed evaluators are development-only, explicit-cost checks
