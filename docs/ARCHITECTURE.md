@@ -265,8 +265,15 @@ job collections establish execution history; a projected record is deduplicated
 only when exact envelope, chronology, step, and log equivalence prove one prior
 execution. The newest actual execution is authoritative and never falls back to
 an earlier success after a later failed, cancelled, incomplete, or
-missing-evidence execution. Invocation cache and pagination bounds still apply
-to that fresh graph; credentials and raw logs are never persisted.
+missing-evidence execution. The invocation-local command cache shares one
+policy-neutral execution record—a normalized completion or runner-error
+record—per command, snapshotted exact arguments, resolved working directory,
+and non-negative safe-integer `maxBuffer`. After retrieval, each completed
+command applies the caller's own `allowFailure` decision, while a runner error
+always fails closed; both use an immutable failure category and the requesting
+Task/role for bounded redacted diagnostics.
+Command/query counters and cache/pagination/buffer bounds remain miss-based and
+fail closed. Credentials and raw logs are never persisted.
 `NONE` delivery stays local and records a reason.
 
 ## 5. Control and data flows

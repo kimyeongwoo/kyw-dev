@@ -3063,6 +3063,582 @@ test("invocation-local command cache deduplicates reads and redacts external fai
   );
 });
 
+function assertRedactedCommandFailure(
+  error,
+  { taskId, role, kind = "command failure", forbidden = [] },
+) {
+  assert.equal(error.code, "DELIVERY_HYDRATION_EXTERNAL_FAILURE");
+  assert.equal(
+    error.message,
+    `Task ${taskId} ${role}: ${kind}; required evidence is unavailable`,
+  );
+  assert.ok(error.message.length < 160);
+  for (const secret of forbidden) assert.ok(!error.message.includes(secret));
+  return true;
+}
+
+test("allowFailure command cache applies tolerant and strict policy in both orders", async () => {
+  for (const strictFirst of [false, true]) {
+    let calls = 0;
+    const cache = createInvocationCommandCache({
+      runner: () => {
+        calls += 1;
+        return { status: 17, stdout: "partial", stderr: "" };
+      },
+    });
+    const request = {
+      command: "git",
+      args: ["fixture", "mixed-policy"],
+      cwd: REPOSITORY_ROOT,
+    };
+    const strict = () =>
+      cache.run({
+        ...request,
+        taskId: strictFirst ? "0751" : "0750",
+        role: strictFirst ? "STRICT_FIRST" : "STRICT_SECOND",
+      });
+    const tolerant = () =>
+      cache.run({
+        ...request,
+        taskId: "0075",
+        role: "TOLERANT",
+        allowFailure: true,
+      });
+    let tolerated;
+    if (strictFirst) {
+      await assert.rejects(strict(), (error) =>
+        assertRedactedCommandFailure(error, {
+          taskId: "0751",
+          role: "STRICT_FIRST",
+        }),
+      );
+      tolerated = await tolerant();
+    } else {
+      tolerated = await tolerant();
+      await assert.rejects(strict(), (error) =>
+        assertRedactedCommandFailure(error, {
+          taskId: "0750",
+          role: "STRICT_SECOND",
+        }),
+      );
+    }
+    assert.equal(tolerated.status, 17);
+    assert.equal(tolerated.stdout, "partial");
+    assert.equal(calls, 1);
+    assert.deepEqual(cache.stats(), {
+      hits: 1,
+      misses: 1,
+      entries: 1,
+      maxCommands: 512,
+    });
+  }
+});
+
+test("allowFailure command cache shares one deferred result across concurrent mixed policy", async () => {
+  let calls = 0;
+  let release;
+  let markStarted;
+  const completion = new Promise((resolve) => {
+    release = resolve;
+  });
+  const started = new Promise((resolve) => {
+    markStarted = resolve;
+  });
+  const cache = createInvocationCommandCache({
+    runner: () => {
+      calls += 1;
+      markStarted();
+      return completion;
+    },
+  });
+  const request = {
+    command: "gh",
+    args: ["api", "repos/owner/repository/mixed-policy"],
+    cwd: REPOSITORY_ROOT,
+  };
+  const tolerantPending = cache.run({
+    ...request,
+    taskId: "0075",
+    role: "CONCURRENT_TOLERANT",
+    allowFailure: true,
+  });
+  const strictPending = cache.run({
+    ...request,
+    taskId: "0752",
+    role: "CONCURRENT_STRICT",
+  });
+  await started;
+  assert.equal(calls, 1);
+  release({ status: 9, stdout: "partial", stderr: "" });
+
+  const [tolerant, strict] = await Promise.allSettled([
+    tolerantPending,
+    strictPending,
+  ]);
+  assert.equal(tolerant.status, "fulfilled");
+  assert.equal(tolerant.value.status, 9);
+  assert.equal(strict.status, "rejected");
+  assertRedactedCommandFailure(strict.reason, {
+    taskId: "0752",
+    role: "CONCURRENT_STRICT",
+  });
+  assert.deepEqual(cache.stats(), {
+    hits: 1,
+    misses: 1,
+    entries: 1,
+    maxCommands: 512,
+  });
+});
+
+test("command cache snapshots arguments before deferred runner execution", async () => {
+  let calls = 0;
+  let release;
+  let markStarted;
+  const completion = new Promise((resolve) => {
+    release = resolve;
+  });
+  const started = new Promise((resolve) => {
+    markStarted = resolve;
+  });
+  const seenArgs = [];
+  const cache = createInvocationCommandCache({
+    runner: ({ args }) => {
+      calls += 1;
+      seenArgs.push(args);
+      markStarted();
+      return completion;
+    },
+  });
+  const mutableArgs = ["fixture", "original"];
+  const request = {
+    command: "git",
+    args: mutableArgs,
+    cwd: REPOSITORY_ROOT,
+    taskId: "0075",
+    role: "ARGUMENT_SNAPSHOT",
+  };
+  const first = cache.run(request);
+  mutableArgs[1] = "mutated-secret";
+  const duplicate = cache.run({ ...request, args: ["fixture", "original"] });
+  await started;
+  assert.deepEqual(seenArgs, [["fixture", "original"]]);
+  release({ status: 0, stdout: "ok", stderr: "" });
+
+  const [firstResult, duplicateResult] = await Promise.all([first, duplicate]);
+  assert.strictEqual(firstResult, duplicateResult);
+  assert.equal(calls, 1);
+  assert.deepEqual(cache.stats(), {
+    hits: 1,
+    misses: 1,
+    entries: 1,
+    maxCommands: 512,
+  });
+});
+
+test("command cache redacts caller-specific task and role diagnostics", async () => {
+  let calls = 0;
+  const secrets = ["stdout-secret", "stderr-secret", "argument-secret"];
+  const cache = createInvocationCommandCache({
+    runner: () => {
+      calls += 1;
+      return {
+        status: 1,
+        stdout: `token=${secrets[0]}`,
+        stderr: `Bad credentials token=${secrets[1]}`,
+      };
+    },
+  });
+  const request = {
+    command: "gh",
+    args: ["api", "repos/owner/repository", "-f", `token=${secrets[2]}`],
+    cwd: REPOSITORY_ROOT,
+  };
+  for (const [taskId, role] of [
+    ["0753", "PRIMARY_STRICT"],
+    ["9753", "SECONDARY_STRICT"],
+  ]) {
+    await assert.rejects(
+      cache.run({ ...request, taskId, role }),
+      (error) =>
+        assertRedactedCommandFailure(error, {
+          taskId,
+          role,
+          kind: "authentication failure",
+          forbidden: secrets,
+        }),
+    );
+  }
+  assert.equal(calls, 1);
+
+  let completionCalls = 0;
+  const hostileCompletion = { status: 0, stderr: "" };
+  Object.defineProperty(hostileCompletion, "stdout", {
+    get() {
+      throw new Error("completion-getter-secret");
+    },
+  });
+  const completionGetterCache = createInvocationCommandCache({
+    runner: () => {
+      completionCalls += 1;
+      return hostileCompletion;
+    },
+  });
+  for (const [taskId, role, allowFailure] of [
+    ["0758", "COMPLETION_TOLERANT", true],
+    ["9758", "COMPLETION_STRICT", false],
+  ]) {
+    await assert.rejects(
+      completionGetterCache.run({ ...request, taskId, role, allowFailure }),
+      (error) =>
+        assertRedactedCommandFailure(error, {
+          taskId,
+          role,
+          forbidden: ["completion-getter-secret"],
+        }),
+    );
+  }
+  assert.equal(completionCalls, 1);
+});
+
+test("command cache seals failure classification before mutable or hostile errors escape", async () => {
+  const retainedError = Object.assign(
+    new Error("timed out token=retained-secret"),
+    { code: "ETIMEDOUT" },
+  );
+  const completionCache = createInvocationCommandCache({
+    runner: () => ({
+      status: null,
+      stdout: "",
+      stderr: "",
+      error: retainedError,
+    }),
+  });
+  const request = {
+    command: "git",
+    args: ["fixture", "mutable-error"],
+    cwd: REPOSITORY_ROOT,
+    taskId: "0075",
+    role: "MUTABLE_ERROR",
+  };
+  await completionCache.run({ ...request, allowFailure: true });
+  retainedError.code = "EIO";
+  retainedError.message = "Bad credentials token=mutated-secret";
+  await assert.rejects(
+    completionCache.run(request),
+    (error) =>
+      assertRedactedCommandFailure(error, {
+        taskId: "0075",
+        role: "MUTABLE_ERROR",
+        kind: "timeout",
+        forbidden: ["retained-secret", "mutated-secret"],
+      }),
+  );
+
+  let calls = 0;
+  const hostileError = {};
+  Object.defineProperties(hostileError, {
+    code: {
+      get() {
+        throw new Error("getter-code-secret");
+      },
+    },
+    message: {
+      get() {
+        throw new Error("getter-message-secret");
+      },
+    },
+  });
+  const runnerCache = createInvocationCommandCache({
+    runner: () => {
+      calls += 1;
+      throw hostileError;
+    },
+  });
+  for (const [taskId, role, allowFailure] of [
+    ["0757", "HOSTILE_TOLERANT", true],
+    ["9757", "HOSTILE_STRICT", false],
+  ]) {
+    await assert.rejects(
+      runnerCache.run({ ...request, taskId, role, allowFailure }),
+      (error) =>
+        assertRedactedCommandFailure(error, {
+          taskId,
+          role,
+          forbidden: ["getter-code-secret", "getter-message-secret"],
+        }),
+    );
+  }
+  assert.equal(calls, 1);
+});
+
+test("maxBuffer and every command field participate in cache execution identity", async () => {
+  const seenExecutions = [];
+  const cache = createInvocationCommandCache({
+    runner: ({ command, args, cwd, maxBuffer }) => {
+      seenExecutions.push({ command, args, cwd, maxBuffer });
+      return {
+        status: 0,
+        stdout: JSON.stringify({ command, args, cwd, maxBuffer }),
+        stderr: "",
+      };
+    },
+  });
+  const request = {
+    command: "git",
+    args: ["fixture", "buffer-identity"],
+    cwd: REPOSITORY_ROOT,
+    taskId: "0075",
+    role: "BUFFER_IDENTITY",
+    maxBuffer: 1024,
+  };
+  const [first, duplicate] = await Promise.all([
+    cache.run(request),
+    cache.run({ ...request }),
+  ]);
+  const variants = await Promise.all([
+    cache.run({ ...request, command: "gh" }),
+    cache.run({ ...request, args: ["fixture", "different-arguments"] }),
+    cache.run({ ...request, cwd: path.join(REPOSITORY_ROOT, "test") }),
+    cache.run({ ...request, maxBuffer: 2048 }),
+  ]);
+  const resolvedRepositoryRoot = path.resolve(REPOSITORY_ROOT);
+
+  assert.strictEqual(first, duplicate);
+  for (const variant of variants) assert.notStrictEqual(first, variant);
+  assert.deepEqual(
+    seenExecutions.map(({ command, args, cwd, maxBuffer }) => [
+      command,
+      args,
+      cwd,
+      maxBuffer,
+    ]),
+    [
+      ["git", ["fixture", "buffer-identity"], resolvedRepositoryRoot, 1024],
+      ["gh", ["fixture", "buffer-identity"], resolvedRepositoryRoot, 1024],
+      [
+        "git",
+        ["fixture", "different-arguments"],
+        resolvedRepositoryRoot,
+        1024,
+      ],
+      [
+        "git",
+        ["fixture", "buffer-identity"],
+        path.join(REPOSITORY_ROOT, "test"),
+        1024,
+      ],
+      ["git", ["fixture", "buffer-identity"], resolvedRepositoryRoot, 2048],
+    ],
+  );
+  assert.deepEqual(cache.stats(), {
+    hits: 1,
+    misses: 5,
+    entries: 5,
+    maxCommands: 512,
+  });
+});
+
+test("maxBuffer bounds command cache stdout and stderr without exposing output", async () => {
+  for (const stream of ["stdout", "stderr"]) {
+    const secret = `${stream}-bound-secret`;
+    const completeOutput = secret.repeat(4096);
+    const cache = createInvocationCommandCache();
+    const request = {
+      command: process.execPath,
+      args: [
+        "-e",
+        `process.${stream}.write(${JSON.stringify(secret)}.repeat(4096))`,
+      ],
+      cwd: REPOSITORY_ROOT,
+      taskId: "0075",
+      role: `${stream.toUpperCase()}_BOUND`,
+      maxBuffer: 256,
+    };
+    const tolerated = await cache.run({ ...request, allowFailure: true });
+    assert.equal(tolerated.error?.code, "ENOBUFS");
+    assert.notEqual(tolerated.status, 0);
+    assert.ok(Buffer.byteLength(tolerated[stream], "utf8") < completeOutput.length);
+    await assert.rejects(
+      cache.run(request),
+      (error) =>
+        assertRedactedCommandFailure(error, {
+          taskId: "0075",
+          role: `${stream.toUpperCase()}_BOUND`,
+          forbidden: [secret],
+        }),
+    );
+    assert.deepEqual(cache.stats(), {
+      hits: 1,
+      misses: 1,
+      entries: 1,
+      maxCommands: 512,
+    });
+  }
+});
+
+test("allowFailure command cache caches synchronous throws and asynchronous rejections once", async () => {
+  for (const [mode, strictFirst] of [
+    ["sync throw", false],
+    ["async rejection", true],
+  ]) {
+    let calls = 0;
+    const secret = `${mode.replaceAll(" ", "-")}-secret`;
+    const runnerError = Object.assign(new Error(`runner failed token=${secret}`), {
+      code: "EIO",
+    });
+    const cache = createInvocationCommandCache({
+      runner: () => {
+        calls += 1;
+        if (mode === "sync throw") throw runnerError;
+        return Promise.reject(runnerError);
+      },
+    });
+    const request = {
+      command: "git",
+      args: ["fixture", mode],
+      cwd: REPOSITORY_ROOT,
+    };
+    const strict = () =>
+      cache.run({
+        ...request,
+        taskId: mode === "sync throw" ? "0754" : "0755",
+        role: mode === "sync throw" ? "SYNC_STRICT" : "ASYNC_STRICT",
+      });
+    const tolerant = () =>
+      cache.run({
+        ...request,
+        taskId: mode === "sync throw" ? "1754" : "1755",
+        role: mode === "sync throw" ? "SYNC_TOLERANT" : "ASYNC_TOLERANT",
+        allowFailure: true,
+      });
+    const strictFailure = {
+      taskId: mode === "sync throw" ? "0754" : "0755",
+      role: mode === "sync throw" ? "SYNC_STRICT" : "ASYNC_STRICT",
+      forbidden: [secret],
+    };
+    const tolerantFailure = {
+      taskId: mode === "sync throw" ? "1754" : "1755",
+      role: mode === "sync throw" ? "SYNC_TOLERANT" : "ASYNC_TOLERANT",
+      forbidden: [secret],
+    };
+    if (strictFirst) {
+      await assert.rejects(strict(), (error) =>
+        assertRedactedCommandFailure(error, strictFailure),
+      );
+      await assert.rejects(tolerant(), (error) =>
+        assertRedactedCommandFailure(error, tolerantFailure),
+      );
+    } else {
+      await assert.rejects(tolerant(), (error) =>
+        assertRedactedCommandFailure(error, tolerantFailure),
+      );
+      await assert.rejects(strict(), (error) =>
+        assertRedactedCommandFailure(error, strictFailure),
+      );
+    }
+    assert.equal(calls, 1);
+    assert.deepEqual(cache.stats(), {
+      hits: 1,
+      misses: 1,
+      entries: 1,
+      maxCommands: 512,
+    });
+  }
+});
+
+test("command cache exhaustion remains bounded without retries or counter drift", async () => {
+  let calls = 0;
+  const cache = createInvocationCommandCache({
+    maxCommands: 2,
+    runner: ({ command }) => {
+      calls += 1;
+      return { status: 0, stdout: command, stderr: "" };
+    },
+  });
+  const gitRequest = {
+    command: "git",
+    args: ["fixture", "bounded"],
+    cwd: REPOSITORY_ROOT,
+    taskId: "0075",
+    role: "BOUNDED_GIT",
+  };
+  await cache.run(gitRequest);
+  await cache.run({ ...gitRequest });
+  await cache.run({
+    command: "gh",
+    args: ["api", "repos/owner/repository"],
+    cwd: REPOSITORY_ROOT,
+    taskId: "0075",
+    role: "BOUNDED_API",
+  });
+  const exhausted = {
+    command: "gh",
+    args: ["run", "view", "123", "--log"],
+    cwd: REPOSITORY_ROOT,
+  };
+  for (const [taskId, role] of [
+    ["0756", "FIRST_EXHAUSTED"],
+    ["9756", "SECOND_EXHAUSTED"],
+  ]) {
+    await assert.rejects(
+      cache.run({ ...exhausted, taskId, role }),
+      (error) =>
+        error.code === "DELIVERY_HYDRATION_BOUND_EXCEEDED" &&
+        error.message === `Task ${taskId} ${role}: query bound 2 was exhausted`,
+    );
+  }
+  assert.equal(calls, 2);
+  assert.deepEqual(cache.details(), {
+    hits: 1,
+    misses: 2,
+    entries: 2,
+    maxCommands: 2,
+    gitCommands: 1,
+    githubApiCommands: 1,
+    jobLogFetches: 0,
+  });
+});
+
+test("maxBuffer and cache command bounds reject non-finite or fractional values", async () => {
+  for (const maxCommands of [NaN, Infinity, -1, 1.5]) {
+    assert.throws(
+      () => createInvocationCommandCache({ maxCommands }),
+      /maxCommands must be a non-negative safe integer/,
+    );
+  }
+
+  let calls = 0;
+  const cache = createInvocationCommandCache({
+    runner: () => {
+      calls += 1;
+      return { status: 0, stdout: "unexpected", stderr: "" };
+    },
+  });
+  for (const maxBuffer of [NaN, Infinity, -1, 1.5]) {
+    await assert.rejects(
+      cache.run({
+        command: "git",
+        args: ["fixture", "invalid-buffer"],
+        cwd: REPOSITORY_ROOT,
+        taskId: "0075",
+        role: "INVALID_BUFFER",
+        maxBuffer,
+      }),
+      (error) =>
+        error.code === "DELIVERY_HYDRATION_BOUND_EXCEEDED" &&
+        error.message ===
+          "Task 0075 INVALID_BUFFER: maxBuffer must be a non-negative safe integer",
+    );
+  }
+  assert.equal(calls, 0);
+  assert.deepEqual(cache.stats(), {
+    hits: 0,
+    misses: 0,
+    entries: 0,
+    maxCommands: 512,
+  });
+});
+
 test("Git scalar and porcelain helpers keep command-output boundaries distinct", async () => {
   for (const [label, stdout, expected] of [
     ["sha", `${"a".repeat(40)}\n`, "a".repeat(40)],
