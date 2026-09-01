@@ -976,7 +976,7 @@ test("future terminal history rejects a second Task-scoped delivery graph", asyn
   );
 });
 
-test("current tracked-main redelivery identity scan is read-only", async () => {
+test("current tracked-main redelivery identity scan is read-only", async (t) => {
   const statusArgs = ["status", "--porcelain=v1", "--untracked-files=all"];
   const refNames = [
     "HEAD",
@@ -984,8 +984,23 @@ test("current tracked-main redelivery identity scan is read-only", async () => {
     "main@{upstream}",
     "refs/remotes/origin/main",
   ];
+  const trackedMainResults = refNames.slice(1).map((ref) =>
+    spawnSync("git", ["rev-parse", "--verify", `${ref}^{commit}`], {
+      cwd: REPOSITORY_ROOT,
+      encoding: "utf8",
+      windowsHide: true,
+      shell: false,
+    }),
+  );
+  if (trackedMainResults.some(({ status }) => status !== 0)) {
+    t.skip("aligned tracked-main refs are unavailable in this exact-SHA checkout");
+    return;
+  }
   const statusBefore = git(REPOSITORY_ROOT, statusArgs);
-  const refsBefore = refNames.map((ref) => git(REPOSITORY_ROOT, ["rev-parse", ref]));
+  const refsBefore = [
+    git(REPOSITORY_ROOT, ["rev-parse", "HEAD"]),
+    ...trackedMainResults.map(({ stdout }) => stdout.trim()),
+  ];
   const mainSha = refsBefore[1];
   assert.equal(refsBefore[1], refsBefore[2]);
   assert.equal(refsBefore[1], refsBefore[3]);

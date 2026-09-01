@@ -55,6 +55,7 @@ Correct protected-merge redelivery identity so only a supported Task identity at
 - [x] Run focused proof and a read-only current-main identity scan; require Task 0070 to have no false additional delivery and the genuine same-Task fixture to remain rejected before making the sole dispatcher call.
 - [x] After the dispatcher selects this correction and its branch/pair become active, apply only any generic prepared predecessor transition, synchronize the minimum SPEC and ARCHITECTURE owner text, and keep unrelated owners byte-stable.
 - [x] Run acceptance-specific, Stable, package, hash, transaction, pair, and final-scope checks, record truthful evidence, and establish repository readiness for separate ordinary STANDARD delivery without rerun, bypass, publication, or unrelated mutation.
+- [x] Resolve the exact-SHA detached-checkout incompatibility exposed by the first PR run only after the current user explicitly expands the post-selection path allowlist, then establish repository readiness for a new exact-head CI result without rerunning the failed run.
 
 ## Decisions
 
@@ -87,6 +88,12 @@ Correct protected-merge redelivery identity so only a supported Task identity at
 - SPEC section 7 and ARCHITECTURE section 5.4 now bind redelivery attribution to the leading supported source-branch Task identity. README, AGENTS, the `kyw-impl` procedure, package, release, installation, and publication owners remain byte-stable.
 - Full focused verification passed `119/122` with three explicit host/live skips. Stable passed `411/414` with the same three skips, lint over `84` modules, format over `360` files, and pack selection of `43` files / `133177` bytes.
 - The deterministic 4097-record proof preserved the 4096 first-parent bound, package-owner scans found no Task-specific bootstrap or repository identity, and final pair/transaction/hash/checkpoint/diff review found no scope drift.
+- Commit `f8c46f3707e2a5b896a303055f4d0d0222315389` preserved the exact seven-path Task scope, was pushed non-forced, and opened non-draft PR `#61` at that exact head.
+- First PR CI run `33465116225` was not rerun. Quality and packed-release passed, but every Behavioral job plus merge compatibility failed on the sole `current tracked-main redelivery identity scan is read-only` test because credential-free exact-SHA checkouts are detached and do not contain `refs/heads/main`, `main@{upstream}`, or `refs/remotes/origin/main`.
+- The smallest correction is test-only: preflight those aligned local-main refs and explicitly skip only when they are unavailable, while retaining the complete refs/status/checkpoint proof on a full local-main checkout. That path is outside the current post-selection allowlist, so no correction, bypass, merge, or additional CI run was attempted.
+- The current user subsequently approved that exact narrow post-selection test-only correction. The blocker is cleared without expanding authority to source, workflow, future Task, rerun, bypass, force, or publication changes.
+- The approved guard now preflights only the three aligned tracked-main refs. A complete local checkout still executes the full refs/status/checkpoint proof, while an exact-SHA checkout with no such refs exits as one reasoned skip before any hydration or remote command.
+- Post-recovery proof passed the real local scan `1/1` and an isolated absent-ref harness with one explicit skip and zero failures. Stable remained `411/414` with the original three explicit skips, plus lint over `84` modules, format over `360` files, and pack selection of `43` files / `133177` bytes.
 
 ## Documentation Impact
 
@@ -107,15 +114,20 @@ Correct protected-merge redelivery identity so only a supported Task identity at
 - Passed the one-shot focused identity/immutability proof and separate read-only current-main scan, then completed the sole generic dispatcher call and established the selected Task branch.
 - Activated and validated this pair, applied the opaque predecessor transition once through Task 0072 only, and synchronized the minimum SPEC and ARCHITECTURE owner text.
 - Passed focused, Stable, package projection, bounded-history, invariant, documentation, transaction, whitespace, and final matrix/diff coverage checks.
+- Committed and non-force pushed the exact seven owned paths, created non-draft PR `#61` at exact head `f8c46f3707e2a5b896a303055f4d0d0222315389`, and observed its first CI run without rerun or bypass.
+- Diagnosed the cross-platform CI failure from the completed run logs: the only failing regression assumes local aligned-main refs that exact-SHA detached Actions checkouts intentionally do not create.
+- Under the subsequently explicit narrow authority, changed only the direct hydration regression and this pair: aligned local-main refs retain the complete read-only scan, while absent refs produce one reasoned exact-SHA-checkout skip.
+- Passed both guard branches and the complete Stable command set after the correction; no source, permanent owner, workflow, checkpoint, dependency/future pair, dispatcher, continuity, failed-run, or publication state was repeated or changed.
+- Revalidated the terminal pair, transaction `NONE`, exact three-path recovery delta, source/checkpoint/dependency/future-pair hashes, foundation `21/21`, and current queued artifacts `1/1` before the recovery commit.
 
 ## Remaining
 
-- None — repository outcome, documentation synchronization, verification, invariance, and final coverage are complete; ordinary STANDARD delivery remains the separate external ledger.
+- None — the corrected repository outcome, documentation synchronization, verification, invariance, and final coverage are complete; new exact-head CI, protected merge, post-main CI, and production evaluation remain the separate ordinary STANDARD delivery ledger.
 
 ## Resume Point
 
-- None — repository outcome is complete. If delivery is interrupted, resume only from the recorded branch/PR external state without repeating bootstrap proof, dispatcher, or continuity application.
+- None — repository recovery is complete. If delivery is interrupted, resume only from PR `#61` with the new local recovery commit; do not repeat the bootstrap proof, dispatcher, continuity transition, failed CI run, initial push, or PR creation.
 
 ## Blockers
 
-- Not applicable — no blocker is known at authoring time.
+- Not applicable — the current user explicitly cleared the one narrow post-selection path blocker, and the authorized recovery checks pass. PR run `33465116225` remains immutable failed evidence and must not be rerun or bypassed.
