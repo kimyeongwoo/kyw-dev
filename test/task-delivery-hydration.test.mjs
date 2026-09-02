@@ -3045,7 +3045,7 @@ test("invocation-local command cache deduplicates reads and redacts external fai
     hits: 1,
     misses: 1,
     entries: 1,
-    maxCommands: 512,
+    maxCommands: 1024,
   });
 
   const failing = createInvocationCommandCache({
@@ -3061,6 +3061,55 @@ test("invocation-local command cache deduplicates reads and redacts external fai
       /authentication failure/.test(error.message) &&
       !error.message.includes("ghp_do_not_echo"),
   );
+});
+
+test("default command cache admits the current-shaped 525 unique-key hydration load", async () => {
+  let calls = 0;
+  const cache = createInvocationCommandCache({
+    runner: ({ command, args }) => {
+      calls += 1;
+      return { status: 0, stdout: `${command}:${args.at(-1)}`, stderr: "" };
+    },
+  });
+  const requests = [
+    ...Array.from({ length: 489 }, (_, index) => ({
+      command: "git",
+      args: ["fixture", `current-shaped-git-${index}`],
+    })),
+    ...Array.from({ length: 15 }, (_, index) => ({
+      command: "gh",
+      args: ["api", `repos/owner/repository/current-shaped-${index}`],
+    })),
+    ...Array.from({ length: 21 }, (_, index) => ({
+      command: "gh",
+      args: ["run", "view", `current-shaped-${index}`, "--log"],
+    })),
+  ];
+
+  const results = [];
+  for (const { command, args } of requests) {
+    results.push(
+      await cache.run({
+        command,
+        args,
+        cwd: REPOSITORY_ROOT,
+        taskId: "fixture",
+        role: "COMMAND_CAPACITY",
+      }),
+    );
+  }
+
+  assert.equal(results.length, 525);
+  assert.equal(calls, 525);
+  assert.deepEqual(cache.details(), {
+    hits: 0,
+    misses: 525,
+    entries: 525,
+    maxCommands: 1024,
+    gitCommands: 489,
+    githubApiCommands: 15,
+    jobLogFetches: 21,
+  });
 });
 
 function assertRedactedCommandFailure(
@@ -3129,7 +3178,7 @@ test("allowFailure command cache applies tolerant and strict policy in both orde
       hits: 1,
       misses: 1,
       entries: 1,
-      maxCommands: 512,
+      maxCommands: 1024,
     });
   }
 });
@@ -3186,7 +3235,7 @@ test("allowFailure command cache shares one deferred result across concurrent mi
     hits: 1,
     misses: 1,
     entries: 1,
-    maxCommands: 512,
+    maxCommands: 1024,
   });
 });
 
@@ -3231,7 +3280,7 @@ test("command cache snapshots arguments before deferred runner execution", async
     hits: 1,
     misses: 1,
     entries: 1,
-    maxCommands: 512,
+    maxCommands: 1024,
   });
 });
 
@@ -3434,7 +3483,7 @@ test("maxBuffer and every command field participate in cache execution identity"
     hits: 1,
     misses: 5,
     entries: 5,
-    maxCommands: 512,
+    maxCommands: 1024,
   });
 });
 
@@ -3471,7 +3520,7 @@ test("maxBuffer bounds command cache stdout and stderr without exposing output",
       hits: 1,
       misses: 1,
       entries: 1,
-      maxCommands: 512,
+      maxCommands: 1024,
     });
   }
 });
@@ -3541,7 +3590,7 @@ test("allowFailure command cache caches synchronous throws and asynchronous reje
       hits: 1,
       misses: 1,
       entries: 1,
-      maxCommands: 512,
+      maxCommands: 1024,
     });
   }
 });
@@ -3562,8 +3611,12 @@ test("command cache exhaustion remains bounded without retries or counter drift"
     taskId: "0075",
     role: "BOUNDED_GIT",
   };
-  await cache.run(gitRequest);
-  await cache.run({ ...gitRequest });
+  const first = await cache.run(gitRequest);
+  const tolerantDuplicate = await cache.run({
+    ...gitRequest,
+    allowFailure: true,
+  });
+  assert.strictEqual(first, tolerantDuplicate);
   await cache.run({
     command: "gh",
     args: ["api", "repos/owner/repository"],
@@ -3573,18 +3626,19 @@ test("command cache exhaustion remains bounded without retries or counter drift"
   });
   const exhausted = {
     command: "gh",
-    args: ["run", "view", "123", "--log"],
+    args: ["run", "view", "123", "--log", "bound-secret-must-not-escape"],
     cwd: REPOSITORY_ROOT,
   };
-  for (const [taskId, role] of [
-    ["0756", "FIRST_EXHAUSTED"],
-    ["9756", "SECOND_EXHAUSTED"],
+  for (const [taskId, role, allowFailure] of [
+    ["0756", "FIRST_EXHAUSTED", true],
+    ["9756", "SECOND_EXHAUSTED", false],
   ]) {
     await assert.rejects(
-      cache.run({ ...exhausted, taskId, role }),
+      cache.run({ ...exhausted, taskId, role, allowFailure }),
       (error) =>
         error.code === "DELIVERY_HYDRATION_BOUND_EXCEEDED" &&
-        error.message === `Task ${taskId} ${role}: query bound 2 was exhausted`,
+        error.message === `Task ${taskId} ${role}: query bound 2 was exhausted` &&
+        !error.message.includes("bound-secret-must-not-escape"),
     );
   }
   assert.equal(calls, 2);
@@ -3635,7 +3689,7 @@ test("maxBuffer and cache command bounds reject non-finite or fractional values"
     hits: 0,
     misses: 0,
     entries: 0,
-    maxCommands: 512,
+    maxCommands: 1024,
   });
 });
 
