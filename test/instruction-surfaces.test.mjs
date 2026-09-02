@@ -1172,7 +1172,7 @@ test("README puts installation, explicit Skills, first use, and current status b
   }
   assert.match(
     readme,
-    /Version `0\.1\.4`[\s\S]*current unpublished source\/package release candidate[\s\S]*public `latest` remains `0\.1\.3`/,
+    /Version `0\.1\.4`[\s\S]*current source\/package release and public `latest`/,
   );
   assert.match(
     readme,
@@ -1180,7 +1180,7 @@ test("README puts installation, explicit Skills, first use, and current status b
   );
   assert.match(
     readme,
-    /`kyw-dev@0\.1\.3` is published to the public npm registry under the `latest` tag/,
+    /`kyw-dev@0\.1\.4` is published to the public npm registry under the `latest` tag/,
   );
   assert.match(
     readme,
@@ -1188,9 +1188,10 @@ test("README puts installation, explicit Skills, first use, and current status b
   );
   assert.match(
     readme,
-    /No version tag, GitHub Release, or public plugin submission has occurred/,
+    /The `v0\.1\.4` Git tag identifies the published source commit, and the corresponding GitHub Release uses that tag/,
   );
-  assert.match(readme, /npx --yes kyw-dev@0\.1\.3 install --scope user/);
+  assert.match(readme, /No public plugin submission has occurred/);
+  assert.match(readme, /npx --yes kyw-dev@0\.1\.4 install --scope user/);
   assert.match(readme, /needs its own direct action-specific authority/);
   assert.doesNotMatch(readme, /\bTask 0\d{3}\b|READY_FOR_APPROVAL|UNCHANGED at the audited point/);
   assert.doesNotMatch(readme, /^### Grilling evaluation harness$/m);
@@ -1266,7 +1267,7 @@ test("permanent truth separates credential-free CI, manual OIDC publication, and
   );
   assert.match(
     specification,
-    /unpublished candidate version `0\.1\.4`[\s\S]*public npm registry serves `kyw-dev@0\.1\.3`[\s\S]*canonical npm metadata exposes `gitHead` matching the published source commit[\s\S]*Historical `0\.1\.2`[\s\S]*still lacks `gitHead`/,
+    /published version `0\.1\.4`[\s\S]*public npm registry serves `kyw-dev@0\.1\.4`[\s\S]*canonical npm metadata exposes `gitHead` matching the published source commit[\s\S]*`v0\.1\.4` Git tag identifies the published source commit[\s\S]*corresponding GitHub Release uses that tag[\s\S]*Historical `0\.1\.2`[\s\S]*still lacks `gitHead`/,
   );
   assert.match(
     specification,

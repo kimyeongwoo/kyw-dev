@@ -6,7 +6,7 @@
 
 ## Start here
 
-The repository and package metadata identify the unpublished `kyw-dev@0.1.4` release candidate; the public npm registry still serves `kyw-dev@0.1.3` under `latest`, and no public plugin-directory submission has occurred.
+The repository and package metadata identify `kyw-dev@0.1.4`, which the public npm registry serves under `latest`; no public plugin-directory submission has occurred.
 
 ### Choose one installation surface
 
@@ -49,9 +49,9 @@ Questions and small, clearly bounded fixes need no Task folder; they still follo
 
 ## Release status
 
-Version `0.1.4` is the current unpublished source/package release candidate, while public `latest` remains `0.1.3`; the candidate implements the plugin, five Skills, CLI, installer, CI, and development validation surfaces. Exact historical candidates and results live only in their numbered Task/Test pairs and GitHub.
+Version `0.1.4` is the current source/package release and public `latest`; it implements the plugin, five Skills, CLI, installer, CI, and development validation surfaces. Exact historical candidates and results live only in their numbered Task/Test pairs and GitHub.
 
-`kyw-dev@0.1.3` is published to the public npm registry under the `latest` tag; historical versions `0.1.0` through `0.1.2` remain available. Its single authorized publication used the GitHub Actions trusted publisher from the exact Git checkout, so canonical version metadata exposes a `gitHead` field matching the published source commit and carries npm registry signatures plus SLSA provenance bound to the exact workflow and commit. Historical `0.1.2` retains its original signature and provenance, but its immutable canonical metadata lacks `gitHead` because that release published a prebuilt tarball. No version tag, GitHub Release, or public plugin submission has occurred.
+`kyw-dev@0.1.4` is published to the public npm registry under the `latest` tag; historical versions `0.1.0` through `0.1.3` remain available. Its single authorized publication used the GitHub Actions trusted publisher from the exact Git checkout, so canonical version metadata exposes a `gitHead` field matching the published source commit and carries npm registry signatures plus SLSA provenance bound to the exact workflow and commit. The `v0.1.4` Git tag identifies the published source commit, and the corresponding GitHub Release uses that tag. Historical `0.1.2` retains its original signature and provenance, but its immutable canonical metadata lacks `gitHead` because that release published a prebuilt tarball. No public plugin submission has occurred.
 The separate `.github/workflows/publish.yml` maintainer workflow is manual-only and is validated against the repository-owned expected publisher `GitHub Actions / kimyeongwoo/kyw-dev / publish.yml / npm-production`. It accepts a literal current `main` SHA and expected package/plugin version; fails closed on any repository, event, ref, input/event/checkout SHA, runtime, public-registry identity, target-version-absence, or clean-checkout mismatch; then publishes the exact real Git checkout directory once with job-scoped OIDC permission for one tokenless, OTP-free attempt. Required candidate and exact-SHA CI evidence stays outside this workflow. A successful actual publish is the runtime proof that npm accepted that identity, and a public-package publish from this public repository receives npm provenance automatically.
 Merging the workflow, passing credential-free exact-SHA CI, packing a candidate, or completing `npm run release:check` neither dispatches nor authorizes it. Routine release preflight validates the expected tuple and exact workflow bytes; only the authorized workflow validates public package identity and target-version absence. Neither needs `npm login`, OTP, security-key authentication, account-settings inspection, or `npm trust list`; account authentication is reserved for initial setup, a directly authorized security/configuration audit or change, or actual OIDC/publisher failure. Each publication/version/tag/Release/submission or registry, retry/fallback, force/destructive, bypass/admin/account, or deletion action needs its own direct action-specific authority; failure grants no retry and one action never implies another.
 
@@ -123,14 +123,14 @@ The portable `$kyw-grilling`, `$kyw-init`, `$kyw-task "<outcome>"`, `$kyw-impl N
 Use the published CLI:
 
 ```bash
-npx --yes kyw-dev@0.1.3 install --scope user
-npx --yes kyw-dev@0.1.3 install --scope project
-npx --yes kyw-dev@0.1.3 update --scope user
-npx --yes kyw-dev@0.1.3 uninstall --scope user
-npx --yes kyw-dev@0.1.3 doctor
+npx --yes kyw-dev@0.1.4 install --scope user
+npx --yes kyw-dev@0.1.4 install --scope project
+npx --yes kyw-dev@0.1.4 update --scope user
+npx --yes kyw-dev@0.1.4 uninstall --scope user
+npx --yes kyw-dev@0.1.4 doctor
 ```
 
-For source-checkout development, clone the repository and substitute `node ./bin/kyw-dev.mjs` for `npx --yes kyw-dev@0.1.3` in the same commands.
+For source-checkout development, clone the repository and substitute `node ./bin/kyw-dev.mjs` for `npx --yes kyw-dev@0.1.4` in the same commands.
 
 - The CLI installs the five workflow Skills only. `$kyw-init`, after confirmation, owns project-document creation.
 - Ownership metadata is stored in `.agents/skills/.kyw-dev-install.json`; deterministic Task support is stored under `.agents/skills/.kyw-dev/runtime/`, which is not a discoverable Skill.
