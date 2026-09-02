@@ -6,7 +6,7 @@
 
 ## Start here
 
-The repository and package metadata identify `kyw-dev@0.1.3`, which the public npm registry serves under `latest`; no public plugin-directory submission has occurred.
+The repository and package metadata identify the unpublished `kyw-dev@0.1.4` release candidate; the public npm registry still serves `kyw-dev@0.1.3` under `latest`, and no public plugin-directory submission has occurred.
 
 ### Choose one installation surface
 
@@ -49,7 +49,7 @@ Questions and small, clearly bounded fixes need no Task folder; they still follo
 
 ## Release status
 
-Version `0.1.3` is the current source/package release and public `latest`; it implements the plugin, five Skills, CLI, installer, CI, and development validation surfaces. Exact historical candidates and results live only in their numbered Task/Test pairs and GitHub.
+Version `0.1.4` is the current unpublished source/package release candidate, while public `latest` remains `0.1.3`; the candidate implements the plugin, five Skills, CLI, installer, CI, and development validation surfaces. Exact historical candidates and results live only in their numbered Task/Test pairs and GitHub.
 
 `kyw-dev@0.1.3` is published to the public npm registry under the `latest` tag; historical versions `0.1.0` through `0.1.2` remain available. Its single authorized publication used the GitHub Actions trusted publisher from the exact Git checkout, so canonical version metadata exposes a `gitHead` field matching the published source commit and carries npm registry signatures plus SLSA provenance bound to the exact workflow and commit. Historical `0.1.2` retains its original signature and provenance, but its immutable canonical metadata lacks `gitHead` because that release published a prebuilt tarball. No version tag, GitHub Release, or public plugin submission has occurred.
 The separate `.github/workflows/publish.yml` maintainer workflow is manual-only and is validated against the repository-owned expected publisher `GitHub Actions / kimyeongwoo/kyw-dev / publish.yml / npm-production`. It accepts a literal current `main` SHA and expected package/plugin version; fails closed on any repository, event, ref, input/event/checkout SHA, runtime, public-registry identity, target-version-absence, or clean-checkout mismatch; then publishes the exact real Git checkout directory once with job-scoped OIDC permission for one tokenless, OTP-free attempt. Required candidate and exact-SHA CI evidence stays outside this workflow. A successful actual publish is the runtime proof that npm accepted that identity, and a public-package publish from this public repository receives npm provenance automatically.
