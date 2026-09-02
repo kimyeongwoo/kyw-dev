@@ -3,26 +3,26 @@
   "kind": "KYW_STANDARD_DELIVERY_CONTINUITY",
   "repository": "kimyeongwoo/kyw-dev",
   "baseRef": "main",
-  "sourceMainSha": "12c3267b0e7bf094e1e9c39a3ee7277e84019467",
-  "coveredMainSha": "12c3267b0e7bf094e1e9c39a3ee7277e84019467",
+  "sourceMainSha": "ae2ca0e23e8bcbf3beb53b9bb659c2358b67d60a",
+  "coveredMainSha": "ae2ca0e23e8bcbf3beb53b9bb659c2358b67d60a",
   "deliveryContract": {
     "kind": "HARDENED_EXACT_HEAD",
     "version": 2
   },
   "coverage": {
-    "taskCount": 44,
-    "lastTaskId": "0075",
-    "orderedTaskSetSha256": "2b30f5a4e07c064a60aa30b1dd512b8c1b6cab14205093fc762817243d5e157b",
-    "terminalPairStateSha256": "4dc4acc21e32ed955f1b0f31d51e24a39d705ad09c6263ed24f11093ddfbf823",
-    "cumulativeEvidenceSha256": "8b3bb109c6104d7b61493b715e1ec65820425a20c57b8c12848f867aec687b43"
+    "taskCount": 45,
+    "lastTaskId": "0077",
+    "orderedTaskSetSha256": "d8afa92025dcb61d70927cf730f47a1b9872095d270eccc0afd5b11ad80a7f21",
+    "terminalPairStateSha256": "469511172c8e85063c91dd3272a65837faab7d18d7ef6326bfed0bed356b188a",
+    "cumulativeEvidenceSha256": "d27bf123eda472d7cd0c507a418020b9d89e5a7ecf67e6d6d46b99c514fe2846"
   },
-  "previousCheckpointDigest": "b1509329cca7fa288d0982f6905d6325333d576deebb33cc7fcf89dd46361539",
+  "previousCheckpointDigest": "a41e4a6a075d9aaf9170dcdea8b3ca3099883d82edac0216664d63c05dfb7d4e",
   "transition": {
-    "taskId": "0075",
+    "taskId": "0077",
     "classification": "HARDENED_EXACT_HEAD",
-    "outcomeSha": "c5526a5fd794cf4d87b170a40d4e9a7be09c0b06",
-    "mergeSha": "12c3267b0e7bf094e1e9c39a3ee7277e84019467",
-    "evidenceSha256": "29b2c190129922b0787f36896c291aa14f87fb536358c8c53f416e807740056d"
+    "outcomeSha": "7910edaf44c38d1a28ddc855892b5b31b2055e42",
+    "mergeSha": "ae2ca0e23e8bcbf3beb53b9bb659c2358b67d60a",
+    "evidenceSha256": "a757bd85d178e8f411b143c5b0fd3b1edb5921049e08e84375dfe8740d208d71"
   },
-  "checkpointDigest": "a41e4a6a075d9aaf9170dcdea8b3ca3099883d82edac0216664d63c05dfb7d4e"
+  "checkpointDigest": "755fdc165f7f98ea3f8f853b8bbe5cd26c604dafa2b35c6760b66f4dff6f4bb7"
 }

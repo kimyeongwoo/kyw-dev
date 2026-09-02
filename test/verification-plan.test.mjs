@@ -15,16 +15,20 @@ const scriptPath = fileURLToPath(new URL("../scripts/verification-plan.mjs", imp
 const readRepositoryText = (relativePath) =>
   readFileSync(fileURLToPath(new URL(`../${relativePath}`, import.meta.url)), "utf8");
 
-test("verification commands have one tier, trigger, and unique registry identity", () => {
+function assertCommandRegistryContract(registry) {
   const ids = new Set();
   const commands = new Set();
   const tiers = new Set(Object.values(VERIFICATION_TIERS));
-  for (const entry of VERIFICATION_COMMAND_REGISTRY) {
+  for (const entry of registry) {
     assert.equal(ids.has(entry.id), false, `duplicate registry ID: ${entry.id}`);
     assert.equal(commands.has(entry.command), false, `duplicate command: ${entry.command}`);
     assert.equal(tiers.has(entry.tier), true, `unsupported tier: ${entry.tier}`);
     assert.match(entry.trigger, /\S/);
     assert.equal(Number.isInteger(entry.leafCommandCount) && entry.leafCommandCount > 0, true);
+    assert.doesNotMatch(
+      `${entry.id}\n${entry.command}\n${entry.trigger}`,
+      /release\.(?:isolation|registry-dry-run)|release:check|release-evidence-(?:manual-runner|harness)\.mjs|release-gate-isolation\.mjs/i,
+    );
     ids.add(entry.id);
     commands.add(entry.command);
   }
@@ -43,12 +47,68 @@ test("verification commands have one tier, trigger, and unique registry identity
     "npm run eval:grilling:report",
     "npm run release:candidate",
     "npm run release:ci",
-    "npm run release:check",
   ]) {
     assert.equal(
       [...commands].some((command) => command.startsWith(entryPoint)),
       true,
       `unowned verification entry point: ${entryPoint}`,
+    );
+  }
+
+  assert.deepEqual(
+    registry
+      .filter(({ tier }) => tier === VERIFICATION_TIERS.RELEASE)
+      .map(({ id, command, leafCommandCount }) => ({ id, command, leafCommandCount })),
+    [
+      {
+        id: "release.candidate",
+        command: "npm run release:candidate",
+        leafCommandCount: 1,
+      },
+      {
+        id: "release.local",
+        command: "npm run release:ci",
+        leafCommandCount: 5,
+      },
+      {
+        id: "release.published-package",
+        command: "Verify the downloaded published npm package identity",
+        leafCommandCount: 1,
+      },
+    ],
+  );
+}
+
+test("verification commands have one tier, trigger, and unique registry identity", () => {
+  assertCommandRegistryContract(VERIFICATION_COMMAND_REGISTRY);
+});
+
+test("verification registry rejects retired release command layers", () => {
+  for (const staleEntry of [
+    {
+      id: "release.isolation",
+      tier: VERIFICATION_TIERS.RELEASE,
+      command: "node ./scripts/release-gate-isolation.mjs",
+      trigger: "Retired isolation layer",
+      leafCommandCount: 1,
+    },
+    {
+      id: "stable.reintroduced-registry-dry-run",
+      tier: VERIFICATION_TIERS.STABLE,
+      command: "npm run release:check",
+      trigger: "Retired mandatory registry dry run",
+      leafCommandCount: 1,
+    },
+    {
+      id: "focused.reintroduced-release-runner",
+      tier: VERIFICATION_TIERS.FOCUSED,
+      command: "node ./scripts/release-evidence-manual-runner.mjs --run",
+      trigger: "Retired release runner",
+      leafCommandCount: 1,
+    },
+  ]) {
+    assert.throws(() =>
+      assertCommandRegistryContract([...VERIFICATION_COMMAND_REGISTRY, staleEntry]),
     );
   }
 });
@@ -137,9 +197,14 @@ test("runtime, mixed, unknown, and release-sensitive paths escalate conservative
     changedPaths: ["skills/kyw-task/SKILL.md", "package.json"],
   });
   assert.equal(mixedRelease.changeClass, "release");
+  assert.deepEqual(mixedRelease.commands.map(({ command }) => command), ["npm run release:ci"]);
 
   for (const changedPath of [
+    ".github/workflows/ci.yml",
     ".github/workflows/publish.yml",
+    "scripts/packed-release-check.mjs",
+    "test/continuous-integration.test.mjs",
+    "test/distribution.test.mjs",
     "test/publish-workflow.test.mjs",
   ]) {
     const trustedPublishing = planVerification({ changedPaths: [changedPath] });
@@ -150,9 +215,23 @@ test("runtime, mixed, unknown, and release-sensitive paths escalate conservative
       ["npm run release:ci"],
     );
   }
+
+  for (const changedPath of [
+    "scripts/release-evidence-harness.mjs",
+    "scripts/release-evidence-manual-runner.mjs",
+    "scripts/release-gate-isolation.mjs",
+    "test/release-evidence-harness.test.mjs",
+    "test/release-evidence-manual-runner.test.mjs",
+    "test/release-gate-isolation.test.mjs",
+  ]) {
+    const retiredLayer = planVerification({ changedPaths: [changedPath] });
+    assert.equal(retiredLayer.changeClass, "runtime");
+    assert.equal(retiredLayer.highestTier, "STABLE");
+    assert.deepEqual(retiredLayer.commands.map(({ command }) => command), ["npm run check"]);
+  }
 });
 
-test("candidate intent only escalates without duplicating a separate isolation boundary", () => {
+test("candidate intent selects the single composite Release command", () => {
   const candidate = planVerification({
     changedPaths: ["README.md"],
     releaseCandidate: true,

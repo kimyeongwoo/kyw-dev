@@ -119,6 +119,17 @@ function repositoryRunCommands(jobText) {
   );
 }
 
+function assertCredentialFreeWorkflow(workflowText) {
+  assert.doesNotMatch(
+    workflowText,
+    /pull_request_target|\bsecrets\.|\bpermissions:[\s\S]*?\bwrite\b/,
+  );
+  assert.doesNotMatch(
+    workflowText,
+    /\bnpm publish\b|--dry-run|npm run release:check|npm (?:login|logout|adduser|whoami|view|trust|token|config)\b|NODE_AUTH_TOKEN|NPM_TOKEN|CODEX_(?:API_KEY|HOME)|release-evidence-(?:manual-runner|harness)\.mjs|release-gate-isolation\.mjs/i,
+  );
+}
+
 function expandLeafCommands(commands, scripts = packageJson.scripts) {
   return commands.flatMap((command) => {
     if (command !== "npm run check") return [command];
@@ -334,8 +345,7 @@ test("CI triggers, permissions, concurrency, and credentials are safe for public
   assertEventScopedConcurrency(workflow);
   assertImmutableOfficialActionPins(workflow);
   assertExactCheckoutEvidenceTopology(workflow);
-  assert.doesNotMatch(workflow, /pull_request_target|\bsecrets\.|\bpermissions:[\s\S]*?\bwrite\b/);
-  assert.doesNotMatch(workflow, /npm publish|npm token|NODE_AUTH_TOKEN|CODEX_(?:API_KEY|HOME)/i);
+  assertCredentialFreeWorkflow(workflow);
   assert.equal((workflow.match(/persist-credentials: false/g) ?? []).length, 4);
   assert.equal((workflow.match(/package-manager-cache: false/g) ?? []).length, 4);
 });
@@ -515,6 +525,36 @@ test("CI regression guards reject movable Action refs and unsafe event concurren
   for (const variant of exactEvidenceVariants) {
     assert.throws(() => assertExactCheckoutEvidenceTopology(variant));
   }
+
+  const packedCommand = "        run: npm run release:candidate\n";
+  const forbiddenCommands = [
+    "npm publish . --access public",
+    "npm publish --dry-run --json",
+    "npm run release:check",
+    "npm login",
+    "node ./scripts/release-evidence-manual-runner.mjs --run",
+    "node ./scripts/release-evidence-harness.mjs",
+    "node ./scripts/release-gate-isolation.mjs",
+  ];
+  for (const [index, command] of forbiddenCommands.entries()) {
+    const variant = workflow.replace(
+      packedCommand,
+      `${packedCommand}      - name: Forbidden CI layer ${index + 1}\n        run: ${command}\n`,
+    );
+    assert.notEqual(variant, workflow, `missing packed command for mutation ${index + 1}`);
+    assert.throws(() => assertCredentialFreeWorkflow(variant));
+  }
+
+  for (const variant of [
+    workflow.replace("  pull_request:\n", "  pull_request_target:\n"),
+    workflow.replace(
+      '  NPM_CONFIG_AUDIT: "false"\n',
+      '  NPM_CONFIG_AUDIT: "false"\n  NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}\n',
+    ),
+  ]) {
+    assert.notEqual(variant, workflow);
+    assert.throws(() => assertCredentialFreeWorkflow(variant));
+  }
 });
 
 test("packed release and aggregate gates are credential-free and agree with package scripts", () => {
@@ -538,7 +578,7 @@ test("packed release and aggregate gates are credential-free and agree with pack
   );
   assert.equal(
     packageJson.scripts["release:check"],
-    "npm run release:ci && npm publish --dry-run --json",
+    "npm publish --dry-run --json",
   );
   assert.doesNotMatch(
     packed,

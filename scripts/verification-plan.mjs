@@ -129,20 +129,6 @@ export const VERIFICATION_COMMAND_REGISTRY = Object.freeze([
     leafCommandCount: 5,
   },
   {
-    id: "release.isolation",
-    tier: VERIFICATION_TIERS.RELEASE,
-    command: "node ./scripts/release-gate-isolation.mjs",
-    trigger: "A pre-publication candidate needs direct/plugin lifecycle and protected-state proof.",
-    leafCommandCount: 1,
-  },
-  {
-    id: "release.registry-dry-run",
-    tier: VERIFICATION_TIERS.RELEASE,
-    command: "npm run release:check",
-    trigger: "The intended version is immediately approaching an approved publication decision.",
-    leafCommandCount: 6,
-  },
-  {
     id: "release.published-package",
     tier: VERIFICATION_TIERS.RELEASE,
     command: "Verify the downloaded published npm package identity",
@@ -170,11 +156,9 @@ const releaseSensitiveExactPaths = new Set([
   "scripts/lib/validate-foundation.mjs",
   "scripts/pack-check.mjs",
   "scripts/packed-release-check.mjs",
-  "scripts/release-gate-isolation.mjs",
   "test/continuous-integration.test.mjs",
   "test/distribution.test.mjs",
   "test/publish-workflow.test.mjs",
-  "test/release-gate-isolation.test.mjs",
 ]);
 
 const documentationExactPaths = new Set([

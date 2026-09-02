@@ -285,7 +285,7 @@ test("permanent truth separates credential-free CI, manual OIDC publication, and
   );
   assert.match(
     readme,
-    /Merging the workflow, passing credential-free CI[\s\S]*neither dispatches nor authorizes/,
+    /Merging the workflow, passing credential-free exact-SHA CI[\s\S]*neither dispatches nor authorizes/,
   );
   assert.match(readme, /public repository receives npm provenance automatically/);
   assert.match(
@@ -295,6 +295,14 @@ test("permanent truth separates credential-free CI, manual OIDC publication, and
   assert.match(
     readme,
     /successful actual publish is the runtime proof that npm accepted that identity/,
+  );
+  assert.match(
+    readme,
+    /`npm run check`[\s\S]*one real `npm run release:candidate`[\s\S]*`npm run release:ci`[\s\S]*complete required local release graph/,
+  );
+  assert.match(
+    readme,
+    /`npm run release:check` is only an optional thin maintainer alias[\s\S]*planner, CI, and publication workflow never invoke it/,
   );
 
   assert.match(
@@ -307,7 +315,11 @@ test("permanent truth separates credential-free CI, manual OIDC publication, and
   );
   assert.match(
     specification,
-    /Stable gate[\s\S]*one exact retained candidate[\s\S]*target version absent[\s\S]*clean exact-SHA checkout[\s\S]*`npm publish \.`[\s\S]*exactly once without retry/,
+    /complete required local Release graph[\s\S]*`npm run check`[\s\S]*`npm run release:candidate`[\s\S]*`npm run release:ci`[\s\S]*`npm run release:check` is only an optional thin alias/,
+  );
+  assert.match(
+    specification,
+    /repository, manual event, `refs\/heads\/main`, literal expected SHA, actual checkout SHA, expected package\/plugin version, runtime, public-registry identity, target-version absence, and final clean exact-SHA checkout[\s\S]*does not rerun Stable or candidate verification[\s\S]*`npm publish \.`[\s\S]*exactly once without retry/,
   );
   assert.match(
     specification,
@@ -333,7 +345,7 @@ test("permanent truth separates credential-free CI, manual OIDC publication, and
   );
   assert.match(
     architecture,
-    /publishes that real Git[\s\S]*directory once with `npm publish \.`[\s\S]*retained[\s\S]*candidate[\s\S]*guarded owned-root cleanup/,
+    /`release:ci` composes Stable and candidate[\s\S]*publication workflow[\s\S]*does not rerun[\s\S]*Stable[\s\S]*optional dry run[\s\S]*publishes the exact real Git directory once with `npm publish \.`/,
   );
   assert.match(
     architecture,
@@ -346,6 +358,10 @@ test("permanent truth separates credential-free CI, manual OIDC publication, and
   assert.match(
     architecture,
     /development-only integration fixture[\s\S]*actual npm CLI[\s\S]*raw submitted packument[\s\S]*directory publication supplies the exact commit as `gitHead`[\s\S]*prebuilt tarball cannot synthesize[\s\S]*post-capture registry rewriting/,
+  );
+  assert.doesNotMatch(
+    [readme, specification, architecture].join("\n"),
+    /release-evidence-manual-runner|release-evidence-harness|release-gate-isolation|retained candidate|registry dry-run|isolated lifecycle verification/i,
   );
 });
 

@@ -52,8 +52,8 @@ Questions and small, clearly bounded changes do not require a Task folder. They 
 Version `0.1.3` is the current source/package release and public `latest`; it implements the plugin, five Skills, CLI, installer, CI, and development validation surfaces. Exact historical candidates and results live only in their numbered Task/Test pairs and GitHub.
 
 `kyw-dev@0.1.3` is published to the public npm registry under the `latest` tag; historical versions `0.1.0` through `0.1.2` remain available. Its single authorized publication used the GitHub Actions trusted publisher from the exact Git checkout, so canonical version metadata exposes a `gitHead` field matching the published source commit and carries npm registry signatures plus SLSA provenance bound to the exact workflow and commit. Historical `0.1.2` retains its original signature and provenance, but its immutable canonical metadata lacks `gitHead` because that release published a prebuilt tarball. No version tag, GitHub Release, or public plugin submission has occurred.
-The separate `.github/workflows/publish.yml` maintainer workflow is manual-only and is validated against the repository-owned expected publisher `GitHub Actions / kimyeongwoo/kyw-dev / publish.yml / npm-production`. It accepts an exact current `main` SHA and package version, independently inspects one retained candidate, then publishes the exact real Git checkout directory with the publishing job's OIDC permission for one tokenless, OTP-free attempt. A successful actual publish is the runtime proof that npm accepted that identity, and a public-package publish from this public repository receives npm provenance automatically.
-Merging the workflow, passing credential-free CI, packing a candidate, or completing `npm publish --dry-run` neither dispatches nor authorizes it. Routine release preflight validates the expected tuple, exact workflow bytes, public package identity, and target-version absence without `npm login`, OTP, security-key authentication, account-settings inspection, or `npm trust list`; account-side authentication is reserved for initial setup, an explicitly authorized security/configuration audit or change, or investigation after an actual OIDC/publisher failure. Each publication or other registry/version/tag/Release/submission mutation still requires separate explicit authority.
+The separate `.github/workflows/publish.yml` maintainer workflow is manual-only and is validated against the repository-owned expected publisher `GitHub Actions / kimyeongwoo/kyw-dev / publish.yml / npm-production`. It accepts a literal current `main` SHA and expected package/plugin version; fails closed on any repository, event, ref, input/event/checkout SHA, runtime, public-registry identity, target-version-absence, or clean-checkout mismatch; then publishes the exact real Git checkout directory once with job-scoped OIDC permission for one tokenless, OTP-free attempt. Required candidate and exact-SHA CI evidence stays outside this workflow. A successful actual publish is the runtime proof that npm accepted that identity, and a public-package publish from this public repository receives npm provenance automatically.
+Merging the workflow, passing credential-free exact-SHA CI, packing a candidate, or completing the optional `npm run release:check` neither dispatches nor authorizes it. Routine release preflight validates the expected tuple and exact workflow bytes, while the authorized workflow validates public package identity and target-version absence, without `npm login`, OTP, security-key authentication, account-settings inspection, or `npm trust list`; account-side authentication is reserved for initial setup, an explicitly authorized security/configuration audit or change, or investigation after an actual OIDC/publisher failure. Each publication or other registry/version/tag/Release/submission mutation still requires separate explicit authority.
 
 Source: [kimyeongwoo/kyw-dev](https://github.com/kimyeongwoo/kyw-dev) · Issues: [GitHub issue tracker](https://github.com/kimyeongwoo/kyw-dev/issues)
 
@@ -160,7 +160,7 @@ The unscoped `kyw-dev` name is published on the public npm registry. Before ever
 
 ### Codex plugin installation
 
-The package contains `.codex-plugin/plugin.json` and all five `skills/` directories. Per-version release verification installs extracted packed bytes through an isolated local marketplace as `kyw-dev@kyw-dev-local`; that fixture and runner are development-only and excluded from the tarball.
+The package contains `.codex-plugin/plugin.json` and all five `skills/` directories. Package selection and real-tarball inspection cover its manifest, Skills, runtime, and legal bytes; installation behavior is verified separately, and development fixtures stay outside the tarball.
 
 The npm package is available to configured marketplace sources, but no public plugin-directory submission has occurred. Direct Skills and plugin installation are alternatives, not layers to combine. See [ARCHITECTURE](docs/ARCHITECTURE.md) for package, marketplace, cache, duplicate-source, and release boundaries.
 
@@ -180,7 +180,6 @@ npm run check
 npm run release:candidate
 npm run release:ci
 node ./scripts/spec-behavioral-acceptance.mjs --validate-fixtures
-node ./scripts/release-gate-isolation.mjs
 ```
 
 Use the read-only planner with explicit repository-relative changed paths:
@@ -189,16 +188,18 @@ Use the read-only planner with explicit repository-relative changed paths:
 |---|---|---|
 | Focused | Documentation, one Skill, or another bounded behavior | `npm run verify:plan -- <changed-path>...`, then its ordered commands |
 | Stable | Runtime, cross-cutting, unknown, or higher-risk work; every PR and `main` push | `npm run check`, plus hosted exact-SHA matrix evidence |
-| Release | Release-sensitive bytes or an immutable candidate | `npm run release:candidate`, `npm run release:ci`, and isolation as required |
+| Release | Release-sensitive bytes or explicit candidate intent | `npm run release:ci` |
 
 `npm run check` runs tests, lint, format, and package selection. `release:candidate` creates and inspects one real tarball without
-publishing; `release:ci` combines Stable verification with that gate. `npm run release:check` additionally performs
-`npm publish --dry-run --json` and is a separate registry-evidence boundary, not publication permission.
+publishing; `release:ci` is exactly Stable plus candidate verification and is the sole Release planner command. Together,
+`npm run check`, one real `npm run release:candidate`, and `npm run release:ci` form the complete required local release graph.
+`npm run release:check` is only an optional thin maintainer alias for `npm publish --dry-run --json`; it neither reruns required
+gates nor supplies required evidence or publication authority, and the planner, CI, and publication workflow never invoke it.
 
 Hosted PR CI proves actual-head behavioral jobs across every supported OS/runtime, runs platform-independent lint, format, and
 package selection once in a quality job, and keeps packed bytes separate. Synthetic merge compatibility runs the complete
 combined-state check; `main` jobs prove the exact event SHA. Model-backed evaluators are development-only, explicit-cost checks
-and never required by public CI. Validation, evaluator, isolation, and credential boundaries are described in
+and never required by public CI. Validation, candidate, evaluator, and credential boundaries are described in
 [ARCHITECTURE](docs/ARCHITECTURE.md).
 
 ## Repository map and contributing

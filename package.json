@@ -46,7 +46,7 @@
     "eval:grilling:report": "node ./scripts/grilling-eval.mjs report",
     "release:candidate": "node ./scripts/packed-release-check.mjs",
     "release:ci": "npm run check && npm run release:candidate",
-    "release:check": "npm run release:ci && npm publish --dry-run --json"
+    "release:check": "npm publish --dry-run --json"
   },
   "engines": {
     "node": ">=22"

@@ -111,7 +111,7 @@ const requiredScripts = {
   check: "npm test && npm run lint && npm run format:check && npm run pack:check",
   "release:candidate": "node ./scripts/packed-release-check.mjs",
   "release:ci": "npm run check && npm run release:candidate",
-  "release:check": "npm run release:ci && npm publish --dry-run --json",
+  "release:check": "npm publish --dry-run --json",
 };
 
 const releaseKeywords = [
@@ -777,7 +777,7 @@ const DETAILED_PROCEDURE_PATTERNS = [
   ],
   [
     "development evaluator procedure",
-    /^### (?:Release-isolation lifecycle|Release evidence harness|Grilling evaluation harness|Audit behavior smoke|Direct SPEC behavioral acceptance fixtures)\s*$/m,
+    /^### (?:Grilling evaluation harness|Audit behavior smoke|Direct SPEC behavioral acceptance fixtures)\s*$/m,
   ],
   ["evaluator timing constant", /\b(?:1\.5 seconds|five retries|100-millisecond)\b/],
   ["transaction hash-chain mechanics", /\b(?:hash-chained records|exclusive-create semantics)\b/],
@@ -2291,37 +2291,6 @@ export function validateFoundation(
 
   for (const skillName of SKILL_NAMES) {
     validateSkill(root, skillName, errors);
-  }
-
-  const marketplaceJson = readJson(
-    root,
-    "test/fixtures/distribution/marketplace-root/.agents/plugins/marketplace.json",
-    errors,
-  );
-  if (marketplaceJson) {
-    expect(marketplaceJson.name === "kyw-dev-local", "release marketplace name must be kyw-dev-local", errors);
-    expect(
-      marketplaceJson.interface?.displayName === "kyw-dev Local",
-      "release marketplace display name is invalid",
-      errors,
-    );
-    expect(Array.isArray(marketplaceJson.plugins) && marketplaceJson.plugins.length === 1, "release marketplace must contain one plugin", errors);
-    const marketplacePlugin = marketplaceJson.plugins?.[0];
-    expect(marketplacePlugin?.name === "kyw-dev", "release marketplace plugin name must be kyw-dev", errors);
-    expect(
-      sameJson(marketplacePlugin?.source, { source: "local", path: "./plugins/kyw-dev" }),
-      "release marketplace must use the isolated local plugin path",
-      errors,
-    );
-    expect(
-      sameJson(marketplacePlugin?.policy, {
-        installation: "AVAILABLE",
-        authentication: "ON_INSTALL",
-      }),
-      "release marketplace policy is invalid",
-      errors,
-    );
-    expect(marketplacePlugin?.category === "Productivity", "release marketplace category is invalid", errors);
   }
 
   for (const [kind, contract] of Object.entries(DOCUMENT_CONTRACTS)) {
