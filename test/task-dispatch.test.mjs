@@ -429,13 +429,23 @@ function assertStandardAuthority(result, action) {
   assert.equal(result.separateAuthorityBoundary, "NON_STANDARD_EXTERNAL_MUTATIONS");
 }
 
-test("anchored invocation parsing preserves overrides and rejects incidental task text", () => {
+test("anchored invocation parsing preserves overrides and rejects non-Skill text", () => {
   assert.deepEqual(parseTaskInvocation("$kyw-impl 0042 verify only the parser"), {
     recognized: true,
     mode: "EXACT",
     source: "PORTABLE_SKILL",
     taskId: "0042",
     overrideText: "verify only the parser",
+    overrideScope: "FIRST_SELECTED_TASK",
+  });
+  const combinedSuffix =
+    "run only focused checks; then publish kyw-dev@0.1.4 to npm now";
+  assert.deepEqual(parseTaskInvocation(`$kyw-impl 0080 ${combinedSuffix}`), {
+    recognized: true,
+    mode: "EXACT",
+    source: "PORTABLE_SKILL",
+    taskId: "0080",
+    overrideText: combinedSuffix,
     overrideScope: "FIRST_SELECTED_TASK",
   });
   assert.equal(
@@ -478,6 +488,30 @@ test("anchored invocation parsing preserves overrides and rejects incidental tas
       recognized: false,
       mode: "NONE",
     });
+  }
+
+  for (const ordinaryExternalCommand of [
+    "Publish kyw-dev@0.1.4 to npm now.",
+    "Bump the package and plugin version to 0.1.4.",
+    "Create Git tag v0.1.4.",
+    "Create a GitHub Release for v0.1.4.",
+    "Publish kyw-dev@0.1.4, create tag v0.1.4, and create its GitHub Release.",
+    "Retry the failed npm publication now.",
+    "Use an npm credential fallback now.",
+    "Force-push task/0080-honor-direct-user-authority now.",
+    "Delete branch task/0080-honor-direct-user-authority now.",
+    "Change the npm trusted-publisher account configuration now.",
+  ]) {
+    assert.deepEqual(
+      parseTaskInvocation(ordinaryExternalCommand, {
+        managedRoutingAvailable: true,
+      }),
+      {
+        recognized: false,
+        mode: "NONE",
+      },
+      ordinaryExternalCommand,
+    );
   }
 
   const fallback = parseTaskInvocation("task 0042 실행해줘 preserve this constraint");
@@ -915,6 +949,34 @@ test("verified execution preflight blockers stop routing before selection", asyn
   });
   assert.equal(inheritedName.code, "PREFLIGHT_BLOCKED");
   assert.match(inheritedName.message, /unknown field constructor/);
+  for (const invalidClassification of [
+    "EXTERNAL_ACTION_PRESENT",
+    null,
+    ["NO_TASK_OVERRIDE"],
+  ]) {
+    const invalid = await resolveTaskDispatch({
+      tasksRoot: root,
+      invocation: "task 진행해줘",
+      managedRoutingAvailable: true,
+      executionPreflight: { overrideClassification: invalidClassification },
+    });
+    assert.equal(invalid.code, "PREFLIGHT_BLOCKED");
+    assert.match(
+      invalid.message,
+      /overrideClassification must be TASK_OVERRIDE_PRESENT or NO_TASK_OVERRIDE/,
+    );
+  }
+  const classifiedBlocker = await resolveTaskDispatch({
+    tasksRoot: root,
+    invocation: "task 진행해줘",
+    managedRoutingAvailable: true,
+    executionPreflight: {
+      overrideClassification: "NO_TASK_OVERRIDE",
+      conflicts: ["classification must not erase this blocker"],
+    },
+  });
+  assert.equal(classifiedBlocker.code, "PREFLIGHT_BLOCKED");
+  assert.match(classifiedBlocker.message, /classification must not erase this blocker/);
 });
 
 test("automatic dispatch uses canonical hard dependencies and the lowest satisfied READY Task", async (t) => {
@@ -1463,6 +1525,37 @@ test("exact GitHub ledger evidence gates terminal queue advancement and no-work 
   assert.match(exactComplete.message, /report-only/);
   assert.match(exactComplete.correctionRoute, /^\$kyw-task/);
   assert.equal("action" in exactComplete, false);
+  assert.equal(exactComplete.overrideText, "");
+  assert.equal(exactComplete.overrideScope, "FIRST_SELECTED_TASK");
+  assert.equal(exactComplete.overrideClassification, "UNCLASSIFIED");
+
+  const externalOnlySuffix = "then publish kyw-dev@0.1.4 to npm now";
+  const externalOnly = await resolveTaskDispatch({
+    tasksRoot: root,
+    invocation: `$kyw-impl 0001 ${externalOnlySuffix}`,
+    deliveryLedger: { "0001": entry },
+    deliveryExpectations: { "0001": expectation },
+    executionPreflight: { overrideClassification: "NO_TASK_OVERRIDE" },
+  });
+  assert.equal(externalOnly.outcome, "TERMINAL");
+  assert.equal(externalOnly.code, "TASK_COMPLETE");
+  assert.match(externalOnly.message, /report-only/);
+  assert.equal(externalOnly.overrideText, externalOnlySuffix);
+  assert.equal(externalOnly.overrideScope, "FIRST_SELECTED_TASK");
+  assert.equal(externalOnly.overrideClassification, "NO_TASK_OVERRIDE");
+
+  const explicitTaskOverride = await resolveTaskDispatch({
+    tasksRoot: root,
+    invocation: "$kyw-impl 0001 rerun the focused Task checks",
+    deliveryLedger: { "0001": entry },
+    deliveryExpectations: { "0001": expectation },
+    executionPreflight: { overrideClassification: "TASK_OVERRIDE_PRESENT" },
+  });
+  assert.equal(explicitTaskOverride.outcome, "TERMINAL");
+  assert.equal(explicitTaskOverride.code, "TASK_CORRECTION_REQUIRES_NEW_TASK");
+  assert.equal(explicitTaskOverride.overrideClassification, "TASK_OVERRIDE_PRESENT");
+  assert.equal(explicitTaskOverride.overrideText, "rerun the focused Task checks");
+  assert.equal(explicitTaskOverride.overrideScope, "FIRST_SELECTED_TASK");
 
   const correction = await resolveTaskDispatch({
     tasksRoot: root,
@@ -1476,6 +1569,9 @@ test("exact GitHub ledger evidence gates terminal queue advancement and no-work 
   assert.equal(correction.correctionDependencyTaskId, "0001");
   assert.match(correction.message, /\$kyw-task "<correction outcome>"/);
   assert.match(correction.message, /hard-depend on Task 0001/);
+  assert.equal(correction.overrideText, "correct the terminal evidence");
+  assert.equal(correction.overrideScope, "FIRST_SELECTED_TASK");
+  assert.equal(correction.overrideClassification, "UNCLASSIFIED");
 
   const previousContractRoot = await createQueue(t, [
     { id: "0001", status: "DONE", contractVersion: 2 },

@@ -46,6 +46,18 @@ function frontmatterFields(skill) {
   );
 }
 
+function normalizedProse(value) {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function paragraphContaining(value, pattern, label) {
+  const paragraph = value.split(/\r?\n\s*\r?\n/).find((candidate) =>
+    pattern.test(candidate),
+  );
+  assert.ok(paragraph, label);
+  return normalizedProse(paragraph);
+}
+
 function runAdapter(args) {
   return spawnSync(process.execPath, [SHARED_ADAPTER_PATH, ...args], {
     encoding: "utf8",
@@ -95,6 +107,7 @@ test("kyw-impl Skill is explicit-only and owns existing-Task execution", async (
   assert.match(metadata, /implement, resume, verify, and ordinarily deliver an existing Task/);
   assert.match(metadata, /policy:\n  allow_implicit_invocation: false\n/);
   assert.doesNotMatch(metadata, /^dependencies:/m);
+  assert.doesNotMatch(metadata, /publish|version|tag|Release|authority/i);
 });
 
 test("kyw-impl has no authoring engine and calls the one shared packaged adapter", async () => {
@@ -126,9 +139,16 @@ test("kyw-impl has no authoring engine and calls the one shared packaged adapter
 test("kyw-impl rejects creation and DRAFT authoring while preserving execution modes", async () => {
   const skill = await readFile(SKILL_PATH, "utf8");
 
-  assert.match(skill, /A goal, missing ID, or new outcome causes zero mutation/);
+  assert.doesNotMatch(skill, /^A goal, missing ID, or new outcome causes zero mutation/m);
+  assert.match(
+    normalizedProse(skill),
+    /attempted[^.]{0,80}`?\$?kyw-impl`?[^.]{0,180}(?:goal|missing ID|new outcome)[^.]{0,180}zero mutation/i,
+  );
   assert.match(skill, /`\$kyw-task "<outcome>"`/);
-  assert.match(skill, /Never infer or allocate an ID, create a directory\/pair, author or promote DRAFT/);
+  assert.match(
+    skill,
+    /Never infer\/allocate IDs, create pairs, author\/promote DRAFT/,
+  );
   assert.match(skill, /`DRAFT\/DRAFT` stops with exact `\$kyw-task NNNN` authoring guidance/);
   for (const [state, action] of [
     ["READY/READY", "IMPLEMENT"],
@@ -140,6 +160,57 @@ test("kyw-impl rejects creation and DRAFT authoring while preserving execution m
   assert.match(skill, /`BLOCKED\/BLOCKED`[^.\n]*condition recheck/);
   assert.match(skill, /Automatic and continuous forms never allocate/);
   assert.match(skill, /never runs in parallel, in the background, or beyond this host invocation/);
+});
+
+test("kyw-impl keeps ordinary action authority outside routing and separate from overrides", async () => {
+  const [skill, execution] = await Promise.all([
+    readFile(SKILL_PATH, "utf8"),
+    readFile(EXECUTION_REFERENCE_PATH, "utf8"),
+  ]);
+  const standalone = paragraphContaining(
+    skill,
+    /standalone[^.\n]{0,100}ordinary[^.\n]{0,80}instructions?/i,
+    "kyw-impl must distinguish a standalone ordinary action command",
+  );
+  assert.match(standalone, /outside/i);
+  assert.match(standalone, /not redirected/i);
+  assert.match(standalone, /\$kyw-task/);
+
+  const transport = paragraphContaining(
+    execution,
+    /`overrideText` preserves suffix transport/i,
+    "execution must classify the appended transport after routing",
+  );
+  assert.match(transport, /not permission/i);
+  assert.match(transport, /Task method\/order\/scope\/check[^.]{0,80}first-Task override/i);
+  assert.match(transport, /affirmative external action[^.;]{0,30}separate authority/i);
+  assert.match(transport, /prohibition\/cancellation\/revocation\/scope reduction/i);
+  assert.match(
+    transport,
+    /Terminal preflight accepts `TASK_OVERRIDE_PRESENT` or `NO_TASK_OVERRIDE`[^.]{0,80}omission stays fail-closed/i,
+  );
+  assert.match(transport, /Ambiguity\/contradiction stops/i);
+  assert.match(transport, /Never redispatch\/chain or waive acceptance/i);
+  assert.match(transport, /consume it without re-asking/i);
+
+  const directAuthority = paragraphContaining(
+    execution,
+    /before\/after\/with dispatch/i,
+    "execution must accept separate direct authority around dispatch",
+  );
+  assert.match(directAuthority, /Direct authority/i);
+  assert.match(directAuthority, /without another Skill call/i);
+  assert.notEqual(directAuthority, transport);
+
+  const authorityDetails = paragraphContaining(
+    execution,
+    /Assent must immediately accept/i,
+    "execution must define referential and conditional authority",
+  );
+  assert.match(authorityDetails, /concrete resolved proposal with no choice/i);
+  assert.match(authorityDetails, /Conditions need act-now[^.]{0,220}currently true/i);
+  assert.match(authorityDetails, /otherwise no mutation\/monitoring or older revival/i);
+  assert.match(authorityDetails, /failure permits no retry\/fallback/i);
 });
 
 test("kyw-impl routes durable changes and enforces the current-Task boundary", async () => {
@@ -196,7 +267,7 @@ test("kyw-impl resumes from verified handoff state without repeating completed w
   assert.match(execution, /start at `Resume Point` or the first still-valid item in Remaining/);
   assert.match(execution, /redoing only the affected work/);
   assert.match(execution, /Do not rerun a completed destructive or externally visible action/);
-  assert.match(execution, /Record and consume it without re-asking/);
+  assert.match(execution, /consume it without re-asking/i);
 });
 
 test("kyw-impl preserves evidence honesty, final coverage review, and checkpoint state", async () => {

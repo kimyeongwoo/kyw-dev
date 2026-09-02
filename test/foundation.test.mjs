@@ -1053,6 +1053,46 @@ test("every named instruction owner and required projection is mutation-guarded"
   );
 });
 
+test("direct-authority details cannot leak into concise projections", () => {
+  const texts = Object.fromEntries(
+    INSTRUCTION_SURFACE_PATHS.map((relativePath) => [
+      relativePath,
+      readFileSync(join(REPOSITORY_ROOT, relativePath), "utf8"),
+    ]),
+  );
+  for (const [relativePath, detail] of [
+    ["README.md", "A conditional instruction grants authority only when copied here."],
+    [
+      "AGENTS.md",
+      "Overlapping older authority does not revive after an invalid condition.",
+    ],
+    [
+      "docs/ARCHITECTURE.md",
+      "Referential assent is single, concrete, fully resolved as to action, target, and scope.",
+    ],
+  ]) {
+    const injected = {
+      ...texts,
+      [relativePath]: `${texts[relativePath]}\n${detail}\n`,
+    };
+    const errors = validatePermanentRuleFamilies(
+      PERMANENT_RULE_FAMILIES,
+      injected,
+      {
+        allowedSurfacePaths: new Set(INSTRUCTION_SURFACE_PATHS),
+        requiredFamilyIds: REQUIRED_INSTRUCTION_RULE_FAMILY_IDS,
+      },
+    ).join("\n");
+    assert.match(
+      errors,
+      new RegExp(
+        `direct-user-mutation-authority detailed procedure appears as an unlisted projection in ${relativePath.replaceAll(".", "\\.")}`,
+      ),
+      relativePath,
+    );
+  }
+});
+
 test("progressive loading targets owner sections and omits a nonexistent authoring pair", () => {
   for (const [label, signal, expected] of [
     ["README setup", { goal: ["README.md#installation"] }, "README.md#installation"],

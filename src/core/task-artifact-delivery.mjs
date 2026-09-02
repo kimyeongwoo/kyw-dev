@@ -79,6 +79,7 @@ export function evaluateTaskExecutionPreflight(preflight = {}) {
     return Object.freeze({
       safe: false,
       issues: Object.freeze(["execution preflight must be an object"]),
+      overrideClassification: "UNCLASSIFIED",
     });
   }
   const labels = Object.freeze({
@@ -88,7 +89,21 @@ export function evaluateTaskExecutionPreflight(preflight = {}) {
     userOwnedDecisions: "unresolved user-owned decision",
   });
   const issues = [];
+  let overrideClassification = "UNCLASSIFIED";
   for (const key of Object.keys(preflight)) {
+    if (key === "overrideClassification") {
+      if (
+        preflight[key] !== "TASK_OVERRIDE_PRESENT" &&
+        preflight[key] !== "NO_TASK_OVERRIDE"
+      ) {
+        issues.push(
+          "execution preflight overrideClassification must be TASK_OVERRIDE_PRESENT or NO_TASK_OVERRIDE",
+        );
+      } else {
+        overrideClassification = preflight[key];
+      }
+      continue;
+    }
     if (!Object.hasOwn(labels, key)) {
       issues.push(`execution preflight contains unknown field ${key}`);
       continue;
@@ -103,7 +118,11 @@ export function evaluateTaskExecutionPreflight(preflight = {}) {
     }
     issues.push(...values.map((value) => `${labels[key]}: ${value}`));
   }
-  return Object.freeze({ safe: issues.length === 0, issues: Object.freeze(issues) });
+  return Object.freeze({
+    safe: issues.length === 0,
+    issues: Object.freeze(issues),
+    overrideClassification,
+  });
 }
 
 function isRecord(value) {

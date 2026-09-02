@@ -8,6 +8,10 @@ import {
   PERMANENT_DOCUMENT_COMPACTION_ACCEPTANCE,
   PERMANENT_DOCUMENT_POLICY,
 } from "../scripts/lib/validate-foundation.mjs";
+import {
+  evaluateTaskExecutionPreflight,
+  parseTaskInvocation,
+} from "../src/core/task-artifacts.mjs";
 
 const REPOSITORY_ROOT = fileURLToPath(new URL("../", import.meta.url));
 const REPRESENTATIVE_BUDGET_BYTES = 36_864;
@@ -31,6 +35,242 @@ const PERMANENT_INDEX_PATHS = Object.freeze([
 
 async function read(relativePath) {
   return readFile(join(REPOSITORY_ROOT, relativePath), "utf8");
+}
+
+function authorityBoundary(action, defaultAttempt) {
+  return Object.freeze({
+    action: action.action,
+    target: action.target,
+    scope: action.scope,
+    scopeGroup: action.scopeGroup,
+    attempt: action.attempt ?? defaultAttempt,
+  });
+}
+
+function authorityBoundaryKey(action) {
+  return [action.action, action.target, action.scope, action.attempt].join("|");
+}
+
+function authorityBoundaryMatches(action, match) {
+  const fixedFieldsMatch = ["action", "target", "attempt"].every(
+    (field) => match[field] === undefined || action[field] === match[field],
+  );
+  const scopeMatches =
+    match.scope === undefined ||
+    action.scope === match.scope ||
+    (typeof action.scopeGroup === "string" &&
+      action.scopeGroup.length > 0 &&
+      action.scopeGroup === match.scopeGroup);
+  return fixedFieldsMatch && scopeMatches;
+}
+
+function authorityActionsAreResolved(actions, defaultAttempt) {
+  return (
+    actions.length > 0 &&
+    actions.every((action) =>
+      [action.action, action.target, action.scope, action.attempt ?? defaultAttempt].every(
+        (field) => typeof field === "string" && field.length > 0,
+      ),
+    )
+  );
+}
+
+function runAuthorityContractScenario(turns) {
+  const grants = new Map();
+  const closedAttempts = new Set();
+  const snapshots = [];
+  let immediatelyPriorTurn;
+
+  const removeMatching = (matches, defaultAttempt) => {
+    for (const rawMatch of matches) {
+      const match = authorityBoundary(rawMatch, defaultAttempt);
+      for (const [key, grant] of grants) {
+        if (authorityBoundaryMatches(grant, match)) grants.delete(key);
+      }
+    }
+  };
+
+  const replaceRelevantGrants = (actions, defaultAttempt) => {
+    for (const rawAction of actions) {
+      const action = authorityBoundary(rawAction, defaultAttempt);
+      for (const [key, grant] of grants) {
+        if (authorityBoundaryMatches(grant, action)) grants.delete(key);
+      }
+      grants.set(authorityBoundaryKey(action), action);
+    }
+  };
+
+  const usesOnlyOpenAttempts = (actions, defaultAttempt) =>
+    actions.every(
+      (action) => !closedAttempts.has(action.attempt ?? defaultAttempt),
+    );
+
+  const closeAttempts = (matches, defaultAttempt) => {
+    for (const match of matches) {
+      const attempt = match.attempt ?? defaultAttempt;
+      if (typeof attempt === "string" && attempt.length > 0) {
+        closedAttempts.add(attempt);
+      }
+    }
+  };
+
+  for (const turn of turns) {
+    if (["attempt-terminal", "target-scope-drift"].includes(turn.speechAct)) {
+      const matches = turn.matches ?? [{ attempt: turn.attempt }];
+      removeMatching(matches, turn.attempt);
+      closeAttempts(matches, turn.attempt);
+    } else if (turn.source === "current-user" && turn.trusted !== false) {
+      const actions = turn.actions ?? [];
+      if (turn.speechAct === "imperative") {
+        removeMatching(turn.matches ?? actions, turn.attempt);
+        if (
+          turn.affirmative &&
+          turn.actNow &&
+          authorityActionsAreResolved(actions, turn.attempt) &&
+          usesOnlyOpenAttempts(actions, turn.attempt)
+        ) {
+          replaceRelevantGrants(actions, turn.attempt);
+        }
+      } else if (turn.speechAct === "conditional") {
+        removeMatching(actions, turn.attempt);
+        const condition = turn.condition ?? {};
+        if (
+          turn.actNow &&
+          authorityActionsAreResolved(actions, turn.attempt) &&
+          usesOnlyOpenAttempts(actions, turn.attempt) &&
+          condition.objective &&
+          condition.verifiable &&
+          condition.satisfied &&
+          !condition.subjective &&
+          !condition.future
+        ) {
+          replaceRelevantGrants(actions, turn.attempt);
+        }
+      } else if (
+        ["prohibition", "revocation", "cancellation", "ambiguous-conflict"].includes(
+          turn.speechAct,
+        )
+      ) {
+        const matches = turn.matches ?? actions;
+        removeMatching(matches, turn.attempt);
+        if (turn.speechAct === "cancellation") {
+          closeAttempts(matches, turn.attempt);
+        }
+      } else if (turn.speechAct === "scope-reduction") {
+        const activeBeforeReduction = [...grants.values()].some((grant) =>
+          (turn.matches ?? []).some((match) =>
+            authorityBoundaryMatches(grant, authorityBoundary(match, turn.attempt)),
+          ),
+        );
+        removeMatching(turn.matches ?? [], turn.attempt);
+        if (
+          activeBeforeReduction &&
+          authorityActionsAreResolved(actions, turn.attempt) &&
+          usesOnlyOpenAttempts(actions, turn.attempt)
+        ) {
+          replaceRelevantGrants(actions, turn.attempt);
+        }
+      } else if (turn.speechAct === "assent" && turn.unambiguous) {
+        const proposal = immediatelyPriorTurn;
+        if (
+          proposal?.source === "assistant" &&
+          proposal.speechAct === "execution-proposal" &&
+          proposal.single &&
+          proposal.concrete &&
+          proposal.resolved &&
+          !proposal.alternatives &&
+          authorityActionsAreResolved(proposal.actions ?? [], proposal.attempt) &&
+          usesOnlyOpenAttempts(proposal.actions ?? [], proposal.attempt)
+        ) {
+          replaceRelevantGrants(proposal.actions ?? [], proposal.attempt);
+        }
+      }
+    }
+
+    const authorized = [...grants.keys()].sort();
+    snapshots.push(Object.freeze({ authorized: Object.freeze(authorized) }));
+    immediatelyPriorTurn = turn;
+  }
+
+  return Object.freeze({
+    authorized: Object.freeze([...grants.keys()].sort()),
+    snapshots: Object.freeze(snapshots),
+  });
+}
+
+function classifyCombinedSuffixScenario(invocation, actionByTarget) {
+  const clauses = invocation.overrideText
+    .split(";")
+    .map((clause) => clause.trim())
+    .filter(Boolean);
+  const taskOverrides = [];
+  const authorityTurns = [];
+  const classifications = [];
+
+  for (const clause of clauses) {
+    const taskConstraint = clause.match(/^run only (.+ checks)$/i);
+    const contradictoryPublish = clause.match(
+      /^(?:then )?publish (\S+) to npm now but do not publish \1$/i,
+    );
+    const publish = clause.match(/^(?:then )?publish (\S+) to npm now$/i);
+    const prohibition = clause.match(/^do not publish (\S+) to npm$/i);
+
+    if (taskConstraint) {
+      taskOverrides.push(clause);
+      classifications.push({ kind: "TASK_OVERRIDE", text: clause });
+    } else if (contradictoryPublish) {
+      const action = actionByTarget.get(contradictoryPublish[1]);
+      classifications.push({ kind: "AMBIGUOUS_CONFLICT", text: clause });
+      if (action) {
+        authorityTurns.push({
+          source: "current-user",
+          speechAct: "ambiguous-conflict",
+          attempt: action.attempt,
+          matches: [action],
+        });
+      }
+    } else if (publish) {
+      const action = actionByTarget.get(publish[1]);
+      classifications.push({ kind: "EXTERNAL_AUTHORITY", text: clause });
+      if (action) {
+        authorityTurns.push({
+          source: "current-user",
+          speechAct: "imperative",
+          affirmative: true,
+          actNow: true,
+          attempt: action.attempt,
+          actions: [action],
+        });
+      }
+    } else if (prohibition) {
+      const action = actionByTarget.get(prohibition[1]);
+      classifications.push({ kind: "PROHIBITION", text: clause });
+      if (action) {
+        authorityTurns.push({
+          source: "current-user",
+          speechAct: "prohibition",
+          attempt: action.attempt,
+          matches: [action],
+        });
+      }
+    } else {
+      classifications.push({ kind: "NON_AUTHORITY", text: clause });
+    }
+  }
+
+  return Object.freeze({
+    routingDecisions: invocation.recognized ? 1 : 0,
+    redispatchCandidates: Object.freeze(
+      clauses.filter((clause) => parseTaskInvocation(clause).recognized),
+    ),
+    taskOverrides: Object.freeze(taskOverrides),
+    overrideClassification:
+      taskOverrides.length > 0
+        ? "TASK_OVERRIDE_PRESENT"
+        : "NO_TASK_OVERRIDE",
+    authorityTurns: Object.freeze(authorityTurns),
+    classifications: Object.freeze(classifications),
+  });
 }
 
 test("instruction surfaces retain one canonical owner and minimal projections", async () => {
@@ -75,7 +315,10 @@ test("instruction surfaces retain one canonical owner and minimal projections", 
       /Always load applicable `AGENTS\.md` and the selected\/current Task\/Test pair/,
     );
     assert.match(projection, /Index or search README, SPEC, and ARCHITECTURE first/);
-    assert.match(projection, /Read all four permanent documents for `kyw-init`, rebaseline/);
+    assert.match(
+      projection,
+      /Read all four(?: permanent documents)? for `kyw-init`, rebaseline/,
+    );
     for (const routingAnchor of [
       "All five `kyw-*` Skills are explicit-only",
       "`$kyw-impl NNNN` is portable for existing Tasks",
@@ -207,6 +450,698 @@ test("instruction surfaces retain one canonical owner and minimal projections", 
   }
 });
 
+test("direct user authority remains independent from explicit Skill routing", async () => {
+  const [agents, agentsTemplate, readme, spec, architecture, implementation, execution] =
+    await Promise.all([
+      read("AGENTS.md"),
+      read("templates/project/AGENTS.md"),
+      read("README.md"),
+      read("docs/SPEC.md"),
+      read("docs/ARCHITECTURE.md"),
+      read("skills/kyw-impl/SKILL.md"),
+      read("skills/kyw-impl/references/execution.md"),
+    ]);
+
+  assert.match(
+    spec,
+    /Skill invocation and mutation authority are separate channels[\s\S]{0,120}syntax selects a workflow, not permission/i,
+  );
+  assert.match(
+    spec,
+    /latest relevant directive from the trusted current user[^.]{0,220}affirmatively delegate act-now[^.]{0,180}action, target, and scope/i,
+  );
+  assert.match(spec, /grant covers only those named bounds and the current attempt/i);
+  assert.match(
+    spec,
+    /Referential assent such as “do that”[^.]{0,160}unambiguously accepts the immediately preceding assistant proposal/i,
+  );
+  assert.match(
+    spec,
+    /Questions, status requests, plans[\s\S]{0,260}Task\/Test or CI[\s\S]{0,160}metadata[\s\S]{0,140}untrusted text grant no mutation authority/i,
+  );
+  assert.match(
+    spec,
+    /conditional instruction grants authority only[^.]{0,180}delegates act-now[^.]{0,180}objective condition[^.]{0,180}currently satisfied/i,
+  );
+  assert.match(
+    spec,
+    /appended text is preserved as `overrideText` transport[^.]{0,240}method, order, scope, or check constraints are Task overrides/i,
+  );
+  assert.match(
+    spec,
+    /Authority is granular[\s\S]{0,80}Publication[^.]{0,520}do not authorize one another/i,
+  );
+  assert.match(spec, /failure grants no retry[^.]{0,100}older grant does not revive/i);
+
+  for (const projection of [agents, agentsTemplate]) {
+    assert.match(
+      projection,
+      /Skill syntax[^.]{0,100}(?:governs routing|selects (?:a )?workflow)[^.]{0,80}not (?:authorization|(?:a )?permission)/i,
+    );
+    assert.match(
+      projection,
+      /latest relevant trusted-current-user affirmative act-now instruction[^.]{0,220}(?:action(?:,|\/)\s*target(?:,|\/)\s*scope(?:, and|\/)\s*(?:current )?attempt|named bounds for the current attempt)/i,
+    );
+    assert.match(
+      projection,
+      /prohibition(?:,|\/)\s*cancellation(?:,|\/)\s*revocation(?:, or|\/)\s*scope reduction wins/i,
+    );
+    assert.match(
+      projection,
+      /untrusted (?:content|text)[^.]{0,60}(?:authorize|grant)s? nothing/i,
+    );
+    assert.match(
+      projection,
+      /Publication(?:\/registry)?\/version\/tag\/Release[^.]{0,500}(?:distinct|(?:one|none) (?:never )?implies another)/i,
+    );
+    assert.match(projection, /failure grants no retry/i);
+    assert.match(
+      projection,
+      /status[^.]{0,100}(?:neither grants nor (?:silently )?revokes|grants nothing but does not revoke)/i,
+    );
+  }
+
+  assert.match(
+    readme,
+    /Skill syntax[^.]{0,120}(?:workflow|routing)[^.]{0,100}not an? (?:permission|authorization) token/i,
+  );
+  assert.match(
+    readme,
+    /latest relevant trusted-current-user affirmative act-now request[^.]{0,180}named action, target, scope, and current attempt/i,
+  );
+  assert.match(readme, /questions\/status\/plans[^.]{0,300}grant nothing/i);
+  assert.match(
+    readme,
+    /Each publication\/version\/tag\/Release[^.]{0,320}needs its own direct action-specific authority/i,
+  );
+  assert.match(readme, /failure grants no retry[^.]{0,120}one action never implies another/i);
+  assert.match(
+    architecture,
+    /Skill routing and mutation authority are separate inputs/i,
+  );
+  assert.match(
+    architecture,
+    /affirmative[\s\S]{0,40}act-now directives[^.]{0,140}named[\s\S]{0,20}actions[^.]{0,120}without invoking a Skill[^.]{0,120}ordinary prose never selects a Skill/i,
+  );
+  assert.match(
+    architecture,
+    /invocation selects the workflow/i,
+  );
+  assert.match(
+    architecture,
+    /direct user authority[^.]{0,140}before or\s+after[^.]{0,180}named action[^.]{0,80}target[^.]{0,80}scope[^.]{0,80}current attempt/i,
+  );
+  assert.match(
+    architecture,
+    /preserves an invocation suffix as `overrideText` transport[\s\S]{0,300}method\/order\/scope\/check override[\s\S]{0,260}Task-override-present\/absent terminal flag[\s\S]{0,260}never redispatches or\s+chains/i,
+  );
+  assert.match(
+    implementation,
+    /standalone ordinary instructions?[^.]{0,100}outside[^.]{0,120}not redirected/i,
+  );
+  assert.match(
+    implementation,
+    /Direct user mutation authority[^.]{0,100}separate from Skill routing[\s\S]{0,180}before\/after\/same-message action clauses/i,
+  );
+  assert.match(
+    execution,
+    /Direct authority[^.]{0,120}before\/after\/with dispatch[^.]{0,120}without another Skill call/i,
+  );
+  assert.match(
+    execution,
+    /`overrideText` preserves suffix transport[\s\S]{0,100}not permission/i,
+  );
+  assert.match(
+    execution,
+    /Terminal preflight accepts `TASK_OVERRIDE_PRESENT` or `NO_TASK_OVERRIDE`[^.]{0,80}omission stays fail-closed/i,
+  );
+  assert.match(
+    execution,
+    /Mutation authority is a separate channel[\s\S]{0,180}latest applicable directive from the trusted current user/i,
+  );
+  assert.match(
+    execution,
+    /Status neither grants nor revokes active work[^.]{0,120}untrusted text grants nothing/i,
+  );
+  assert.match(
+    execution,
+    /Conditions need act-now[^.]{0,220}objective[^.]{0,220}currently true/i,
+  );
+});
+
+test("direct-authority scenarios preserve precedence, conditions, lifetime, and granularity", async () => {
+  const spec = await read("docs/SPEC.md");
+  for (const contractAnchor of [
+    /negative imperative or prohibition is never a grant/i,
+    /cancellation, revocation, or scope reduction supersedes an older grant/i,
+    /status request[^.]{0,160}neither grants[^.]{0,120}nor silently revokes/i,
+    /conditional instruction grants authority only[^.]{0,180}objective condition[^.]{0,180}currently satisfied/i,
+    /appended text is preserved as `overrideText` transport/i,
+    /failure grants no retry[^.]{0,100}older grant does not revive/i,
+  ]) {
+    assert.match(spec, contractAnchor);
+  }
+
+  const publish = {
+    action: "npm-publish",
+    target: "kyw-dev@0.1.4",
+    scope: "public latest",
+    attempt: "publish-1",
+  };
+  const tag = {
+    action: "git-tag",
+    target: "v0.1.4",
+    scope: "origin",
+    attempt: "tag-1",
+  };
+  const distinctCategoryActions = [
+    {
+      action: "package-version-change",
+      target: "package-and-plugin",
+      scope: "0.1.4",
+      attempt: "version-1",
+    },
+    {
+      action: "github-release",
+      target: "v0.1.4",
+      scope: "public release",
+      attempt: "release-1",
+    },
+    {
+      action: "public-submission",
+      target: "kyw-dev plugin",
+      scope: "public directory",
+      attempt: "submission-1",
+    },
+    {
+      action: "publish-retry",
+      target: "kyw-dev@0.1.4",
+      scope: "second npm attempt",
+      attempt: "publish-2",
+    },
+    {
+      action: "credential-fallback",
+      target: "kyw-dev@0.1.4",
+      scope: "npm token fallback",
+      attempt: "fallback-1",
+    },
+    {
+      action: "force-push",
+      target: "task/0080-honor-direct-user-authority",
+      scope: "origin",
+      attempt: "force-1",
+    },
+    {
+      action: "branch-delete",
+      target: "task/0080-honor-direct-user-authority",
+      scope: "origin",
+      attempt: "delete-1",
+    },
+    {
+      action: "npm-account-change",
+      target: "npm-production trusted publisher",
+      scope: "account configuration",
+      attempt: "account-1",
+    },
+    {
+      action: "admin-bypass",
+      target: "main protection",
+      scope: "GitHub repository",
+      attempt: "bypass-1",
+    },
+  ];
+  const publishKey = authorityBoundaryKey(publish);
+  const tagKey = authorityBoundaryKey(tag);
+  const grantPublish = {
+    source: "current-user",
+    speechAct: "imperative",
+    affirmative: true,
+    actNow: true,
+    attempt: publish.attempt,
+    actions: [publish],
+  };
+
+  assert.deepEqual(runAuthorityContractScenario([grantPublish]).authorized, [publishKey]);
+  assert.deepEqual(
+    runAuthorityContractScenario([{ ...grantPublish, actNow: false }]).authorized,
+    [],
+  );
+  assert.deepEqual(
+    runAuthorityContractScenario([
+      grantPublish,
+      { ...grantPublish, actNow: false },
+    ]).authorized,
+    [],
+  );
+  assert.deepEqual(
+    runAuthorityContractScenario([
+      { ...grantPublish, speechAct: "prohibition", affirmative: false },
+    ]).authorized,
+    [],
+  );
+  assert.deepEqual(
+    runAuthorityContractScenario([
+      grantPublish,
+      { ...grantPublish, affirmative: false },
+    ]).authorized,
+    [],
+  );
+  const prohibitedAfterGrant = runAuthorityContractScenario([
+    grantPublish,
+    {
+      source: "current-user",
+      speechAct: "prohibition",
+      attempt: publish.attempt,
+      matches: [publish],
+    },
+  ]);
+  assert.deepEqual(
+    prohibitedAfterGrant.snapshots.map(({ authorized }) => authorized),
+    [[publishKey], []],
+  );
+  const cancelled = runAuthorityContractScenario([
+    grantPublish,
+    {
+      source: "current-user",
+      speechAct: "cancellation",
+      attempt: publish.attempt,
+      matches: [publish],
+    },
+  ]);
+  assert.deepEqual(
+    cancelled.snapshots.map(({ authorized }) => authorized),
+    [[publishKey], []],
+  );
+  assert.deepEqual(
+    runAuthorityContractScenario([
+      grantPublish,
+      {
+        source: "current-user",
+        speechAct: "cancellation",
+        attempt: publish.attempt,
+        matches: [publish],
+      },
+      grantPublish,
+    ]).authorized,
+    [],
+  );
+  const publishAfterCancellation = {
+    ...publish,
+    attempt: "publish-after-cancellation",
+  };
+  assert.deepEqual(
+    runAuthorityContractScenario([
+      grantPublish,
+      {
+        source: "current-user",
+        speechAct: "cancellation",
+        attempt: publish.attempt,
+        matches: [publish],
+      },
+      {
+        ...grantPublish,
+        attempt: publishAfterCancellation.attempt,
+        actions: [publishAfterCancellation],
+      },
+    ]).authorized,
+    [authorityBoundaryKey(publishAfterCancellation)],
+  );
+  assert.deepEqual(
+    runAuthorityContractScenario([
+      {
+        ...grantPublish,
+        actions: [{ ...publish, target: undefined }],
+      },
+    ]).authorized,
+    [],
+  );
+  assert.deepEqual(
+    runAuthorityContractScenario([
+      grantPublish,
+      {
+        ...grantPublish,
+        actions: [{ ...publish, target: undefined }],
+      },
+    ]).authorized,
+    [],
+  );
+  assert.deepEqual(
+    runAuthorityContractScenario([
+      grantPublish,
+      {
+        source: "current-user",
+        speechAct: "revocation",
+        attempt: publish.attempt,
+        matches: [publish],
+      },
+    ]).authorized,
+    [],
+  );
+  const reducedPublish = { ...publish, scope: "public dist-tag latest only" };
+  assert.deepEqual(
+    runAuthorityContractScenario([
+      grantPublish,
+      {
+        source: "current-user",
+        speechAct: "scope-reduction",
+        attempt: publish.attempt,
+        matches: [publish],
+        actions: [reducedPublish],
+      },
+    ]).authorized,
+    [authorityBoundaryKey(reducedPublish)],
+  );
+
+  const statusAfterGrant = runAuthorityContractScenario([
+    grantPublish,
+    { source: "current-user", speechAct: "status" },
+  ]);
+  assert.deepEqual(
+    statusAfterGrant.snapshots.map(({ authorized }) => authorized),
+    [[publishKey], [publishKey]],
+  );
+
+  const satisfiedConditional = {
+    source: "current-user",
+    speechAct: "conditional",
+    actNow: true,
+    attempt: publish.attempt,
+    actions: [publish],
+    condition: {
+      objective: true,
+      verifiable: true,
+      satisfied: true,
+      subjective: false,
+      future: false,
+    },
+  };
+  assert.deepEqual(
+    runAuthorityContractScenario([satisfiedConditional]).authorized,
+    [publishKey],
+  );
+  for (const invalidConditional of [
+    { ...satisfiedConditional, actNow: false },
+    {
+      ...satisfiedConditional,
+      condition: { ...satisfiedConditional.condition, satisfied: false },
+    },
+    {
+      ...satisfiedConditional,
+      condition: { ...satisfiedConditional.condition, verifiable: false },
+    },
+    {
+      ...satisfiedConditional,
+      condition: { ...satisfiedConditional.condition, objective: false },
+    },
+    {
+      ...satisfiedConditional,
+      condition: { ...satisfiedConditional.condition, subjective: true },
+    },
+    {
+      ...satisfiedConditional,
+      condition: { ...satisfiedConditional.condition, future: true },
+    },
+  ]) {
+    assert.deepEqual(runAuthorityContractScenario([invalidConditional]).authorized, []);
+  }
+  assert.deepEqual(
+    runAuthorityContractScenario([
+      grantPublish,
+      {
+        ...satisfiedConditional,
+        condition: { ...satisfiedConditional.condition, satisfied: false },
+      },
+    ]).authorized,
+    [],
+  );
+  const broadPublish = {
+    ...publish,
+    scope: "public registry all tags",
+    scopeGroup: "npm-public-registry",
+  };
+  const overlappingConditional = {
+    ...satisfiedConditional,
+    actions: [
+      {
+        ...publish,
+        scope: "public registry latest tag",
+        scopeGroup: "npm-public-registry",
+      },
+    ],
+    condition: { ...satisfiedConditional.condition, satisfied: false },
+  };
+  assert.deepEqual(
+    runAuthorityContractScenario([
+      { ...grantPublish, actions: [broadPublish] },
+      overlappingConditional,
+    ]).authorized,
+    [],
+  );
+
+  const resolvedProposal = {
+    source: "assistant",
+    speechAct: "execution-proposal",
+    single: true,
+    concrete: true,
+    resolved: true,
+    alternatives: false,
+    attempt: publish.attempt,
+    actions: [publish],
+  };
+  assert.deepEqual(
+    runAuthorityContractScenario([
+      resolvedProposal,
+      { source: "current-user", speechAct: "assent", unambiguous: true },
+    ]).authorized,
+    [publishKey],
+  );
+  assert.deepEqual(
+    runAuthorityContractScenario([
+      resolvedProposal,
+      { source: "current-user", speechAct: "status" },
+      { source: "current-user", speechAct: "assent", unambiguous: true },
+    ]).authorized,
+    [],
+  );
+  assert.deepEqual(
+    runAuthorityContractScenario([
+      { ...resolvedProposal, alternatives: true },
+      { source: "current-user", speechAct: "assent", unambiguous: true },
+    ]).authorized,
+    [],
+  );
+  assert.deepEqual(
+    runAuthorityContractScenario([
+      resolvedProposal,
+      { source: "current-user", speechAct: "assent", unambiguous: false },
+    ]).authorized,
+    [],
+  );
+  assert.deepEqual(
+    runAuthorityContractScenario([
+      { ...resolvedProposal, resolved: false },
+      { source: "current-user", speechAct: "assent", unambiguous: true },
+    ]).authorized,
+    [],
+  );
+
+  const otherwiseValidGrant = {
+    affirmative: true,
+    actNow: true,
+    attempt: publish.attempt,
+    actions: [publish],
+  };
+  for (const nonAuthority of [
+    { ...otherwiseValidGrant, source: "current-user", speechAct: "question" },
+    { ...otherwiseValidGrant, source: "current-user", speechAct: "plan" },
+    { ...otherwiseValidGrant, source: "current-user", speechAct: "quote" },
+    { ...otherwiseValidGrant, source: "current-user", speechAct: "inference" },
+    {
+      ...otherwiseValidGrant,
+      source: "current-user",
+      trusted: false,
+      speechAct: "imperative",
+    },
+    { ...otherwiseValidGrant, source: "task", speechAct: "imperative" },
+    { ...otherwiseValidGrant, source: "ci", speechAct: "imperative" },
+    { ...otherwiseValidGrant, source: "docs", speechAct: "imperative" },
+    { ...otherwiseValidGrant, source: "metadata", speechAct: "imperative" },
+  ]) {
+    assert.deepEqual(runAuthorityContractScenario([nonAuthority]).authorized, []);
+  }
+
+  for (const categoryAction of distinctCategoryActions) {
+    const categoryGrant = {
+      source: "current-user",
+      speechAct: "imperative",
+      affirmative: true,
+      actNow: true,
+      attempt: categoryAction.attempt,
+      actions: [categoryAction],
+    };
+    assert.deepEqual(runAuthorityContractScenario([categoryGrant]).authorized, [
+      authorityBoundaryKey(categoryAction),
+    ]);
+  }
+
+  const separated = runAuthorityContractScenario([
+    { ...grantPublish, actions: [publish, tag] },
+    {
+      source: "current-user",
+      speechAct: "revocation",
+      attempt: tag.attempt,
+      matches: [tag],
+    },
+  ]);
+  assert.deepEqual(separated.snapshots[0].authorized, [tagKey, publishKey].sort());
+  assert.deepEqual(separated.authorized, [publishKey]);
+
+  const combinedSuffix =
+    "run only focused checks; then publish kyw-dev@0.1.4 to npm now";
+  const combinedInvocation = parseTaskInvocation(`$kyw-impl 0080 ${combinedSuffix}`);
+  assert.equal(combinedInvocation.recognized, true);
+  assert.equal(combinedInvocation.taskId, "0080");
+  assert.equal(combinedInvocation.overrideText, combinedSuffix);
+  const combined = classifyCombinedSuffixScenario(
+    combinedInvocation,
+    new Map([[publish.target, publish]]),
+  );
+  assert.deepEqual(
+    combined.classifications,
+    [
+      { kind: "TASK_OVERRIDE", text: "run only focused checks" },
+      {
+        kind: "EXTERNAL_AUTHORITY",
+        text: "then publish kyw-dev@0.1.4 to npm now",
+      },
+    ],
+  );
+  assert.deepEqual(combined.taskOverrides, ["run only focused checks"]);
+  assert.equal(combined.overrideClassification, "TASK_OVERRIDE_PRESENT");
+  assert.deepEqual(
+    evaluateTaskExecutionPreflight({
+      overrideClassification: combined.overrideClassification,
+    }),
+    {
+      safe: true,
+      issues: [],
+      overrideClassification: "TASK_OVERRIDE_PRESENT",
+    },
+  );
+  assert.deepEqual(
+    runAuthorityContractScenario(combined.authorityTurns).authorized,
+    [publishKey],
+  );
+  assert.equal(combined.routingDecisions, 1);
+  assert.deepEqual(combined.redispatchCandidates, []);
+
+  const externalOnlyInvocation = parseTaskInvocation(
+    "$kyw-impl 0080 then publish kyw-dev@0.1.4 to npm now",
+  );
+  const externalOnly = classifyCombinedSuffixScenario(
+    externalOnlyInvocation,
+    new Map([[publish.target, publish]]),
+  );
+  assert.deepEqual(externalOnly.taskOverrides, []);
+  assert.equal(externalOnly.overrideClassification, "NO_TASK_OVERRIDE");
+  assert.deepEqual(
+    evaluateTaskExecutionPreflight({
+      overrideClassification: externalOnly.overrideClassification,
+    }),
+    {
+      safe: true,
+      issues: [],
+      overrideClassification: "NO_TASK_OVERRIDE",
+    },
+  );
+
+  const contradictoryInvocation = parseTaskInvocation(
+    "$kyw-impl 0080 run only focused checks; publish kyw-dev@0.1.4 to npm now but do not publish kyw-dev@0.1.4",
+  );
+  const contradictory = classifyCombinedSuffixScenario(
+    contradictoryInvocation,
+    new Map([[publish.target, publish]]),
+  );
+  assert.deepEqual(
+    contradictory.classifications.map(({ kind }) => kind),
+    ["TASK_OVERRIDE", "AMBIGUOUS_CONFLICT"],
+  );
+  assert.deepEqual(
+    runAuthorityContractScenario([grantPublish, ...contradictory.authorityTurns])
+      .authorized,
+    [],
+  );
+  assert.equal(contradictory.routingDecisions, 1);
+  assert.deepEqual(contradictory.redispatchCandidates, []);
+
+  const secondTarget = {
+    ...publish,
+    target: "other-package@0.1.4",
+    attempt: "publish-2",
+  };
+  assert.deepEqual(
+    runAuthorityContractScenario([
+      grantPublish,
+      { ...grantPublish, actions: [secondTarget] },
+    ]).authorized,
+    [authorityBoundaryKey(secondTarget), publishKey].sort(),
+  );
+
+  assert.deepEqual(
+    runAuthorityContractScenario([
+      grantPublish,
+      { speechAct: "attempt-terminal", attempt: publish.attempt },
+      { source: "current-user", speechAct: "status" },
+    ]).authorized,
+    [],
+  );
+  assert.deepEqual(
+    runAuthorityContractScenario([
+      grantPublish,
+      { speechAct: "attempt-terminal", attempt: publish.attempt },
+      grantPublish,
+    ]).authorized,
+    [],
+  );
+  const publishNewAttempt = { ...publish, attempt: "publish-2" };
+  assert.deepEqual(
+    runAuthorityContractScenario([
+      grantPublish,
+      { speechAct: "attempt-terminal", attempt: publish.attempt },
+      grantPublish,
+      {
+        ...grantPublish,
+        attempt: publishNewAttempt.attempt,
+        actions: [publishNewAttempt],
+      },
+    ]).authorized,
+    [authorityBoundaryKey(publishNewAttempt)],
+  );
+  assert.deepEqual(
+    runAuthorityContractScenario([
+      grantPublish,
+      {
+        speechAct: "target-scope-drift",
+        attempt: publish.attempt,
+        matches: [publish],
+      },
+    ]).authorized,
+    [],
+  );
+  assert.deepEqual(
+    runAuthorityContractScenario([
+      grantPublish,
+      {
+        speechAct: "target-scope-drift",
+        attempt: publish.attempt,
+        matches: [publish],
+      },
+      grantPublish,
+    ]).authorized,
+    [],
+  );
+});
+
 test("README puts installation, explicit Skills, first use, and current status before maintainer detail", async () => {
   const readme = await read("README.md");
   const orderedMarkers = [
@@ -256,7 +1191,7 @@ test("README puts installation, explicit Skills, first use, and current status b
     /No version tag, GitHub Release, or public plugin submission has occurred/,
   );
   assert.match(readme, /npx --yes kyw-dev@0\.1\.3 install --scope user/);
-  assert.match(readme, /requires separate explicit authority/);
+  assert.match(readme, /needs its own direct action-specific authority/);
   assert.doesNotMatch(readme, /\bTask 0\d{3}\b|READY_FOR_APPROVAL|UNCHANGED at the audited point/);
   assert.doesNotMatch(readme, /^### Grilling evaluation harness$/m);
   assert.doesNotMatch(readme, /^### Audit behavior smoke$/m);
@@ -290,7 +1225,15 @@ test("permanent truth separates credential-free CI, manual OIDC publication, and
   assert.match(readme, /public repository receives npm provenance automatically/);
   assert.match(
     readme,
-    /Routine release preflight[\s\S]*without `npm login`, OTP, security-key authentication, account-settings inspection, or `npm trust list`[\s\S]*initial setup[\s\S]*security\/configuration audit or change[\s\S]*actual OIDC\/publisher failure/,
+    /Routine release preflight[\s\S]*(?:without|Neither needs) `npm login`, OTP, security-key authentication, account-settings inspection, or `npm trust list`[\s\S]*initial setup[\s\S]*security\/configuration audit or change[\s\S]*actual OIDC\/publisher failure/,
+  );
+  assert.match(
+    readme,
+    /Routine release preflight validates (?:the )?expected tuple and exact workflow bytes; only (?:the )?authorized workflow validates public package identity and target-version absence/,
+  );
+  assert.doesNotMatch(
+    readme,
+    /Routine release preflight[^.;]*target-version absence/i,
   );
   assert.match(
     readme,
@@ -503,9 +1446,12 @@ test("routine Task workflows index owners before targeted reads and escalate onl
       /Always load applicable `AGENTS\.md` and the selected\/current Task\/Test pair/,
     );
     assert.match(projection, /Index or search README, SPEC, and ARCHITECTURE first/);
-    assert.match(projection, /read only owner sections selected by Goal, scope/);
-    assert.match(projection, /Read all four permanent documents for `kyw-init`, rebaseline/);
-    assert.match(projection, /Stop if a conflict remains unresolved/);
+    assert.match(projection, /read only owner sections selected by [Gg]oal, scope/);
+    assert.match(
+      projection,
+      /Read all four(?: permanent documents)? for `kyw-init`, rebaseline/,
+    );
+    assert.match(projection, /[Ss]top (?:if|on) (?:a )?unresolved conflict/);
   }
 
   for (const workflow of [task, execution, audit]) {

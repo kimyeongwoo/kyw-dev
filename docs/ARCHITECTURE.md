@@ -55,7 +55,10 @@ The five user-visible Skills—`kyw-grilling`, `kyw-init`, `kyw-task`,
 `kyw-impl`, and `kyw-audit`—disable implicit invocation. A managed
 `AGENTS.md` may route only the three exact existing-Task aliases to
 `kyw-impl`; that repository projection does not enable general implicit Skill
-matching. Ordinary prompts remain ordinary.
+matching. Skill routing and mutation authority are separate inputs: affirmative
+act-now directives from the trusted current user may authorize their named
+actions without invoking a Skill, while ordinary prose never selects a Skill by
+resemblance.
 
 ### A-03 — Progressive, fail-closed context loading
 
@@ -124,6 +127,7 @@ minimal projection needed before that owner can be loaded.
 | Rule family | Canonical owner | Permitted projection |
 |---|---|---|
 | Observable product and acceptance contracts | `docs/SPEC.md` | Concise purpose, invocation, and current status in README |
+| Direct user mutation authority and action granularity | `docs/SPEC.md` | Concise user/repository guardrails in README and AGENTS/template; clause-flow projection here and in `kyw-impl` execution surfaces |
 | Stable components, dependency direction, flows, and distribution structure | `docs/ARCHITECTURE.md` | Short repository-map links in README |
 | Repository routing, preservation, progressive loading, evidence honesty, and completion | Root `AGENTS.md` | Canonical generated `AGENTS.md` template |
 | New Task/Test authoring | `skills/kyw-task/SKILL.md` | Invocation and outcome summaries only |
@@ -314,12 +318,13 @@ in-flight or unproven transaction, so a partial prefix cannot become dispatchabl
 ### 5.3 Existing-Task implementation
 
 ```text
-explicit existing-Task invocation
+explicit existing-Task invocation (+ optional action-specific user authority)
    → repository, pair, dependency, immutable-terminal, and preflight validation
    → queue-derived prior STANDARD set
    → aligned-main checkpoint trust + exact covered-prefix evaluation
    → zero or one local ancestry / fresh GitHub hardened evaluation
    → read-only checkpoint transition preparation
+   → executor suffix classification + closed terminal override flag
    → one generic dispatcher call with no Task-ID or migration intercept
    → IMPLEMENT | RESUME | DELIVER
    → selected active Task branch + atomic/idempotent transition application
@@ -333,8 +338,16 @@ explicit existing-Task invocation
 Resume treats recorded completion as a claim and continues from verified
 handoff state. A selected Task may change only its pair, required
 implementation/tests/configuration, and permanent owners whose meaning changes.
-Ordinary declared delivery authority does not cross publication, force,
-destructive, bypass, rerun, or unrelated-mutation boundaries.
+Invocation selects the workflow; direct user authority may arrive before or
+after it and stays within its named action, target, scope, and current attempt.
+The adapter preserves an invocation suffix as `overrideText` transport. Before
+the sole dispatcher call, the executor classifies each clause as a Task
+method/order/scope/check override, a separate external-action grant,
+revocation/narrowing, or non-authoritative text. It passes only the closed
+Task-override-present/absent terminal flag through preflight; missing or invalid
+classification stays fail-closed. Dispatcher routing remains singular, and
+classification never redispatches or chains. Other actions retain the granular
+boundaries in SPEC Section 6.3.
 
 ### 5.4 `STANDARD` delivery
 
@@ -630,7 +643,7 @@ Stable checking, one real candidate, composite Release verification, and
 credential-free exact-SHA CI are the required non-publishing evidence
 boundaries. The standard npm dry run is optional. Actual registry publication,
 version change, tag, GitHub Release, or public plugin submission requires
-separate authority plus fresh public-registry, repository-owned
+separate action- and attempt-specific direct user authority plus fresh public-registry, repository-owned
 publisher-expectation, and exact-workflow verification. Routine release
 preflight does not authenticate to npm account/settings surfaces. Account-side
 authentication exists only for initial setup, an explicitly authorized
@@ -786,8 +799,15 @@ and historical Task/Test evidence.
 - Temporary/evaluator/release state is removed only when its exact owned root is
   proved; a broad home, repository, Skills, or cache root is never a recursive
   cleanup target.
+- For a new mutation, only the latest applicable trusted-current-user
+  affirmative act-now directive grants authority; a later prohibition,
+  cancellation, revocation, or scope reduction controls. A status question
+  grants nothing and does not silently revoke an executing attempt. Routing,
+  static policy, and other untrusted input do not grant authority; assent
+  requires one immediately prior fully resolved proposal.
 - GitHub delivery authority is limited to the selected Task's declared ordinary
-  lifecycle. It does not imply publication or administrative override.
+  lifecycle. It does not imply publication, retry/fallback, force, account
+  change, deletion, or administrative override.
 
 ## 11. Portability and isolation trade-offs
 

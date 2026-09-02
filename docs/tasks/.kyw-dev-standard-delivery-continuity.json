@@ -3,26 +3,26 @@
   "kind": "KYW_STANDARD_DELIVERY_CONTINUITY",
   "repository": "kimyeongwoo/kyw-dev",
   "baseRef": "main",
-  "sourceMainSha": "ae2ca0e23e8bcbf3beb53b9bb659c2358b67d60a",
-  "coveredMainSha": "ae2ca0e23e8bcbf3beb53b9bb659c2358b67d60a",
+  "sourceMainSha": "dee58b1d652bd30709a9dd493c7a322563c79d04",
+  "coveredMainSha": "89cfa1c49dffe304535d28a8bac207351be8908a",
   "deliveryContract": {
     "kind": "HARDENED_EXACT_HEAD",
     "version": 2
   },
   "coverage": {
-    "taskCount": 45,
-    "lastTaskId": "0077",
-    "orderedTaskSetSha256": "d8afa92025dcb61d70927cf730f47a1b9872095d270eccc0afd5b11ad80a7f21",
-    "terminalPairStateSha256": "469511172c8e85063c91dd3272a65837faab7d18d7ef6326bfed0bed356b188a",
-    "cumulativeEvidenceSha256": "d27bf123eda472d7cd0c507a418020b9d89e5a7ecf67e6d6d46b99c514fe2846"
+    "taskCount": 46,
+    "lastTaskId": "0079",
+    "orderedTaskSetSha256": "bc8baa647e634a1f3dd51e41b714c76e57db1951a95ba9218163bee223c16ea0",
+    "terminalPairStateSha256": "bdbd561b1ec68610693dfa97aa8cf7797b6a880703130939acccbaad460fe0fa",
+    "cumulativeEvidenceSha256": "869511e2c24ceda82afd758362174829f6542c50fa31dfabafa8e6b6d01d2dc5"
   },
-  "previousCheckpointDigest": "a41e4a6a075d9aaf9170dcdea8b3ca3099883d82edac0216664d63c05dfb7d4e",
+  "previousCheckpointDigest": "755fdc165f7f98ea3f8f853b8bbe5cd26c604dafa2b35c6760b66f4dff6f4bb7",
   "transition": {
-    "taskId": "0077",
+    "taskId": "0079",
     "classification": "HARDENED_EXACT_HEAD",
-    "outcomeSha": "7910edaf44c38d1a28ddc855892b5b31b2055e42",
-    "mergeSha": "ae2ca0e23e8bcbf3beb53b9bb659c2358b67d60a",
-    "evidenceSha256": "a757bd85d178e8f411b143c5b0fd3b1edb5921049e08e84375dfe8740d208d71"
+    "outcomeSha": "2535d110e8f20894daf33d841690b38907ab1744",
+    "mergeSha": "89cfa1c49dffe304535d28a8bac207351be8908a",
+    "evidenceSha256": "0994e96725bf1107ffd64019ccd50240926cdab3dca1508a368ac86fc43bccdd"
   },
-  "checkpointDigest": "755fdc165f7f98ea3f8f853b8bbe5cd26c604dafa2b35c6760b66f4dff6f4bb7"
+  "checkpointDigest": "375df4bc3d59d3eb7035785b22ad67b814d9da74cfd2eed29e187a6c80c44e11"
 }

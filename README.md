@@ -27,7 +27,7 @@ Use one source for each managed Skill name. Keeping direct and plugin copies tog
 | `$kyw-audit` | `$kyw-audit 0007` | Independently verify one Task without writes; only `$kyw-audit 0007 --fix` permits bounded repair. |
 | `$kyw-grilling` | `$kyw-grilling "stress-test this design"` | Run the read-only, one-question-at-a-time decision interview without creating files. |
 
-All five packaged Skills disable implicit invocation. Use the explicit `$skill-name` form on every surface. Only a loaded kyw-managed `AGENTS.md` may additionally route the three anchored existing-Task aliases described below.
+All five packaged Skills disable implicit invocation. Explicit Skill syntax selects a workflow; it is routing, not an authorization token. Only a loaded kyw-managed `AGENTS.md` may also route the three existing-Task aliases below.
 
 ```text
 Idea or major redesign
@@ -45,7 +45,7 @@ Implement → synchronize durable truth → verify → deliver
 $kyw-audit NNNN
 ```
 
-Questions and small, clearly bounded changes do not require a Task folder. They still follow the documentation-impact and verification rules in `AGENTS.md`.
+Questions and small, clearly bounded fixes need no Task folder; they still follow `AGENTS.md`. For a new mutation, the latest relevant trusted-current-user affirmative act-now request authorizes only its named action, target, scope, and current attempt, without a special phrase or duplicate confirmation. Prohibitions and later cancellation/revocation/scope reduction win, while questions/status/plans and quoted, static, inferred, or untrusted content grant nothing; referential assent and conditions follow the fail-closed contract in [SPEC](docs/SPEC.md#63-ordinary-prompts).
 
 ## Release status
 
@@ -53,7 +53,7 @@ Version `0.1.3` is the current source/package release and public `latest`; it im
 
 `kyw-dev@0.1.3` is published to the public npm registry under the `latest` tag; historical versions `0.1.0` through `0.1.2` remain available. Its single authorized publication used the GitHub Actions trusted publisher from the exact Git checkout, so canonical version metadata exposes a `gitHead` field matching the published source commit and carries npm registry signatures plus SLSA provenance bound to the exact workflow and commit. Historical `0.1.2` retains its original signature and provenance, but its immutable canonical metadata lacks `gitHead` because that release published a prebuilt tarball. No version tag, GitHub Release, or public plugin submission has occurred.
 The separate `.github/workflows/publish.yml` maintainer workflow is manual-only and is validated against the repository-owned expected publisher `GitHub Actions / kimyeongwoo/kyw-dev / publish.yml / npm-production`. It accepts a literal current `main` SHA and expected package/plugin version; fails closed on any repository, event, ref, input/event/checkout SHA, runtime, public-registry identity, target-version-absence, or clean-checkout mismatch; then publishes the exact real Git checkout directory once with job-scoped OIDC permission for one tokenless, OTP-free attempt. Required candidate and exact-SHA CI evidence stays outside this workflow. A successful actual publish is the runtime proof that npm accepted that identity, and a public-package publish from this public repository receives npm provenance automatically.
-Merging the workflow, passing credential-free exact-SHA CI, packing a candidate, or completing the optional `npm run release:check` neither dispatches nor authorizes it. Routine release preflight validates the expected tuple and exact workflow bytes, while the authorized workflow validates public package identity and target-version absence, without `npm login`, OTP, security-key authentication, account-settings inspection, or `npm trust list`; account-side authentication is reserved for initial setup, an explicitly authorized security/configuration audit or change, or investigation after an actual OIDC/publisher failure. Each publication or other registry/version/tag/Release/submission mutation still requires separate explicit authority.
+Merging the workflow, passing credential-free exact-SHA CI, packing a candidate, or completing `npm run release:check` neither dispatches nor authorizes it. Routine release preflight validates the expected tuple and exact workflow bytes; only the authorized workflow validates public package identity and target-version absence. Neither needs `npm login`, OTP, security-key authentication, account-settings inspection, or `npm trust list`; account authentication is reserved for initial setup, a directly authorized security/configuration audit or change, or actual OIDC/publisher failure. Each publication/version/tag/Release/submission or registry, retry/fallback, force/destructive, bypass/admin/account, or deletion action needs its own direct action-specific authority; failure grants no retry and one action never implies another.
 
 Source: [kimyeongwoo/kyw-dev](https://github.com/kimyeongwoo/kyw-dev) · Issues: [GitHub issue tracker](https://github.com/kimyeongwoo/kyw-dev/issues)
 
@@ -99,8 +99,8 @@ rewritten or reclassified.
 
 A selected `IMPLEMENT`, `RESUME`, or `DELIVER` result authorizes ordinary Task delivery: exact-path commit, non-force push,
 non-draft PR, exact-head CI observation, expected-head protected merge, post-merge CI observation, and terminal reporting.
-Publication, registry mutation, version/tag/Release changes, public submission, force or destructive operations, workflow reruns,
-bypasses, branch deletion, and unrelated changes remain separate authority boundaries.
+Direct authority for another action may arrive before or after selection without repeating `$kyw-impl`; it remains bounded by
+the named action, target, scope, and attempt under [SPEC](docs/SPEC.md).
 
 Product behavior is owned by [SPEC](docs/SPEC.md), repository invariants by [AGENTS](AGENTS.md), system boundaries by [ARCHITECTURE](docs/ARCHITECTURE.md), and the detailed implementation procedure by [`kyw-impl`](skills/kyw-impl/references/execution.md).
 
