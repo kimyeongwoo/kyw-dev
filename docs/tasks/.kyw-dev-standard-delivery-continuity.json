@@ -3,26 +3,26 @@
   "kind": "KYW_STANDARD_DELIVERY_CONTINUITY",
   "repository": "kimyeongwoo/kyw-dev",
   "baseRef": "main",
-  "sourceMainSha": "dee58b1d652bd30709a9dd493c7a322563c79d04",
-  "coveredMainSha": "89cfa1c49dffe304535d28a8bac207351be8908a",
+  "sourceMainSha": "14fcf53498cdb091f357f47041e6faf4a428b28f",
+  "coveredMainSha": "14fcf53498cdb091f357f47041e6faf4a428b28f",
   "deliveryContract": {
     "kind": "HARDENED_EXACT_HEAD",
     "version": 2
   },
   "coverage": {
-    "taskCount": 46,
-    "lastTaskId": "0079",
-    "orderedTaskSetSha256": "bc8baa647e634a1f3dd51e41b714c76e57db1951a95ba9218163bee223c16ea0",
-    "terminalPairStateSha256": "bdbd561b1ec68610693dfa97aa8cf7797b6a880703130939acccbaad460fe0fa",
-    "cumulativeEvidenceSha256": "869511e2c24ceda82afd758362174829f6542c50fa31dfabafa8e6b6d01d2dc5"
+    "taskCount": 47,
+    "lastTaskId": "0080",
+    "orderedTaskSetSha256": "e2a8b3eb54a2837088a49e34c40b4b60136436d932c7e706c068e0d919ee1c62",
+    "terminalPairStateSha256": "993126091d5b214078c153e41c057a594bbd092b1784a35eea4c43db93ef13ee",
+    "cumulativeEvidenceSha256": "41f0058b4cca43b808f35e3dc19a3720d3afd961e19b1560b22c88206cdb3e5a"
   },
-  "previousCheckpointDigest": "755fdc165f7f98ea3f8f853b8bbe5cd26c604dafa2b35c6760b66f4dff6f4bb7",
+  "previousCheckpointDigest": "375df4bc3d59d3eb7035785b22ad67b814d9da74cfd2eed29e187a6c80c44e11",
   "transition": {
-    "taskId": "0079",
+    "taskId": "0080",
     "classification": "HARDENED_EXACT_HEAD",
-    "outcomeSha": "2535d110e8f20894daf33d841690b38907ab1744",
-    "mergeSha": "89cfa1c49dffe304535d28a8bac207351be8908a",
-    "evidenceSha256": "0994e96725bf1107ffd64019ccd50240926cdab3dca1508a368ac86fc43bccdd"
+    "outcomeSha": "774060c7fae884bedd418bf106b3af6c50068d88",
+    "mergeSha": "14fcf53498cdb091f357f47041e6faf4a428b28f",
+    "evidenceSha256": "683402b3763112f4d423c7754dd6b2bb78119ccd3bc5c46861ea25cefeb4982f"
   },
-  "checkpointDigest": "375df4bc3d59d3eb7035785b22ad67b814d9da74cfd2eed29e187a6c80c44e11"
+  "checkpointDigest": "9f9aea3e204a9f984afb7a7ddb2657b1b1c84928117eefadf120741964579d1c"
 }

@@ -1,6 +1,6 @@
 {
   "name": "kyw-dev",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "A spec-driven development workflow plugin for Codex.",
   "private": false,
   "keywords": [
