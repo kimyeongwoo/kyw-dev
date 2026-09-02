@@ -16,7 +16,7 @@ Accept only existing-Task execution forms:
 
 Keep `allow_implicit_invocation: false`. The Korean forms are anchored repository routing, not Skill matching. Match the complete command plus optional current-user text; incidental “task” prose is not an invocation. Without managed routing, return `$kyw-impl NNNN`.
 
-A goal, missing ID, or new outcome causes zero mutation and exact `$kyw-task "<outcome>"` guidance. Never infer or allocate an ID, create a directory/pair, author or promote DRAFT, or invoke another Skill.
+Only an attempted `$kyw-impl` with a goal/missing ID/new outcome causes zero mutation and points to `$kyw-task "<outcome>"`. Standalone ordinary instructions stay outside and are not redirected. Never infer/allocate IDs, create pairs, author/promote DRAFT, or invoke another Skill.
 
 ## Shared entry and procedure
 
@@ -44,6 +44,8 @@ Automatic and continuous forms never allocate. Continuous mode re-preflights and
 
 Only `IMPLEMENT`, `RESUME`, or `DELIVER` enters the reference's one-current-Task mutation and ordinary `STANDARD` lifecycle without ceremonial confirmation.
 
-Publication, registry/version/tag/Release/public submission, force/destructive recovery, branch deletion, CI rerun, bypass/admin override, and unrelated mutation stay separate. Conflict, unexplained work, remote drift, failed required evidence, review blockage, or a user-owned decision stops.
+Direct user mutation authority is separate from Skill routing. Classify before/after/same-message action clauses per the execution reference; never redispatch. `overrideText` is transport, not permission.
+
+Publication/registry/version/tag/Release/submission, retry/fallback, force/destructive, deletion/rerun, bypass/admin/account, and unrelated mutation stay separate; failure grants no retry. Conflict, unexplained work, drift, failed evidence/review, or user choice stops.
 
 Never perform the independent audit owned by `$kyw-audit`.

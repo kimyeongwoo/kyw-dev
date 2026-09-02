@@ -446,7 +446,13 @@ function deliveryEvidenceBlockedResult(task, classification) {
   );
 }
 
-function terminalTaskResult(task, byId, deliveryState, parsedInvocation) {
+function terminalTaskResult(
+  task,
+  byId,
+  deliveryState,
+  parsedInvocation,
+  overrideClassification,
+) {
   if (completeTask(task)) {
     const dependencyBlockers = selectionBlockers(task, byId, deliveryState);
     if (dependencyBlockers.length > 0) {
@@ -467,7 +473,9 @@ function terminalTaskResult(task, byId, deliveryState, parsedInvocation) {
       task.contractVersion,
     );
     const correctionIntent =
-      immutableTerminal && Boolean(parsedInvocation.overrideText?.trim());
+      immutableTerminal &&
+      Boolean(parsedInvocation.overrideText?.trim()) &&
+      overrideClassification !== "NO_TASK_OVERRIDE";
     const correctionRoute = '$kyw-task "<correction outcome>"';
     return Object.freeze({
       outcome: "TERMINAL",
@@ -486,6 +494,9 @@ function terminalTaskResult(task, byId, deliveryState, parsedInvocation) {
       mergeCompatibilityEvidence: classification.mergeCompatibility,
       postMergeEvidence: classification.postMerge,
       mutationRequired: false,
+      overrideText: parsedInvocation.overrideText,
+      overrideScope: parsedInvocation.overrideScope,
+      overrideClassification,
       ...(immutableTerminal
         ? {
             terminalPairImmutable: true,
@@ -695,7 +706,13 @@ export async function resolveTaskDispatch({
         ? selectedResult(task, parsedInvocation)
         : selectionBlockedResult(task, blockers);
     }
-    return terminalTaskResult(task, byId, deliveryState, parsedInvocation);
+    return terminalTaskResult(
+      task,
+      byId,
+      deliveryState,
+      parsedInvocation,
+      preflight.overrideClassification,
+    );
   }
 
   if (active.length === 1) {

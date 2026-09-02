@@ -262,6 +262,7 @@ export const PERMANENT_DOCUMENT_BUDGET_CHANGE_MARKER =
 
 export const REQUIRED_INSTRUCTION_RULE_FAMILY_IDS = Object.freeze([
   "five-skills-explicit-invocation",
+  "direct-user-mutation-authority",
   "grilling-procedure",
   "initialization-procedure",
   "task-authoring-procedure",
@@ -299,6 +300,76 @@ export const PERMANENT_RULE_FAMILIES = deepFreeze([
       })),
     ],
     forbiddenDetailedAnchors: [],
+  },
+  {
+    id: "direct-user-mutation-authority",
+    owner: {
+      path: "docs/SPEC.md",
+      anchors: [
+        pattern("Skill invocation and mutation authority are separate channels"),
+        pattern("latest relevant directive from the trusted current user"),
+        pattern("negative imperative or prohibition is never a grant"),
+        pattern("conditional instruction grants authority only"),
+        pattern("appended text is preserved as `overrideText` transport"),
+        pattern("Before terminal dispatch, the executor passes only whether"),
+        pattern("(?:failed attempt|failure) grants no retry", "i"),
+      ],
+    },
+    projections: [
+      {
+        path: "README.md",
+        anchors: [
+          pattern("routing, not an authorization token"),
+          pattern("latest relevant trusted-current-user affirmative act-now request"),
+        ],
+      },
+      {
+        path: "AGENTS.md",
+        anchors: [
+          pattern("Skill syntax governs routing, not authorization"),
+          pattern("latest relevant trusted-current-user affirmative act-now instruction"),
+        ],
+      },
+      {
+        path: "templates/project/AGENTS.md",
+        anchors: [
+          pattern("Skill syntax governs routing, not authorization"),
+          pattern("latest relevant trusted-current-user affirmative act-now instruction"),
+        ],
+      },
+      {
+        path: "docs/ARCHITECTURE.md",
+        anchors: [
+          pattern("Skill routing and mutation authority are separate inputs"),
+          pattern("latest applicable trusted-current-user"),
+          pattern("Task-override-present/absent terminal flag"),
+        ],
+      },
+      {
+        path: "skills/kyw-impl/SKILL.md",
+        anchors: [
+          pattern("Direct user mutation authority is separate from Skill routing"),
+          pattern("`overrideText` is transport, not permission"),
+        ],
+      },
+      {
+        path: "skills/kyw-impl/references/execution.md",
+        anchors: [
+          pattern("Mutation authority is a separate channel"),
+          pattern("`overrideText` preserves suffix transport"),
+          pattern("TASK_OVERRIDE_PRESENT.*NO_TASK_OVERRIDE"),
+          pattern("latest applicable directive from the trusted current user"),
+        ],
+      },
+    ],
+    forbiddenDetailedAnchors: [
+      pattern("Referential assent such as “do that” counts only", "i"),
+      pattern("A conditional instruction grants authority only", "i"),
+      pattern("appended text is preserved as `overrideText` transport", "i"),
+      pattern("overlapping older authority does not revive", "i"),
+      pattern("single, concrete, fully resolved as to action, target, and scope", "i"),
+      pattern("success, failure, cancellation, or target/scope drift ends the current attempt", "i"),
+    ],
   },
   {
     id: "grilling-procedure",
@@ -617,7 +688,7 @@ export const PERMANENT_RULE_FAMILIES = deepFreeze([
       path: "docs/SPEC.md",
       anchors: [
         pattern("npm publish", "i"),
-        pattern("separate explicit", "i"),
+        pattern("direct action-specific user authority", "i"),
       ],
     },
     projections: [
@@ -625,16 +696,16 @@ export const PERMANENT_RULE_FAMILIES = deepFreeze([
         path: "README.md",
         anchors: [
           pattern("Version `0\\.1\\.3`"),
-          pattern("requires separate explicit authority"),
+          pattern("needs its own direct action-specific authority"),
         ],
       },
       {
         path: "AGENTS.md",
-        anchors: [pattern("Publication, registry/version/tag/Release/public submission")],
+        anchors: [pattern("Publication/registry/version/tag/Release/public submission")],
       },
       {
         path: "templates/project/AGENTS.md",
-        anchors: [pattern("Publication, registry/version/tag/Release/public submission")],
+        anchors: [pattern("Publication/registry/version/tag/Release/(?:public )?submission")],
       },
       {
         path: "docs/ARCHITECTURE.md",
@@ -642,11 +713,11 @@ export const PERMANENT_RULE_FAMILIES = deepFreeze([
       },
       {
         path: "skills/kyw-impl/SKILL.md",
-        anchors: [pattern("Publication, registry/version/tag/Release/public submission")],
+        anchors: [pattern("Publication/registry/version/tag/Release/submission")],
       },
       {
         path: "skills/kyw-impl/references/execution.md",
-        anchors: [pattern("Publication/registry/version/tag/Release/public submission")],
+        anchors: [pattern("External categories stay separate"), pattern("failure grants no retry")],
       },
     ],
     forbiddenDetailedAnchors: [],
