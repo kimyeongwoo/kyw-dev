@@ -238,7 +238,7 @@ are:
 - foundation and instruction-surface validation;
 - Task/runtime and installer unit/integration tests;
 - direct behavioral acceptance fixtures;
-- package and isolated marketplace checks;
+- package, real-tarball, and installation checks;
 - optional model-backed grilling/audit evaluators;
 - verification planning and hosted CI.
 
@@ -604,10 +604,10 @@ metadata. It is not discoverable as another Skill.
 ### 8.2 Plugin package and cache
 
 The npm tarball is also a complete Codex plugin with a manifest and bundled
-Skills. A marketplace may acquire those bytes from npm or GitHub. Per-version
-release verification uses the real packed archive through an isolated local
-marketplace before registry mutation. Plugin and direct installation are
-alternatives; duplicate discovery is diagnosed rather than silently resolved.
+Skills. A marketplace may acquire those bytes from npm or GitHub. Package
+selection and real-tarball inspection verify the plugin inventory, while
+installation behavior is tested separately. Plugin and direct installation
+are alternatives; duplicate discovery is diagnosed rather than silently resolved.
 
 Plugins are supported by plugin-capable Codex surfaces. The IDE extension uses
 direct Skills. The public package identity, plugin identity, CLI version, and
@@ -626,14 +626,16 @@ and no installation or publication lifecycle script.
 ### 8.4 Publication boundary
 
 Package metadata may be publishable while publication remains unauthorized.
-Candidate packing, CI, isolated installation, and registry dry-run are distinct
-non-publishing evidence boundaries. Actual registry publication, version
-change, tag, GitHub Release, or public plugin submission requires separate
-authority plus fresh public-registry, repository-owned publisher-expectation,
-and exact-workflow verification. Routine release preflight does not authenticate
-to npm account/settings surfaces. Account-side authentication exists only for
-initial setup, an explicitly authorized security/configuration audit or change,
-or investigation after an actual OIDC/publisher failure.
+Stable checking, one real candidate, composite Release verification, and
+credential-free exact-SHA CI are the required non-publishing evidence
+boundaries. The standard npm dry run is optional. Actual registry publication,
+version change, tag, GitHub Release, or public plugin submission requires
+separate authority plus fresh public-registry, repository-owned
+publisher-expectation, and exact-workflow verification. Routine release
+preflight does not authenticate to npm account/settings surfaces. Account-side
+authentication exists only for initial setup, an explicitly authorized
+security/configuration audit or change, or investigation after an actual
+OIDC/publisher failure.
 
 ### 8.5 Trusted publication workflow
 
@@ -648,17 +650,16 @@ repository, `main` ref, input/event/checkout SHA, package/plugin version,
 runtime, and public registry identity guards stop before publication on any
 mismatch.
 
-The packed-release verifier has two boundaries over the same validation:
-ordinary release checking creates and removes a disposable archive, while the
-workflow mode retains exactly one archive under a physically contained owned
-temporary root and returns bounded machine-readable identity and digest fields.
-The workflow passes the independent candidate evidence through the Stable gate
-and a fresh registry-absence check, reconfirms the clean exact checkout, and
-publishes that real Git directory once with `npm publish .`; the retained
-candidate remains the byte expectation for later public-tarball proof and is
-then removed by guarded owned-root cleanup. It introduces no token fallback,
-account-authentication branch, retry, second dispatch, dist-tag, tag, Release,
-or reusable trigger.
+`release:candidate` uses the packed-release verifier to create and inspect one
+real archive, return bounded identity and digest fields, and remove its
+disposable owned temporary state. `release:ci` composes Stable and candidate
+verification outside the publication workflow. That workflow does not rerun
+Stable, create or retain a candidate, clean candidate state, or invoke the
+optional dry run. After its
+intrinsic identity and version-absence guards and final clean-checkout check, it
+publishes the exact real Git directory once with `npm publish .`. It introduces
+no token fallback, account-authentication branch, retry, second dispatch,
+dist-tag, tag, Release, or reusable trigger.
 
 OIDC exchanges the GitHub identity for a short-lived npm publishing credential;
 no long-lived npm token or interactive OTP crosses the workflow boundary.
@@ -710,6 +711,8 @@ paths and returns, but does not execute, one ordered cumulative tier:
 Mixed or unknown inputs fail upward, never downward. Current Task/Test paths do
 not lower or inflate implementation risk. Planning cannot replace
 acceptance-specific checks or hosted exact-SHA delivery evidence.
+Release-sensitive paths and explicit candidate intent select exactly
+`npm run release:ci`; the optional dry run is not registered or planned.
 
 ### 9.3 Hosted CI
 
@@ -720,15 +723,16 @@ checkout assertions, and immutable external Action identities.
 Behavioral coverage runs `npm test` on Node.js 22 and 24 across Linux, macOS,
 and Windows, plus one bounded Linux Node.js 26 compatibility lane. One Ubuntu
 Node.js 24 quality job owns platform-independent lint, format, and package
-selection; a separate packed job creates and inspects one real archive. Pull
+selection; a separate packed job invokes `npm run release:candidate` once to
+create and inspect one real archive. Pull
 requests also run the distinct synthetic merge-compatibility job, which proves
 the exact synthetic/base/head identities and ordered two-parent shape before
 the complete combined-state check. An aggregate required job reports only
 after the event-appropriate roles succeed.
 
 Public CI contains no npm publication, tag, Release, merge automation, model
-authentication, or desktop-only requirement. Exact-head PR and post-merge
-`main` evidence remains required even when local checks pass.
+authentication, optional dry run, or desktop-only requirement. Exact-head PR
+and post-merge `main` evidence remains required even when local checks pass.
 
 The separately authorized trusted-publication workflow is not a CI or delivery
 job, has no automatic trigger, and cannot publish merely because `ci.yml` or a
@@ -738,14 +742,13 @@ merge succeeds.
 
 Stable verification checks the working tree and package selection. Candidate
 verification creates one real archive and binds its inventory, hygiene, legal
-content, CLI smoke, npm integrity/shasum, and SHA-256. The disposable command
-cleans its archive; the publication workflow retains independently verified
-candidate bytes only in its owned temporary root while publishing the exact
-checkout directory, then uses their digests for later public-byte comparison
-and guarded cleanup.
-Isolated lifecycle verification exercises direct and plugin paths under owned
-temporary state while protecting normal user state. A registry dry-run is a
-later distinct boundary.
+content, CLI smoke, npm integrity/shasum, and SHA-256, then cleans its disposable
+archive. `release:ci` is exactly Stable plus candidate verification. Together,
+`npm run check`, one real `npm run release:candidate`, and `npm run release:ci`
+form the complete required local graph. `release:check` is only the optional
+thin `npm publish --dry-run --json` maintainer alias; the planner, CI, and
+publication workflow never invoke it, and it supplies no required evidence or
+publication authority.
 
 A development-only integration fixture creates and commits an owned temporary
 Git repository, invokes the actual npm CLI against an owned loopback registry,
@@ -754,25 +757,6 @@ directory publication supplies the exact commit as `gitHead` with bytes matching
 the candidate, while publishing the same prebuilt tarball cannot synthesize
 `gitHead`. Its isolated loopback auth value is not a production credential, and
 guards reject source-manifest fabrication or post-capture registry rewriting.
-
-The development-only manual runner requires a literal committed SHA, verifies
-the clean source without changing its Git metadata, materializes a separate
-detached checkout from committed objects, and projects an owned credential-free
-home, Codex, app-data, XDG, temporary, Git, and npm environment. It owns the
-outer one-shot gate and retained evidence. Its proof-gated harness remains the
-sole owner of command planning, npm provenance, raw-first child evidence,
-redaction, protected-state comparison, and the single `npm run release:check`
-child; direct actual mode without the runner proof stops before that child,
-while harmless self-test and dry validation remain available.
-
-Protected-state comparison stays fail-closed inside the hermetic roots.
-Interactive Codex and plugin-cache state is outside the child-addressable
-environment, so its churn is neither scanned nor reclassified. Evidence is
-preserved by default, and cleanup is limited to sealed identity-proved owned
-roots. Neither layer is a runtime component, release verdict, publication
-approval, retry system, or automatic repair service. Exact proof fields,
-environment inventories, path algorithms, and evidence formats stay in
-source/tests.
 
 ### 9.5 Optional evaluators
 

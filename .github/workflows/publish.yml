@@ -32,7 +32,7 @@ env:
 
 jobs:
   publish:
-    name: Publish exact npm candidate
+    name: Publish exact npm checkout
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: npm-production
@@ -171,67 +171,6 @@ jobs:
           );
           NODE
 
-      - name: Run stable repository gate
-        run: npm run check
-
-      - name: Create and verify one retained candidate
-        id: candidate
-        shell: bash
-        env:
-          EXPECTED_SHA: ${{ inputs.expected_sha }}
-          EXPECTED_VERSION: ${{ inputs.expected_version }}
-        run: |
-          set -euo pipefail
-          candidate_json="$(node ./scripts/packed-release-check.mjs --retain-candidate)"
-          CANDIDATE_JSON="$candidate_json" node --input-type=module <<'NODE'
-          import { appendFileSync, lstatSync } from "node:fs";
-          import { dirname, isAbsolute, join, resolve } from "node:path";
-
-          const candidate = JSON.parse(process.env.CANDIDATE_JSON);
-          const expectedVersion = process.env.EXPECTED_VERSION;
-          if (
-            candidate.schemaVersion !== 1 ||
-            candidate.kind !== "KYW_PACKED_RELEASE_CANDIDATE" ||
-            candidate.retained !== true ||
-            candidate.name !== "kyw-dev" ||
-            candidate.version !== expectedVersion ||
-            candidate.filename !== `kyw-dev-${expectedVersion}.tgz` ||
-            candidate.fileCount !== 43 ||
-            !Number.isSafeInteger(candidate.size) ||
-            candidate.size <= 0 ||
-            !Number.isSafeInteger(candidate.unpackedSize) ||
-            candidate.unpackedSize <= 0 ||
-            !/^[a-f0-9]{40}$/.test(candidate.shasum) ||
-            !/^[a-f0-9]{64}$/.test(candidate.sha256) ||
-            !/^sha512-[A-Za-z0-9+/]+={0,2}$/.test(candidate.integrity)
-          ) {
-            throw new Error("Retained candidate metadata is invalid");
-          }
-          if (
-            !isAbsolute(candidate.ownedRoot) ||
-            !isAbsolute(candidate.archivePath) ||
-            dirname(candidate.archivePath) !== join(candidate.ownedRoot, "pack") ||
-            resolve(candidate.archivePath) !== candidate.archivePath
-          ) {
-            throw new Error("Retained candidate path is unsafe");
-          }
-          const archive = lstatSync(candidate.archivePath);
-          if (!archive.isFile() || archive.isSymbolicLink() || archive.size !== candidate.size) {
-            throw new Error("Retained candidate archive identity changed");
-          }
-          const outputs = {
-            owned_root: candidate.ownedRoot,
-            sha256: candidate.sha256,
-          };
-          for (const [name, value] of Object.entries(outputs)) {
-            if (/[\r\n]/.test(value)) throw new Error(`Unsafe candidate output ${name}`);
-            appendFileSync(process.env.GITHUB_OUTPUT, `${name}=${value}\n`);
-          }
-          console.log(
-            `KYWPUBLISHEVIDENCE schema=1 stage=candidate expected_sha=${process.env.EXPECTED_SHA} package=${candidate.name} version=${candidate.version} filename=${candidate.filename} files=${candidate.fileCount} size=${candidate.size} integrity=${candidate.integrity} shasum=${candidate.shasum} sha256=${candidate.sha256}`,
-          );
-          NODE
-
       - name: Require registry version absence
         env:
           EXPECTED_VERSION: ${{ inputs.expected_version }}
@@ -274,12 +213,7 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
           test -z "$(git status --porcelain --untracked-files=all)"
+          test ! -e .npmrc
 
       - name: Publish the exact checkout directory through OIDC
         run: npm publish . --access public --ignore-scripts --registry=https://registry.npmjs.org/
-
-      - name: Remove the retained candidate
-        if: ${{ always() && steps.candidate.outputs.owned_root != '' }}
-        env:
-          CANDIDATE_ROOT: ${{ steps.candidate.outputs.owned_root }}
-        run: node ./scripts/packed-release-check.mjs --cleanup-candidate "$CANDIDATE_ROOT"
