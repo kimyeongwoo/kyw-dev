@@ -170,7 +170,7 @@ Prove immutable terminal delivery behavior.
 
 ## Discoveries and Changes
 
-- The fixture uses one protected merge.
+- The fixture uses one expected-head PR merge.
 
 ## Documentation Impact
 
@@ -957,28 +957,62 @@ test("current delivery probe preserves safe PR resume and rejects latest failure
     },
   });
 
-  const stageCache = ({ localHead = headSha, remoteHead = headSha } = {}) => ({
-    ...commandCache,
-    async run(request) {
-      const key = request.args.join("\u0000");
-      if (key === "rev-parse\u0000HEAD") {
-        return { status: 0, stdout: `${localHead}\n`, stderr: "" };
-      }
-      if (
-        key ===
-        `ls-remote\u0000--heads\u0000origin\u0000refs/heads/${branch}`
-      ) {
-        return {
-          status: 0,
-          stdout: remoteHead
-            ? `${remoteHead}\trefs/heads/${branch}\n`
-            : "",
-          stderr: "",
-        };
-      }
-      return commandCache.run(request);
-    },
-  });
+  const pairStatusKey = [
+    "status",
+    "--porcelain=v1",
+    "--untracked-files=all",
+    "--",
+    `:(glob)docs/tasks/${selected.id}-*/TASK.md`,
+    `:(glob)docs/tasks/${selected.id}-*/TEST.md`,
+  ].join("\u0000");
+  const stageCache = ({
+    localHead = headSha,
+    remoteHead = headSha,
+    pairStatus = "",
+    unscopedWorktreeStatus = "",
+  } = {}) => {
+    const ancestryQueries = [];
+    const statusQueries = [];
+    return {
+      ...commandCache,
+      ancestryQueries,
+      statusQueries,
+      async run(request) {
+        const key = request.args.join("\u0000");
+        if (key === "rev-parse\u0000HEAD") {
+          return { status: 0, stdout: `${localHead}\n`, stderr: "" };
+        }
+        if (
+          key ===
+          `ls-remote\u0000--heads\u0000origin\u0000refs/heads/${branch}`
+        ) {
+          return {
+            status: 0,
+            stdout: remoteHead
+              ? `${remoteHead}\trefs/heads/${branch}\n`
+              : "",
+            stderr: "",
+          };
+        }
+        if (key === pairStatusKey) {
+          statusQueries.push(key);
+          return { status: 0, stdout: pairStatus, stderr: "" };
+        }
+        if (key === "status\u0000--porcelain=v1\u0000--untracked-files=all") {
+          statusQueries.push(key);
+          return { status: 0, stdout: unscopedWorktreeStatus, stderr: "" };
+        }
+        if (key.startsWith("merge-base\u0000--is-ancestor\u0000")) {
+          ancestryQueries.push(key);
+          return { status: 0, stdout: "", stderr: "" };
+        }
+        if (key === `show\u0000${localHead}:.github/workflows/ci.yml`) {
+          return { status: 0, stdout: workflowText, stderr: "" };
+        }
+        return commandCache.run(request);
+      },
+    };
+  };
   for (const [expectedStage, cache] of [
     ["COMMIT", stageCache({ localHead: mainSha, remoteHead: null })],
     ["PUSH", stageCache({ remoteHead: null })],
@@ -992,6 +1026,134 @@ test("current delivery probe preserves safe PR resume and rejects latest failure
     });
     assert.equal(staged.diagnostics.stage, expectedStage);
   }
+
+  const dirtyExistingPullRequest = await probeCurrentStandardDeliveryState({
+    tasksRoot: REPOSITORY_TASKS_ROOT,
+    task: selected,
+    commandCache: stageCache({
+      pairStatus: " M docs/tasks/0084-fixture/TASK.md\n",
+    }),
+    githubClient: client(),
+  });
+  assert.equal(dirtyExistingPullRequest.diagnostics.stage, "COMMIT");
+
+  const unrelatedOnlyCache = stageCache({
+    unscopedWorktreeStatus: "?? unrelated-user-note.txt\n",
+  });
+  const unrelatedOnlyWork = await probeCurrentStandardDeliveryState({
+    tasksRoot: REPOSITORY_TASKS_ROOT,
+    task: selected,
+    commandCache: unrelatedOnlyCache,
+    githubClient: client(),
+  });
+  assert.equal(unrelatedOnlyWork.diagnostics.stage, "OBSERVE_ACTUAL_HEAD_CI");
+  assert.deepEqual(unrelatedOnlyCache.statusQueries, [pairStatusKey]);
+
+  const repairedHead = "d".repeat(40);
+  const existingPullRequestUpdateCache = stageCache({ localHead: repairedHead });
+  const existingPullRequestUpdate = await probeCurrentStandardDeliveryState({
+    tasksRoot: REPOSITORY_TASKS_ROOT,
+    task: selected,
+    commandCache: existingPullRequestUpdateCache,
+    githubClient: client(),
+  });
+  assert.equal(existingPullRequestUpdate.diagnostics.stage, "PUSH");
+  assert.ok(
+    existingPullRequestUpdateCache.ancestryQueries.includes(
+      `merge-base\u0000--is-ancestor\u0000${headSha}\u0000${repairedHead}`,
+    ),
+  );
+
+  const repairedHeadWithoutPullRequest = await probeCurrentStandardDeliveryState({
+    tasksRoot: REPOSITORY_TASKS_ROOT,
+    task: selected,
+    commandCache: stageCache({ localHead: repairedHead }),
+    githubClient: client({ pullRequests: [] }),
+  });
+  assert.equal(repairedHeadWithoutPullRequest.diagnostics.stage, "PUSH");
+
+  const dirtyRepairedHead = await probeCurrentStandardDeliveryState({
+    tasksRoot: REPOSITORY_TASKS_ROOT,
+    task: selected,
+    commandCache: stageCache({
+      localHead: repairedHead,
+      pairStatus: " M docs/tasks/0084-fixture/TEST.md\n",
+    }),
+    githubClient: client(),
+  });
+  assert.equal(dirtyRepairedHead.diagnostics.stage, "COMMIT");
+
+  const summaryDrifts = [
+    (candidate) => {
+      candidate.draft = true;
+    },
+    (candidate) => {
+      candidate.state = "closed";
+    },
+    (candidate) => {
+      candidate.merged = true;
+    },
+    (candidate) => {
+      candidate.head.sha = "e".repeat(40);
+    },
+    (candidate) => {
+      candidate.head.ref = "task/other";
+    },
+    (candidate) => {
+      candidate.head.repo.full_name = "other/repository";
+    },
+    (candidate) => {
+      candidate.base.sha = "e".repeat(40);
+    },
+    (candidate) => {
+      candidate.base.ref = "trunk";
+    },
+    (candidate) => {
+      candidate.base.repo.full_name = "other/repository";
+    },
+  ];
+  for (const drift of summaryDrifts) {
+    const unusablePullRequest = structuredClone(pullRequest);
+    drift(unusablePullRequest);
+    for (const cache of [
+      stageCache({ localHead: repairedHead }),
+      stageCache({
+        pairStatus: " M docs/tasks/0084-fixture/TASK.md\n",
+      }),
+    ]) {
+      await assert.rejects(
+        probeCurrentStandardDeliveryState({
+          tasksRoot: REPOSITORY_TASKS_ROOT,
+          task: selected,
+          commandCache: cache,
+          githubClient: client({ pullRequestState: unusablePullRequest }),
+        }),
+        /CURRENT_PULL_REQUEST/,
+      );
+    }
+  }
+
+  const divergentRepairCache = {
+    ...stageCache({ localHead: repairedHead }),
+    async run(request) {
+      if (
+        request.args.join("\u0000") ===
+        `merge-base\u0000--is-ancestor\u0000${headSha}\u0000${repairedHead}`
+      ) {
+        return { status: 1, stdout: "", stderr: "" };
+      }
+      return stageCache({ localHead: repairedHead }).run(request);
+    },
+  };
+  await assert.rejects(
+    probeCurrentStandardDeliveryState({
+      tasksRoot: REPOSITORY_TASKS_ROOT,
+      task: selected,
+      commandCache: divergentRepairCache,
+      githubClient: client(),
+    }),
+    /remote selected head diverges from the local selected head/,
+  );
 
   for (const [stage, cache] of [
     ["PUSH", stageCache({ remoteHead: null })],
@@ -1998,7 +2160,7 @@ test("future terminal history rejects committed mutation even after byte reversi
   );
 });
 
-test("protected merge source branch has one leading Task identity", () => {
+test("expected-head PR merge source branch has one leading Task identity", () => {
   const parents = ["a".repeat(40), "b".repeat(40)];
   for (const [subject, expected] of [
     [
@@ -2094,7 +2256,7 @@ test("protected merge source branch has one leading Task identity", () => {
   }
 });
 
-test("PR #60-isomorphic protected merge ignores a later Task token in its slug", async (t) => {
+test("PR #60-isomorphic expected-head merge ignores a later Task token in its slug", async (t) => {
   const fixture = await futureTerminalFixture(t, { taskId: "0070" });
   const branch = "task/0072-retire-consumed-task-0070-rebaseline-shim";
   const subject = `Merge pull request #60 from kimyeongwoo/${branch}`;
@@ -2139,7 +2301,7 @@ test("future terminal history rejects a second Task-scoped delivery graph", asyn
       error.code === "FUTURE_TERMINAL_PAIR_IMMUTABLE" &&
       error.message.includes("docs/tasks/0070-immutable/TASK.md") &&
       error.message.includes(mergeSha) &&
-      /another Task-scoped protected merge/.test(error.message) &&
+      /another Task-scoped PR merge/.test(error.message) &&
       error.message.includes('$kyw-task "<correction outcome>"') &&
       error.message.includes("hard-depend on Task 0070"),
   );
@@ -3267,6 +3429,9 @@ test("current delivery probe reaches reviewed clean merge resume after exact CI 
       repo: { full_name: fixture.repository },
     },
   };
+  const pullRequestSummary = structuredClone(pullRequest);
+  delete pullRequestSummary.mergeable;
+  delete pullRequestSummary.mergeable_state;
   let currentReviews = [];
   let latestAttemptOverride;
   const githubCallOrder = [];
@@ -3281,7 +3446,13 @@ test("current delivery probe reaches reviewed clean merge resume after exact CI 
       };
     },
     async listPullRequests() {
-      return [structuredClone(pullRequest)];
+      return [structuredClone(pullRequestSummary)];
+    },
+    async getPullRequest(number, context) {
+      githubCallOrder.push("pull-detail");
+      assert.equal(number, fixture.outcome.pullRequestNumber);
+      assert.equal(context.role, "CURRENT_PULL_REQUEST");
+      return structuredClone(pullRequest);
     },
     async listReviews() {
       githubCallOrder.push("reviews");
@@ -3369,6 +3540,10 @@ test("current delivery probe reaches reviewed clean merge resume after exact CI 
       .review,
     "PENDING",
   );
+  assert.equal(
+    githubCallOrder.filter((call) => call === "pull-detail").length,
+    0,
+  );
 
   latestAttemptOverride = {
     ...fixture.prHistory.attempts.at(-1),
@@ -3430,8 +3605,16 @@ test("current delivery probe reaches reviewed clean merge resume after exact CI 
   });
   assert.equal(current.diagnostics.stage, "MERGE_EXPECTED_HEAD");
   assert.equal(githubCallOrder.filter((call) => call === "reviews").length, 1);
+  assert.equal(
+    githubCallOrder.filter((call) => call === "pull-detail").length,
+    1,
+  );
   assert.ok(
     githubCallOrder.lastIndexOf("reviews") >
+      githubCallOrder.lastIndexOf("jobs"),
+  );
+  assert.ok(
+    githubCallOrder.lastIndexOf("pull-detail") >
       githubCallOrder.lastIndexOf("jobs"),
   );
   assert.equal(
@@ -3476,9 +3659,11 @@ test("current delivery probe reaches reviewed clean merge resume after exact CI 
     /CHANGES_REQUESTED/,
   );
   currentReviews = [];
-  for (const [mergeable, mergeableState] of [
-    [true, "has_hooks"],
-    [false, "blocked"],
+  for (const [mergeable, mergeableState, diagnosticState] of [
+    [true, "has_hooks", "has_hooks"],
+    [false, "blocked", "blocked"],
+    [null, "unknown", "unknown"],
+    [undefined, undefined, "UNKNOWN"],
   ]) {
     pullRequest.mergeable = mergeable;
     pullRequest.mergeable_state = mergeableState;
@@ -3491,11 +3676,123 @@ test("current delivery probe reaches reviewed clean merge resume after exact CI 
       }),
       (error) =>
         error.code === "DELIVERY_BLOCKED" &&
-        new RegExp(`not safely mergeable \\(${mergeableState}\\)`).test(
+        new RegExp(`not safely mergeable \\(${diagnosticState}\\)`).test(
           error.message,
         ),
     );
   }
+  pullRequest.mergeable = true;
+  pullRequest.mergeable_state = "clean";
+  pullRequest.number += 1;
+  await assert.rejects(
+    probeCurrentStandardDeliveryState({
+      tasksRoot: REPOSITORY_TASKS_ROOT,
+      task: task({ id: fixture.outcome.taskId, contractVersion: 3 }),
+      commandCache,
+      githubClient,
+    }),
+    /CURRENT_PULL_REQUEST: number must equal/,
+  );
+  pullRequest.number -= 1;
+  pullRequest.head.sha = "f".repeat(40);
+  await assert.rejects(
+    probeCurrentStandardDeliveryState({
+      tasksRoot: REPOSITORY_TASKS_ROOT,
+      task: task({ id: fixture.outcome.taskId, contractVersion: 3 }),
+      commandCache,
+      githubClient,
+    }),
+    /CURRENT_PULL_REQUEST: head SHA must equal/,
+  );
+  pullRequest.head.sha = fixture.outcome.outcomeSha;
+  pullRequest.head.ref = "task/other";
+  await assert.rejects(
+    probeCurrentStandardDeliveryState({
+      tasksRoot: REPOSITORY_TASKS_ROOT,
+      task: task({ id: fixture.outcome.taskId, contractVersion: 3 }),
+      commandCache,
+      githubClient,
+    }),
+    /CURRENT_PULL_REQUEST: head ref must equal/,
+  );
+  pullRequest.head.ref = fixture.outcome.headRef;
+  pullRequest.head.repo.full_name = "other/repository";
+  await assert.rejects(
+    probeCurrentStandardDeliveryState({
+      tasksRoot: REPOSITORY_TASKS_ROOT,
+      task: task({ id: fixture.outcome.taskId, contractVersion: 3 }),
+      commandCache,
+      githubClient,
+    }),
+    /CURRENT_PULL_REQUEST: head repository must equal/,
+  );
+  pullRequest.head.repo.full_name = fixture.repository;
+  pullRequest.base.sha = "f".repeat(40);
+  await assert.rejects(
+    probeCurrentStandardDeliveryState({
+      tasksRoot: REPOSITORY_TASKS_ROOT,
+      task: task({ id: fixture.outcome.taskId, contractVersion: 3 }),
+      commandCache,
+      githubClient,
+    }),
+    /CURRENT_PULL_REQUEST: base SHA must equal/,
+  );
+  pullRequest.base.sha = fixture.outcome.baseSha;
+  pullRequest.base.ref = "trunk";
+  await assert.rejects(
+    probeCurrentStandardDeliveryState({
+      tasksRoot: REPOSITORY_TASKS_ROOT,
+      task: task({ id: fixture.outcome.taskId, contractVersion: 3 }),
+      commandCache,
+      githubClient,
+    }),
+    /CURRENT_PULL_REQUEST: base ref must equal/,
+  );
+  pullRequest.base.ref = "main";
+  pullRequest.base.repo.full_name = "other/repository";
+  await assert.rejects(
+    probeCurrentStandardDeliveryState({
+      tasksRoot: REPOSITORY_TASKS_ROOT,
+      task: task({ id: fixture.outcome.taskId, contractVersion: 3 }),
+      commandCache,
+      githubClient,
+    }),
+    /CURRENT_PULL_REQUEST: base repository must equal/,
+  );
+  pullRequest.base.repo.full_name = fixture.repository;
+  pullRequest.draft = true;
+  await assert.rejects(
+    probeCurrentStandardDeliveryState({
+      tasksRoot: REPOSITORY_TASKS_ROOT,
+      task: task({ id: fixture.outcome.taskId, contractVersion: 3 }),
+      commandCache,
+      githubClient,
+    }),
+    /CURRENT_PULL_REQUEST: draft state must equal false/,
+  );
+  pullRequest.draft = false;
+  pullRequest.merged = true;
+  await assert.rejects(
+    probeCurrentStandardDeliveryState({
+      tasksRoot: REPOSITORY_TASKS_ROOT,
+      task: task({ id: fixture.outcome.taskId, contractVersion: 3 }),
+      commandCache,
+      githubClient,
+    }),
+    /requires one open, unmerged pull request/,
+  );
+  pullRequest.merged = false;
+  pullRequest.state = "closed";
+  await assert.rejects(
+    probeCurrentStandardDeliveryState({
+      tasksRoot: REPOSITORY_TASKS_ROOT,
+      task: task({ id: fixture.outcome.taskId, contractVersion: 3 }),
+      commandCache,
+      githubClient,
+    }),
+    /requires one open, unmerged pull request/,
+  );
+  pullRequest.state = "open";
 });
 
 test("complete hardened graph reaches the existing production evaluator", () => {

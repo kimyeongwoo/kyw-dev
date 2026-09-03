@@ -41,4 +41,4 @@ Cancellation, decline, ambiguity, intervention, staleness, fact drift, or change
 
 ## Stop and report
 
-Report Task ID, delivery disposition, exact completed and pending stage, bounded evidence identities or limitations, preservation result, and residual risk. Never write mutable GitHub chronology into the terminal pair or a permanent document. Stop after the terminal report; never invoke `$kyw-impl`, `$kyw-task`, or `$kyw-audit`.
+Report Task ID, delivery disposition, exact completed and pending stage, bounded evidence identities or limitations, observed base-protection disposition or inspection limitation, preservation result, and residual risk. Never write mutable GitHub chronology into the terminal pair or a permanent document. Stop after the terminal report; never invoke `$kyw-impl`, `$kyw-task`, or `$kyw-audit`.

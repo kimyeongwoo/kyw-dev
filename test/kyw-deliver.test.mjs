@@ -94,7 +94,7 @@ test("the canonical delivery procedure fixes safe ordering and exact identities"
     "### 4. actual-head exact-SHA CI observation",
     "### 5. synthetic merge compatibility",
     "### 6. review and mergeability",
-    "### 7. expected-head protected merge",
+    "### 7. expected-head PR merge",
     "### 8. post-main exact-SHA CI observation",
     "### 9. final report",
   ];
@@ -119,6 +119,87 @@ test("the canonical delivery procedure fixes safe ordering and exact identities"
   assert.match(delivery, /run-level latest attempt/);
   assert.match(delivery, /logical job's actual execution attempt/);
   assert.match(delivery, /job only at `refs\/pull\/<number>\/merge`[^.]*merge compatibility/i);
+});
+
+test("base protection is optional while existing rules and exact-head merge safety remain mandatory", async () => {
+  const delivery = await readFile(DELIVERY_REFERENCE_PATH, "utf8");
+
+  for (const disposition of ["PRESENT", "ABSENT", "UNKNOWN"]) {
+    assert.ok(delivery.includes("`" + disposition + "`"), disposition);
+  }
+  assert.match(delivery, /optional repository configuration and noncanonical report metadata/i);
+  assert.match(delivery, /GET \/repos\/\{owner\}\/\{repo\}\/rules\/branches\/\{branch\}/i);
+  assert.match(delivery, /includes active repository- and organization-level rules/i);
+  assert.match(delivery, /excludes evaluate, disabled, and non-targeting rules/i);
+  assert.match(delivery, /`ABSENT` requires[^.]*`protected: false`[^.]*complete successful empty/i);
+  assert.match(delivery, /A 403 or 404 alone, malformed or partial pagination[^.]*`UNKNOWN` and stops/i);
+  assert.match(delivery, /exact route already authorizes one merge attempt/i);
+  assert.match(delivery, /do not ask for duplicate kyw confirmation/i);
+  assert.match(delivery, /synchronous ordinary PR merge request/i);
+  assert.match(delivery, /expected head SHA and merge method `merge`/i);
+  assert.match(delivery, /GitHub must enforce every present rule/i);
+  assert.match(delivery, /Never push to the base directly/i);
+  assert.match(delivery, /enable auto-merge, enter a merge queue/i);
+  assert.match(delivery, /select squash\/rebase/i);
+  assert.match(delivery, /alter or bypass protection, use admin authority/i);
+  assert.match(delivery, /A rejected request is terminal for this invocation/i);
+  assert.match(delivery, /exactly two ordered parents equal to the expected base and head/i);
+  assert.match(delivery, /repeat the exact-base\/effective-rules reads/i);
+  assert.match(delivery, /Protection drift to `UNKNOWN` or to an unsatisfied `PRESENT`[^.]*stops before any request/i);
+  assert.match(delivery, /expected-head field is not an atomic base compare-and-swap/i);
+  assert.match(delivery, /ordered-parent postcondition detects but cannot prevent it/i);
+  assert.match(delivery, /do not repeat it or retroactively gate post-main observation on current protection/i);
+  assert.match(delivery, /report that limitation instead of inventing or relabeling it/i);
+  assert.match(delivery, /never changes evaluator, checkpoint, or Task\/Test schema/i);
+  assert.doesNotMatch(delivery, /expected-head protected merge|expected protected base|remote protected `main`/i);
+});
+
+test("protection inspection fixtures distinguish effective absence, inherited rules, and unknown reads", async () => {
+  const fixture = JSON.parse(await readFile(EXECUTION_SCENARIOS_PATH, "utf8"));
+  const cases = new Map(
+    fixture.protectionInspectionCases.map((entry) => [entry.name, entry]),
+  );
+
+  assert.deepEqual(
+    [...cases.keys()],
+    [
+      "exact-unprotected-empty-effective-rules",
+      "classic-protection-present",
+      "repository-ruleset-present",
+      "inherited-organization-ruleset-present",
+      "evaluate-disabled-and-other-branch-rules-are-not-effective",
+      "effective-rules-forbidden",
+      "exact-branch-not-found",
+      "effective-rules-partial-pagination",
+      "conflicting-protection-signals",
+    ],
+  );
+  assert.equal(
+    cases.get("exact-unprotected-empty-effective-rules").expectedDisposition,
+    "ABSENT",
+  );
+  assert.equal(cases.get("classic-protection-present").expectedDisposition, "PRESENT");
+  assert.deepEqual(
+    cases.get("inherited-organization-ruleset-present").effectiveRuleSources,
+    ["Organization"],
+  );
+  assert.equal(
+    cases.get("inherited-organization-ruleset-present").expectedDisposition,
+    "PRESENT",
+  );
+  assert.deepEqual(
+    cases.get("evaluate-disabled-and-other-branch-rules-are-not-effective")
+      .nonEffectiveRules,
+    ["evaluate", "disabled", "other-branch"],
+  );
+  for (const name of [
+    "effective-rules-forbidden",
+    "exact-branch-not-found",
+    "effective-rules-partial-pagination",
+    "conflicting-protection-signals",
+  ]) {
+    assert.equal(cases.get(name).expectedDisposition, "UNKNOWN", name);
+  }
 });
 
 test("kyw-deliver resumes without repeating or retrying external actions", async () => {
@@ -198,7 +279,11 @@ test("interrupted delivery fixtures resume only the first unfinished safe stage"
       "pr-head-ci-pending",
       "synthetic-merge-pending",
       "review-blocked",
-      "reviewed-merge-pending",
+      "protection-absent-merge-pending",
+      "protection-present-merge-pending",
+      "protection-unknown",
+      "protection-rule-blocked",
+      "protection-drift-before-merge",
       "merged-post-main-pending",
       "later-failed-attempt",
       "satisfied",
@@ -226,4 +311,43 @@ test("interrupted delivery fixtures resume only the first unfinished safe stage"
   assert.ok(failedAttempt.authoritativeFailedAttempt > failedAttempt.olderSuccessfulAttempt);
   assert.equal(failedAttempt.fallbackAllowed, false);
   assert.equal(failedAttempt.expectedNext, null);
+
+  const unprotected = fixture.scenarios.find(
+    ({ name }) => name === "protection-absent-merge-pending",
+  );
+  assert.equal(unprotected.protectionDisposition, "ABSENT");
+  assert.equal(unprotected.expectedNext, "MERGE_EXPECTED_HEAD");
+
+  const protectedReady = fixture.scenarios.find(
+    ({ name }) => name === "protection-present-merge-pending",
+  );
+  assert.equal(protectedReady.protectionDisposition, "PRESENT");
+  assert.equal(protectedReady.expectedNext, "MERGE_EXPECTED_HEAD");
+
+  for (const name of ["protection-unknown", "protection-rule-blocked"]) {
+    const blocked = fixture.scenarios.find((scenario) => scenario.name === name);
+    assert.equal(blocked.blocked, true, name);
+    assert.equal(blocked.expectedNext, null, name);
+    assert.equal(
+      blocked.protectionDisposition,
+      name === "protection-unknown" ? "UNKNOWN" : "PRESENT",
+      name,
+    );
+    assert.match(blocked.blocker, /protection/i, name);
+  }
+
+  const drift = fixture.scenarios.find(
+    ({ name }) => name === "protection-drift-before-merge",
+  );
+  assert.equal(drift.previousProtectionDisposition, "ABSENT");
+  assert.equal(drift.protectionDisposition, "UNKNOWN");
+  assert.equal(drift.mergeAttempted, false);
+  assert.equal(drift.expectedNext, null);
+
+  for (const name of ["merged-post-main-pending", "satisfied"]) {
+    const resumed = fixture.scenarios.find((scenario) => scenario.name === name);
+    assert.equal(resumed.protectionDisposition, null, name);
+    assert.equal(resumed.currentProtectionGatesResume, false, name);
+    assert.match(resumed.protectionReport, /merge-time disposition unavailable/i, name);
+  }
 });

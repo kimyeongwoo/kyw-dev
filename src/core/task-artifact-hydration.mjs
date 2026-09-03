@@ -1035,7 +1035,7 @@ async function discoverTaskOutcomeCandidatesAtPair({
           throw immutableTerminalPairError(
             task.id,
             relativePath,
-            `protected merge ${mergeSha} does not preserve the outcome terminal artifact mode and bytes`,
+            `expected-head PR merge ${mergeSha} does not preserve the outcome terminal artifact mode and bytes`,
           );
         }
       }
@@ -1048,7 +1048,7 @@ async function discoverTaskOutcomeCandidatesAtPair({
         throw hydrationError(
           task.id,
           "TERMINAL_PAIR_BINDING",
-          `protected merge ${mergeSha} does not preserve the exact terminal pair from outcome ${outcomeSha}`,
+          `expected-head PR merge ${mergeSha} does not preserve the exact terminal pair from outcome ${outcomeSha}`,
         );
       }
       terminalPair = Object.freeze({
@@ -1702,7 +1702,7 @@ function assertFutureTerminalOutcomeImmutable(task, outcome) {
     throw immutableTerminalPairError(
       task.id,
       drift.additionalDeliveries[0].path,
-      `another Task-scoped protected merge ${drift.additionalDeliveries[0].mergeSha} follows the canonical delivery`,
+      `another Task-scoped PR merge ${drift.additionalDeliveries[0].mergeSha} follows the canonical delivery`,
     );
   }
 }
@@ -2991,6 +2991,7 @@ function validateCurrentPullRequestSnapshot({
   if (!positiveInteger(pullRequest.number)) {
     throw hydrationError(outcome.taskId, role, "number must be a positive integer");
   }
+  exact(pullRequest.number, outcome.pullRequestNumber, outcome.taskId, role, "number");
   exact(pullRequest.headSha, outcome.outcomeSha, outcome.taskId, role, "head SHA");
   exact(pullRequest.headRef, outcome.headRef, outcome.taskId, role, "head ref");
   exact(
@@ -4705,6 +4706,24 @@ export async function probeCurrentStandardDeliveryState({
     { taskId: task.id, role: "CURRENT_DELIVERY_BRANCH" },
   );
   requireSha(localHeadSha, task.id, "CURRENT_DELIVERY_BRANCH", "local head");
+  // The canonical delivery preflight proves the complete selected path set and
+  // preserves unrelated work. The terminal pair is the bounded marker that a
+  // repository repair still needs its selected-Task commit; do not let other
+  // worktree changes move an already committed delivery back to COMMIT.
+  const selectedPairStatus = await gitPorcelainText(
+    commandCache,
+    identity.repositoryRoot,
+    [
+      "status",
+      "--porcelain=v1",
+      "--untracked-files=all",
+      "--",
+      `:(glob)docs/tasks/${task.id}-*/TASK.md`,
+      `:(glob)docs/tasks/${task.id}-*/TEST.md`,
+    ],
+    { taskId: task.id, role: "CURRENT_DELIVERY_PAIR" },
+  );
+  const hasPendingPairChanges = selectedPairStatus.length > 0;
   if (
     localHeadSha !== identity.currentMainSha &&
     !(await gitIsAncestor(
@@ -4796,9 +4815,25 @@ export async function probeCurrentStandardDeliveryState({
     }
     return resumableCurrentDeliverySnapshot({
       task,
-      stage: "PUSH",
+      stage: hasPendingPairChanges ? "COMMIT" : "PUSH",
       source: "CURRENT_DELIVERY_PROBE",
       commandCache,
+    });
+  }
+  const rawPullRequest = pullRequests[0];
+  if (rawPullRequest) {
+    validateCurrentPullRequestSnapshot({
+      outcome: Object.freeze({
+        taskId: task.id,
+        baseRef: "main",
+        baseSha: identity.currentMainSha,
+        outcomeSha: remoteHeadSha,
+        pullRequestNumber: Number(rawPullRequest.number),
+        headRef: branch,
+      }),
+      repository: identity.repository,
+      rawPullRequest,
+      reviews: undefined,
     });
   }
   if (remoteHeadSha !== localHeadSha) {
@@ -4816,21 +4851,22 @@ export async function probeCurrentStandardDeliveryState({
         "remote selected head diverges from the local selected head",
       );
     }
-    if (pullRequests.length > 0) {
-      throw hydrationError(
-        task.id,
-        "CURRENT_DELIVERY_REMOTE",
-        "pull-request history exists at a different remote selected head",
-      );
-    }
     return resumableCurrentDeliverySnapshot({
       task,
-      stage: "PUSH",
+      stage: hasPendingPairChanges ? "COMMIT" : "PUSH",
       source: "CURRENT_DELIVERY_PROBE",
       commandCache,
     });
   }
 
+  if (hasPendingPairChanges) {
+    return resumableCurrentDeliverySnapshot({
+      task,
+      stage: "COMMIT",
+      source: "CURRENT_DELIVERY_PROBE",
+      commandCache,
+    });
+  }
   if (pullRequests.length === 0) {
     return resumableCurrentDeliverySnapshot({
       task,
@@ -4839,7 +4875,6 @@ export async function probeCurrentStandardDeliveryState({
       commandCache,
     });
   }
-  const rawPullRequest = pullRequests[0];
   const outcome = Object.freeze({
     taskId: task.id,
     baseRef: "main",
@@ -4873,14 +4908,20 @@ export async function probeCurrentStandardDeliveryState({
       commandCache,
     });
   }
-  const reviews = await identity.githubClient.listReviews(rawPullRequest.number, {
-    taskId: task.id,
-    role: "CURRENT_PULL_REQUEST_REVIEWS",
-  });
+  const [rawDetailedPullRequest, reviews] = await Promise.all([
+    identity.githubClient.getPullRequest(outcome.pullRequestNumber, {
+      taskId: task.id,
+      role: "CURRENT_PULL_REQUEST",
+    }),
+    identity.githubClient.listReviews(outcome.pullRequestNumber, {
+      taskId: task.id,
+      role: "CURRENT_PULL_REQUEST_REVIEWS",
+    }),
+  ]);
   pullRequest = validateCurrentPullRequestSnapshot({
     outcome,
     repository: identity.repository,
-    rawPullRequest,
+    rawPullRequest: rawDetailedPullRequest,
     reviews,
   });
   const pullRequestStages = normalizeHardenedPullRequestStages({

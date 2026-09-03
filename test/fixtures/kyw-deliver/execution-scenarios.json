@@ -18,6 +18,98 @@
     "CREATE_PR",
     "MERGE_EXPECTED_HEAD"
   ],
+  "protectionInspectionCases": [
+    {
+      "name": "exact-unprotected-empty-effective-rules",
+      "branchStatus": 200,
+      "branchProtected": false,
+      "effectiveRulesStatus": 200,
+      "effectiveRulesPagesComplete": true,
+      "effectiveRuleSources": [],
+      "expectedDisposition": "ABSENT"
+    },
+    {
+      "name": "classic-protection-present",
+      "branchStatus": 200,
+      "branchProtected": true,
+      "effectiveRulesStatus": 200,
+      "effectiveRulesPagesComplete": true,
+      "effectiveRuleSources": [],
+      "expectedDisposition": "PRESENT"
+    },
+    {
+      "name": "repository-ruleset-present",
+      "branchStatus": 200,
+      "branchProtected": true,
+      "effectiveRulesStatus": 200,
+      "effectiveRulesPagesComplete": true,
+      "effectiveRuleSources": [
+        "Repository"
+      ],
+      "expectedDisposition": "PRESENT"
+    },
+    {
+      "name": "inherited-organization-ruleset-present",
+      "branchStatus": 200,
+      "branchProtected": true,
+      "effectiveRulesStatus": 200,
+      "effectiveRulesPagesComplete": true,
+      "effectiveRuleSources": [
+        "Organization"
+      ],
+      "expectedDisposition": "PRESENT"
+    },
+    {
+      "name": "evaluate-disabled-and-other-branch-rules-are-not-effective",
+      "branchStatus": 200,
+      "branchProtected": false,
+      "effectiveRulesStatus": 200,
+      "effectiveRulesPagesComplete": true,
+      "effectiveRuleSources": [],
+      "nonEffectiveRules": [
+        "evaluate",
+        "disabled",
+        "other-branch"
+      ],
+      "expectedDisposition": "ABSENT"
+    },
+    {
+      "name": "effective-rules-forbidden",
+      "branchStatus": 200,
+      "branchProtected": false,
+      "effectiveRulesStatus": 403,
+      "effectiveRulesPagesComplete": false,
+      "expectedDisposition": "UNKNOWN"
+    },
+    {
+      "name": "exact-branch-not-found",
+      "branchStatus": 404,
+      "effectiveRulesStatus": 200,
+      "effectiveRulesPagesComplete": true,
+      "effectiveRuleSources": [],
+      "expectedDisposition": "UNKNOWN"
+    },
+    {
+      "name": "effective-rules-partial-pagination",
+      "branchStatus": 200,
+      "branchProtected": false,
+      "effectiveRulesStatus": 200,
+      "effectiveRulesPagesComplete": false,
+      "effectiveRuleSources": [],
+      "expectedDisposition": "UNKNOWN"
+    },
+    {
+      "name": "conflicting-protection-signals",
+      "branchStatus": 200,
+      "branchProtected": false,
+      "effectiveRulesStatus": 200,
+      "effectiveRulesPagesComplete": true,
+      "effectiveRuleSources": [
+        "Organization"
+      ],
+      "expectedDisposition": "UNKNOWN"
+    }
+  ],
   "scenarios": [
     {
       "name": "pre-commit",
@@ -120,7 +212,7 @@
       ]
     },
     {
-      "name": "reviewed-merge-pending",
+      "name": "protection-absent-merge-pending",
       "completed": [
         "APPLY_PREDECESSOR_CONTINUITY",
         "COMMIT",
@@ -131,8 +223,100 @@
         "INSPECT_REVIEW_AND_MERGEABILITY"
       ],
       "pending": "MERGE_EXPECTED_HEAD",
+      "protectionDisposition": "ABSENT",
       "blocked": false,
       "expectedNext": "MERGE_EXPECTED_HEAD",
+      "mustNotRepeat": [
+        "APPLY_PREDECESSOR_CONTINUITY",
+        "COMMIT",
+        "PUSH",
+        "CREATE_PR"
+      ]
+    },
+    {
+      "name": "protection-present-merge-pending",
+      "completed": [
+        "APPLY_PREDECESSOR_CONTINUITY",
+        "COMMIT",
+        "PUSH",
+        "CREATE_PR",
+        "OBSERVE_ACTUAL_HEAD_CI",
+        "OBSERVE_MERGE_COMPATIBILITY",
+        "INSPECT_REVIEW_AND_MERGEABILITY"
+      ],
+      "pending": "MERGE_EXPECTED_HEAD",
+      "protectionDisposition": "PRESENT",
+      "blocked": false,
+      "expectedNext": "MERGE_EXPECTED_HEAD",
+      "mustNotRepeat": [
+        "APPLY_PREDECESSOR_CONTINUITY",
+        "COMMIT",
+        "PUSH",
+        "CREATE_PR"
+      ]
+    },
+    {
+      "name": "protection-unknown",
+      "completed": [
+        "APPLY_PREDECESSOR_CONTINUITY",
+        "COMMIT",
+        "PUSH",
+        "CREATE_PR",
+        "OBSERVE_ACTUAL_HEAD_CI",
+        "OBSERVE_MERGE_COMPATIBILITY"
+      ],
+      "pending": "INSPECT_REVIEW_AND_MERGEABILITY",
+      "protectionDisposition": "UNKNOWN",
+      "blocked": true,
+      "blocker": "effective base protection cannot be established",
+      "expectedNext": null,
+      "mustNotRepeat": [
+        "APPLY_PREDECESSOR_CONTINUITY",
+        "COMMIT",
+        "PUSH",
+        "CREATE_PR"
+      ]
+    },
+    {
+      "name": "protection-rule-blocked",
+      "completed": [
+        "APPLY_PREDECESSOR_CONTINUITY",
+        "COMMIT",
+        "PUSH",
+        "CREATE_PR",
+        "OBSERVE_ACTUAL_HEAD_CI",
+        "OBSERVE_MERGE_COMPATIBILITY"
+      ],
+      "pending": "INSPECT_REVIEW_AND_MERGEABILITY",
+      "protectionDisposition": "PRESENT",
+      "blocked": true,
+      "blocker": "an existing protection rule is not satisfied",
+      "expectedNext": null,
+      "mustNotRepeat": [
+        "APPLY_PREDECESSOR_CONTINUITY",
+        "COMMIT",
+        "PUSH",
+        "CREATE_PR"
+      ]
+    },
+    {
+      "name": "protection-drift-before-merge",
+      "completed": [
+        "APPLY_PREDECESSOR_CONTINUITY",
+        "COMMIT",
+        "PUSH",
+        "CREATE_PR",
+        "OBSERVE_ACTUAL_HEAD_CI",
+        "OBSERVE_MERGE_COMPATIBILITY",
+        "INSPECT_REVIEW_AND_MERGEABILITY"
+      ],
+      "pending": "MERGE_EXPECTED_HEAD",
+      "previousProtectionDisposition": "ABSENT",
+      "protectionDisposition": "UNKNOWN",
+      "blocked": true,
+      "blocker": "protection changed or became unreadable at final revalidation",
+      "mergeAttempted": false,
+      "expectedNext": null,
       "mustNotRepeat": [
         "APPLY_PREDECESSOR_CONTINUITY",
         "COMMIT",
@@ -153,6 +337,9 @@
         "MERGE_EXPECTED_HEAD"
       ],
       "pending": "OBSERVE_POST_MAIN_CI",
+      "protectionDisposition": null,
+      "protectionReport": "merge-time disposition unavailable after resume",
+      "currentProtectionGatesResume": false,
       "blocked": false,
       "expectedNext": "OBSERVE_POST_MAIN_CI",
       "mustNotRepeat": [
@@ -199,6 +386,9 @@
         "OBSERVE_POST_MAIN_CI"
       ],
       "pending": "REPORT",
+      "protectionDisposition": null,
+      "protectionReport": "merge-time disposition unavailable for immutable report-only result",
+      "currentProtectionGatesResume": false,
       "blocked": false,
       "expectedNext": "REPORT",
       "mustNotRepeat": [

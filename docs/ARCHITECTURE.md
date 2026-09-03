@@ -393,13 +393,24 @@ synthetic merge compatibility
       parents, then runs the complete combined-state check
 
 final reviewed merge
-   └─ expected PR head merges to the protected base
+   └─ one ordinary request merges the expected head to the base while
+      honoring any existing protection
 
 post-merge main
    ├─ every required behavioral job asserts the merge SHA
    ├─ one quality job asserts the merge SHA
    └─ the packed job asserts the merge SHA
 ```
+
+Base-protection inspection stays in the delivery Skill rather than hydration
+or the evaluator. It combines the exact branch `protected` flag with the
+complete branch-effective active repository/organization rules result:
+false/empty is `ABSENT`, a consistent positive signal is `PRESENT`, and an
+inaccessible, partial, malformed, or conflicting read is `UNKNOWN`. Absence
+permits the ordinary expected-head merge, present rules remain enforced, and
+unknown blocks before merge. The disposition is noncanonical report metadata,
+never graph/checkpoint/pair state; post-merge resume does not reconstruct it
+from current protection or repeat the proven merge.
 
 Each role is bound to repository, workflow, the run-level latest attempt, each
 logical job's authoritative execution attempt, and distinct numeric execution
@@ -426,7 +437,7 @@ self-coverage guards. It is not a dispatch option, source-repair path, or
 Task-ID exception.
 
 For artifact contract 3, the first evaluator-satisfied hardened graph is the
-only delivery graph for its Task. The protected merge tree binds the exact
+only delivery graph for its Task. The expected-head merge tree binds the exact
 terminal Task/Test paths, regular-file Git modes, and canonical blob bytes.
 Fresh uncovered evaluation and checkpoint-covered closure apply the same rule
 against aligned-main history, the current index, filesystem type/mode, and raw
@@ -436,7 +447,7 @@ history provide the binding; there is no PR-chain array, correction receipt
 collection, second checkpoint, or alternate ledger.
 
 Redelivery attribution uses only an exact supported leading Task identity on a
-standard protected-merge source branch. Terminal worktree validation compares
+standard two-parent PR-merge source branch. Terminal worktree validation compares
 canonical path, type, mode, index, status, and raw bytes; its sole line-ending
 exception is narrowly product-defined. Ambiguous or other drift blocks.
 

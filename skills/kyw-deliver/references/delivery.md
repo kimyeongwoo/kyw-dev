@@ -6,7 +6,7 @@ Use this only after the packaged dispatcher recognizes exact `$kyw-deliver NNNN`
 
 ## Contents
 
-Establish immutable input and Git/GitHub state, apply predecessor continuity when issued, resume at the first unfinished safe action, commit only proven paths, push without force, create a ready PR, observe exact-head and synthetic CI, inspect review and mergeability, merge the expected head, observe post-main CI, and report without rewriting the pair.
+Establish immutable input and Git/GitHub state, apply predecessor continuity when issued, resume at the first unfinished safe action, commit only proven paths, push without force, create a ready PR, observe exact-head and synthetic CI, inspect review and mergeability, merge the expected head once through the ordinary PR API, observe post-main CI, and report without rewriting the pair.
 
 ## Authority and mutation boundary
 
@@ -27,7 +27,7 @@ Proceed only on the sole dispatcher's pending `DELIVER` result. A satisfied resu
 
    Fetch only `refs/heads/main` with `git fetch --no-tags --no-recurse-submodules --refmap= origin refs/heads/main`; never prune, widen a refspec, fetch tags/submodules, retry, or merge. Require `FETCH_HEAD` and the fetched commit object to equal `N`, keep repository/remote identities unchanged, and prove `O` is the exact old local/upstream/cached main value and an ancestor of `N`. Then use one `git update-ref --stdin` transaction: `start`, old-value CAS updates for both `refs/remotes/origin/main` and `refs/heads/main`, an immediate direct-remote and GitHub `N` re-read, `prepare`, and `commit`. Any linked-worktree ownership, non-fast-forward, object, identity, CAS, fetch, preparation, or commit uncertainty blocks with no retry and no partial second update.
 
-   Re-read the selected branch/HEAD, terminal pair, no-active state, all five main identities, and the exact index/worktree snapshot. They must be unchanged except that both local refs now equal `N`. Any other main mismatch remains blocked. This bounded local synchronization neither repeats the protected merge nor authorizes another external action.
+   Re-read the selected branch/HEAD, terminal pair, no-active state, all five main identities, and the exact index/worktree snapshot. They must be unchanged except that both local refs now equal `N`. Any other main mismatch remains blocked. This bounded local synchronization neither repeats the expected-head PR merge nor authorizes another external action.
 7. Call the sole adapter once with exact invocation text and managed routing false. Never redispatch or add bootstrap/migration authority.
 
 The adapter uses the shared parser, queue, production evaluator, hydration, and continuity graph. It hydrates prior continuity and the selected Task's in-flight state separately; current delivery is never accepted as already completed prior continuity. Every four-digit ID follows this generic route.
@@ -76,7 +76,7 @@ Revalidate branch, local head, upstream, remote repository, and absence of drift
 
 ### 3. non-draft PR
 
-Find an existing PR by exact repository, base, head owner/branch, and head SHA. Reuse only that exact non-draft PR. If none exists and state is otherwise clean, create one non-draft PR targeting the expected protected base, with the selected Task identity and truthful scope. Never create a duplicate, convert an unrelated PR, or use a draft as satisfied state. Record the numeric PR identity and exact actual head.
+Find an existing PR by exact repository, base, head owner/branch, and head SHA. Reuse only that exact non-draft PR. If none exists and state is otherwise clean, create one non-draft PR targeting the expected base, with the selected Task identity and truthful scope. Never create a duplicate, convert an unrelated PR, or use a draft as satisfied state. Record the numeric PR identity and exact actual head.
 
 ### 4. actual-head exact-SHA CI observation
 
@@ -90,25 +90,25 @@ Observe the separately named synthetic merge compatibility job after actual-head
 
 ### 6. review and mergeability
 
-After both CI roles are proven, re-read the non-draft PR's current actual head, required reviews, review dismissal/change-request state, conversations/checks when required, mergeability, and base protection. Review blockage, unknown/non-mergeable state, base/head drift, or a genuine user decision stops. Do not dismiss, approve, alter protection, bypass, or administratively merge.
+After both CI roles are proven, re-read the non-draft PR's current actual head, required reviews, review dismissal/change-request state, conversations/checks when required, mergeability, and the exact base branch. Paginate `GET /repos/{owner}/{repo}/rules/branches/{branch}` to completion; this branch-effective result includes active repository- and organization-level rules and excludes evaluate, disabled, and non-targeting rules. Classify protection as `PRESENT`, `ABSENT`, or `UNKNOWN`; it is optional repository configuration and noncanonical report metadata, never hardened delivery evidence. `ABSENT` requires a successful exact-branch read with `protected: false` and a complete successful empty effective-rules result. A consistent `protected: true` or nonempty result is `PRESENT`; obtain enough readable detail to detect unsatisfied preconditions. A 403 or 404 alone, malformed or partial pagination, unreadable required detail, or conflicting signals is `UNKNOWN` and stops. Review blockage, unknown or non-mergeable state, base/head drift, an unsatisfied existing rule, or a genuine user decision also stops. Do not dismiss, approve, alter protection, use a bypass actor, or administratively merge.
 
-### 7. expected-head protected merge
+### 7. expected-head PR merge
 
-Immediately before mutation, revalidate the expected PR head, base head, required checks/reviews, and mergeability. Merge through the ordinary protected path only when the platform will merge that exact expected head. Never merge a changed head, bypass protection, use admin authority, retry a failed merge, or select a fallback merge/credential. Record the resulting merge SHA and parents.
+Immediately before mutation, repeat the exact-base/effective-rules reads and revalidate the expected PR head, base head, required exact-SHA CI, reviews, mergeability, and protection disposition. Protection drift to `UNKNOWN` or to an unsatisfied `PRESENT` state stops before any request. The exact route already authorizes one merge attempt; do not ask for duplicate kyw confirmation solely because protection is `ABSENT`. Submit one synchronous ordinary PR merge request with the expected head SHA and merge method `merge`; GitHub must enforce every present rule. Never push to the base directly, enable auto-merge, enter a merge queue, use an asynchronous merge, select squash/rebase, alter or bypass protection, use admin authority, retry a failed merge, or select a fallback merge/credential. A rejected request is terminal for this invocation. Record the protection disposition, resulting merge SHA, and exactly two ordered parents equal to the expected base and head. The expected-head field is not an atomic base compare-and-swap: for `ABSENT`, report the residual race in which the base can move after the final read; the ordered-parent postcondition detects but cannot prevent it.
 
 ### 8. post-main exact-SHA CI observation
 
-Revalidate remote protected `main` at the resulting merge, then observe the required base-branch workflow and jobs without dispatching or rerunning them. Each checkout-bearing job must prove role `POST_MERGE_MAIN`, repository, workflow, run/job/attempt, exact merge checkout, and parents; the aggregate gate remains bound to authoritative dependency chronology. A later actual execution supersedes and never falls back. Missing, stale, ambiguous, failed, cancelled, skipped, incomplete, or mismatched post-main evidence blocks terminal success.
+Revalidate remote `main` at the resulting merge, then observe the required base-branch workflow and jobs without dispatching or rerunning them. Each checkout-bearing job must prove role `POST_MERGE_MAIN`, repository, workflow, run/job/attempt, exact merge checkout, and parents; the aggregate gate remains bound to authoritative dependency chronology. A later actual execution supersedes and never falls back. Missing, stale, ambiguous, failed, cancelled, skipped, incomplete, or mismatched post-main evidence blocks terminal success. When resuming after an already-proven merge, do not repeat it or retroactively gate post-main observation on current protection; if merge-time disposition was not retained outside the pair, report that limitation instead of inventing or relabeling it from a fresh snapshot.
 
 ### 9. final report
 
-Re-evaluate the complete graph with the unchanged production evaluator. `PENDING` is resumable only when every completed stage is valid and the next stage is safely identifiable. `FINAL` requires actual-head, synthetic compatibility, review/mergeability, expected-head protected merge, and post-main roles at their exact identities. CI never substitutes for Task acceptance.
+Re-evaluate the complete graph with the unchanged production evaluator. `PENDING` is resumable only when every completed stage is valid and the next stage is safely identifiable. `FINAL` requires actual-head, synthetic compatibility, review/mergeability, expected-head PR merge, and post-main roles at their exact identities. Protection disposition remains invocation-local report metadata and never changes evaluator, checkpoint, or Task/Test schema. CI never substitutes for Task acceptance.
 
-Report the Task ID and path, immutable `DONE/PASSED` input, exact selected path set, commit/branch/PR/head/merge/main identities, workflow and job attempts, completed stages, disposition, blockers or limitations, preservation of unrelated work, and residual risk. Store no growing receipt ledger or raw logs, secrets, credentials, or API responses.
+Report the Task ID and path, immutable `DONE/PASSED` input, exact selected path set, commit/branch/PR/head/merge/main identities, protection disposition or inspection limitation, workflow and job attempts, completed stages, disposition, blockers or limitations, preservation of unrelated work, and residual risk. Store no growing receipt ledger or raw logs, secrets, credentials, or API responses.
 
 ## Immutable and historical outcomes
 
-For contract 3, the first production-evaluator-satisfied `HARDENED_EXACT_HEAD` graph binds the outcome, protected merge, post-main state, exact pair paths, regular-file Git modes, and terminal bytes. Later unchanged `$kyw-deliver NNNN` is report-only. Path, type, mode, content, newline, identity, or same-Task redelivery drift stops with the affected path and directs correction to `$kyw-task "<correction outcome>"`; the new pair must hard-depend on Task NNNN. Never reopen, edit, demote, rename, delete, replace, or re-deliver the original pair.
+For contract 3, the first production-evaluator-satisfied `HARDENED_EXACT_HEAD` graph binds the outcome, expected-head PR merge, post-main state, exact pair paths, regular-file Git modes, and terminal bytes. Later unchanged `$kyw-deliver NNNN` is report-only. Path, type, mode, content, newline, identity, or same-Task redelivery drift stops with the affected path and directs correction to `$kyw-task "<correction outcome>"`; the new pair must hard-depend on Task NNNN. Never reopen, edit, demote, rename, delete, replace, or re-deliver the original pair.
 
 Contract 1/2 delivery remains grandfathered. Explicit `LEGACY_PRE_CONTRACT` continuity may retain older completed history with actual head visibly `UNVERIFIED`, but it is forbidden for the selected new outcome and never becomes exact-head success. Checkpoint-covered `DURABLE_STANDARD_CONTINUITY` remains its prior production classification; expired covered logs do not invalidate it, while selected/current proof always fails closed.
 
