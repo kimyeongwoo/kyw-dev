@@ -66,8 +66,8 @@ test("kyw-grilling Skill encodes the one-question decision-tree protocol", () =>
     ["explicit delegated choice", /Ask one explicit confirmation or choice question/],
     ["explicit ownership verb", /Use an explicit ownership verb/],
     ["reject indirect adoption", /do not rely on an indirect “should we adopt” formulation/],
-    ["unbundled terminal cancellation", /clear request to stop or cancel the interview is terminal only when it is not combined/],
-    ["bundled action precedence", /combined case is implementation pressure and follows the confirmation-boundary rule/],
+    ["terminal cancellation", /A clear request to stop or cancel the interview is terminal/],
+    ["bundled cancellation precedence", /cancellation wins for this invocation and the mutation receives no authority/],
     ["no stopped interview restart", /After stopping, do not resume the interview in response to later implementation pressure/],
   ];
 
@@ -87,17 +87,17 @@ test("kyw-grilling cancellation precedence covers stop and implementation-pressu
     {
       case: "pure stop or cancel",
       pattern:
-        /clear request to stop or cancel the interview is terminal only when it is not combined, before confirmation, with a request to implement, edit, produce file output, or otherwise mutate/,
+        /A clear request to stop or cancel the interview is terminal/,
     },
     {
       case: "implement now",
       pattern:
-        /asks for implementation, editing, file output, or another mutation before confirmation, decline that action/,
+        /asks for implementation, editing, file output, or another mutation before confirmation, do not act inside this read-only Skill/,
     },
     {
       case: "stop interviewing and edit the code",
       pattern:
-        /Stop\/cancel wording bundled into the same prohibited request follows this implementation-pressure branch rather than terminal cancellation/,
+        /Explicit cancellation clears any pending warning and ends the invocation even when bundled with mutation pressure; the other clause does not execute or chain/,
     },
     {
       case: "implementation pressure after terminal stop",
@@ -117,10 +117,26 @@ test("kyw-grilling cancellation precedence covers stop and implementation-pressu
 
   assert.match(
     skill,
-    /If an answerable decision remains, continue with exactly the next single unresolved decision question, one recommended answer, and concise reasoning/,
+    /otherwise continue with exactly the next unresolved decision question, recommendation, and reasoning/,
   );
   assert.match(skill, /terminal response under the stop conditions is not a progress turn and asks no decision question/);
   assert.match(skill, /require a new explicit `\$kyw-grilling` invocation/);
+});
+
+test("kyw-grilling projects activation-scoped guardrails without changing its no-write identity", () => {
+  const skill = readFileSync(SKILL_PATH, "utf8");
+
+  assert.equal(skill.match(/<!-- kyw-active-skill-guardrails:v1 -->/g)?.length, 1);
+  assert.match(skill, /Only an exact `\$kyw-grilling` route activates this invocation-local workflow/);
+  assert.match(skill, /aligned turns? continues? without duplicate confirmation/i);
+  assert.match(skill, /baseline[\s\S]*Task or acceptance[\s\S]*scope[\s\S]*action[\s\S]*target[\s\S]*attempt[\s\S]*Skill\/mode change[\s\S]*implementation[\s\S]*Task\/Test[\s\S]*permanent-document[\s\S]*verification[\s\S]*delivery impacts[\s\S]*zero-mutation wait/i);
+  assert.match(skill, /immediate(?:ly)? next unambiguous explicit reconfirmation of (?:those exact warned bounds|that unchanged warning)/);
+  assert.match(skill, /Cancel(?:lation)?, decline, ambiguity[\s\S]*clears or replaces (?:the pending warning|it)/);
+  assert.match(skill, /sync(?:hronize)? applicable mutable Task\/Test and (?:affected permanent owners|permanent-owner truth)[\s\S]*only the warned (?:bounded )?action/i);
+  assert.match(skill, /origin(?:ating turn)? cannot self-confirm[\s\S]*never redispatch or chain Skills/i);
+  assert.match(skill, /after completion, cancellation, stop, or expiry, prompts are ordinary/);
+  assert.match(skill, /system\/platform safety[\s\S]*evidence honesty[\s\S]*delivered-pair immutability/i);
+  assert.match(skill, /valid reconfirmation updates only its decision ledger; it never performs the later mutation/);
 });
 
 test("kyw-grilling fixture-backed scenario distinguishes inspectable facts from decisions", () => {

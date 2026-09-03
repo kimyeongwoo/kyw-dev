@@ -52,18 +52,17 @@ digests, trust, coverage, and atomic replacement for both boundaries.
 ### A-02 — Explicit heavyweight workflows
 
 The five user-visible Skills—`kyw-grilling`, `kyw-init`, `kyw-task`,
-`kyw-impl`, and `kyw-audit`—disable implicit invocation. A managed
-`AGENTS.md` may route only the three exact existing-Task aliases to
-`kyw-impl`; that repository projection does not enable general implicit Skill
-matching. Skill routing and mutation authority are separate inputs: affirmative
-act-now directives from the trusted current user may authorize their named
-actions without invoking a Skill, while ordinary prose never selects a Skill by
-resemblance.
+`kyw-impl`, and `kyw-audit`—disable implicit invocation. Only their exact
+explicit forms or the three exact managed existing-Task aliases activate kyw
+workflow guardrails. An inactive ordinary prompt never enters Task selection,
+warning, or redirection by resemblance; active aligned work continues, while a
+material change uses the bounded warning transition in SPEC Section 6.3.
 
 ### A-03 — Progressive, fail-closed context loading
 
-Applicable repository instructions and a selected/current Task/Test pair are
-always loaded. README, SPEC, and ARCHITECTURE are first indexed by heading or
+Applicable repository instructions are always loaded. During an active kyw
+workflow, load its selected/current Task/Test pair; inactive ordinary prompts
+select none. README, SPEC, and ARCHITECTURE are first indexed by heading or
 targeted search. Goal, scope, Documentation Impact, changed paths, and code
 dependencies select the owning sections.
 
@@ -127,7 +126,7 @@ minimal projection needed before that owner can be loaded.
 | Rule family | Canonical owner | Permitted projection |
 |---|---|---|
 | Observable product and acceptance contracts | `docs/SPEC.md` | Concise purpose, invocation, and current status in README |
-| Direct user mutation authority and action granularity | `docs/SPEC.md` | Concise user/repository guardrails in README and AGENTS/template; clause-flow projection here and in `kyw-impl` execution surfaces |
+| Activation-scoped Skill guardrails and bounded reconfirmation | `docs/SPEC.md` | Concise inactive/aligned/change projections in README and AGENTS/template; lifecycle flow here and procedures in all five Skills plus implementation/audit references |
 | Stable components, dependency direction, flows, and distribution structure | `docs/ARCHITECTURE.md` | Short repository-map links in README |
 | Repository routing, preservation, progressive loading, evidence honesty, and completion | Root `AGENTS.md` | Canonical generated `AGENTS.md` template |
 | New Task/Test authoring | `skills/kyw-task/SKILL.md` | Invocation and outcome summaries only |
@@ -181,6 +180,11 @@ public imports stable while cohesive internals remain acyclic.
 - `kyw-audit` independently compares one Task with established truth and
   evidence. Its bare mode has no mutation authority; exact repair mode remains
   bounded to demonstrated in-scope findings.
+
+Every Skill shares the invocation-local inactive, aligned, change-pending,
+reconfirmed-bounded, and cancelled/expired lifecycle. This changes how a
+mutable project baseline is revised, not the Skill's exact activation or mode,
+and never creates an automatic transition into another Skill.
 
 The long semantic procedures remain in their Skill/reference owners so normal
 discovery does not load every workflow.
@@ -282,6 +286,32 @@ fail closed. Credentials and raw logs are never persisted.
 
 ## 5. Control and data flows
 
+### 5.0 Invocation-local guardrails
+
+<!-- kyw-active-skill-guardrails:v1 -->
+
+```text
+INACTIVE ordinary handling
+   └─ exact Skill/managed route → ACTIVE_ALIGNED
+        ├─ aligned clause → continue
+        └─ changed criterion → CHANGE_PENDING warning + zero-mutation wait
+             └─ immediately-next exact reconfirmation → RECONFIRMED_BOUNDED
+                  → permanent-owner + mutable-pair sync
+                  → bounded action/target/scope/attempt → terminal INACTIVE
+```
+
+The conversational record holds Skill/mode, baseline, applicable Task and
+acceptance, scope, action, target, attempt, and fact revision. Its warning gets
+a new identity after the origin, which cannot self-confirm. Cancellation,
+ambiguity, intervention, staleness, fact drift, or changed bounds clears or
+replaces it without mutation. No daemon, persistent approval record, or
+production natural-language classifier exists.
+
+Reconfirmation synchronizes affected permanent owners and mutable Task/Test
+contracts before the warned action. System/platform safety, secrets, user-work
+preservation, honest evidence, delivered-pair immutability, and exact
+Skill/mode/dispatcher routing remain fail-closed.
+
 ### 5.1 Initialization
 
 ```text
@@ -318,36 +348,33 @@ in-flight or unproven transaction, so a partial prefix cannot become dispatchabl
 ### 5.3 Existing-Task implementation
 
 ```text
-explicit existing-Task invocation (+ optional action-specific user authority)
+exact existing-Task invocation
    → repository, pair, dependency, immutable-terminal, and preflight validation
    → queue-derived prior STANDARD set
    → aligned-main checkpoint trust + exact covered-prefix evaluation
    → zero or one local ancestry / fresh GitHub hardened evaluation
    → read-only checkpoint transition preparation
-   → executor suffix classification + closed terminal override flag
+   → one route + clause classification + closed terminal override flag
    → one generic dispatcher call with no Task-ID or migration intercept
    → IMPLEMENT | RESUME | DELIVER
    → selected active Task branch + atomic/idempotent transition application
-   → one current mutation boundary
+   ├─ aligned baseline → one current mutation boundary
+   └─ changed baseline/Task/acceptance/scope → warning + wait
+          → fresh exact reconfirmation → truth sync → bounded mutation
    → acceptance-specific verification + durable-owner synchronization
    → final diff and coverage review
    → repository DONE/PASSED or truthful BLOCKED
    → declared delivery gate
 ```
 
-Resume treats recorded completion as a claim and continues from verified
-handoff state. A selected Task may change only its pair, required
-implementation/tests/configuration, and permanent owners whose meaning changes.
-Invocation selects the workflow; direct user authority may arrive before or
-after it and stays within its named action, target, scope, and current attempt.
-The adapter preserves an invocation suffix as `overrideText` transport. Before
-the sole dispatcher call, the executor classifies each clause as a Task
-method/order/scope/check override, a separate external-action grant,
-revocation/narrowing, or non-authoritative text. It passes only the closed
-Task-override-present/absent terminal flag through preflight; missing or invalid
-classification stays fail-closed. Dispatcher routing remains singular, and
-classification never redispatches or chains. Other actions retain the granular
-boundaries in SPEC Section 6.3.
+Resume verifies recorded completion and handoff. A selected Task changes only
+its pair, required implementation/tests/configuration, and affected permanent
+owners. The exact route establishes the workflow; its `overrideText` clauses
+are classified once into the closed Task-override-present/absent preflight.
+Aligned clauses continue. A changing clause warns before branch, pair,
+continuity, implementation, or external mutation; fresh exact reconfirmation
+syncs mutable truth before named bounds execute. Routing stays singular: the
+origin cannot self-confirm, redispatch, or chain Skills.
 
 ### 5.4 `STANDARD` delivery
 
@@ -443,7 +470,8 @@ source, not an alternative audit engine.
 ### 5.6 Progressive document loading
 
 ```text
-always: applicable AGENTS + selected/current TASK/TEST
+always: applicable AGENTS
+active kyw only: selected/current TASK/TEST when applicable
    → index/search README + SPEC + ARCHITECTURE
    → map goal/scope/doc impact/changed code to owner sections
    ├─ sufficient and consistent → targeted read
@@ -642,9 +670,11 @@ Package metadata may be publishable while publication remains unauthorized.
 Stable checking, one real candidate, composite Release verification, and
 credential-free exact-SHA CI are the required non-publishing evidence
 boundaries. The standard npm dry run is optional. Actual registry publication,
-version change, tag, GitHub Release, or public plugin submission requires
-separate action- and attempt-specific direct user authority plus fresh public-registry, repository-owned
-publisher-expectation, and exact-workflow verification. Routine release
+version change, tag, GitHub Release, or public plugin submission must be
+requested as separate action- and attempt-specific bounds plus fresh
+public-registry, repository-owned publisher-expectation, and exact-workflow
+verification. An out-of-baseline request during an active Skill uses the shared
+warning transition. Routine release
 preflight does not authenticate to npm account/settings surfaces. Account-side
 authentication exists only for initial setup, an explicitly authorized
 security/configuration audit or change, or investigation after an actual
@@ -799,15 +829,14 @@ and historical Task/Test evidence.
 - Temporary/evaluator/release state is removed only when its exact owned root is
   proved; a broad home, repository, Skills, or cache root is never a recursive
   cleanup target.
-- For a new mutation, only the latest applicable trusted-current-user
-  affirmative act-now directive grants authority; a later prohibition,
-  cancellation, revocation, or scope reduction controls. A status question
-  grants nothing and does not silently revoke an executing attempt. Routing,
-  static policy, and other untrusted input do not grant authority; assent
-  requires one immediately prior fully resolved proposal.
-- GitHub delivery authority is limited to the selected Task's declared ordinary
-  lifecycle. It does not imply publication, retry/fallback, force, account
-  change, deletion, or administrative override.
+- Kyw guardrails exist only inside an exact active invocation. Aligned commands
+  stay within the established action/target/scope/attempt; changed or stale
+  facts expire pending confirmation, and post-terminal prompts are ordinary
+  rather than a hidden workflow continuation.
+- A selected Task's aligned GitHub delivery lifecycle does not imply
+  publication, retry/fallback, force, account change, deletion, or
+  administrative override. Reconfirmation cannot bypass system/platform
+  safety or immutable and truthful evidence.
 
 ## 11. Portability and isolation trade-offs
 

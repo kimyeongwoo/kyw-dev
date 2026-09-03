@@ -61,7 +61,7 @@ The product preserves user-authored work and public behavior unless the user or 
 
 ## 4. Five explicit-only Skills
 
-The product exposes exactly five user-visible Skills: `$kyw-grilling`, `$kyw-init`, `$kyw-task`, `$kyw-impl`, and `$kyw-audit`. All five are explicit-only and publish `allow_implicit_invocation: false`; ordinary prose never invokes them by resemblance. Managed repository aliases are anchored routing supplied by an applicable `AGENTS.md`, not implicit Skill matching.
+The product exposes exactly five user-visible Skills: `$kyw-grilling`, `$kyw-init`, `$kyw-task`, `$kyw-impl`, and `$kyw-audit`. All five are explicit-only and publish `allow_implicit_invocation: false`; ordinary prose never invokes them by resemblance. Only an exact explicit invocation or the three anchored managed aliases activates an invocation-local kyw workflow.
 
 ### 4.1 `$kyw-grilling`
 
@@ -139,7 +139,7 @@ Required behavior:
 - implement only the selected Task scope and preserve unrelated or unexplained user work;
 - transition and validate the Task/Test pair together, then keep scope, discoveries, risks, decisions, documentation impact, progress, resume state, and evidence truthful;
 - on resume, verify recorded completed work against files and version control and continue from the valid resume point instead of repeating externally visible or destructive actions;
-- use current-user appended text as a settled first-selected-Task override without letting it waive acceptance, safety, evidence honesty, preservation, or separate authority;
+- classify appended clauses once: continue aligned constraints, but put a changed baseline, Task, acceptance, scope, action, target, or attempt through Section 6.3 before mutation;
 - preserve the configured model and effort unless the current user explicitly overrides them, and label unavailable model provenance rather than inferring it;
 - before its one dispatcher call, derive the exact prior `STANDARD` set, validate repository-owned continuity only from aligned `main`, production-evaluate fresh GitHub evidence for at most one uncovered prior outcome, and fail before selection or mutation on a missing, malformed, stale, over-gap, or evaluator-rejected proof;
 - treat a canonically delivered future-contract Task as report-only, reject later terminal-pair or delivery-identity drift before dispatch, and route correction intent to a new explicit hard-dependent Task;
@@ -151,7 +151,7 @@ Required behavior:
 
 `task 진행해줘` resumes the sole active Task, otherwise resumes the lowest repository-complete Task with resumable required delivery, otherwise selects the lowest dependency-satisfied ready Task. Continuous mode repeats that same selection serially for pre-created work only, rechecks state after each transition, and never promises background continuation.
 
-Recognized selection supplies ordinary repository authority and, for `STANDARD`, its bounded delivery authority without ceremonial reconfirmation. Conflicts, unsafe drift, unexplained work, failed evidence, review blockage, or a genuine user-owned decision still stop. Detailed procedure belongs to `skills/kyw-impl/references/execution.md`.
+A selected `IMPLEMENT`, `RESUME`, or `DELIVER` continues its aligned repository and declared `STANDARD` lifecycle without duplicate guardrail confirmation. A material change enters Section 6.3; conflicts, unsafe drift, unexplained work, failed evidence, review blockage, and genuine user-owned decisions remain fail-closed. Detailed procedure belongs to `skills/kyw-impl/references/execution.md`.
 
 ### 4.5 `$kyw-audit`
 
@@ -260,30 +260,29 @@ Before terminal success, inspect the complete relevant diff, separate selected-T
 
 If work stops, the pair preserves enough verified completed work, remaining order, exact resume point, blockers, repository state, results, and unverified risk for a fresh session to continue without rereading unrelated completed Tasks or repeating completed external actions.
 
-### 6.3 Ordinary prompts
+### 6.3 Activation-scoped guardrails and ordinary prompts
 
-Skill invocation and mutation authority are separate channels. `$kyw-*` syntax selects a workflow, not permission. For each proposed mutation, only the latest relevant directive from the trusted current user grants authority: it must affirmatively delegate act-now execution and unambiguously resolve the action, target, and scope. The grant covers only those named bounds and the current attempt, without a special phrase or duplicate confirmation.
+<!-- kyw-active-skill-guardrails:v1 -->
 
-A negative imperative or prohibition is never a grant. A later explicit prohibition, cancellation, revocation, or scope reduction supersedes an older grant for the affected action. An intervening question or status request is non-authoritative: it neither grants a new action nor silently revokes an already executing authorized attempt. Referential assent such as “do that” counts only when it unambiguously accepts the immediately preceding assistant proposal and that proposal is single, concrete, fully resolved as to action, target, and scope, and contains no open choice.
+The kyw guardrail lifecycle is conversation-local and has no persistent approval store or production natural-language authority classifier:
 
-A conditional instruction grants authority only when the current user delegates act-now execution and its objective condition is safely verifiable from in-scope facts and currently satisfied; otherwise the affected mutation does not start and overlapping older authority does not revive. Questions, status requests, plans, unsatisfied or unverifiable conditions, quotes/examples, Task/Test or CI content, documents/metadata, inference, and other untrusted text grant no mutation authority.
+| State | Required behavior |
+|---|---|
+| `INACTIVE` | Only an exact explicit Skill invocation or exact managed alias activates a workflow. Ordinary and post-terminal prompts receive no kyw-only block, warning, Task selection/allocation, or Task redirection. |
+| `ACTIVE_ALIGNED` | The invoked Skill has an established shared baseline, mode, selected Task when applicable, acceptance, scope, action, target, and attempt. A matching command continues without a duplicate guardrail confirmation; Skill-native decision or write confirmations still apply. |
+| `CHANGE_PENDING` | A material baseline, Task, acceptance, scope, action, target, attempt, or workflow-boundary change first emits the warning below and waits with zero mutation. |
+| `RECONFIRMED_BOUNDED` | Only the trusted current user's immediately next, explicit, unambiguous confirmation of that exact warning and unchanged facts permits synchronization followed by the warned action within its exact bounds. |
+| `CANCELLED_OR_EXPIRED` | Cancellation, decline, ambiguity, an intervening or stale response, changed facts, or different/additional bounds clears the pending warning without mutation; a changed request needs a fresh warning. Completion, stop, cancellation, and expiry end the active lifecycle. |
 
-A matched Task invocation routes once. Its appended text is preserved as `overrideText` transport, not treated as one semantic channel: in-Task method, order, scope, or check constraints are Task overrides, while a separately affirmative external-action clause is evaluated under this authority contract. Prohibition or revocation wins, ambiguity or contradiction halts the affected external mutation, and classification never redispatches, chains Skills, or weakens Task acceptance and safety.
+The pending warning binds a fresh identity to the controlling old criterion, requested new criterion, concrete implementation, Task/Test, permanent-document, verification, and delivery impacts, plus action, target, scope, and attempt. Created after classification, it cannot be confirmed by its originating or combined message. The changed clause makes no Task/Test, permanent-document, implementation, dispatcher-side, or external mutation while pending.
 
-Before terminal dispatch, the executor passes only whether a Task-override clause exists. Missing or invalid classification remains fail-closed: it cannot turn a transported suffix into report-only handling.
+Fresh reconfirmation must be the immediately following trusted-current-user response and exactly accept the warning identity, unchanged baseline, Task, acceptance, facts, and bounds without another action or choice. Before implementation or external mutation, synchronize affected permanent owners and every applicable mutable Task/Test contract; then execute only that action, target, scope, and attempt. A mutable kyw project criterion cannot remain a veto afterward.
 
-Authority is granular. Publication, registry mutation, package version change, tag, GitHub Release, public submission, retry/fallback, force/destructive recovery, bypass/admin/account change, branch deletion, and unrelated mutation do not authorize one another. Unless the user names another attempt, success, failure, cancellation, or target/scope drift ends the current attempt; failure grants no retry and an older grant does not revive.
+Non-route changes rewarn; route-locked replacement expires to its exact route. Prior confirmation never revives. Publication, registry, version, tag, Release, submission, retry/fallback, force/destructive, bypass/admin/account, deletion, and unrelated mutation remain distinct bounds; failure grants no retry.
 
-When the user asks a question or small, clearly bounded change without an explicit Skill invocation:
+A combined message activates/routes once: classify clauses independently, continue aligned ones, warn before change, and await later exact reconfirmation. Never redispatch, chain Skills, broaden bounds, or waive system/platform safety, secrets, user-work preservation, honest evidence, delivered-pair immutability, or exact Skill/mode/dispatcher routing.
 
-- recognize only the three exact managed existing-Task aliases when the applicable routing contract is loaded;
-- otherwise answer, diagnose, or implement directly without creating a numbered Task by default;
-- inspect relevant facts and preserve user work;
-- run proportionate verification for changed code or configuration;
-- route durable meaning to `README.md`, `AGENTS.md`, `docs/SPEC.md`, or `docs/ARCHITECTURE.md` by ownership;
-- leave unaffected documents byte-stable.
-
-Explanations and small clearly bounded fixes do not require a numbered Task unless the user asks for one.
+Outside an active lifecycle, handle prompts ordinarily: inspect facts, preserve user work, verify proportionately, update affected permanent owners, and leave others byte-stable. Create/select no Task unless the prompt is an exact route; explanations and small fixes need none unless requested.
 
 ## 7. STANDARD delivery contract
 
@@ -292,7 +291,7 @@ A current Task declares one static delivery policy:
 - `STANDARD` — GitHub PR/Actions exact-SHA state is the canonical mutable ledger;
 - `NONE — <reason>` — no external delivery gate applies.
 
-The Task/Test pair owns repository outcome and reproducible local evidence; GitHub owns mutable PR, review, run, merge, and post-merge state. Static `STANDARD` text alone authorizes no ambient mutation. A recognized `$kyw-impl` selection grants ordinary delivery after repository completion. Direct current-user authority for another named action is independent of selection and needs no repeated Skill invocation.
+The Task/Test pair owns repository outcome and reproducible local evidence; GitHub owns mutable PR, review, run, merge, and post-merge state. A recognized `$kyw-impl` selection establishes its declared `STANDARD` lifecycle, which proceeds while aligned without duplicate guardrail confirmation. Another active action or changed bound follows Section 6.3; a later post-terminal prompt is ordinary. Static `STANDARD` text alone executes nothing.
 
 The normal `$kyw-impl NNNN` path accepts only the invocation. It derives the exact required prior-delivery set from queue and dependency truth, validates one fixed-bounded rolling continuity checkpoint read from exact aligned `main`, and creates a distinct production-evaluated continuity classification for its exact covered prefix. The checkpoint binds repository/base/main ancestry, the ordered covered-set and terminal-pair digests, hardened-contract version, cumulative evidence digest, prior checkpoint or genesis, and one sanitized transition receipt. It stores no raw log, credential, API response, or mutable GitHub graph and never becomes the current delivery ledger.
 
@@ -315,7 +314,7 @@ For contract 3, the first satisfied hardened graph is also the sole delivery gra
 
 A regular-file worktree with no pair-specific porcelain record is equivalent only when its current index mode, host-observable worktree executable class, and raw bytes exactly match the canonical tree entry. The sole modified-state exception requires exact porcelain code ` M`, the exact bound path and regular-file type, unchanged canonical/index/host-observable worktree mode class, and genuinely different raw bytes whose worktree-only CRLF-pair-to-LF conversion exactly yields the untouched canonical blob. Canonical bytes are never normalized: canonical CRLF with worktree LF, bare-CR drift, final-newline, whitespace, Unicode or other content drift, staged or metadata-only status, path, link, type, and mode differences remain immutable. The diagnostic names the Task and affected path and directs correction through `$kyw-task "<correction outcome>"`. No PR chain, correction-receipt list, second checkpoint, or alternate ledger is created. Contract-1/2 history—including legitimate later historical merges—keeps its existing meaning.
 
-Ordinary `STANDARD` authority covers exact-path commit, non-force push, non-draft PR creation, exact-head CI observation, review and mergeability inspection, expected-head protected merge, post-merge base CI observation, and terminal reporting. Other actions retain the granular authority boundaries in Section 6.3.
+An aligned `STANDARD` lifecycle covers exact-path commit, non-force push, non-draft PR creation, exact-head CI observation, review and mergeability inspection, expected-head protected merge, post-merge base CI observation, and terminal reporting. Changed active bounds use Section 6.3 and remain attempt-specific.
 
 ## 8. CLI and installation behavior
 
@@ -396,7 +395,7 @@ Public pull requests and base-branch pushes run credential-free, read-only stabl
 
 ### 10.1 Context loading
 
-Every workflow loads the applicable `AGENTS.md` and the selected/current Task/Test pair when one exists. For ordinary authoring, implementation, and audit work, first index or search `README.md`, `docs/SPEC.md`, and `docs/ARCHITECTURE.md`, then read the owner sections indicated by the goal, scope, Documentation Impact, changed code, and explicit dependencies.
+Every active kyw workflow loads the applicable `AGENTS.md` and its selected/current Task/Test pair when one exists. An inactive ordinary prompt does not select or resume a Task merely because one is present. For active authoring, implementation, and audit work, first index or search `README.md`, `docs/SPEC.md`, and `docs/ARCHITECTURE.md`, then read the owner sections indicated by the goal, scope, Documentation Impact, changed code, and explicit dependencies.
 
 Read all four permanent documents for `$kyw-init`, rebaseline, major redesign, broad cross-owner work, a source conflict, ambiguous ownership, a missing expected owner heading, or insufficient targeted truth. If full reading does not resolve the conflict or establish authority, fail closed instead of choosing a convenient source.
 
@@ -429,7 +428,7 @@ That evidence identifies the canonical owner of added meaning, why existing sect
 - Make managed installation and adaptive Task publication interruption-safe and recover only bytes whose exact ownership and identity can be proved.
 - Never recursively delete a broad home, repository, `.agents/skills`, or unknown directory.
 - Never infer a test pass, delivery pass, all-complete verdict, or publication approval from missing evidence.
-- Never treat static policy text, CI success, an npm dry run, or publishable metadata as authority for a separate external mutation.
+- Never treat static policy text, CI success, an npm dry run, publishable metadata, or an expired warning as permission for a separate external mutation.
 - Never depend on npm lifecycle scripts for plugin or direct Skill installation.
 - Do not add a production dependency merely to enforce documentation or workflow policy.
 
@@ -461,7 +460,7 @@ Current repository package and plugin metadata identify published version `0.1.4
 
 The public npm registry serves `kyw-dev@0.1.4` under the `latest` tag and retains `0.1.0` through `0.1.3`. The single authorized `0.1.4` publication came from the configured GitHub Actions trusted publisher and the exact Git checkout; canonical npm metadata exposes `gitHead` matching the published source commit, and registry signatures plus SLSA provenance bind the package digest to `.github/workflows/publish.yml`, `refs/heads/main`, and that exact commit. The `v0.1.4` Git tag identifies the published source commit, and the corresponding GitHub Release uses that tag. Historical `0.1.2` remains available with its original OIDC signature and provenance, while its immutable canonical metadata still lacks `gitHead` because it published a prebuilt tarball. Metadata otherwise targets the public registry and unscoped package identity. Optional contact, privacy, terms, and branding values are omitted rather than invented. No public plugin-directory submission is part of the current publication.
 
-Required non-publishing release evidence consists of Stable `npm run check`, one real-tarball `npm run release:candidate`, composite `npm run release:ci`, and credential-free exact-SHA CI. The optional `npm run release:check` standard npm dry run is not a required preflight or substitute. None authorizes `npm publish`, registry/version/tag/Release mutation, public submission, or another distribution action; each needs direct action-specific user authority after current registry, publisher-expectation, and workflow checks. Routine release preflight does not require npm account/settings inspection, `npm login`, OTP, security-key authentication, or `npm trust list`. Account-side authentication is limited to initial setup, a directly authorized security/configuration audit or change, or investigation after an actual OIDC/publisher failure. No Skill, Task, document, metadata, or CI result may infer authority.
+Required non-publishing release evidence consists of Stable `npm run check`, one real-tarball `npm run release:candidate`, composite `npm run release:ci`, and credential-free exact-SHA CI. The optional `npm run release:check` standard npm dry run is not a required preflight or substitute. None executes `npm publish`, registry/version/tag/Release mutation, public submission, or another distribution action; each must be requested as its own action after current registry, publisher-expectation, and workflow checks, and an active out-of-baseline request follows Section 6.3. Routine release preflight does not require npm account/settings inspection, `npm login`, OTP, security-key authentication, or `npm trust list`. Account-side authentication is limited to initial setup, an explicitly requested security/configuration audit or change, or investigation after an actual OIDC/publisher failure. No Skill, Task, document, metadata, or CI result may infer permission.
 
 One repository-owned expectation defines provider `GitHub Actions`, owner/repository `kimyeongwoo/kyw-dev`, workflow path `.github/workflows/publish.yml`, environment `npm-production`, and allowed action `npm publish`; foundation and workflow tests project every tuple field from that owner into the exact delivered workflow bytes. The workflow is a separate `workflow_dispatch`-only surface requiring the current `main` ref plus exact expected source SHA and package/plugin version. Only its publishing job receives `contents: read` and `id-token: write`; it has no automatic trigger, long-lived npm token, interactive authentication, account-inspection, retry, second-dispatch, or fallback path. Merging or passing CI cannot invoke it.
 

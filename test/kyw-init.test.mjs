@@ -78,6 +78,22 @@ test("kyw-init inspects facts and uses the grilling confirmation boundary before
   assert.match(skill, /do not create `docs\/` as a pre-confirmation marker/);
 });
 
+test("kyw-init projects activation-scoped guardrails and retains its final write confirmation", () => {
+  const skill = readFileSync(SKILL_PATH, "utf8");
+
+  assert.equal(skill.match(/<!-- kyw-active-skill-guardrails:v1 -->/g)?.length, 1);
+  assert.match(skill, /Only an exact `\$kyw-init` route activates this invocation-local workflow/);
+  assert.match(skill, /aligned turns? continues? without duplicate confirmation/i);
+  assert.match(skill, /baseline[\s\S]*Task or acceptance[\s\S]*scope[\s\S]*action[\s\S]*target[\s\S]*attempt[\s\S]*Skill\/mode change[\s\S]*implementation[\s\S]*Task\/Test[\s\S]*permanent-document[\s\S]*verification[\s\S]*delivery impacts[\s\S]*zero-mutation wait/i);
+  assert.match(skill, /immediate(?:ly)? next unambiguous explicit reconfirmation of (?:those exact warned bounds|that unchanged warning)/);
+  assert.match(skill, /Cancel(?:lation)?, decline, ambiguity[\s\S]*clears or replaces (?:the pending warning|it)/);
+  assert.match(skill, /sync(?:hronize)? applicable mutable Task\/Test and (?:affected permanent owners|permanent-owner truth)[\s\S]*only the warned (?:bounded )?action/i);
+  assert.match(skill, /origin(?:ating turn)? cannot self-confirm[\s\S]*never redispatch or chain Skills/i);
+  assert.match(skill, /after completion, cancellation, stop, or expiry, prompts are ordinary/);
+  assert.match(skill, /system\/platform safety[\s\S]*evidence honesty[\s\S]*delivered-pair immutability/i);
+  assert.match(skill, /final shared-understanding and write-plan confirmation remains required/);
+});
+
 test("kyw-init limits materialization to four canonical project documents", () => {
   const skill = readFileSync(SKILL_PATH, "utf8");
   const expectedPaths = ["README.md", "AGENTS.md", "docs/SPEC.md", "docs/ARCHITECTURE.md"];
@@ -113,7 +129,10 @@ test("kyw-init adoption fixtures expose inspectable facts and preservation marke
   assert.match(rebaselineArchitecture, /SQLite/);
   assert.match(skill, /preserve unrelated user-authored sections/);
   assert.match(skill, /do not erase an unknown section/);
-  assert.match(skill, /If any inspected document changed during the interview, stop/);
+  assert.match(
+    skill,
+    /If any inspected document changed during the interview, clear pending authority[\s\S]*fresh warning[\s\S]*exact reconfirmation before editing/,
+  );
 });
 
 test("kyw-init generated AGENTS contract stays thin and routes ordinary small changes", () => {

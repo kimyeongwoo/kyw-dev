@@ -73,8 +73,8 @@ test("pinned upstream baseline, rubric, schemas, and eight scenarios validate of
   );
   assert.equal(
     sha256File(join(REPOSITORY_ROOT, "skills", "kyw-grilling", "SKILL.md")),
-    "06956659b07528da4cb55cc70cba545cbac5d2578dabcc93cad4f5e5429af635",
-    "Task 0017 kyw-grilling bytes must remain explicit and reviewable",
+    "f5677ef38b43a03b3ad55e00edac5623b720bc9e296e2f483caa090de518f164",
+    "Task 0083 kyw-grilling bytes must remain explicit and reviewable",
   );
   const notice = readFileSync(join(REPOSITORY_ROOT, "THIRD_PARTY_NOTICES.md"), "utf8");
   assert.match(notice, new RegExp(definition.baseline.commit));
@@ -111,24 +111,24 @@ test("pinned upstream baseline, rubric, schemas, and eight scenarios validate of
   }
 });
 
-test("Task 0017 benchmark v10 preserves every frozen v9 condition except the expected kyw Skill hash", () => {
+test("Task 0083 benchmark v11 preserves every frozen v10 condition except the expected kyw Skill hash", () => {
   const evalRoot = join(REPOSITORY_ROOT, "eval", "grilling");
-  const benchmarkV9 = JSON.parse(readFileSync(join(evalRoot, "benchmark.v9.json"), "utf8"));
   const benchmarkV10 = JSON.parse(readFileSync(join(evalRoot, "benchmark.v10.json"), "utf8"));
+  const benchmarkV11 = JSON.parse(readFileSync(join(evalRoot, "benchmark.v11.json"), "utf8"));
   const skillSha256 = sha256File(join(REPOSITORY_ROOT, "skills", "kyw-grilling", "SKILL.md"));
 
-  assert.equal(skillSha256, "06956659b07528da4cb55cc70cba545cbac5d2578dabcc93cad4f5e5429af635");
-  assert.equal(benchmarkV10.kywSkillSha256ForScoredRun, skillSha256);
-  assert.notEqual(benchmarkV9.kywSkillSha256ForScoredRun, benchmarkV10.kywSkillSha256ForScoredRun);
+  assert.equal(skillSha256, "f5677ef38b43a03b3ad55e00edac5623b720bc9e296e2f483caa090de518f164");
+  assert.equal(benchmarkV11.kywSkillSha256ForScoredRun, skillSha256);
+  assert.notEqual(benchmarkV10.kywSkillSha256ForScoredRun, benchmarkV11.kywSkillSha256ForScoredRun);
 
-  const frozenV9 = { ...benchmarkV9 };
   const frozenV10 = { ...benchmarkV10 };
-  delete frozenV9.kywSkillSha256ForScoredRun;
+  const frozenV11 = { ...benchmarkV11 };
   delete frozenV10.kywSkillSha256ForScoredRun;
-  assert.deepEqual(frozenV10, frozenV9);
+  delete frozenV11.kywSkillSha256ForScoredRun;
+  assert.deepEqual(frozenV11, frozenV10);
   assert.match(
     readFileSync(join(REPOSITORY_ROOT, "scripts", "grilling-eval", "core.mjs"), "utf8"),
-    /benchmark\.v10\.json/,
+    /benchmark\.v11\.json/,
   );
 });
 

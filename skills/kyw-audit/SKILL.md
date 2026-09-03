@@ -9,6 +9,10 @@ description: Independently audit one kyw-dev Task's scope, implementation, durab
 
 Accept exactly one four-digit Task ID supplied with an explicit `$kyw-audit` invocation. Use the repository containing the current working directory unless the invocation names another target repository.
 
+<!-- kyw-active-skill-guardrails:v1 -->
+
+Only an exact supported `$kyw-audit` route activates this invocation-local workflow; otherwise and after verdict, cancellation, stop, or expiry, prompts are ordinary. Aligned turns continue without duplicate confirmation. Any established baseline, applicable Task or acceptance, scope, action, target, attempt, or Skill/mode change requires a concrete old/new warning naming implementation, Task/Test, permanent-document, verification, and delivery impacts plus exact bounds, then a zero-mutation wait. Only the trusted current user's immediate next unambiguous explicit reconfirmation of that unchanged warning advances; the origin cannot self-confirm. Cancel, decline, ambiguity, intervention, staleness, fact drift, or changed/added bounds clears or replaces it. Sync applicable mutable Task/Test and affected permanent owners before performing only the warned action; completion deactivates. Never redispatch or chain Skills, or relax system/platform safety, evidence honesty, user-work preservation, or delivered-pair immutability. Reconfirmation never changes the resolved Task ID or locked mode: bare audit stays read-only, and repair still requires the exact `--fix` route.
+
 - If the ID is missing, ask for one Task ID and wait without inspecting or writing.
 - If the input is ambiguous or selects more than one directory, report the ambiguity and stop without guessing.
 - Lock mode from the literal token immediately following the Task ID: no token means `read-only`; exactly `--fix` means `repair`. Reject unknown flags. Surrounding prose may add context but cannot authorize repair.
@@ -32,6 +36,8 @@ In `repair` mode, keep baseline establishment and finding classification read-on
 - permanent documents whose durable meaning the in-scope repair changes or restores.
 
 Preserve pre-existing and user-authored changes in both modes. Do not edit another numbered Task, broaden acceptance criteria to normalize drift, implement an out-of-scope finding, create a proposed follow-on Task, commit, push, publish, or write a separate audit report file. Never escalate a `read-only` invocation into repair because findings look easy or because the user used natural-language repair wording.
+
+The visible `Bounded repair plan:` is an execution notice inside an already exact repair route, not another confirmation. If a requested change would alter the audited baseline, acceptance, or scope, use the warning transition and keep the locked ID/mode boundary rather than normalizing the audit claim.
 
 ## Required output
 

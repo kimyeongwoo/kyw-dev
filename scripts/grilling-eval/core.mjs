@@ -1616,7 +1616,7 @@ export function writeBenchmarkReport(
   {
     evalRoot = EVAL_ROOT,
     repositoryRoot = REPOSITORY_ROOT,
-    benchmarkPath = join(EVAL_ROOT, "benchmark.v10.json"),
+    benchmarkPath = join(EVAL_ROOT, "benchmark.v11.json"),
   } = {},
 ) {
   const resolvedComparisonDirectory = resolve(comparisonDirectory);

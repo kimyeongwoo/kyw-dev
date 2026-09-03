@@ -63,6 +63,36 @@ test("kyw-audit Skill is implemented, explicit-only, and routes one Task to its 
   assert.doesNotMatch(metadata, /^dependencies:/m);
 });
 
+test("kyw-audit Skill and reference project activation-scoped guardrails without widening mode", async () => {
+  const skill = await readFile(SKILL_PATH, "utf8");
+  const audit = await readFile(AUDIT_REFERENCE_PATH, "utf8");
+
+  for (const [label, text] of [
+    ["Skill", skill],
+    ["reference", audit],
+  ]) {
+    assert.equal(
+      text.match(/<!-- kyw-active-skill-guardrails:v1 -->/g)?.length,
+      1,
+      `${label} marker count`,
+    );
+    assert.match(text, /exact supported[\s\S]{0,30}route activates this invocation-local workflow/i);
+    assert.match(text, /aligned turns? continues? without duplicate confirmation/i);
+    assert.match(text, /baseline[\s\S]*Task or acceptance[\s\S]*scope[\s\S]*action[\s\S]*target[\s\S]*attempt[\s\S]*Skill\/mode change[\s\S]*implementation[\s\S]*Task\/Test[\s\S]*permanent-document[\s\S]*verification[\s\S]*delivery impacts[\s\S]*zero-mutation wait/i);
+    assert.match(text, /immediate(?:ly)? next unambiguous explicit reconfirmation of (?:those exact warned bounds|that unchanged warning)/);
+    assert.match(text, /Cancel(?:lation)?, decline, ambiguity[\s\S]*clears or replaces (?:the pending warning|it)/);
+    assert.match(text, /sync(?:hronize)? applicable mutable Task\/Test and (?:affected permanent owners|permanent-owner truth)[\s\S]*only the warned (?:bounded )?action/i);
+    assert.match(text, /origin(?:ating turn)? cannot self-confirm[\s\S]*never redispatch or chain Skills/i);
+    assert.match(text, /after verdict, cancellation, stop, or expiry, prompts are ordinary/);
+    assert.match(text, /system\/platform safety[\s\S]*evidence honesty[\s\S]*delivered-pair immutability/i);
+  }
+
+  assert.match(skill, /Reconfirmation never changes the resolved Task ID or locked mode/);
+  assert.match(skill, /bare audit stays read-only, and repair still requires the exact `--fix` route/);
+  assert.match(audit, /exact reconfirmation does not substitute for the literal repair route/);
+  assert.match(audit, /`Bounded repair plan:` is an execution notice[\s\S]*not another confirmation/);
+});
+
 test("kyw-audit locks bare read-only and exact-flag repair modes", async () => {
   const skill = await readFile(SKILL_PATH, "utf8");
   const audit = await readFile(AUDIT_REFERENCE_PATH, "utf8");

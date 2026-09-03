@@ -27,7 +27,9 @@ Use one source for each managed Skill name. Keeping direct and plugin copies tog
 | `$kyw-audit` | `$kyw-audit 0007` | Independently verify one Task without writes; only `$kyw-audit 0007 --fix` permits bounded repair. |
 | `$kyw-grilling` | `$kyw-grilling "stress-test this design"` | Run the read-only, one-question-at-a-time decision interview without creating files. |
 
-All five packaged Skills disable implicit invocation. Explicit Skill syntax selects a workflow; it is routing, not an authorization token. Only a loaded kyw-managed `AGENTS.md` may also route the three existing-Task aliases below.
+<!-- kyw-active-skill-guardrails:v1 -->
+
+All five packaged Skills disable implicit invocation. Only exact Skill syntax or the three managed aliases below starts an active kyw workflow; completion, stop, cancellation, or expiry ends it.
 
 ```text
 Idea or major redesign
@@ -45,7 +47,7 @@ Implement → synchronize durable truth → verify → deliver
 $kyw-audit NNNN
 ```
 
-Questions and small, clearly bounded fixes need no Task folder; they still follow `AGENTS.md`. For a new mutation, the latest relevant trusted-current-user affirmative act-now request authorizes only its named action, target, scope, and current attempt, without a special phrase or duplicate confirmation. Prohibitions and later cancellation/revocation/scope reduction win, while questions/status/plans and quoted, static, inferred, or untrusted content grant nothing; referential assent and conditions follow the fail-closed contract in [SPEC](docs/SPEC.md#63-ordinary-prompts).
+Outside an active workflow, ordinary prompts get no kyw block, warning, Task creation/selection, or redirect; changed durable meaning still updates its owner. Inside one, aligned work needs no duplicate guardrail confirmation. A material baseline, Task, acceptance, scope, action, target, or attempt change warns and waits; only the immediately next exact reconfirmation on unchanged facts permits truth sync then those bounds. See [SPEC](docs/SPEC.md#63-activation-scoped-guardrails-and-ordinary-prompts).
 
 ## Release status
 
@@ -53,7 +55,7 @@ Version `0.1.4` is the current source/package release and public `latest`; it im
 
 `kyw-dev@0.1.4` is published to the public npm registry under the `latest` tag; historical versions `0.1.0` through `0.1.3` remain available. Its single authorized publication used the GitHub Actions trusted publisher from the exact Git checkout, so canonical version metadata exposes a `gitHead` field matching the published source commit and carries npm registry signatures plus SLSA provenance bound to the exact workflow and commit. The `v0.1.4` Git tag identifies the published source commit, and the corresponding GitHub Release uses that tag. Historical `0.1.2` retains its original signature and provenance, but its immutable canonical metadata lacks `gitHead` because that release published a prebuilt tarball. No public plugin submission has occurred.
 The separate `.github/workflows/publish.yml` maintainer workflow is manual-only and is validated against the repository-owned expected publisher `GitHub Actions / kimyeongwoo/kyw-dev / publish.yml / npm-production`. It accepts a literal current `main` SHA and expected package/plugin version; fails closed on any repository, event, ref, input/event/checkout SHA, runtime, public-registry identity, target-version-absence, or clean-checkout mismatch; then publishes the exact real Git checkout directory once with job-scoped OIDC permission for one tokenless, OTP-free attempt. Required candidate and exact-SHA CI evidence stays outside this workflow. A successful actual publish is the runtime proof that npm accepted that identity, and a public-package publish from this public repository receives npm provenance automatically.
-Merging the workflow, passing credential-free exact-SHA CI, packing a candidate, or completing `npm run release:check` neither dispatches nor authorizes it. Routine release preflight validates the expected tuple and exact workflow bytes; only the authorized workflow validates public package identity and target-version absence. Neither needs `npm login`, OTP, security-key authentication, account-settings inspection, or `npm trust list`; account authentication is reserved for initial setup, a directly authorized security/configuration audit or change, or actual OIDC/publisher failure. Each publication/version/tag/Release/submission or registry, retry/fallback, force/destructive, bypass/admin/account, or deletion action needs its own direct action-specific authority; failure grants no retry and one action never implies another.
+Merging the workflow, passing credential-free exact-SHA CI, packing a candidate, or completing `npm run release:check` cannot execute it. Routine release preflight validates the expected tuple and exact workflow bytes; only the requested workflow validates public package identity and target-version absence. Neither needs `npm login`, OTP, security-key authentication, account-settings inspection, or `npm trust list`; account authentication is reserved for initial setup, an explicitly requested security/configuration audit or change, or actual OIDC/publisher failure. Publication/version/tag/Release/submission, registry, retry/fallback, force/destructive, bypass/admin/account, and deletion remain separate action/target/scope/attempt bounds; failure grants no retry and one action never implies another.
 
 Source: [kimyeongwoo/kyw-dev](https://github.com/kimyeongwoo/kyw-dev) · Issues: [GitHub issue tracker](https://github.com/kimyeongwoo/kyw-dev/issues)
 
@@ -97,10 +99,9 @@ terminal `TASK.md` and `TEST.md` bytes; later invocations are report-only, and a
 redelivering the old pair fails before dispatch. Unmarked and prior-contract history remains readable and is not retroactively
 rewritten or reclassified.
 
-A selected `IMPLEMENT`, `RESUME`, or `DELIVER` result authorizes ordinary Task delivery: exact-path commit, non-force push,
-non-draft PR, exact-head CI observation, expected-head protected merge, post-merge CI observation, and terminal reporting.
-Direct authority for another action may arrive before or after selection without repeating `$kyw-impl`; it remains bounded by
-the named action, target, scope, and attempt under [SPEC](docs/SPEC.md).
+A selected `IMPLEMENT`, `RESUME`, or `DELIVER` establishes the aligned Task and ordinary delivery baseline: exact-path commit,
+non-force push, non-draft PR, exact-head CI, expected-head protected merge, post-merge CI, and terminal reporting. Changed active
+bounds use the warning/reconfirmation transition; after terminal completion a later prompt is ordinary under [SPEC](docs/SPEC.md).
 
 Product behavior is owned by [SPEC](docs/SPEC.md), repository invariants by [AGENTS](AGENTS.md), system boundaries by [ARCHITECTURE](docs/ARCHITECTURE.md), and the detailed implementation procedure by [`kyw-impl`](skills/kyw-impl/references/execution.md).
 

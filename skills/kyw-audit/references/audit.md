@@ -2,6 +2,10 @@
 
 Use this workflow only after an explicit `$kyw-audit NNNN` or `$kyw-audit NNNN --fix` invocation resolves one existing kyw-dev Task. Audit the Task against established intent and evidence; do not invent a better design or new product requirement.
 
+<!-- kyw-active-skill-guardrails:v1 -->
+
+Only that exact supported route activates this invocation-local workflow; otherwise and after verdict, cancellation, stop, or expiry, prompts are ordinary. Aligned turns continue without duplicate confirmation. Any established baseline, applicable Task or acceptance, scope, action, target, attempt, or Skill/mode change requires a concrete old/new warning naming implementation, Task/Test, permanent-document, verification, and delivery impacts plus exact bounds, then a zero-mutation wait. Only the trusted current user's immediate next unambiguous explicit reconfirmation of that unchanged warning advances; the origin cannot self-confirm. Cancel, decline, ambiguity, intervention, staleness, fact drift, or changed/added bounds clears or replaces it. Sync applicable mutable Task/Test and affected permanent owners before performing only the warned action; completion deactivates. Never redispatch or chain Skills, or relax system/platform safety, evidence honesty, user-work preservation, or delivered-pair immutability. Reconfirmation cannot change the resolved Task or locked audit mode; a different ID or repair mode requires its own exact route.
+
 ## Contents
 
 - Establish an independent baseline
@@ -21,6 +25,8 @@ Lock the mode once, before repository inspection:
 - `$kyw-audit NNNN --fix` is `repair` mode. The literal `--fix` token immediately after the one Task ID is the only repair authorization.
 
 Surrounding prose may narrow scope or provide evidence. It cannot upgrade a bare invocation. Natural-language requests such as “fix the findings” or “repair anything clear” without the literal token remain read-only; report that a new exact invocation is required. Reject unknown flags and multiple IDs without inspection or mutation. Do not convert modes later because a finding is easy, a Task is marked complete, or the user confirms a proposed fix without issuing a new explicit invocation.
+
+A requested change to the established audited baseline, acceptance, or scope enters the warning state above. In bare mode it remains report-only; exact reconfirmation does not substitute for the literal repair route. In repair mode the visible `Bounded repair plan:` is an execution notice for an already authorized, aligned finding, not another confirmation.
 
 ## Establish an independent baseline
 

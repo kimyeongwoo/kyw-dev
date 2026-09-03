@@ -262,7 +262,7 @@ export const PERMANENT_DOCUMENT_BUDGET_CHANGE_MARKER =
 
 export const REQUIRED_INSTRUCTION_RULE_FAMILY_IDS = Object.freeze([
   "five-skills-explicit-invocation",
-  "direct-user-mutation-authority",
+  "activation-scoped-skill-guardrails",
   "grilling-procedure",
   "initialization-procedure",
   "task-authoring-procedure",
@@ -277,6 +277,228 @@ export const REQUIRED_INSTRUCTION_RULE_FAMILY_IDS = Object.freeze([
   "progressive-context-loading",
   "repository-routing-and-completion",
 ]);
+
+export const ACTIVATION_SCOPED_SKILL_GUARDRAIL_CLAIM_IDS = Object.freeze([
+  "exact-activation-only",
+  "inactive-ordinary",
+  "aligned-no-reconfirmation",
+  "change-warning-zero-mutation",
+  "fresh-exact-reconfirmation",
+  "truth-sync-before-action",
+  "bounded-action",
+  "invalid-or-stale-expiry",
+  "exact-skill-mode-route-preserved",
+  "combined-route-once-no-self-confirm",
+  "post-terminal-inactive",
+  "safety-boundary-preserved",
+]);
+
+const activationGuardrailClaims = () => [
+  ...ACTIVATION_SCOPED_SKILL_GUARDRAIL_CLAIM_IDS,
+];
+
+export const REQUIRED_ACTIVATION_SCOPED_SKILL_GUARDRAIL_MANIFEST = deepFreeze({
+  id: "activation-scoped-skill-guardrails",
+  owner: { path: "docs/SPEC.md", profile: "owner" },
+  profiles: {
+    owner: { claims: activationGuardrailClaims() },
+    concise: { claims: activationGuardrailClaims() },
+    flow: { claims: activationGuardrailClaims() },
+    procedure: { claims: activationGuardrailClaims() },
+  },
+  projections: [
+    { path: "README.md", profile: "concise" },
+    { path: "AGENTS.md", profile: "concise" },
+    { path: "templates/project/AGENTS.md", profile: "concise" },
+    { path: "docs/ARCHITECTURE.md", profile: "flow" },
+    { path: "skills/kyw-grilling/SKILL.md", profile: "procedure" },
+    { path: "skills/kyw-init/SKILL.md", profile: "procedure" },
+    { path: "skills/kyw-task/SKILL.md", profile: "procedure" },
+    { path: "skills/kyw-impl/SKILL.md", profile: "procedure" },
+    { path: "skills/kyw-impl/references/execution.md", profile: "procedure" },
+    { path: "skills/kyw-audit/SKILL.md", profile: "procedure" },
+    { path: "skills/kyw-audit/references/audit.md", profile: "procedure" },
+  ],
+  contract: {
+    schemaVersion: 1,
+    initialState: "INACTIVE",
+    exactRouteLockedFields: ["SKILL", "MODE", "ROUTE_CAPABILITY"],
+    taskIdentityRouteLockedFields: [
+      "SELECTED_TASK",
+      "SELECTED_TASK_DIRECTORY",
+      "TASK_PAIR_DISPOSITION",
+      "DELIVERY_DISPOSITION",
+    ],
+    taskIdentityRouteLockedSkills: ["kyw-task", "kyw-impl", "kyw-audit"],
+    implementationActionDispositions: [
+      ["IMPLEMENT", "MUTABLE", "NONE", "MUTATING"],
+      ["RESUME", "MUTABLE", "NONE", "MUTATING"],
+      ["DELIVER", "MUTABLE", "RESUMABLE", "MUTATING"],
+      ["REPORT", "IMMUTABLE", "SATISFIED", "READ_ONLY"],
+    ],
+    stateIds: [
+      "INACTIVE",
+      "ACTIVE_ALIGNED",
+      "CHANGE_PENDING",
+      "RECONFIRMED_BOUNDED",
+      "CANCELLED_OR_EXPIRED",
+    ],
+    transitionIds: [
+      "ordinary-remains-inactive",
+      "exact-route-activates",
+      "aligned-turn-continues",
+      "material-change-warns",
+      "route-locked-change-requires-exact-route",
+      "exact-warning-reconfirmed",
+      "bounded-action-completes",
+      "invalid-or-stale-response-expires",
+      "changed-request-rewarns",
+      "aligned-cancel-or-expire",
+      "pending-cancel-or-expire",
+      "bounded-cancel-or-expire",
+      "aligned-workflow-completes",
+      "terminal-next-turn-is-inactive",
+    ],
+    transitionTuples: [
+      [
+        "ordinary-remains-inactive",
+        "INACTIVE",
+        "ORDINARY_PROMPT",
+        "INACTIVE",
+        "NONE",
+        ["ALLOW_ORDINARY_OUTCOME"],
+        null,
+      ],
+      ["exact-route-activates", "INACTIVE", "EXACT_ROUTE", "ACTIVE_ALIGNED", "NONE", ["ACTIVATE_ONCE"], null],
+      ["aligned-turn-continues", "ACTIVE_ALIGNED", "ALIGNED_TURN", "ACTIVE_ALIGNED", "BOUNDED", ["EXECUTE_ALIGNED_ACTION"], null],
+      [
+        "material-change-warns",
+        "ACTIVE_ALIGNED",
+        "MATERIAL_CHANGE",
+        "CHANGE_PENDING",
+        "NONE",
+        ["EMIT_OLD_NEW_IMPACT_WARNING", "WAIT_FOR_RECONFIRMATION"],
+        null,
+      ],
+      [
+        "route-locked-change-requires-exact-route",
+        "CHANGE_PENDING",
+        "ROUTE_LOCKED_CHANGE",
+        "CANCELLED_OR_EXPIRED",
+        "NONE",
+        ["CLEAR_PENDING_WARNING", "REQUIRE_EXACT_ROUTE"],
+        null,
+      ],
+      [
+        "exact-warning-reconfirmed",
+        "CHANGE_PENDING",
+        "EXACT_FRESH_RECONFIRMATION",
+        "RECONFIRMED_BOUNDED",
+        "NONE",
+        ["BIND_EXACT_WARNING"],
+        ["ACTION", "TARGET", "SCOPE", "ATTEMPT"],
+      ],
+      [
+        "bounded-action-completes",
+        "RECONFIRMED_BOUNDED",
+        "SYNC_AND_EXECUTE_WARNED_ACTION",
+        "INACTIVE",
+        "BOUNDED",
+        ["SYNC_TASK_TEST", "SYNC_PERMANENT_OWNERS", "EXECUTE_WARNED_ACTION"],
+        ["ACTION", "TARGET", "SCOPE", "ATTEMPT"],
+      ],
+      [
+        "invalid-or-stale-response-expires",
+        "CHANGE_PENDING",
+        "INVALID_OR_STALE_RESPONSE",
+        "CANCELLED_OR_EXPIRED",
+        "NONE",
+        ["CLEAR_PENDING_WARNING"],
+        null,
+      ],
+      [
+        "changed-request-rewarns",
+        "CHANGE_PENDING",
+        "CHANGED_REQUEST",
+        "CHANGE_PENDING",
+        "NONE",
+        [
+          "CLEAR_PENDING_WARNING",
+          "EMIT_OLD_NEW_IMPACT_WARNING",
+          "WAIT_FOR_RECONFIRMATION",
+        ],
+        null,
+      ],
+      [
+        "aligned-cancel-or-expire",
+        "ACTIVE_ALIGNED",
+        "CANCEL_OR_EXPIRE",
+        "CANCELLED_OR_EXPIRED",
+        "NONE",
+        ["CANCEL_ACTIVE_WORKFLOW"],
+        null,
+      ],
+      [
+        "pending-cancel-or-expire",
+        "CHANGE_PENDING",
+        "CANCEL_OR_EXPIRE",
+        "CANCELLED_OR_EXPIRED",
+        "NONE",
+        ["CLEAR_PENDING_WARNING", "CANCEL_ACTIVE_WORKFLOW"],
+        null,
+      ],
+      [
+        "bounded-cancel-or-expire",
+        "RECONFIRMED_BOUNDED",
+        "CANCEL_OR_EXPIRE",
+        "CANCELLED_OR_EXPIRED",
+        "NONE",
+        ["CANCEL_ACTIVE_WORKFLOW"],
+        null,
+      ],
+      [
+        "aligned-workflow-completes",
+        "ACTIVE_ALIGNED",
+        "WORKFLOW_TERMINAL",
+        "INACTIVE",
+        "NONE",
+        ["COMPLETE_ACTIVE_WORKFLOW"],
+        null,
+      ],
+      [
+        "terminal-next-turn-is-inactive",
+        "CANCELLED_OR_EXPIRED",
+        "NEXT_TURN",
+        "INACTIVE",
+        "NONE",
+        ["CLEAR_INVOCATION_STATE"],
+        null,
+      ],
+    ],
+    nonMutatingTransitionIds: [
+      "ordinary-remains-inactive",
+      "exact-route-activates",
+      "material-change-warns",
+      "route-locked-change-requires-exact-route",
+      "exact-warning-reconfirmed",
+      "invalid-or-stale-response-expires",
+      "changed-request-rewarns",
+      "aligned-cancel-or-expire",
+      "pending-cancel-or-expire",
+      "bounded-cancel-or-expire",
+      "aligned-workflow-completes",
+      "terminal-next-turn-is-inactive",
+    ],
+    boundedTransitionIds: ["aligned-turn-continues", "bounded-action-completes"],
+    warningTransitionId: "material-change-warns",
+    exactRouteRequiredTransitionId: "route-locked-change-requires-exact-route",
+    reconfirmationTransitionId: "exact-warning-reconfirmed",
+    boundedActionTransitionId: "bounded-action-completes",
+    requiredSyncEffects: ["SYNC_TASK_TEST", "SYNC_PERMANENT_OWNERS"],
+    boundedActionEffect: "EXECUTE_WARNED_ACTION",
+    requiredBounds: ["ACTION", "TARGET", "SCOPE", "ATTEMPT"],
+  },
+});
 
 export const PERMANENT_RULE_FAMILIES = deepFreeze([
   {
@@ -296,79 +518,262 @@ export const PERMANENT_RULE_FAMILIES = deepFreeze([
       },
       ...SKILL_NAMES.map((skillName) => ({
         path: `skills/${skillName}/SKILL.md`,
+        profile: "procedure",
         anchors: [pattern(`\\$${skillName.replace("-", "\\-")}`)],
       })),
     ],
     forbiddenDetailedAnchors: [],
   },
   {
-    id: "direct-user-mutation-authority",
+    id: "activation-scoped-skill-guardrails",
+    contract: {
+      schemaVersion: 1,
+      initialState: "INACTIVE",
+      states: [
+        "INACTIVE",
+        "ACTIVE_ALIGNED",
+        "CHANGE_PENDING",
+        "RECONFIRMED_BOUNDED",
+        "CANCELLED_OR_EXPIRED",
+      ],
+      invariants: {
+        combinedRouteCount: 1,
+        originatingTurnMayReconfirm: false,
+        postTerminalState: "INACTIVE",
+        exactRouteLockedFields: ["SKILL", "MODE", "ROUTE_CAPABILITY"],
+        taskIdentityRouteLockedFields: [
+          "SELECTED_TASK",
+          "SELECTED_TASK_DIRECTORY",
+          "TASK_PAIR_DISPOSITION",
+          "DELIVERY_DISPOSITION",
+        ],
+        taskIdentityRouteLockedSkills: ["kyw-task", "kyw-impl", "kyw-audit"],
+        implementationActionDispositions: [
+          ["IMPLEMENT", "MUTABLE", "NONE", "MUTATING"],
+          ["RESUME", "MUTABLE", "NONE", "MUTATING"],
+          ["DELIVER", "MUTABLE", "RESUMABLE", "MUTATING"],
+          ["REPORT", "IMMUTABLE", "SATISFIED", "READ_ONLY"],
+        ],
+      },
+      transitions: [
+        {
+          id: "ordinary-remains-inactive",
+          from: "INACTIVE",
+          event: "ORDINARY_PROMPT",
+          to: "INACTIVE",
+          mutation: "NONE",
+          effects: ["ALLOW_ORDINARY_OUTCOME"],
+        },
+        {
+          id: "exact-route-activates",
+          from: "INACTIVE",
+          event: "EXACT_ROUTE",
+          to: "ACTIVE_ALIGNED",
+          mutation: "NONE",
+          effects: ["ACTIVATE_ONCE"],
+        },
+        {
+          id: "aligned-turn-continues",
+          from: "ACTIVE_ALIGNED",
+          event: "ALIGNED_TURN",
+          to: "ACTIVE_ALIGNED",
+          mutation: "BOUNDED",
+          effects: ["EXECUTE_ALIGNED_ACTION"],
+        },
+        {
+          id: "material-change-warns",
+          from: "ACTIVE_ALIGNED",
+          event: "MATERIAL_CHANGE",
+          to: "CHANGE_PENDING",
+          mutation: "NONE",
+          effects: ["EMIT_OLD_NEW_IMPACT_WARNING", "WAIT_FOR_RECONFIRMATION"],
+        },
+        {
+          id: "route-locked-change-requires-exact-route",
+          from: "CHANGE_PENDING",
+          event: "ROUTE_LOCKED_CHANGE",
+          to: "CANCELLED_OR_EXPIRED",
+          mutation: "NONE",
+          effects: ["CLEAR_PENDING_WARNING", "REQUIRE_EXACT_ROUTE"],
+        },
+        {
+          id: "exact-warning-reconfirmed",
+          from: "CHANGE_PENDING",
+          event: "EXACT_FRESH_RECONFIRMATION",
+          to: "RECONFIRMED_BOUNDED",
+          mutation: "NONE",
+          effects: ["BIND_EXACT_WARNING"],
+          bounds: ["ACTION", "TARGET", "SCOPE", "ATTEMPT"],
+        },
+        {
+          id: "bounded-action-completes",
+          from: "RECONFIRMED_BOUNDED",
+          event: "SYNC_AND_EXECUTE_WARNED_ACTION",
+          to: "INACTIVE",
+          mutation: "BOUNDED",
+          effects: [
+            "SYNC_TASK_TEST",
+            "SYNC_PERMANENT_OWNERS",
+            "EXECUTE_WARNED_ACTION",
+          ],
+          bounds: ["ACTION", "TARGET", "SCOPE", "ATTEMPT"],
+        },
+        {
+          id: "invalid-or-stale-response-expires",
+          from: "CHANGE_PENDING",
+          event: "INVALID_OR_STALE_RESPONSE",
+          to: "CANCELLED_OR_EXPIRED",
+          mutation: "NONE",
+          effects: ["CLEAR_PENDING_WARNING"],
+        },
+        {
+          id: "changed-request-rewarns",
+          from: "CHANGE_PENDING",
+          event: "CHANGED_REQUEST",
+          to: "CHANGE_PENDING",
+          mutation: "NONE",
+          effects: [
+            "CLEAR_PENDING_WARNING",
+            "EMIT_OLD_NEW_IMPACT_WARNING",
+            "WAIT_FOR_RECONFIRMATION",
+          ],
+        },
+        {
+          id: "aligned-cancel-or-expire",
+          from: "ACTIVE_ALIGNED",
+          event: "CANCEL_OR_EXPIRE",
+          to: "CANCELLED_OR_EXPIRED",
+          mutation: "NONE",
+          effects: ["CANCEL_ACTIVE_WORKFLOW"],
+        },
+        {
+          id: "pending-cancel-or-expire",
+          from: "CHANGE_PENDING",
+          event: "CANCEL_OR_EXPIRE",
+          to: "CANCELLED_OR_EXPIRED",
+          mutation: "NONE",
+          effects: ["CLEAR_PENDING_WARNING", "CANCEL_ACTIVE_WORKFLOW"],
+        },
+        {
+          id: "bounded-cancel-or-expire",
+          from: "RECONFIRMED_BOUNDED",
+          event: "CANCEL_OR_EXPIRE",
+          to: "CANCELLED_OR_EXPIRED",
+          mutation: "NONE",
+          effects: ["CANCEL_ACTIVE_WORKFLOW"],
+        },
+        {
+          id: "aligned-workflow-completes",
+          from: "ACTIVE_ALIGNED",
+          event: "WORKFLOW_TERMINAL",
+          to: "INACTIVE",
+          mutation: "NONE",
+          effects: ["COMPLETE_ACTIVE_WORKFLOW"],
+        },
+        {
+          id: "terminal-next-turn-is-inactive",
+          from: "CANCELLED_OR_EXPIRED",
+          event: "NEXT_TURN",
+          to: "INACTIVE",
+          mutation: "NONE",
+          effects: ["CLEAR_INVOCATION_STATE"],
+        },
+      ],
+    },
     owner: {
       path: "docs/SPEC.md",
+      profile: "owner",
+      claims: activationGuardrailClaims(),
       anchors: [
-        pattern("Skill invocation and mutation authority are separate channels"),
-        pattern("latest relevant directive from the trusted current user"),
-        pattern("negative imperative or prohibition is never a grant"),
-        pattern("conditional instruction grants authority only"),
-        pattern("appended text is preserved as `overrideText` transport"),
-        pattern("Before terminal dispatch, the executor passes only whether"),
-        pattern("(?:failed attempt|failure) grants no retry", "i"),
+        pattern("^### 6\\.3 Activation-scoped guardrails and ordinary prompts$"),
+        pattern("<!-- kyw-active-skill-guardrails:v1 -->"),
+        pattern("exact explicit Skill invocation or exact managed alias activates a workflow", "i"),
+        pattern("controlling old criterion, requested new criterion", "i"),
+        pattern("waits with zero mutation", "i"),
+        pattern("immediately next[^.]*explicit[^.]*confirmation", "i"),
+        pattern("synchronize[^.;]*every applicable mutable Task/Test contract", "i"),
+        pattern("cannot be confirmed by its originating or combined message", "i"),
       ],
     },
     projections: [
       {
         path: "README.md",
+        profile: "concise",
+        claims: activationGuardrailClaims(),
         anchors: [
-          pattern("routing, not an authorization token"),
-          pattern("latest relevant trusted-current-user affirmative act-now request"),
+          pattern("<!-- kyw-active-skill-guardrails:v1 -->"),
+          pattern("Only exact Skill syntax or the three managed aliases", "i"),
+          pattern("Outside an active workflow", "i"),
+          pattern("warns and waits; only the immediately next exact reconfirmation", "i"),
         ],
       },
       {
         path: "AGENTS.md",
+        profile: "concise",
+        claims: activationGuardrailClaims(),
         anchors: [
-          pattern("Skill syntax governs routing, not authorization"),
-          pattern("latest relevant trusted-current-user affirmative act-now instruction"),
+          pattern("<!-- kyw-active-skill-guardrails:v1 -->"),
+          pattern("Exact Skill/alias(?: routing)? starts (?:kyw )?guardrails", "i"),
+          pattern("zero-mutation wait", "i"),
+          pattern("Immediate exact reconfirmation", "i"),
         ],
       },
       {
         path: "templates/project/AGENTS.md",
+        profile: "concise",
+        claims: activationGuardrailClaims(),
         anchors: [
-          pattern("Skill syntax governs routing, not authorization"),
-          pattern("latest relevant trusted-current-user affirmative act-now instruction"),
+          pattern("<!-- kyw-active-skill-guardrails:v1 -->"),
+          pattern("Exact Skill/alias(?: routing)? starts (?:kyw )?guardrails", "i"),
+          pattern("zero-mutation wait", "i"),
+          pattern("Immediate exact reconfirmation", "i"),
         ],
       },
       {
         path: "docs/ARCHITECTURE.md",
+        profile: "flow",
+        claims: activationGuardrailClaims(),
         anchors: [
-          pattern("Skill routing and mutation authority are separate inputs"),
-          pattern("latest applicable trusted-current-user"),
-          pattern("Task-override-present/absent terminal flag"),
+          pattern("<!-- kyw-active-skill-guardrails:v1 -->"),
+          pattern("INACTIVE ordinary handling"),
+          pattern("exact Skill/managed route .* ACTIVE_ALIGNED"),
+          pattern("CHANGE_PENDING warning \\+ zero-mutation wait"),
+          pattern("RECONFIRMED_BOUNDED"),
+          pattern("permanent-owner \\+ mutable-pair sync"),
+          pattern("bounded action/target/scope/attempt"),
         ],
       },
-      {
-        path: "skills/kyw-impl/SKILL.md",
+      ...[
+        "skills/kyw-grilling/SKILL.md",
+        "skills/kyw-init/SKILL.md",
+        "skills/kyw-task/SKILL.md",
+        "skills/kyw-impl/SKILL.md",
+        "skills/kyw-impl/references/execution.md",
+        "skills/kyw-audit/SKILL.md",
+        "skills/kyw-audit/references/audit.md",
+      ].map((path) => ({
+        path,
+        profile: "procedure",
+        claims: activationGuardrailClaims(),
         anchors: [
-          pattern("Direct user mutation authority is separate from Skill routing"),
-          pattern("`overrideText` is transport, not permission"),
+          pattern("<!-- kyw-active-skill-guardrails:v1 -->"),
+          pattern("Skill/mode", "i"),
+          pattern("implementation.*Task/Test.*permanent-(?:document|owner).*verification.*delivery", "is"),
+          pattern("zero-mutation wait|empty mutation trace", "i"),
+          pattern("immediate(?:ly)?[^.]*reconfirm", "i"),
+          pattern("own exact route|exact routing/modes|exact `--fix` route", "i"),
+          path === "skills/kyw-impl/SKILL.md"
+            ? pattern("owner/pair sync", "i")
+            : pattern("sync(?:hronize)?[^.]*Task/Test[^.]*owner", "i"),
+          pattern("bounded action|warned action", "i"),
+          pattern("completion[^.]{0,40}deactivates|completed bounded action expires", "i"),
         ],
-      },
-      {
-        path: "skills/kyw-impl/references/execution.md",
-        anchors: [
-          pattern("Mutation authority is a separate channel"),
-          pattern("`overrideText` preserves suffix transport"),
-          pattern("TASK_OVERRIDE_PRESENT.*NO_TASK_OVERRIDE"),
-          pattern("latest applicable directive from the trusted current user"),
-        ],
-      },
+      })),
     ],
     forbiddenDetailedAnchors: [
-      pattern("Referential assent such as “do that” counts only", "i"),
-      pattern("A conditional instruction grants authority only", "i"),
-      pattern("appended text is preserved as `overrideText` transport", "i"),
-      pattern("overlapping older authority does not revive", "i"),
-      pattern("single, concrete, fully resolved as to action, target, and scope", "i"),
-      pattern("success, failure, cancellation, or target/scope drift ends the current attempt", "i"),
+      pattern("immediately next unambiguous explicit reconfirmation of those exact warned bounds", "i"),
+      pattern("concrete implementation, Task/Test, permanent-document, verification, and delivery impacts", "i"),
+      pattern("changed or additional action, target, scope, and attempt", "i"),
     ],
   },
   {
@@ -469,6 +874,7 @@ export const PERMANENT_RULE_FAMILIES = deepFreeze([
     projections: [
       {
         path: "skills/kyw-impl/SKILL.md",
+        profile: "procedure",
         anchors: [pattern("\\[Task Execution and Resume\\]\\(references/execution\\.md\\)")],
       },
       {
@@ -506,6 +912,7 @@ export const PERMANENT_RULE_FAMILIES = deepFreeze([
     projections: [
       {
         path: "skills/kyw-audit/SKILL.md",
+        profile: "procedure",
         anchors: [pattern("\\[Independent Task Audit\\]\\(references/audit\\.md\\)")],
       },
       {
@@ -540,10 +947,12 @@ export const PERMANENT_RULE_FAMILIES = deepFreeze([
     projections: [
       {
         path: "skills/kyw-task/SKILL.md",
-        anchors: [pattern("canonical Task/Test templates"), pattern("set both statuses to `READY`")],
+        profile: "procedure",
+        anchors: [pattern("canonical templates in memory"), pattern("set both statuses to `READY`")],
       },
       {
         path: "skills/kyw-impl/references/execution.md",
+        profile: "procedure",
         anchors: [pattern("Keep Plan and handoff factual")],
       },
       {
@@ -573,14 +982,17 @@ export const PERMANENT_RULE_FAMILIES = deepFreeze([
     projections: [
       {
         path: "skills/kyw-task/SKILL.md",
-        anchors: [pattern("five-field model provenance"), pattern("stable unchecked `AC-NN`")],
+        profile: "procedure",
+        anchors: [pattern("five-field provenance"), pattern("stable unchecked `AC-NN`")],
       },
       {
         path: "skills/kyw-impl/references/execution.md",
+        profile: "procedure",
         anchors: [pattern("canonical five fields in `templates/task/TEST\\.md`")],
       },
       {
         path: "skills/kyw-audit/references/audit.md",
+        profile: "procedure",
         anchors: [pattern("Confirm each row states a meaningful intent, method, level, status, and evidence")],
       },
       {
@@ -627,6 +1039,7 @@ export const PERMANENT_RULE_FAMILIES = deepFreeze([
       },
       {
         path: "skills/kyw-impl/references/execution.md",
+        profile: "procedure",
         anchors: [
           pattern("HARDENED_EXACT_HEAD"),
           pattern("PR_MERGE_COMPATIBILITY"),
@@ -686,17 +1099,14 @@ export const PERMANENT_RULE_FAMILIES = deepFreeze([
     id: "publication-authority",
     owner: {
       path: "docs/SPEC.md",
-      anchors: [
-        pattern("npm publish", "i"),
-        pattern("direct action-specific user authority", "i"),
-      ],
+      anchors: [pattern("npm publish", "i"), pattern("each must be requested as its own action", "i")],
     },
     projections: [
       {
         path: "README.md",
         anchors: [
           pattern("Version `0\\.1\\.4`"),
-          pattern("needs its own direct action-specific authority"),
+          pattern("remain separate action/target/scope/attempt bounds"),
         ],
       },
       {
@@ -713,11 +1123,16 @@ export const PERMANENT_RULE_FAMILIES = deepFreeze([
       },
       {
         path: "skills/kyw-impl/SKILL.md",
+        profile: "procedure",
         anchors: [pattern("Publication/registry/version/tag/Release/submission")],
       },
       {
         path: "skills/kyw-impl/references/execution.md",
-        anchors: [pattern("External categories stay separate"), pattern("failure grants no retry")],
+        profile: "procedure",
+        anchors: [
+          pattern("separately named external categories remain outside it"),
+          pattern("failure grants no retry"),
+        ],
       },
     ],
     forbiddenDetailedAnchors: [],
@@ -727,21 +1142,26 @@ export const PERMANENT_RULE_FAMILIES = deepFreeze([
     owner: {
       path: "AGENTS.md",
       anchors: [
-        pattern("Always load applicable `AGENTS\\.md` and the selected/current Task/Test pair"),
+        pattern(
+          "Always load applicable `AGENTS\\.md`[\\s\\S]{0,120}active kyw workflow[\\s\\S]{0,120}selected/current Task/Test pair",
+        ),
         pattern("Index or search README, SPEC, and ARCHITECTURE first"),
-        pattern("Read all four permanent documents for `kyw-init`, rebaseline, major redesign"),
+        pattern("Read all four for `kyw-init`, rebaseline, major redesign"),
       ],
     },
     projections: [
       {
         path: "templates/project/AGENTS.md",
         anchors: [
-          pattern("Always load applicable `AGENTS\\.md` and the selected/current Task/Test pair"),
+          pattern(
+            "Always load applicable `AGENTS\\.md`[\\s\\S]{0,120}active kyw workflow[\\s\\S]{0,120}selected/current Task/Test pair",
+          ),
           pattern("Index or search README, SPEC, and ARCHITECTURE first"),
         ],
       },
       {
         path: "skills/kyw-task/SKILL.md",
+        profile: "procedure",
         anchors: [
           pattern("Index or search headings in `README\\.md`, `docs/SPEC\\.md`, and `docs/ARCHITECTURE\\.md`"),
           pattern("read only the owning permanent-document sections"),
@@ -749,13 +1169,15 @@ export const PERMANENT_RULE_FAMILIES = deepFreeze([
       },
       {
         path: "skills/kyw-impl/references/execution.md",
+        profile: "procedure",
         anchors: [
-          pattern("Index or search headings in README, SPEC, and ARCHITECTURE"),
-          pattern("read only the owning permanent-document sections"),
+          pattern("Search README, SPEC, and ARCHITECTURE headings"),
+          pattern("read owner sections selected by"),
         ],
       },
       {
         path: "skills/kyw-audit/references/audit.md",
+        profile: "procedure",
         anchors: [
           pattern("Index or search headings in README, SPEC, and ARCHITECTURE"),
           pattern("read only the owning permanent-document sections"),
@@ -769,7 +1191,7 @@ export const PERMANENT_RULE_FAMILIES = deepFreeze([
     owner: {
       path: "AGENTS.md",
       anchors: [
-        pattern("Work on one Task at a time"),
+        pattern("During an active Task workflow, work on one Task"),
         pattern("Keep one Task active"),
         pattern("Before completion, compare the final diff"),
       ],
@@ -778,7 +1200,7 @@ export const PERMANENT_RULE_FAMILIES = deepFreeze([
       {
         path: "templates/project/AGENTS.md",
         anchors: [
-          pattern("Work on one Task"),
+          pattern("During an active Task workflow, work on one Task"),
           pattern("Keep one Task active"),
           pattern("Before completion, compare diff to scope/matrix"),
         ],
@@ -1564,6 +1986,324 @@ export function planPermanentDocumentLoading({
   });
 }
 
+function validateActivationScopedSkillGuardrailFamily(family, errors) {
+  const manifest = REQUIRED_ACTIVATION_SCOPED_SKILL_GUARDRAIL_MANIFEST;
+  const prefix = manifest.id;
+  if (!family || family.id !== manifest.id) {
+    return;
+  }
+
+  expect(
+    family.owner?.path === manifest.owner.path &&
+      family.owner?.profile === manifest.owner.profile,
+    `${prefix} must keep its required canonical owner and profile`,
+    errors,
+  );
+  const actualProjectionInventory = Array.isArray(family.projections)
+    ? family.projections.map(({ path, profile }) => ({ path, profile }))
+    : [];
+  expect(
+    sameJson(actualProjectionInventory, manifest.projections),
+    `${prefix} must declare the exact required projection path/profile inventory`,
+    errors,
+  );
+
+  const validateSurfaceClaims = (surface, label) => {
+    if (!surface || typeof surface !== "object" || Array.isArray(surface)) {
+      errors.push(`${prefix} ${label} is missing its structured projection declaration`);
+      return;
+    }
+    const requiredProfile = manifest.profiles[surface.profile];
+    expect(
+      Boolean(requiredProfile),
+      `${prefix} ${label} has an unknown projection profile: ${surface.profile ?? "<missing>"}`,
+      errors,
+    );
+    const claims = surface.claims;
+    expect(
+      Array.isArray(claims) &&
+        claims.length > 0 &&
+        claims.every((claim) => typeof claim === "string" && claim.length > 0) &&
+        new Set(claims).size === claims.length,
+      `${prefix} ${label} must declare unique nonempty claim IDs`,
+      errors,
+    );
+    if (requiredProfile) {
+      expect(
+        sameJson(claims, requiredProfile.claims),
+        `${prefix} ${label} is missing or reorders required ${surface.profile} claims`,
+        errors,
+      );
+    }
+    expect(
+      Array.isArray(surface.anchors) && surface.anchors.length > 0,
+      `${prefix} ${label} must retain at least one wording smoke anchor`,
+      errors,
+    );
+  };
+
+  validateSurfaceClaims(family.owner, `owner ${manifest.owner.path}`);
+  for (const requiredProjection of manifest.projections) {
+    validateSurfaceClaims(
+      family.projections?.find(({ path }) => path === requiredProjection.path),
+      `projection ${requiredProjection.path}`,
+    );
+  }
+
+  const contract = family.contract;
+  if (!contract || typeof contract !== "object" || Array.isArray(contract)) {
+    errors.push(`${prefix} must declare its structured lifecycle contract`);
+    return;
+  }
+  expect(
+    contract.schemaVersion === manifest.contract.schemaVersion,
+    `${prefix} lifecycle schema version is invalid`,
+    errors,
+  );
+  expect(
+    contract.initialState === manifest.contract.initialState,
+    `${prefix} lifecycle initial state must be ${manifest.contract.initialState}`,
+    errors,
+  );
+  expect(
+    sameJson(
+      contract.invariants?.exactRouteLockedFields,
+      manifest.contract.exactRouteLockedFields,
+    ),
+    `${prefix} exact Skill/mode route-locked fields must remain non-waivable`,
+    errors,
+  );
+  expect(
+    sameJson(
+      contract.invariants?.taskIdentityRouteLockedFields,
+      manifest.contract.taskIdentityRouteLockedFields,
+    ) &&
+      sameJson(
+        contract.invariants?.taskIdentityRouteLockedSkills,
+        manifest.contract.taskIdentityRouteLockedSkills,
+      ),
+    `${prefix} task-bearing route identity must lock selected Task, directory, pair, and delivery disposition`,
+    errors,
+  );
+  expect(
+    sameJson(
+      contract.invariants?.implementationActionDispositions,
+      manifest.contract.implementationActionDispositions,
+    ),
+    `${prefix} implementation action must preserve pair and delivery disposition`,
+    errors,
+  );
+  const states = Array.isArray(contract.states) ? contract.states : [];
+  expect(
+    states.every((state) => typeof state === "string" && state.length > 0) &&
+      new Set(states).size === states.length,
+    `${prefix} lifecycle states must be unique nonempty IDs`,
+    errors,
+  );
+  expect(
+    sameJson(states, manifest.contract.stateIds),
+    `${prefix} lifecycle state inventory is incomplete or reordered`,
+    errors,
+  );
+
+  const transitions = Array.isArray(contract.transitions) ? contract.transitions : [];
+  const transitionIds = transitions.map((transition) => transition?.id);
+  expect(
+    transitionIds.every((id) => typeof id === "string" && id.length > 0) &&
+      new Set(transitionIds).size === transitionIds.length,
+    `${prefix} lifecycle transition IDs must be unique and nonempty`,
+    errors,
+  );
+  expect(
+    sameJson(transitionIds, manifest.contract.transitionIds),
+    `${prefix} lifecycle transition inventory is incomplete or reordered`,
+    errors,
+  );
+  const transitionTuples = transitions.map((transition) => [
+    transition?.id,
+    transition?.from,
+    transition?.event,
+    transition?.to,
+    transition?.mutation,
+    transition?.effects,
+    transition?.bounds ?? null,
+  ]);
+  expect(
+    sameJson(transitionTuples, manifest.contract.transitionTuples),
+    `${prefix} lifecycle transition contracts drifted from the manifest`,
+    errors,
+  );
+
+  const knownStates = new Set(states);
+  const transitionKeys = new Set();
+  const reachableStates = new Set([contract.initialState]);
+  for (const transition of transitions) {
+    if (!transition || typeof transition !== "object" || Array.isArray(transition)) {
+      errors.push(`${prefix} lifecycle contains a malformed transition`);
+      continue;
+    }
+    expect(
+      knownStates.has(transition.from) && knownStates.has(transition.to),
+      `${prefix} transition ${transition.id ?? "<missing>"} references an unknown state`,
+      errors,
+    );
+    expect(
+      typeof transition.event === "string" && transition.event.length > 0,
+      `${prefix} transition ${transition.id ?? "<missing>"} has no event`,
+      errors,
+    );
+    const transitionKey = `${transition.from}\u0000${transition.event}`;
+    expect(
+      !transitionKeys.has(transitionKey),
+      `${prefix} lifecycle is nondeterministic at ${transition.from}/${transition.event}`,
+      errors,
+    );
+    transitionKeys.add(transitionKey);
+    expect(
+      ["NONE", "BOUNDED"].includes(transition.mutation),
+      `${prefix} transition ${transition.id ?? "<missing>"} has an invalid mutation class`,
+      errors,
+    );
+    expect(
+      Array.isArray(transition.effects) &&
+        transition.effects.every((effect) => typeof effect === "string" && effect.length > 0) &&
+        new Set(transition.effects).size === transition.effects.length,
+      `${prefix} transition ${transition.id ?? "<missing>"} must declare unique effect IDs`,
+      errors,
+    );
+  }
+
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const transition of transitions) {
+      if (reachableStates.has(transition?.from) && !reachableStates.has(transition?.to)) {
+        reachableStates.add(transition.to);
+        changed = true;
+      }
+    }
+  }
+  for (const state of states) {
+    expect(
+      reachableStates.has(state),
+      `${prefix} lifecycle state is unreachable from ${contract.initialState}: ${state}`,
+      errors,
+    );
+  }
+
+  const byId = new Map(transitions.map((transition) => [transition?.id, transition]));
+  for (const transitionId of manifest.contract.nonMutatingTransitionIds) {
+    expect(
+      byId.get(transitionId)?.mutation === "NONE",
+      `${prefix} transition ${transitionId} must remain mutation-free`,
+      errors,
+    );
+  }
+  for (const transitionId of manifest.contract.boundedTransitionIds) {
+    expect(
+      byId.get(transitionId)?.mutation === "BOUNDED",
+      `${prefix} transition ${transitionId} must remain bounded`,
+      errors,
+    );
+  }
+
+  const warning = byId.get(manifest.contract.warningTransitionId);
+  expect(
+    warning?.from === "ACTIVE_ALIGNED" &&
+      warning?.event === "MATERIAL_CHANGE" &&
+      warning?.to === "CHANGE_PENDING" &&
+      warning?.mutation === "NONE",
+    `${prefix} material-change warning must enter pending state with zero mutation`,
+    errors,
+  );
+  expect(
+    sameJson(warning?.effects, [
+      "EMIT_OLD_NEW_IMPACT_WARNING",
+      "WAIT_FOR_RECONFIRMATION",
+    ]),
+    `${prefix} material-change warning must warn and wait without another effect`,
+    errors,
+  );
+
+  const exactRouteRequired = byId.get(
+    manifest.contract.exactRouteRequiredTransitionId,
+  );
+  expect(
+    exactRouteRequired?.from === "CHANGE_PENDING" &&
+      exactRouteRequired?.event === "ROUTE_LOCKED_CHANGE" &&
+      exactRouteRequired?.to === "CANCELLED_OR_EXPIRED" &&
+      exactRouteRequired?.mutation === "NONE" &&
+      sameJson(exactRouteRequired?.effects, [
+        "CLEAR_PENDING_WARNING",
+        "REQUIRE_EXACT_ROUTE",
+      ]),
+    `${prefix} route-locked change must expire mutation-free and require its own exact route`,
+    errors,
+  );
+
+  const reconfirmation = byId.get(manifest.contract.reconfirmationTransitionId);
+  expect(
+    reconfirmation?.from === "CHANGE_PENDING" &&
+      reconfirmation?.event === "EXACT_FRESH_RECONFIRMATION" &&
+      reconfirmation?.to === "RECONFIRMED_BOUNDED" &&
+      reconfirmation?.mutation === "NONE" &&
+      sameJson(reconfirmation?.effects, ["BIND_EXACT_WARNING"]),
+    `${prefix} exact reconfirmation must bind the warning before bounded execution`,
+    errors,
+  );
+  expect(
+    sameJson(reconfirmation?.bounds, manifest.contract.requiredBounds),
+    `${prefix} reconfirmed execution must retain exact action/target/scope/attempt bounds`,
+    errors,
+  );
+  const boundedAction = byId.get(manifest.contract.boundedActionTransitionId);
+  expect(
+    boundedAction?.from === "RECONFIRMED_BOUNDED" &&
+      boundedAction?.event === "SYNC_AND_EXECUTE_WARNED_ACTION" &&
+      boundedAction?.to === "INACTIVE" &&
+      boundedAction?.mutation === "BOUNDED",
+    `${prefix} bounded action must complete the invocation in INACTIVE`,
+    errors,
+  );
+  expect(
+    sameJson(boundedAction?.bounds, manifest.contract.requiredBounds),
+    `${prefix} bounded action must retain exact action/target/scope/attempt bounds`,
+    errors,
+  );
+  const boundedActionEffects = Array.isArray(boundedAction?.effects)
+    ? boundedAction.effects
+    : [];
+  const boundedActionIndex = boundedActionEffects.indexOf(
+    manifest.contract.boundedActionEffect,
+  );
+  const syncEffectIndexes = manifest.contract.requiredSyncEffects.map((effect) =>
+    boundedActionEffects.indexOf(effect),
+  );
+  expect(
+    boundedActionIndex >= 0 &&
+      syncEffectIndexes.every((index) => index >= 0 && index < boundedActionIndex),
+    `${prefix} reconfirmed execution must synchronize Task/Test and permanent truth before bounded action`,
+    errors,
+  );
+  for (const transition of transitions) {
+    if (transition?.id === manifest.contract.boundedActionTransitionId) {
+      continue;
+    }
+    expect(
+      !transition?.effects?.includes(manifest.contract.boundedActionEffect),
+      `${prefix} warned bounded action may occur only after exact fresh reconfirmation`,
+      errors,
+    );
+  }
+  expect(
+    contract.invariants?.combinedRouteCount === 1 &&
+      contract.invariants?.originatingTurnMayReconfirm === false &&
+      contract.invariants?.postTerminalState === "INACTIVE",
+    `${prefix} lifecycle must route once, reject self-confirmation, and end inactive`,
+    errors,
+  );
+}
+
 export function validatePermanentRuleFamilies(
   registry,
   texts,
@@ -1584,6 +2324,7 @@ export function validatePermanentRuleFamilies(
       errors.push(`guarded rule family ID is duplicated: ${family.id}`);
     }
     ids.add(family?.id);
+    validateActivationScopedSkillGuardrailFamily(family, errors);
     expect(
       family?.owner &&
         !Array.isArray(family.owner) &&
@@ -1619,6 +2360,7 @@ export function validatePermanentRuleFamilies(
     }
 
     const projectionPaths = new Set();
+    const projectionProfiles = new Map();
     for (const projection of family.projections ?? []) {
       if (
         projection.path === family.owner.path ||
@@ -1629,6 +2371,7 @@ export function validatePermanentRuleFamilies(
         continue;
       }
       projectionPaths.add(projection.path);
+      projectionProfiles.set(projection.path, projection.profile);
       const projectionText = texts[projection.path];
       expect(
         typeof projectionText === "string",
@@ -1655,7 +2398,7 @@ export function validatePermanentRuleFamilies(
         if (
           relativePath === family.owner.path ||
           (projectionPaths.has(relativePath) &&
-            relativePath.startsWith("skills/")) ||
+            projectionProfiles.get(relativePath) === "procedure") ||
           typeof text !== "string"
         ) {
           continue;
@@ -2047,7 +2790,7 @@ function validateSkill(root, skillName, errors) {
     if (skillName === "kyw-task") {
       const adapterPath = join(root, "skills", skillName, "scripts", "task-artifacts.mjs");
       expect(
-        skill.includes("Do not create `docs/`, `docs/tasks/`, a lock, a scratch file, or a Task artifact during inspection"),
+        skill.includes("Write nothing while inspecting"),
         `${skillName} must settle adaptive boundaries before writes`,
         errors,
       );

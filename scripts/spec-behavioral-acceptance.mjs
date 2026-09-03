@@ -458,7 +458,15 @@ export function validateDirectScenarioEvidence(record) {
     ]) {
       requireCheck(name);
     }
-    requireCheck("ordinaryCreatedTask", false);
+    for (const name of [
+      "ordinaryCreatedTask",
+      "kywWorkflowActivated",
+      "kywWarningIssued",
+      "taskSelected",
+      "taskRedirected",
+    ]) {
+      requireCheck(name, false);
+    }
   }
   return errors;
 }
