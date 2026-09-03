@@ -12,6 +12,7 @@ import {
   evaluateTaskExecutionPreflight,
   parseTaskInvocation,
 } from "../src/core/task-artifacts.mjs";
+import { runSkillInvocationScenario } from "./support/kyw-invocation-lifecycle.mjs";
 
 const REPOSITORY_ROOT = fileURLToPath(new URL("../", import.meta.url));
 const REPRESENTATIVE_BUDGET_BYTES = 36_864;
@@ -37,241 +38,138 @@ async function read(relativePath) {
   return readFile(join(REPOSITORY_ROOT, relativePath), "utf8");
 }
 
-function authorityBoundary(action, defaultAttempt) {
-  return Object.freeze({
-    action: action.action,
-    target: action.target,
-    scope: action.scope,
-    scopeGroup: action.scopeGroup,
-    attempt: action.attempt ?? defaultAttempt,
-  });
-}
+const ACTIVE_SKILL_CONTRACT = Object.freeze({
+  skill: "kyw-impl",
+  mode: "implementation",
+  routeCapability: "impl-exact-task",
+  baseline: "main@9431dbf",
+  selectedTask: "0083",
+  selectedTaskDirectory:
+    "docs/tasks/0083-scope-kyw-skill-guardrails-to-active-in-60ce0c5c",
+  taskPairDisposition: "MUTABLE",
+  deliveryDisposition: "NONE",
+  acceptance: Object.freeze(["AC-01", "AC-02", "AC-03", "AC-04"]),
+  scope: "activation-scoped kyw guardrails",
+  action: "implement",
+  target: "Task 0083 repository outcome",
+  attempt: "task-0083-implementation-1",
+});
 
-function authorityBoundaryKey(action) {
-  return [action.action, action.target, action.scope, action.attempt].join("|");
-}
+const CHANGE_IMPACTS = Object.freeze({
+  implementation: "implementation must follow the requested criterion",
+  taskTest: Object.freeze({
+    summary: "the active mutable Task/Test pair must synchronize",
+    paths: Object.freeze([
+      "docs/tasks/0083-scope-kyw-skill-guardrails-to-active-in-60ce0c5c/TASK.md",
+      "docs/tasks/0083-scope-kyw-skill-guardrails-to-active-in-60ce0c5c/TEST.md",
+    ]),
+  }),
+  permanentDocuments: Object.freeze({
+    summary: "SPEC and ARCHITECTURE must synchronize",
+    paths: Object.freeze(["docs/SPEC.md", "docs/ARCHITECTURE.md"]),
+  }),
+  verification: "state-transition and regression coverage must change",
+  delivery: "the delivered exact-SHA scope would change",
+});
 
-function authorityBoundaryMatches(action, match) {
-  const fixedFieldsMatch = ["action", "target", "attempt"].every(
-    (field) => match[field] === undefined || action[field] === match[field],
-  );
-  const scopeMatches =
-    match.scope === undefined ||
-    action.scope === match.scope ||
-    (typeof action.scopeGroup === "string" &&
-      action.scopeGroup.length > 0 &&
-      action.scopeGroup === match.scopeGroup);
-  return fixedFieldsMatch && scopeMatches;
-}
+const NO_SYNC_IMPACTS = Object.freeze({
+  implementation: "the warned action changes within the current workflow",
+  taskTest: Object.freeze({ summary: "no Task/Test pair is mutable", paths: [] }),
+  permanentDocuments: Object.freeze({
+    summary: "no permanent owner changes",
+    paths: [],
+  }),
+  verification: "the bounded action still needs verification",
+  delivery: "no delivery mutation applies",
+});
 
-function authorityActionsAreResolved(actions, defaultAttempt) {
-  return (
-    actions.length > 0 &&
-    actions.every((action) =>
-      [action.action, action.target, action.scope, action.attempt ?? defaultAttempt].every(
-        (field) => typeof field === "string" && field.length > 0,
-      ),
-    )
-  );
-}
-
-function runAuthorityContractScenario(turns) {
-  const grants = new Map();
-  const closedAttempts = new Set();
-  const snapshots = [];
-  let immediatelyPriorTurn;
-
-  const removeMatching = (matches, defaultAttempt) => {
-    for (const rawMatch of matches) {
-      const match = authorityBoundary(rawMatch, defaultAttempt);
-      for (const [key, grant] of grants) {
-        if (authorityBoundaryMatches(grant, match)) grants.delete(key);
-      }
-    }
+function requestedContract(overrides = {}) {
+  return {
+    ...ACTIVE_SKILL_CONTRACT,
+    acceptance: Array.isArray(ACTIVE_SKILL_CONTRACT.acceptance)
+      ? [...ACTIVE_SKILL_CONTRACT.acceptance]
+      : ACTIVE_SKILL_CONTRACT.acceptance,
+    ...overrides,
   };
+}
 
-  const replaceRelevantGrants = (actions, defaultAttempt) => {
-    for (const rawAction of actions) {
-      const action = authorityBoundary(rawAction, defaultAttempt);
-      for (const [key, grant] of grants) {
-        if (authorityBoundaryMatches(grant, action)) grants.delete(key);
-      }
-      grants.set(authorityBoundaryKey(action), action);
-    }
+function contractForSkill(skill) {
+  const tasklessProfiles = {
+    "kyw-grilling": {
+      mode: "decision-interview",
+      routeCapability: "grilling-exact",
+      action: "interview",
+    },
+    "kyw-init": {
+      mode: "initialization",
+      routeCapability: "init-exact",
+      action: "initialize",
+    },
+    "kyw-task": {
+      mode: "authoring",
+      routeCapability: "task-goal",
+      action: "author",
+    },
   };
-
-  const usesOnlyOpenAttempts = (actions, defaultAttempt) =>
-    actions.every(
-      (action) => !closedAttempts.has(action.attempt ?? defaultAttempt),
-    );
-
-  const closeAttempts = (matches, defaultAttempt) => {
-    for (const match of matches) {
-      const attempt = match.attempt ?? defaultAttempt;
-      if (typeof attempt === "string" && attempt.length > 0) {
-        closedAttempts.add(attempt);
-      }
-    }
-  };
-
-  for (const turn of turns) {
-    if (["attempt-terminal", "target-scope-drift"].includes(turn.speechAct)) {
-      const matches = turn.matches ?? [{ attempt: turn.attempt }];
-      removeMatching(matches, turn.attempt);
-      closeAttempts(matches, turn.attempt);
-    } else if (turn.source === "current-user" && turn.trusted !== false) {
-      const actions = turn.actions ?? [];
-      if (turn.speechAct === "imperative") {
-        removeMatching(turn.matches ?? actions, turn.attempt);
-        if (
-          turn.affirmative &&
-          turn.actNow &&
-          authorityActionsAreResolved(actions, turn.attempt) &&
-          usesOnlyOpenAttempts(actions, turn.attempt)
-        ) {
-          replaceRelevantGrants(actions, turn.attempt);
-        }
-      } else if (turn.speechAct === "conditional") {
-        removeMatching(actions, turn.attempt);
-        const condition = turn.condition ?? {};
-        if (
-          turn.actNow &&
-          authorityActionsAreResolved(actions, turn.attempt) &&
-          usesOnlyOpenAttempts(actions, turn.attempt) &&
-          condition.objective &&
-          condition.verifiable &&
-          condition.satisfied &&
-          !condition.subjective &&
-          !condition.future
-        ) {
-          replaceRelevantGrants(actions, turn.attempt);
-        }
-      } else if (
-        ["prohibition", "revocation", "cancellation", "ambiguous-conflict"].includes(
-          turn.speechAct,
-        )
-      ) {
-        const matches = turn.matches ?? actions;
-        removeMatching(matches, turn.attempt);
-        if (turn.speechAct === "cancellation") {
-          closeAttempts(matches, turn.attempt);
-        }
-      } else if (turn.speechAct === "scope-reduction") {
-        const activeBeforeReduction = [...grants.values()].some((grant) =>
-          (turn.matches ?? []).some((match) =>
-            authorityBoundaryMatches(grant, authorityBoundary(match, turn.attempt)),
-          ),
-        );
-        removeMatching(turn.matches ?? [], turn.attempt);
-        if (
-          activeBeforeReduction &&
-          authorityActionsAreResolved(actions, turn.attempt) &&
-          usesOnlyOpenAttempts(actions, turn.attempt)
-        ) {
-          replaceRelevantGrants(actions, turn.attempt);
-        }
-      } else if (turn.speechAct === "assent" && turn.unambiguous) {
-        const proposal = immediatelyPriorTurn;
-        if (
-          proposal?.source === "assistant" &&
-          proposal.speechAct === "execution-proposal" &&
-          proposal.single &&
-          proposal.concrete &&
-          proposal.resolved &&
-          !proposal.alternatives &&
-          authorityActionsAreResolved(proposal.actions ?? [], proposal.attempt) &&
-          usesOnlyOpenAttempts(proposal.actions ?? [], proposal.attempt)
-        ) {
-          replaceRelevantGrants(proposal.actions ?? [], proposal.attempt);
-        }
-      }
-    }
-
-    const authorized = [...grants.keys()].sort();
-    snapshots.push(Object.freeze({ authorized: Object.freeze(authorized) }));
-    immediatelyPriorTurn = turn;
+  if (tasklessProfiles[skill]) {
+    return requestedContract({
+      skill,
+      ...tasklessProfiles[skill],
+      selectedTask: null,
+      selectedTaskDirectory: null,
+      taskPairDisposition: "NONE",
+      acceptance: null,
+      target: `${skill} outcome`,
+    });
   }
-
-  return Object.freeze({
-    authorized: Object.freeze([...grants.keys()].sort()),
-    snapshots: Object.freeze(snapshots),
+  return requestedContract({
+    skill,
+    mode: skill === "kyw-audit" ? "read-only" : "implementation",
+    routeCapability: skill === "kyw-audit" ? "audit-read-only" : "impl-exact-task",
+    action: skill === "kyw-audit" ? "audit" : "implement",
   });
 }
 
-function classifyCombinedSuffixScenario(invocation, actionByTarget) {
-  const clauses = invocation.overrideText
-    .split(";")
-    .map((clause) => clause.trim())
-    .filter(Boolean);
-  const taskOverrides = [];
-  const authorityTurns = [];
-  const classifications = [];
-
-  for (const clause of clauses) {
-    const taskConstraint = clause.match(/^run only (.+ checks)$/i);
-    const contradictoryPublish = clause.match(
-      /^(?:then )?publish (\S+) to npm now but do not publish \1$/i,
-    );
-    const publish = clause.match(/^(?:then )?publish (\S+) to npm now$/i);
-    const prohibition = clause.match(/^do not publish (\S+) to npm$/i);
-
-    if (taskConstraint) {
-      taskOverrides.push(clause);
-      classifications.push({ kind: "TASK_OVERRIDE", text: clause });
-    } else if (contradictoryPublish) {
-      const action = actionByTarget.get(contradictoryPublish[1]);
-      classifications.push({ kind: "AMBIGUOUS_CONFLICT", text: clause });
-      if (action) {
-        authorityTurns.push({
-          source: "current-user",
-          speechAct: "ambiguous-conflict",
-          attempt: action.attempt,
-          matches: [action],
-        });
-      }
-    } else if (publish) {
-      const action = actionByTarget.get(publish[1]);
-      classifications.push({ kind: "EXTERNAL_AUTHORITY", text: clause });
-      if (action) {
-        authorityTurns.push({
-          source: "current-user",
-          speechAct: "imperative",
-          affirmative: true,
-          actNow: true,
-          attempt: action.attempt,
-          actions: [action],
-        });
-      }
-    } else if (prohibition) {
-      const action = actionByTarget.get(prohibition[1]);
-      classifications.push({ kind: "PROHIBITION", text: clause });
-      if (action) {
-        authorityTurns.push({
-          source: "current-user",
-          speechAct: "prohibition",
-          attempt: action.attempt,
-          matches: [action],
-        });
-      }
-    } else {
-      classifications.push({ kind: "NON_AUTHORITY", text: clause });
-    }
-  }
-
-  return Object.freeze({
-    routingDecisions: invocation.recognized ? 1 : 0,
-    redispatchCandidates: Object.freeze(
-      clauses.filter((clause) => parseTaskInvocation(clause).recognized),
-    ),
-    taskOverrides: Object.freeze(taskOverrides),
-    overrideClassification:
-      taskOverrides.length > 0
-        ? "TASK_OVERRIDE_PRESENT"
-        : "NO_TASK_OVERRIDE",
-    authorityTurns: Object.freeze(authorityTurns),
-    classifications: Object.freeze(classifications),
+function draftTaskContract(overrides = {}) {
+  return requestedContract({
+    skill: "kyw-task",
+    mode: "authoring",
+    routeCapability: "task-draft-id",
+    action: "author",
+    ...overrides,
   });
 }
+
+function exactBounds(contract) {
+  return Object.fromEntries(
+    ["action", "target", "scope", "attempt"].map((field) => [field, contract[field]]),
+  );
+}
+
+function impactsForTask(taskId, { includePermanentOwners = true } = {}) {
+  const directory = taskDirectoryFor(taskId);
+  return {
+    ...CHANGE_IMPACTS,
+    taskTest: {
+      summary: `Task ${taskId} pair must synchronize`,
+      paths: [`${directory}/TASK.md`, `${directory}/TEST.md`],
+    },
+    permanentDocuments: includePermanentOwners
+      ? CHANGE_IMPACTS.permanentDocuments
+      : NO_SYNC_IMPACTS.permanentDocuments,
+  };
+}
+
+function taskDirectoryFor(taskId) {
+  return taskId === "0083"
+    ? "docs/tasks/0083-scope-kyw-skill-guardrails-to-active-in-60ce0c5c"
+    : `docs/tasks/${taskId}-route-bound-task`;
+}
+
+function taskSelection(taskId) {
+  return { selectedTask: taskId, selectedTaskDirectory: taskDirectoryFor(taskId) };
+}
+
 
 test("instruction surfaces retain one canonical owner and minimal projections", async () => {
   const [
@@ -312,7 +210,7 @@ test("instruction surfaces retain one canonical owner and minimal projections", 
   for (const projection of [agents, agentsTemplate]) {
     assert.match(
       projection,
-      /Always load applicable `AGENTS\.md` and the selected\/current Task\/Test pair/,
+      /Always load applicable `AGENTS\.md`[\s\S]{0,100}active kyw workflow[\s\S]{0,80}selected\/current Task\/Test pair[\s\S]{0,100}inactive ordinary prompts? (?:does not select one|select(?:s)? none)/,
     );
     assert.match(projection, /Index or search README, SPEC, and ARCHITECTURE first/);
     assert.match(
@@ -346,16 +244,16 @@ test("instruction surfaces retain one canonical owner and minimal projections", 
   ]);
   assert.match(
     authoring,
-    /adapter[\s\S]{0,120}delegates[\s\S]{0,120}internal-key derivation[\s\S]{0,120}canonical owner/i,
+    /adapter (?:derives its key|[\s\S]{0,120}delegates[\s\S]{0,120}internal-key derivation[\s\S]{0,120}canonical owner)/i,
   );
-  assert.match(authoring, /`key`\/`taskKey`[\s\S]{0,80}low-level compatibility/i);
+  assert.match(authoring, /`key`\/`taskKey`[\s\S]{0,80}(?:low-level|caller) compatibility/i);
   assert.doesNotMatch(authoring, /Give each new outcome[^\n]*taskKey/i);
   assert.doesNotMatch(
     authoring,
     /\b48(?:-|\s)*(?:character|char|자)|INVALID_TASK_BATCH[\s\S]{0,100}(?:short|key)/i,
   );
   assert.match(authoring, /READY\/READY[\s\S]{0,40}(?:pair set and stops|authoring)/i);
-  assert.match(authoring, /needs a new `\$kyw-impl NNNN`/);
+  assert.match(authoring, /(?:needs a new|execution needs a later) `\$kyw-impl NNNN`/);
   assert.match(implementation, /\[Task Execution and Resume\]\(references\/execution\.md\)/);
   assert.match(implementation, /existing Task/i);
   assert.match(execution, /canonical detailed execution procedure/);
@@ -382,7 +280,7 @@ test("instruction surfaces retain one canonical owner and minimal projections", 
   assert.match(readme, /surface without the managed contract uses `\$kyw-impl NNNN`/);
   assert.match(
     readme,
-    /selected `IMPLEMENT`, `RESUME`, or `DELIVER` result authorizes ordinary Task delivery/,
+    /selected `IMPLEMENT`, `RESUME`, or `DELIVER`(?: result)? establishes the aligned Task and ordinary delivery baseline/,
   );
   assert.match(
     architecture,
@@ -414,7 +312,10 @@ test("instruction surfaces retain one canonical owner and minimal projections", 
     );
     assert.match(projection, /hard-dependent Task/);
   }
-  assert.match(execution, /successful job at only `refs\/pull\/<number>\/merge`/);
+  assert.match(
+    execution,
+    /(?:successful job at|job) only (?:at )?`refs\/pull\/<number>\/merge`[\s\S]{0,80}(?:cannot prove actual head|is merge compatibility)/,
+  );
   assert.match(readme, /actual PR-head jobs, synthetic merge compatibility/);
   assert.match(spec, /reused/i);
   assert.match(architecture, /`KYWCIEVIDENCE`/);
@@ -450,696 +351,2212 @@ test("instruction surfaces retain one canonical owner and minimal projections", 
   }
 });
 
-test("direct user authority remains independent from explicit Skill routing", async () => {
-  const [agents, agentsTemplate, readme, spec, architecture, implementation, execution] =
-    await Promise.all([
-      read("AGENTS.md"),
-      read("templates/project/AGENTS.md"),
-      read("README.md"),
-      read("docs/SPEC.md"),
-      read("docs/ARCHITECTURE.md"),
-      read("skills/kyw-impl/SKILL.md"),
-      read("skills/kyw-impl/references/execution.md"),
+test("activation-scoped guardrails have one canonical contract and every required projection", async () => {
+  const paths = [
+    "docs/SPEC.md",
+    "README.md",
+    "AGENTS.md",
+    "docs/ARCHITECTURE.md",
+    "templates/project/AGENTS.md",
+    "skills/kyw-grilling/SKILL.md",
+    "skills/kyw-init/SKILL.md",
+    "skills/kyw-task/SKILL.md",
+    "skills/kyw-impl/SKILL.md",
+    "skills/kyw-impl/references/execution.md",
+    "skills/kyw-audit/SKILL.md",
+    "skills/kyw-audit/references/audit.md",
+  ];
+  const entries = await Promise.all(paths.map(async (path) => [path, await read(path)]));
+  for (const [path, text] of entries) {
+    assert.equal(
+      [...text.matchAll(/<!-- kyw-active-skill-guardrails:v1 -->/g)].length,
+      1,
+      `${path}: activation-scoped projection marker`,
+    );
+  }
+  const texts = Object.fromEntries(entries);
+  assert.match(texts["docs/SPEC.md"], /Activation-scoped guardrails and ordinary prompts/);
+  assert.match(
+    texts["docs/SPEC.md"],
+    /INACTIVE[\s\S]*ACTIVE_ALIGNED[\s\S]*CHANGE_PENDING[\s\S]*RECONFIRMED_BOUNDED[\s\S]*CANCELLED_OR_EXPIRED/,
+  );
+  assert.match(
+    texts["docs/SPEC.md"],
+    /controlling old criterion[\s\S]*requested new criterion[\s\S]*implementation[\s\S]*Task\/Test[\s\S]*permanent-document[\s\S]*verification[\s\S]*delivery[\s\S]*action, target, scope, and attempt/i,
+  );
+  assert.match(
+    texts["docs/SPEC.md"],
+    /Non-route changes rewarn[\s\S]{0,100}route-locked replacement expires[\s\S]{0,80}exact route/,
+  );
+  assert.match(
+    texts["skills/kyw-impl/references/execution.md"],
+    /Skill, mode, or route identity[\s\S]{0,80}requires its exact route/,
+  );
+  assert.ok(
+    texts["docs/ARCHITECTURE.md"].includes(
+      "During an active kyw\nworkflow, load its selected/current Task/Test pair; inactive ordinary prompts\nselect none.",
+    ),
+    "ARCHITECTURE A-03 must not load a Task/Test pair for inactive ordinary prompts",
+  );
+  assert.ok(
+    texts["docs/ARCHITECTURE.md"].includes(
+      "always: applicable AGENTS\nactive kyw only: selected/current TASK/TEST when applicable",
+    ),
+    "ARCHITECTURE progressive loading must bind Task/Test context to active kyw workflows",
+  );
+  for (const skillPath of [
+    "skills/kyw-grilling/SKILL.md",
+    "skills/kyw-init/SKILL.md",
+    "skills/kyw-task/SKILL.md",
+    "skills/kyw-impl/SKILL.md",
+    "skills/kyw-audit/SKILL.md",
+  ]) {
+    assert.match(
+      texts[skillPath],
+      /active invocation|exact[^.\n]{0,80}(?:route )?(?:alone )?activates|starts an active kyw workflow/i,
+      skillPath,
+    );
+    assert.match(texts[skillPath], /aligned/i, skillPath);
+    assert.match(texts[skillPath], /warning/i, skillPath);
+    assert.match(texts[skillPath], /reconfirm/i, skillPath);
+  }
+});
+
+test("inactive and post-terminal prompts stay outside kyw workflow gating", () => {
+  const inactive = runSkillInvocationScenario([{ type: "ordinary" }]);
+  assert.equal(inactive.workflow, "INACTIVE");
+  assert.equal(inactive.routeCount, 0);
+  assert.equal(inactive.dispatchCount, 0);
+  assert.deepEqual(inactive.warnings, []);
+  assert.deepEqual(inactive.mutations, []);
+  assert.deepEqual(inactive.ordinaryOutcomeMutations, []);
+  assert.deepEqual(inactive.events, [{ type: "ORDINARY_HANDLING", turn: 0 }]);
+
+  const ordinaryChange = runSkillInvocationScenario([
+    {
+      type: "ordinary",
+      outcome: {
+        action: "update",
+        target: "ordinary requested repository outcome",
+        scope: "requested change and affected permanent truth",
+        attempt: "ordinary-change-1",
+        permanentOwners: ["docs/SPEC.md"],
+        taskTestPaths: [],
+      },
+    },
+  ]);
+  assert.equal(ordinaryChange.state, "INACTIVE");
+  assert.equal(ordinaryChange.routeCount, 0);
+  assert.equal(ordinaryChange.dispatchCount, 0);
+  assert.deepEqual(ordinaryChange.warnings, []);
+  assert.deepEqual(ordinaryChange.mutations, []);
+  assert.deepEqual(
+    ordinaryChange.ordinaryOutcomeMutations.map(({ type }) => type),
+    ["SYNC_PERMANENT_OWNER", "ORDINARY_ACTION"],
+  );
+
+  const activeOrdinaryChange = runSkillInvocationScenario([
+    {
+      type: "activate",
+      recognized: true,
+      routeKind: "EXPLICIT_SKILL",
+      contract: requestedContract(),
+    },
+    {
+      type: "ordinary",
+      outcome: {
+        action: "delete",
+        target: "outside active Task",
+        scope: "unclassified workflow-boundary change",
+        attempt: "ordinary-change-2",
+        permanentOwners: [],
+        taskTestPaths: [],
+      },
+    },
+  ]);
+  assert.equal(activeOrdinaryChange.state, "CANCELLED_OR_EXPIRED");
+  assert.deepEqual(activeOrdinaryChange.mutations, []);
+  assert.deepEqual(activeOrdinaryChange.ordinaryOutcomeMutations, []);
+
+  for (const skill of [
+    "kyw-grilling",
+    "kyw-init",
+    "kyw-task",
+    "kyw-impl",
+    "kyw-audit",
+  ]) {
+    const activated = runSkillInvocationScenario([
+      {
+        type: "activate",
+        recognized: true,
+        routeKind: "EXPLICIT_SKILL",
+        contract: contractForSkill(skill),
+      },
     ]);
+    assert.equal(activated.state, "ACTIVE_ALIGNED", skill);
+    assert.equal(activated.active.skill, skill);
+    assert.equal(activated.routeCount, 1, skill);
+  }
 
-  assert.match(
-    spec,
-    /Skill invocation and mutation authority are separate channels[\s\S]{0,120}syntax selects a workflow, not permission/i,
-  );
-  assert.match(
-    spec,
-    /latest relevant directive from the trusted current user[^.]{0,220}affirmatively delegate act-now[^.]{0,180}action, target, and scope/i,
-  );
-  assert.match(spec, /grant covers only those named bounds and the current attempt/i);
-  assert.match(
-    spec,
-    /Referential assent such as “do that”[^.]{0,160}unambiguously accepts the immediately preceding assistant proposal/i,
-  );
-  assert.match(
-    spec,
-    /Questions, status requests, plans[\s\S]{0,260}Task\/Test or CI[\s\S]{0,160}metadata[\s\S]{0,140}untrusted text grant no mutation authority/i,
-  );
-  assert.match(
-    spec,
-    /conditional instruction grants authority only[^.]{0,180}delegates act-now[^.]{0,180}objective condition[^.]{0,180}currently satisfied/i,
-  );
-  assert.match(
-    spec,
-    /appended text is preserved as `overrideText` transport[^.]{0,240}method, order, scope, or check constraints are Task overrides/i,
-  );
-  assert.match(
-    spec,
-    /Authority is granular[\s\S]{0,80}Publication[^.]{0,520}do not authorize one another/i,
-  );
-  assert.match(spec, /failure grants no retry[^.]{0,100}older grant does not revive/i);
+  for (const routeCapability of [
+    "impl-managed-task-id",
+    "impl-managed-auto",
+    "impl-managed-continuous",
+  ]) {
+    const managed = runSkillInvocationScenario([
+      {
+        type: "activate",
+        recognized: true,
+        routeKind: "MANAGED_ALIAS",
+        contract: requestedContract({ routeCapability }),
+      },
+    ]);
+    assert.equal(managed.state, "ACTIVE_ALIGNED", routeCapability);
+    assert.equal(managed.active.routeCapability, routeCapability);
+    assert.equal(managed.routeCount, 1, routeCapability);
+  }
 
-  for (const projection of [agents, agentsTemplate]) {
-    assert.match(
-      projection,
-      /Skill syntax[^.]{0,100}(?:governs routing|selects (?:a )?workflow)[^.]{0,80}not (?:authorization|(?:a )?permission)/i,
-    );
-    assert.match(
-      projection,
-      /latest relevant trusted-current-user affirmative act-now instruction[^.]{0,220}(?:action(?:,|\/)\s*target(?:,|\/)\s*scope(?:, and|\/)\s*(?:current )?attempt|named bounds for the current attempt)/i,
-    );
-    assert.match(
-      projection,
-      /prohibition(?:,|\/)\s*cancellation(?:,|\/)\s*revocation(?:, or|\/)\s*scope reduction wins/i,
-    );
-    assert.match(
-      projection,
-      /untrusted (?:content|text)[^.]{0,60}(?:authorize|grant)s? nothing/i,
-    );
-    assert.match(
-      projection,
-      /Publication(?:\/registry)?\/version\/tag\/Release[^.]{0,500}(?:distinct|(?:one|none) (?:never )?implies another)/i,
-    );
-    assert.match(projection, /failure grants no retry/i);
-    assert.match(
-      projection,
-      /status[^.]{0,100}(?:neither grants nor (?:silently )?revokes|grants nothing but does not revoke)/i,
+  const repairContract = requestedContract({
+    skill: "kyw-audit",
+    mode: "repair",
+    routeCapability: "audit-repair",
+    action: "repair",
+  });
+  const repair = runSkillInvocationScenario([
+    {
+      type: "activate",
+      recognized: true,
+      routeKind: "EXPLICIT_SKILL",
+      contract: repairContract,
+    },
+  ]);
+  assert.equal(repair.state, "ACTIVE_ALIGNED");
+  assert.equal(repair.active.mode, "repair");
+
+  for (const [name, routeKind, contract] of [
+    ["managed alias cannot activate audit", "MANAGED_ALIAS", contractForSkill("kyw-audit")],
+    [
+      "read-only audit cannot implement",
+      "EXPLICIT_SKILL",
+      { ...contractForSkill("kyw-audit"), action: "implement" },
+    ],
+    [
+      "decision interview cannot acquire a Task",
+      "EXPLICIT_SKILL",
+      {
+        ...contractForSkill("kyw-grilling"),
+        selectedTask: "0083",
+        acceptance: ["AC-01"],
+      },
+    ],
+    [
+      "Task route ID must be exactly four digits",
+      "EXPLICIT_SKILL",
+      { ...requestedContract(), selectedTask: "83" },
+    ],
+    [
+      "Task acceptance must be a dense string array",
+      "EXPLICIT_SKILL",
+      requestedContract({ acceptance: Array(1) }),
+    ],
+  ]) {
+    assert.throws(
+      () =>
+        runSkillInvocationScenario([
+          { type: "activate", recognized: true, routeKind, contract },
+        ]),
+      /activation contract and route must be compatible/,
+      name,
     );
   }
 
-  assert.match(
-    readme,
-    /Skill syntax[^.]{0,120}(?:workflow|routing)[^.]{0,100}not an? (?:permission|authorization) token/i,
+  const postTerminal = runSkillInvocationScenario([
+    {
+      type: "activate",
+      recognized: true,
+      routeKind: "EXPLICIT_SKILL",
+      contract: requestedContract(),
+    },
+    { type: "complete" },
+    { type: "ordinary" },
+  ]);
+  assert.equal(postTerminal.workflow, "INACTIVE");
+  assert.deepEqual(
+    postTerminal.events.map(({ type }) => type),
+    ["ACTIVATED", "TERMINAL", "POST_TERMINAL_INACTIVE", "ORDINARY_HANDLING"],
   );
-  assert.match(
-    readme,
-    /latest relevant trusted-current-user affirmative act-now request[^.]{0,180}named action, target, scope, and current attempt/i,
+
+  const staleAfterCompletion = runSkillInvocationScenario([
+    {
+      type: "activate",
+      recognized: true,
+      routeKind: "EXPLICIT_SKILL",
+      contract: requestedContract(),
+    },
+    { type: "complete" },
+    { type: "reconfirm" },
+    { type: "ordinary" },
+  ]);
+  assert.deepEqual(
+    staleAfterCompletion.events.map(({ type }) => type),
+    [
+      "ACTIVATED",
+      "TERMINAL",
+      "POST_TERMINAL_INACTIVE",
+      "INACTIVE_NO_GUARDRAIL",
+      "ORDINARY_HANDLING",
+    ],
   );
-  assert.match(readme, /questions\/status\/plans[^.]{0,300}grant nothing/i);
-  assert.match(
-    readme,
-    /Each publication\/version\/tag\/Release[^.]{0,320}needs its own direct action-specific authority/i,
+
+  const stopped = runSkillInvocationScenario([
+    {
+      type: "activate",
+      recognized: true,
+      routeKind: "EXPLICIT_SKILL",
+      contract: requestedContract(),
+    },
+    { type: "stop" },
+  ]);
+  assert.equal(stopped.state, "CANCELLED_OR_EXPIRED");
+  assert.equal(stopped.active, undefined);
+  assert.deepEqual(stopped.mutations, []);
+
+  const reactivated = runSkillInvocationScenario([
+    {
+      type: "activate",
+      recognized: true,
+      routeKind: "EXPLICIT_SKILL",
+      contract: requestedContract(),
+    },
+    { type: "complete" },
+    {
+      type: "activate",
+      recognized: true,
+      routeKind: "EXPLICIT_SKILL",
+      contract: requestedContract({ attempt: "task-0083-implementation-2" }),
+    },
+    { type: "ordinary" },
+  ]);
+  assert.equal(reactivated.workflow, "ACTIVE");
+  assert.equal(reactivated.state, "ACTIVE_ALIGNED");
+  assert.equal(reactivated.routeCount, 2);
+  assert.equal(reactivated.events.at(-1).type, "ACTIVE_NONMUTATING_TURN");
+
+  for (const terminalTurn of [{ type: "cancel" }, { type: "facts-changed" }]) {
+    const afterCancelledOrExpired = runSkillInvocationScenario([
+      {
+        type: "activate",
+        recognized: true,
+        routeKind: "EXPLICIT_SKILL",
+        contract: requestedContract(),
+      },
+      {
+        type: "change",
+        requested: requestedContract({ scope: "changed scope" }),
+        impacts: CHANGE_IMPACTS,
+        factsRevision: "facts-1",
+      },
+      terminalTurn,
+      {
+        type: "activate",
+        recognized: true,
+        routeKind: "EXPLICIT_SKILL",
+        contract: requestedContract({ attempt: "task-0083-implementation-2" }),
+      },
+    ]);
+    assert.deepEqual(afterCancelledOrExpired.visitedStates, [
+      "INACTIVE",
+      "ACTIVE_ALIGNED",
+      "CHANGE_PENDING",
+      "CANCELLED_OR_EXPIRED",
+      "INACTIVE",
+      "ACTIVE_ALIGNED",
+    ]);
+    assert.deepEqual(
+      afterCancelledOrExpired.events.slice(-2).map(({ type }) => type),
+      ["POST_TERMINAL_INACTIVE", "ACTIVATED"],
+    );
+  }
+
+  for (const staleTurn of [
+    { type: "reconfirm", warningId: "warning-1-1" },
+    { type: "change", requested: requestedContract({ scope: "stale change" }) },
+    { type: "unclassified-post-terminal" },
+  ]) {
+    const staleReuse = runSkillInvocationScenario([
+      {
+        type: "activate",
+        recognized: true,
+        routeKind: "EXPLICIT_SKILL",
+        contract: requestedContract(),
+      },
+      {
+        type: "change",
+        requested: requestedContract({ scope: "changed scope" }),
+        impacts: CHANGE_IMPACTS,
+        factsRevision: "facts-1",
+      },
+      { type: "cancel" },
+      staleTurn,
+    ]);
+    assert.equal(staleReuse.state, "INACTIVE");
+    assert.equal(staleReuse.workflow, "INACTIVE");
+    assert.equal(staleReuse.active, undefined);
+    assert.equal(staleReuse.pendingWarning, undefined);
+    assert.equal(staleReuse.pendingDisposition, "NONE");
+    assert.deepEqual(staleReuse.mutations, []);
+    assert.deepEqual(staleReuse.events.slice(-2).map(({ type }) => type), [
+      "POST_TERMINAL_INACTIVE",
+      "INACTIVE_NO_GUARDRAIL",
+    ]);
+  }
+});
+
+test("active aligned commands continue without duplicate reconfirmation", () => {
+  const result = runSkillInvocationScenario([
+    {
+      type: "activate",
+      recognized: true,
+      routeKind: "EXPLICIT_SKILL",
+      contract: requestedContract(),
+    },
+    { type: "aligned", contract: requestedContract(), clause: "continue-current-task" },
+  ]);
+  assert.equal(result.workflow, "ACTIVE");
+  assert.equal(result.activeSubstate, "ALIGNED");
+  assert.equal(result.state, "ACTIVE_ALIGNED");
+  assert.equal(result.duplicateConfirmations, 0);
+  assert.deepEqual(result.warnings, []);
+  assert.deepEqual(result.mutations.map(({ type }) => type), ["ALIGNED_CONTINUE"]);
+  assert.deepEqual(result.mutations[0].bounds, exactBounds(ACTIVE_SKILL_CONTRACT));
+
+  for (const skill of ["kyw-grilling", "kyw-audit"]) {
+    const contract = contractForSkill(skill);
+    const readOnly = runSkillInvocationScenario([
+      {
+        type: "activate",
+        recognized: true,
+        routeKind: "EXPLICIT_SKILL",
+        contract,
+      },
+      { type: "aligned", contract, clause: "continue-read-only-work" },
+    ]);
+    assert.deepEqual(readOnly.mutations, [], skill);
+    assert.equal(readOnly.events.at(-1).type, "ALIGNED_CONTINUE", skill);
+  }
+
+  for (const [profile, contract] of [
+    ["kyw-init", contractForSkill("kyw-init")],
+    ["kyw-task DRAFT", draftTaskContract()],
+  ]) {
+    const decision = runSkillInvocationScenario([
+      {
+        type: "activate",
+        recognized: true,
+        routeKind: "EXPLICIT_SKILL",
+        contract,
+      },
+      {
+        type: "aligned",
+        contract,
+        clause: "answer-open-decision",
+        operation: "decision",
+      },
+    ]);
+    assert.deepEqual(decision.mutations, [], profile);
+    assert.equal(decision.events.at(-1).repositoryMutation, "NONE", profile);
+
+    const unconfirmedWrite = runSkillInvocationScenario([
+      {
+        type: "activate",
+        recognized: true,
+        routeKind: "EXPLICIT_SKILL",
+        contract,
+      },
+      {
+        type: "aligned",
+        contract,
+        clause: "write-without-native-confirmation",
+        operation: "write",
+      },
+    ]);
+    assert.deepEqual(unconfirmedWrite.mutations, [], profile);
+    assert.equal(unconfirmedWrite.events.at(-1).type, "NATIVE_CONFIRMATION_REQUIRED");
+
+    const confirmedWrite = runSkillInvocationScenario([
+      {
+        type: "activate",
+        recognized: true,
+        routeKind: "EXPLICIT_SKILL",
+        contract,
+      },
+      {
+        type: "aligned",
+        contract,
+        clause: "native-confirmed-write",
+        operation: "write",
+        nativeConfirmation: true,
+      },
+    ]);
+    assert.deepEqual(confirmedWrite.mutations.map(({ type }) => type), [
+      "ALIGNED_CONTINUE",
+    ]);
+
+    const combinedDecision = runSkillInvocationScenario([
+      {
+        type: "activate",
+        recognized: true,
+        routeKind: "EXPLICIT_SKILL",
+        contract,
+        clauses: [
+          {
+            id: "combined-open-decision",
+            kind: "ALIGNED",
+            contract,
+            operation: "decision",
+          },
+        ],
+      },
+    ]);
+    assert.deepEqual(combinedDecision.mutations, [], profile);
+    assert.equal(combinedDecision.events.at(-1).repositoryMutation, "NONE", profile);
+
+    const originCannotConfirmWrite = runSkillInvocationScenario([
+      {
+        type: "activate",
+        recognized: true,
+        routeKind: "EXPLICIT_SKILL",
+        contract,
+        clauses: [
+          {
+            id: "origin-write",
+            kind: "ALIGNED",
+            contract,
+            operation: "write",
+            nativeConfirmation: true,
+          },
+        ],
+      },
+    ]);
+    assert.deepEqual(originCannotConfirmWrite.mutations, [], profile);
+    assert.equal(
+      originCannotConfirmWrite.events.at(-1).type,
+      "NATIVE_CONFIRMATION_REQUIRED",
+      profile,
+    );
+  }
+
+  const taskGoal = contractForSkill("kyw-task");
+  const goalAuthoring = runSkillInvocationScenario([
+    {
+      type: "activate",
+      recognized: true,
+      routeKind: "EXPLICIT_SKILL",
+      contract: taskGoal,
+    },
+    { type: "aligned", contract: taskGoal, clause: "author-ready-pair" },
+  ]);
+  assert.deepEqual(goalAuthoring.mutations.map(({ type }) => type), [
+    "ALIGNED_CONTINUE",
+  ]);
+
+  for (const [name, alignedTurn] of [
+    [
+      "second action",
+      {
+        type: "aligned",
+        contract: requestedContract(),
+        clause: "continue-current-task",
+        secondAction: "git-tag",
+      },
+    ],
+    [
+      "additional actions",
+      {
+        type: "aligned",
+        contract: requestedContract(),
+        clause: "continue-current-task",
+        additionalActions: ["publish"],
+      },
+    ],
+    [
+      "unrelated native confirmation",
+      {
+        type: "aligned",
+        contract: requestedContract(),
+        clause: "continue-current-task",
+        nativeConfirmation: true,
+      },
+    ],
+  ]) {
+    const rejected = runSkillInvocationScenario([
+      {
+        type: "activate",
+        recognized: true,
+        routeKind: "EXPLICIT_SKILL",
+        contract: requestedContract(),
+      },
+      alignedTurn,
+    ]);
+    assert.equal(rejected.state, "CANCELLED_OR_EXPIRED", name);
+    assert.deepEqual(rejected.mutations, [], name);
+  }
+});
+
+test("material active changes warn without mutation and exact reconfirmation synchronizes before bounded action", () => {
+  for (const [field, value] of [
+    ["skill", "kyw-audit"],
+    ["mode", "delivery"],
+    ["routeCapability", "impl-managed-auto"],
+    ["baseline", "main@changed"],
+    ["selectedTask", "0084"],
+    ["acceptance", ["AC-01", "AC-09"]],
+    ["scope", "expanded guardrail scope"],
+    ["action", "publish"],
+    ["target", "kyw-dev@0.1.5"],
+    ["attempt", "task-0083-implementation-2"],
+  ]) {
+    const requested = requestedContract(
+      field === "selectedTask" ? taskSelection(value) : { [field]: value },
+    );
+    const impacts = field === "selectedTask" ? impactsForTask(value) : CHANGE_IMPACTS;
+    const warned = runSkillInvocationScenario([
+      {
+        type: "activate",
+        recognized: true,
+        routeKind: "EXPLICIT_SKILL",
+        contract: requestedContract(),
+      },
+      {
+        type: "change",
+        requested,
+        impacts,
+        factsRevision: "facts-1",
+      },
+    ]);
+    assert.equal(warned.activeSubstate, "CHANGE_PENDING", field);
+    assert.deepEqual(warned.mutations, [], field);
+    assert.equal(warned.warnings.length, 1, field);
+    assert.ok(warned.warnings[0].changes.includes(field), field);
+    assert.deepEqual(warned.warnings[0].bounds, exactBounds(requested), field);
+    assert.deepEqual(Object.keys(warned.warnings[0].impacts), [
+      "implementation",
+      "taskTest",
+      "permanentDocuments",
+      "verification",
+      "delivery",
+    ]);
+  }
+
+  const selfConfirmedOrigin = runSkillInvocationScenario([
+    {
+      type: "activate",
+      recognized: true,
+      routeKind: "EXPLICIT_SKILL",
+      contract: requestedContract(),
+    },
+    {
+      type: "change",
+      requested: requestedContract({ scope: "changed scope" }),
+      impacts: CHANGE_IMPACTS,
+      factsRevision: "facts-1",
+      selfConfirmation: true,
+    },
+  ]);
+  assert.equal(selfConfirmedOrigin.state, "CHANGE_PENDING");
+  assert.deepEqual(selfConfirmedOrigin.mutations, []);
+  assert.ok(
+    selfConfirmedOrigin.events.some(({ type }) => type === "SELF_CONFIRMATION_REJECTED"),
   );
-  assert.match(readme, /failure grants no retry[^.]{0,120}one action never implies another/i);
-  assert.match(
-    architecture,
-    /Skill routing and mutation authority are separate inputs/i,
+
+  for (const [name, extra] of [
+    ["additional action", { additionalActions: ["publish"] }],
+    ["additional choice", { additionalChoices: ["also tag"] }],
+  ]) {
+    const rejected = runSkillInvocationScenario([
+      {
+        type: "activate",
+        recognized: true,
+        routeKind: "EXPLICIT_SKILL",
+        contract: requestedContract(),
+      },
+      {
+        type: "change",
+        requested: requestedContract({ scope: "changed scope" }),
+        impacts: CHANGE_IMPACTS,
+        factsRevision: "facts-1",
+        ...extra,
+      },
+    ]);
+    assert.equal(rejected.state, "CANCELLED_OR_EXPIRED", name);
+    assert.deepEqual(rejected.warnings, [], name);
+    assert.deepEqual(rejected.mutations, [], name);
+  }
+
+  for (const [field, value] of [
+    ["skill", "kyw-audit"],
+    ["mode", "delivery"],
+    ["routeCapability", "impl-managed-auto"],
+  ]) {
+    const requested = requestedContract({ [field]: value });
+    const result = runSkillInvocationScenario([
+      {
+        type: "activate",
+        recognized: true,
+        routeKind: "EXPLICIT_SKILL",
+        contract: requestedContract(),
+      },
+      {
+        type: "change",
+        requested,
+        impacts: CHANGE_IMPACTS,
+        factsRevision: "facts-1",
+      },
+      {
+        type: "reconfirm",
+        source: "current-user",
+        trusted: true,
+        explicit: true,
+        unambiguous: true,
+        warningId: "warning-1-1",
+        factsRevision: "facts-1",
+        accepted: requested,
+        bounds: exactBounds(requested),
+        permanentOwners: CHANGE_IMPACTS.permanentDocuments.paths,
+        taskTestPaths: CHANGE_IMPACTS.taskTest.paths,
+        executionBounds: exactBounds(requested),
+      },
+    ]);
+    assert.equal(result.state, "CANCELLED_OR_EXPIRED", field);
+    assert.equal(result.pendingDisposition, "EXPIRED", field);
+    assert.deepEqual(result.mutations, [], field);
+    assert.ok(result.events.some(({ type }) => type === "EXACT_ROUTE_REQUIRED"), field);
+  }
+
+  for (const [name, active, requested, impacts = NO_SYNC_IMPACTS] of [
+    [
+      "read-only audit cannot reconfirm repair",
+      contractForSkill("kyw-audit"),
+      { ...contractForSkill("kyw-audit"), action: "repair" },
+    ],
+    [
+      "decision interview cannot reconfirm implementation",
+      contractForSkill("kyw-grilling"),
+      { ...contractForSkill("kyw-grilling"), action: "implement" },
+    ],
+    [
+      "audit cannot reconfirm a different resolved Task",
+      contractForSkill("kyw-audit"),
+      { ...contractForSkill("kyw-audit"), ...taskSelection("0084") },
+    ],
+    [
+      "goal authoring cannot reconfirm DRAFT-ID routing",
+      contractForSkill("kyw-task"),
+      requestedContract({
+        skill: "kyw-task",
+        mode: "authoring",
+        routeCapability: "task-draft-id",
+        action: "author",
+      }),
+      impactsForTask("0083", { includePermanentOwners: false }),
+    ],
+    [
+      "DRAFT-ID authoring cannot reconfirm another Task ID",
+      requestedContract({
+        skill: "kyw-task",
+        mode: "authoring",
+        routeCapability: "task-draft-id",
+        action: "author",
+      }),
+      requestedContract({
+        skill: "kyw-task",
+        mode: "authoring",
+        routeCapability: "task-draft-id",
+        action: "author",
+        ...taskSelection("0084"),
+      }),
+      impactsForTask("0084", { includePermanentOwners: false }),
+    ],
+    [
+      "implementation cannot reconfirm another Task ID",
+      requestedContract(),
+      requestedContract(taskSelection("0084")),
+      impactsForTask("0084"),
+    ],
+    [
+      "implementation cannot reconfirm an unsupported action profile",
+      requestedContract(),
+      requestedContract({ action: "audit" }),
+    ],
+  ]) {
+    const result = runSkillInvocationScenario([
+      {
+        type: "activate",
+        recognized: true,
+        routeKind: "EXPLICIT_SKILL",
+        contract: active,
+      },
+      {
+        type: "change",
+        requested,
+        impacts,
+        factsRevision: "facts-1",
+      },
+      {
+        type: "reconfirm",
+        source: "current-user",
+        trusted: true,
+        explicit: true,
+        unambiguous: true,
+        warningId: "warning-1-1",
+        factsRevision: "facts-1",
+        accepted: requested,
+        bounds: exactBounds(requested),
+        permanentOwners: impacts.permanentDocuments.paths,
+        taskTestPaths: impacts.taskTest.paths,
+        executionBounds: exactBounds(requested),
+      },
+    ]);
+    assert.equal(result.state, "CANCELLED_OR_EXPIRED", name);
+    assert.deepEqual(result.mutations, [], name);
+    assert.ok(result.events.some(({ type }) => type === "EXACT_ROUTE_REQUIRED"), name);
+  }
+
+  const requested = requestedContract({
+    routeCapability: "impl-managed-task-id",
+    acceptance: ["AC-01", "AC-02", "AC-03", "AC-04", "AC-09"],
+    scope: "approved expanded guardrail scope",
+  });
+  const confirmed = runSkillInvocationScenario([
+    {
+      type: "activate",
+      recognized: true,
+      routeKind: "MANAGED_ALIAS",
+      contract: requestedContract({ routeCapability: "impl-managed-task-id" }),
+    },
+    {
+      type: "change",
+      requested,
+      impacts: CHANGE_IMPACTS,
+      factsRevision: "facts-1",
+    },
+    {
+      type: "reconfirm",
+      source: "current-user",
+      trusted: true,
+      explicit: true,
+      unambiguous: true,
+      warningId: "warning-1-1",
+      factsRevision: "facts-1",
+      accepted: Object.fromEntries(Object.entries(requested).reverse()),
+      bounds: Object.fromEntries(Object.entries(exactBounds(requested)).reverse()),
+      permanentOwners: ["docs/SPEC.md", "docs/ARCHITECTURE.md"],
+      taskTestPaths: CHANGE_IMPACTS.taskTest.paths,
+      executionBounds: exactBounds(requested),
+    },
+  ]);
+  assert.equal(confirmed.state, "INACTIVE");
+  assert.deepEqual(confirmed.visitedStates, [
+    "INACTIVE",
+    "ACTIVE_ALIGNED",
+    "CHANGE_PENDING",
+    "RECONFIRMED_BOUNDED",
+    "INACTIVE",
+  ]);
+  assert.deepEqual(confirmed.mutations.map(({ type }) => type), [
+    "SYNC_PERMANENT_OWNER",
+    "SYNC_PERMANENT_OWNER",
+    "SYNC_TASK",
+    "SYNC_TEST",
+    "BOUNDED_ACTION",
+  ]);
+  assert.deepEqual(confirmed.mutations.at(-1).bounds, exactBounds(requested));
+
+  const changedAction = requestedContract({
+    action: "publish",
+    target: "kyw-dev@0.1.5",
+    attempt: "publish-1",
+  });
+  const actionConfirmed = runSkillInvocationScenario([
+    {
+      type: "activate",
+      recognized: true,
+      routeKind: "EXPLICIT_SKILL",
+      contract: requestedContract(),
+    },
+    {
+      type: "change",
+      requested: changedAction,
+      impacts: NO_SYNC_IMPACTS,
+      factsRevision: "facts-1",
+    },
+    {
+      type: "reconfirm",
+      source: "current-user",
+      trusted: true,
+      explicit: true,
+      unambiguous: true,
+      warningId: "warning-1-1",
+      factsRevision: "facts-1",
+      accepted: changedAction,
+      bounds: exactBounds(changedAction),
+      permanentOwners: [],
+      taskTestPaths: [],
+      executionBounds: exactBounds(changedAction),
+    },
+  ]);
+  assert.equal(actionConfirmed.state, "INACTIVE");
+  assert.equal(actionConfirmed.mutations.at(-1).type, "BOUNDED_ACTION");
+  assert.deepEqual(actionConfirmed.mutations.at(-1).bounds, exactBounds(changedAction));
+
+  for (const [field, value] of [
+    ["permanentOwners", null],
+    ["permanentOwners", undefined],
+    ["taskTestPaths", null],
+    ["taskTestPaths", undefined],
+  ]) {
+    const rejected = runSkillInvocationScenario([
+      {
+        type: "activate",
+        recognized: true,
+        routeKind: "EXPLICIT_SKILL",
+        contract: requestedContract(),
+      },
+      {
+        type: "change",
+        requested: changedAction,
+        impacts: NO_SYNC_IMPACTS,
+        factsRevision: "facts-1",
+      },
+      {
+        type: "reconfirm",
+        source: "current-user",
+        trusted: true,
+        explicit: true,
+        unambiguous: true,
+        warningId: "warning-1-1",
+        factsRevision: "facts-1",
+        accepted: changedAction,
+        bounds: exactBounds(changedAction),
+        permanentOwners: [],
+        taskTestPaths: [],
+        executionBounds: exactBounds(changedAction),
+        [field]: value,
+      },
+    ]);
+    assert.equal(rejected.state, "CANCELLED_OR_EXPIRED", `${field}: ${value}`);
+    assert.deepEqual(rejected.mutations, [], `${field}: ${value}`);
+  }
+
+  const deferredReconfirmation = {
+    type: "reconfirm",
+    source: "current-user",
+    trusted: true,
+    explicit: true,
+    unambiguous: true,
+    warningId: "warning-1-1",
+    factsRevision: "facts-1",
+    accepted: changedAction,
+    bounds: exactBounds(changedAction),
+    permanentOwners: [],
+    taskTestPaths: [],
+    executionBounds: exactBounds(changedAction),
+    deferExecution: true,
+  };
+  for (const interruption of [
+    { type: "cancel" },
+    { type: "stop" },
+    { type: "facts-changed" },
+  ]) {
+    const interruptedBounded = runSkillInvocationScenario([
+      {
+        type: "activate",
+        recognized: true,
+        routeKind: "EXPLICIT_SKILL",
+        contract: requestedContract(),
+      },
+      {
+        type: "change",
+        requested: changedAction,
+        impacts: NO_SYNC_IMPACTS,
+        factsRevision: "facts-1",
+      },
+      deferredReconfirmation,
+      interruption,
+    ]);
+    assert.deepEqual(interruptedBounded.visitedStates, [
+      "INACTIVE",
+      "ACTIVE_ALIGNED",
+      "CHANGE_PENDING",
+      "RECONFIRMED_BOUNDED",
+      "CANCELLED_OR_EXPIRED",
+    ]);
+    assert.deepEqual(interruptedBounded.mutations, []);
+  }
+
+  const noSyncDeferredPrefix = [
+    {
+      type: "activate",
+      recognized: true,
+      routeKind: "EXPLICIT_SKILL",
+      contract: requestedContract(),
+    },
+    {
+      type: "change",
+      requested: changedAction,
+      impacts: NO_SYNC_IMPACTS,
+      factsRevision: "facts-1",
+    },
+    deferredReconfirmation,
+  ];
+  for (const [field, value] of [
+    ["permanentOwners", null],
+    ["permanentOwners", undefined],
+    ["taskTestPaths", null],
+    ["taskTestPaths", undefined],
+  ]) {
+    const rejected = runSkillInvocationScenario([
+      ...noSyncDeferredPrefix,
+      {
+        type: "execute-bounded",
+        warningId: "warning-1-1",
+        factsRevision: "facts-1",
+        permanentOwners: [],
+        taskTestPaths: [],
+        executionBounds: exactBounds(changedAction),
+        [field]: value,
+      },
+    ]);
+    assert.equal(rejected.state, "CANCELLED_OR_EXPIRED", `${field}: ${value}`);
+    assert.deepEqual(rejected.mutations, [], `${field}: ${value}`);
+  }
+
+  const deferredRequested = requestedContract({ scope: "deferred bounded scope" });
+  const deferredPrefix = [
+    {
+      type: "activate",
+      recognized: true,
+      routeKind: "EXPLICIT_SKILL",
+      contract: requestedContract(),
+    },
+    {
+      type: "change",
+      requested: deferredRequested,
+      impacts: CHANGE_IMPACTS,
+      factsRevision: "facts-1",
+    },
+    {
+      type: "reconfirm",
+      source: "current-user",
+      trusted: true,
+      explicit: true,
+      unambiguous: true,
+      warningId: "warning-1-1",
+      factsRevision: "facts-1",
+      accepted: deferredRequested,
+      bounds: exactBounds(deferredRequested),
+      permanentOwners: CHANGE_IMPACTS.permanentDocuments.paths,
+      taskTestPaths: CHANGE_IMPACTS.taskTest.paths,
+      executionBounds: exactBounds(deferredRequested),
+      deferExecution: true,
+    },
+  ];
+  const exactDeferredExecution = {
+    type: "execute-bounded",
+    warningId: "warning-1-1",
+    factsRevision: "facts-1",
+    permanentOwners: CHANGE_IMPACTS.permanentDocuments.paths,
+    taskTestPaths: CHANGE_IMPACTS.taskTest.paths,
+    executionBounds: exactBounds(deferredRequested),
+  };
+  for (const [name, override] of [
+    ["null permanent-owner approval", { permanentOwners: null }],
+    ["undefined permanent-owner approval", { permanentOwners: undefined }],
+    ["sparse permanent-owner approval", { permanentOwners: Array(2) }],
+    ["null Task/Test approval", { taskTestPaths: null }],
+    ["undefined Task/Test approval", { taskTestPaths: undefined }],
+    ["sparse Task/Test approval", { taskTestPaths: Array(2) }],
+    [
+      "changed deferred execution bounds",
+      {
+        executionBounds: {
+          ...exactBounds(deferredRequested),
+          target: "unwarned target",
+        },
+      },
+    ],
+  ]) {
+    const rejectedApproval = runSkillInvocationScenario([
+      ...deferredPrefix.slice(0, 2),
+      { ...deferredPrefix[2], ...override },
+      exactDeferredExecution,
+    ]);
+    assert.equal(rejectedApproval.state, "INACTIVE", name);
+    assert.deepEqual(rejectedApproval.mutations, [], name);
+    assert.equal(rejectedApproval.boundedApproval, undefined, name);
+    assert.equal(
+      rejectedApproval.events.some(({ type }) => type === "EXACT_RECONFIRMED"),
+      false,
+      name,
+    );
+  }
+  const deferredSuccess = runSkillInvocationScenario([
+    ...deferredPrefix,
+    exactDeferredExecution,
+  ]);
+  assert.equal(deferredSuccess.state, "INACTIVE");
+  assert.deepEqual(deferredSuccess.mutations.map(({ type }) => type), [
+    "SYNC_PERMANENT_OWNER",
+    "SYNC_PERMANENT_OWNER",
+    "SYNC_TASK",
+    "SYNC_TEST",
+    "BOUNDED_ACTION",
+  ]);
+
+  for (const invalidExecution of [
+    { ...exactDeferredExecution, warningId: "warning-stale" },
+    { ...exactDeferredExecution, factsRevision: "facts-stale" },
+    { ...exactDeferredExecution, permanentOwners: [] },
+    { ...exactDeferredExecution, taskTestPaths: [] },
+    {
+      ...exactDeferredExecution,
+      executionBounds: {
+        ...exactDeferredExecution.executionBounds,
+        target: "unwarned target",
+      },
+    },
+    { ...exactDeferredExecution, alsoDo: "delete-branch" },
+  ]) {
+    const rejectedExecution = runSkillInvocationScenario([
+      ...deferredPrefix,
+      invalidExecution,
+    ]);
+    assert.equal(rejectedExecution.state, "CANCELLED_OR_EXPIRED");
+    assert.deepEqual(rejectedExecution.mutations, []);
+    assert.equal(rejectedExecution.boundedApproval, undefined);
+  }
+
+  for (const skill of ["kyw-grilling", "kyw-audit"]) {
+    const active = contractForSkill(skill);
+    const requested = { ...active, scope: `${active.scope} changed` };
+    const readOnly = runSkillInvocationScenario([
+      {
+        type: "activate",
+        recognized: true,
+        routeKind: "EXPLICIT_SKILL",
+        contract: active,
+      },
+      {
+        type: "change",
+        requested,
+        impacts: NO_SYNC_IMPACTS,
+        factsRevision: "facts-1",
+      },
+      {
+        type: "reconfirm",
+        source: "current-user",
+        trusted: true,
+        explicit: true,
+        unambiguous: true,
+        warningId: "warning-1-1",
+        factsRevision: "facts-1",
+        accepted: requested,
+        bounds: exactBounds(requested),
+        permanentOwners: [],
+        taskTestPaths: [],
+        executionBounds: exactBounds(requested),
+      },
+    ]);
+    assert.equal(readOnly.state, "INACTIVE", skill);
+    assert.deepEqual(readOnly.mutations, [], skill);
+    assert.equal(readOnly.events.at(-2).type, "BOUNDED_ACTION", skill);
+    assert.equal(readOnly.events.at(-2).repositoryMutation, "NONE", skill);
+  }
+
+  const immutableAudit = {
+    ...contractForSkill("kyw-audit"),
+    taskPairDisposition: "IMMUTABLE",
+  };
+  for (const [field, value] of [
+    ["scope", `${immutableAudit.scope} changed`],
+    ["acceptance", [...immutableAudit.acceptance, "AC-05"]],
+  ]) {
+    const requested = { ...immutableAudit, [field]: value };
+    const audited = runSkillInvocationScenario([
+      {
+        type: "activate",
+        recognized: true,
+        routeKind: "EXPLICIT_SKILL",
+        contract: immutableAudit,
+      },
+      {
+        type: "change",
+        requested,
+        impacts: NO_SYNC_IMPACTS,
+        factsRevision: "facts-1",
+      },
+      {
+        type: "reconfirm",
+        source: "current-user",
+        trusted: true,
+        explicit: true,
+        unambiguous: true,
+        warningId: "warning-1-1",
+        factsRevision: "facts-1",
+        accepted: requested,
+        bounds: exactBounds(requested),
+        permanentOwners: [],
+        taskTestPaths: [],
+        executionBounds: exactBounds(requested),
+      },
+    ]);
+    assert.equal(audited.state, "INACTIVE", field);
+    assert.deepEqual(audited.mutations, [], field);
+    assert.equal(audited.events.at(-2).type, "BOUNDED_ACTION", field);
+    assert.equal(audited.events.at(-2).repositoryMutation, "NONE", field);
+  }
+
+  const initActive = contractForSkill("kyw-init");
+  const initRequested = { ...initActive, scope: `${initActive.scope} changed` };
+  const initImpacts = {
+    ...NO_SYNC_IMPACTS,
+    permanentDocuments: {
+      summary: "SPEC owns the changed initialization criterion",
+      paths: ["docs/SPEC.md"],
+    },
+  };
+  const initializationPrefix = [
+    {
+      type: "activate",
+      recognized: true,
+      routeKind: "EXPLICIT_SKILL",
+      contract: initActive,
+    },
+    {
+      type: "change",
+      requested: initRequested,
+      impacts: initImpacts,
+      factsRevision: "facts-1",
+    },
+    {
+      type: "reconfirm",
+      source: "current-user",
+      trusted: true,
+      explicit: true,
+      unambiguous: true,
+      warningId: "warning-1-1",
+      factsRevision: "facts-1",
+      accepted: initRequested,
+      bounds: exactBounds(initRequested),
+      permanentOwners: ["docs/SPEC.md"],
+      taskTestPaths: [],
+      executionBounds: exactBounds(initRequested),
+    },
+  ];
+  const awaitingInitializationConfirmation = runSkillInvocationScenario(
+    initializationPrefix,
   );
-  assert.match(
-    architecture,
-    /affirmative[\s\S]{0,40}act-now directives[^.]{0,140}named[\s\S]{0,20}actions[^.]{0,120}without invoking a Skill[^.]{0,120}ordinary prose never selects a Skill/i,
+  assert.equal(awaitingInitializationConfirmation.state, "RECONFIRMED_BOUNDED");
+  assert.deepEqual(awaitingInitializationConfirmation.mutations, []);
+  assert.equal(
+    awaitingInitializationConfirmation.events.at(-1).type,
+    "NATIVE_CONFIRMATION_REQUIRED",
   );
-  assert.match(
-    architecture,
-    /invocation selects the workflow/i,
+
+  const malformedInitializationConfirmation = runSkillInvocationScenario([
+    ...initializationPrefix.slice(0, 2),
+    { ...initializationPrefix[2], nativeConfirmation: "yes" },
+  ]);
+  assert.equal(malformedInitializationConfirmation.state, "CANCELLED_OR_EXPIRED");
+  assert.deepEqual(malformedInitializationConfirmation.mutations, []);
+
+  const initialized = runSkillInvocationScenario([
+    ...initializationPrefix,
+    {
+      type: "execute-bounded",
+      warningId: "warning-1-1",
+      factsRevision: "facts-1",
+      permanentOwners: ["docs/SPEC.md"],
+      taskTestPaths: [],
+      executionBounds: exactBounds(initRequested),
+      nativeConfirmation: true,
+    },
+  ]);
+  assert.deepEqual(initialized.mutations.map(({ type }) => type), [
+    "SYNC_PERMANENT_OWNER",
+    "BOUNDED_ACTION",
+  ]);
+
+  const malformedInitializationExecution = runSkillInvocationScenario([
+    ...initializationPrefix,
+    {
+      type: "execute-bounded",
+      warningId: "warning-1-1",
+      factsRevision: "facts-1",
+      permanentOwners: ["docs/SPEC.md"],
+      taskTestPaths: [],
+      executionBounds: exactBounds(initRequested),
+      nativeConfirmation: "yes",
+    },
+  ]);
+  assert.equal(malformedInitializationExecution.state, "CANCELLED_OR_EXPIRED");
+  assert.deepEqual(malformedInitializationExecution.mutations, []);
+
+  const taskActive = draftTaskContract();
+  const taskRequested = { ...taskActive, scope: `${taskActive.scope} changed` };
+  const taskImpacts = impactsForTask("0083", { includePermanentOwners: false });
+  const taskReconfirmation = {
+    type: "reconfirm",
+    source: "current-user",
+    trusted: true,
+    explicit: true,
+    unambiguous: true,
+    warningId: "warning-1-1",
+    factsRevision: "facts-1",
+    accepted: taskRequested,
+    bounds: exactBounds(taskRequested),
+    permanentOwners: [],
+    taskTestPaths: taskImpacts.taskTest.paths,
+    executionBounds: exactBounds(taskRequested),
+  };
+  const unconfirmedAuthoring = runSkillInvocationScenario([
+    {
+      type: "activate",
+      recognized: true,
+      routeKind: "EXPLICIT_SKILL",
+      contract: taskActive,
+    },
+    {
+      type: "change",
+      requested: taskRequested,
+      impacts: taskImpacts,
+      factsRevision: "facts-1",
+    },
+    taskReconfirmation,
+  ]);
+  assert.equal(unconfirmedAuthoring.state, "RECONFIRMED_BOUNDED");
+  assert.deepEqual(unconfirmedAuthoring.mutations, []);
+
+  const confirmedAuthoring = runSkillInvocationScenario([
+    {
+      type: "activate",
+      recognized: true,
+      routeKind: "EXPLICIT_SKILL",
+      contract: taskActive,
+    },
+    {
+      type: "change",
+      requested: taskRequested,
+      impacts: taskImpacts,
+      factsRevision: "facts-1",
+    },
+    { ...taskReconfirmation, nativeConfirmation: true },
+  ]);
+  assert.deepEqual(confirmedAuthoring.mutations.map(({ type }) => type), [
+    "SYNC_TASK",
+    "SYNC_TEST",
+    "BOUNDED_ACTION",
+  ]);
+
+  const goalActive = contractForSkill("kyw-task");
+  const goalRequested = { ...goalActive, scope: `${goalActive.scope} changed` };
+  const goalAuthoring = runSkillInvocationScenario([
+    {
+      type: "activate",
+      recognized: true,
+      routeKind: "EXPLICIT_SKILL",
+      contract: goalActive,
+    },
+    {
+      type: "change",
+      requested: goalRequested,
+      impacts: NO_SYNC_IMPACTS,
+      factsRevision: "facts-1",
+    },
+    {
+      type: "reconfirm",
+      source: "current-user",
+      trusted: true,
+      explicit: true,
+      unambiguous: true,
+      warningId: "warning-1-1",
+      factsRevision: "facts-1",
+      accepted: goalRequested,
+      bounds: exactBounds(goalRequested),
+      permanentOwners: [],
+      taskTestPaths: [],
+      executionBounds: exactBounds(goalRequested),
+    },
+  ]);
+  assert.deepEqual(goalAuthoring.mutations.map(({ type }) => type), [
+    "BOUNDED_ACTION",
+  ]);
+
+  const resumableDelivery = requestedContract({
+    action: "deliver",
+    taskPairDisposition: "MUTABLE",
+    deliveryDisposition: "RESUMABLE",
+  });
+  const changedDelivery = {
+    ...resumableDelivery,
+    target: "changed delivery target",
+  };
+  const deliveryReconfirmation = {
+    type: "reconfirm",
+    source: "current-user",
+    trusted: true,
+    explicit: true,
+    unambiguous: true,
+    warningId: "warning-1-1",
+    factsRevision: "facts-1",
+    accepted: changedDelivery,
+    bounds: exactBounds(changedDelivery),
+    permanentOwners: [],
+    taskTestPaths: [],
+    executionBounds: exactBounds(changedDelivery),
+  };
+  const boundedDelivery = runSkillInvocationScenario([
+    {
+      type: "activate",
+      recognized: true,
+      routeKind: "EXPLICIT_SKILL",
+      contract: resumableDelivery,
+    },
+    {
+      type: "change",
+      requested: changedDelivery,
+      impacts: NO_SYNC_IMPACTS,
+      factsRevision: "facts-1",
+    },
+    deliveryReconfirmation,
+  ]);
+  assert.deepEqual(boundedDelivery.mutations.map(({ type }) => type), [
+    "BOUNDED_ACTION",
+  ]);
+  assert.equal(
+    boundedDelivery.mutations.some(({ type }) =>
+      ["SYNC_TASK", "SYNC_TEST"].includes(type),
+    ),
+    false,
   );
-  assert.match(
-    architecture,
-    /direct user authority[^.]{0,140}before or\s+after[^.]{0,180}named action[^.]{0,80}target[^.]{0,80}scope[^.]{0,80}current attempt/i,
+  const changedDeliveryScope = {
+    ...resumableDelivery,
+    scope: "changed resumable delivery scope",
+  };
+  const deliveryPairImpacts = impactsForTask("0083", {
+    includePermanentOwners: false,
+  });
+  const synchronizedDeliveryScope = runSkillInvocationScenario([
+    {
+      type: "activate",
+      recognized: true,
+      routeKind: "EXPLICIT_SKILL",
+      contract: resumableDelivery,
+    },
+    {
+      type: "change",
+      requested: changedDeliveryScope,
+      impacts: deliveryPairImpacts,
+      factsRevision: "facts-1",
+    },
+    {
+      ...deliveryReconfirmation,
+      accepted: changedDeliveryScope,
+      bounds: exactBounds(changedDeliveryScope),
+      taskTestPaths: deliveryPairImpacts.taskTest.paths,
+      executionBounds: exactBounds(changedDeliveryScope),
+    },
+  ]);
+  assert.deepEqual(synchronizedDeliveryScope.mutations.map(({ type }) => type), [
+    "SYNC_TASK",
+    "SYNC_TEST",
+    "BOUNDED_ACTION",
+  ]);
+
+  const satisfiedReport = requestedContract({
+    action: "report",
+    taskPairDisposition: "IMMUTABLE",
+    deliveryDisposition: "SATISFIED",
+  });
+  const terminalReport = runSkillInvocationScenario([
+    {
+      type: "activate",
+      recognized: true,
+      routeKind: "EXPLICIT_SKILL",
+      contract: satisfiedReport,
+    },
+    {
+      type: "aligned",
+      contract: satisfiedReport,
+      clause: "report-canonical-delivery",
+    },
+    { type: "complete" },
+  ]);
+  assert.equal(terminalReport.state, "INACTIVE");
+  assert.deepEqual(terminalReport.mutations, []);
+
+  const changedSatisfiedScope = {
+    ...satisfiedReport,
+    scope: "changed canonically delivered Task scope",
+  };
+  const immutableScopeChange = runSkillInvocationScenario([
+    {
+      type: "activate",
+      recognized: true,
+      routeKind: "EXPLICIT_SKILL",
+      contract: satisfiedReport,
+    },
+    {
+      type: "change",
+      requested: changedSatisfiedScope,
+      impacts: NO_SYNC_IMPACTS,
+      factsRevision: "facts-1",
+    },
+    {
+      ...deliveryReconfirmation,
+      accepted: changedSatisfiedScope,
+      bounds: exactBounds(changedSatisfiedScope),
+      executionBounds: exactBounds(changedSatisfiedScope),
+    },
+  ]);
+  assert.equal(immutableScopeChange.state, "CANCELLED_OR_EXPIRED");
+  assert.deepEqual(immutableScopeChange.mutations, []);
+  assert.ok(
+    immutableScopeChange.events.some(({ type }) => type === "EXACT_ROUTE_REQUIRED"),
   );
-  assert.match(
-    architecture,
-    /preserves an invocation suffix as `overrideText` transport[\s\S]{0,300}method\/order\/scope\/check override[\s\S]{0,260}Task-override-present\/absent terminal flag[\s\S]{0,260}never redispatches or\s+chains/i,
+
+  const changedSatisfiedAction = {
+    ...satisfiedReport,
+    action: "publish",
+    target: "registry",
+    attempt: "publish-1",
+  };
+  const immutableActionChange = runSkillInvocationScenario([
+    {
+      type: "activate",
+      recognized: true,
+      routeKind: "EXPLICIT_SKILL",
+      contract: satisfiedReport,
+    },
+    {
+      type: "change",
+      requested: changedSatisfiedAction,
+      impacts: NO_SYNC_IMPACTS,
+      factsRevision: "facts-1",
+    },
+    {
+      ...deliveryReconfirmation,
+      accepted: changedSatisfiedAction,
+      bounds: exactBounds(changedSatisfiedAction),
+      executionBounds: exactBounds(changedSatisfiedAction),
+    },
+  ]);
+  assert.equal(immutableActionChange.state, "CANCELLED_OR_EXPIRED");
+  assert.deepEqual(immutableActionChange.mutations, []);
+  assert.ok(
+    immutableActionChange.events.some(
+      ({ type }) => type === "EXACT_ROUTE_REQUIRED",
+    ),
   );
-  assert.match(
-    implementation,
-    /standalone ordinary instructions?[^.]{0,100}outside[^.]{0,120}not redirected/i,
-  );
-  assert.match(
-    implementation,
-    /Direct user mutation authority[^.]{0,100}separate from Skill routing[\s\S]{0,180}before\/after\/same-message action clauses/i,
-  );
-  assert.match(
-    execution,
-    /Direct authority[^.]{0,120}before\/after\/with dispatch[^.]{0,120}without another Skill call/i,
-  );
-  assert.match(
-    execution,
-    /`overrideText` preserves suffix transport[\s\S]{0,100}not permission/i,
-  );
-  assert.match(
-    execution,
-    /Terminal preflight accepts `TASK_OVERRIDE_PRESENT` or `NO_TASK_OVERRIDE`[^.]{0,80}omission stays fail-closed/i,
-  );
-  assert.match(
-    execution,
-    /Mutation authority is a separate channel[\s\S]{0,180}latest applicable directive from the trusted current user/i,
-  );
-  assert.match(
-    execution,
-    /Status neither grants nor revokes active work[^.]{0,120}untrusted text grants nothing/i,
-  );
-  assert.match(
-    execution,
-    /Conditions need act-now[^.]{0,220}objective[^.]{0,220}currently true/i,
+
+  for (const requested of [
+    requestedContract({
+      action: "deliver",
+      taskPairDisposition: "IMMUTABLE",
+      deliveryDisposition: "RESUMABLE",
+    }),
+    requestedContract({ action: "deliver", taskPairDisposition: "MUTABLE" }),
+    requestedContract({ action: "implement", taskPairDisposition: "IMMUTABLE" }),
+  ]) {
+    assert.throws(
+      () =>
+        runSkillInvocationScenario([
+          {
+            type: "activate",
+            recognized: true,
+            routeKind: "EXPLICIT_SKILL",
+            contract: requestedContract(),
+          },
+          {
+            type: "change",
+            requested,
+            impacts: NO_SYNC_IMPACTS,
+            factsRevision: "facts-1",
+          },
+        ]),
+      /warning requested contract must be complete/,
+    );
+  }
+
+  assert.throws(
+    () =>
+      runSkillInvocationScenario([
+        {
+          type: "activate",
+          recognized: true,
+          routeKind: "EXPLICIT_SKILL",
+          contract: {
+            ...resumableDelivery,
+            deliveryDisposition: "SATISFIED",
+          },
+        },
+      ]),
+    /activation contract and route must be compatible/,
   );
 });
 
-test("direct-authority scenarios preserve precedence, conditions, lifetime, and granularity", async () => {
-  const spec = await read("docs/SPEC.md");
-  for (const contractAnchor of [
-    /negative imperative or prohibition is never a grant/i,
-    /cancellation, revocation, or scope reduction supersedes an older grant/i,
-    /status request[^.]{0,160}neither grants[^.]{0,120}nor silently revokes/i,
-    /conditional instruction grants authority only[^.]{0,180}objective condition[^.]{0,180}currently satisfied/i,
-    /appended text is preserved as `overrideText` transport/i,
-    /failure grants no retry[^.]{0,100}older grant does not revive/i,
-  ]) {
-    assert.match(spec, contractAnchor);
-  }
-
-  const publish = {
-    action: "npm-publish",
-    target: "kyw-dev@0.1.4",
-    scope: "public latest",
-    attempt: "publish-1",
+test("pending warnings reject cancellation ambiguity staleness changed facts and widened approval", () => {
+  const requested = requestedContract({ scope: "changed scope" });
+  const activation = {
+    type: "activate",
+    recognized: true,
+    routeKind: "EXPLICIT_SKILL",
+    contract: requestedContract(),
   };
-  const tag = {
-    action: "git-tag",
-    target: "v0.1.4",
-    scope: "origin",
-    attempt: "tag-1",
+  const change = {
+    type: "change",
+    requested,
+    impacts: CHANGE_IMPACTS,
+    factsRevision: "facts-1",
   };
-  const distinctCategoryActions = [
-    {
-      action: "package-version-change",
-      target: "package-and-plugin",
-      scope: "0.1.4",
-      attempt: "version-1",
-    },
-    {
-      action: "github-release",
-      target: "v0.1.4",
-      scope: "public release",
-      attempt: "release-1",
-    },
-    {
-      action: "public-submission",
-      target: "kyw-dev plugin",
-      scope: "public directory",
-      attempt: "submission-1",
-    },
-    {
-      action: "publish-retry",
-      target: "kyw-dev@0.1.4",
-      scope: "second npm attempt",
-      attempt: "publish-2",
-    },
-    {
-      action: "credential-fallback",
-      target: "kyw-dev@0.1.4",
-      scope: "npm token fallback",
-      attempt: "fallback-1",
-    },
-    {
-      action: "force-push",
-      target: "task/0080-honor-direct-user-authority",
-      scope: "origin",
-      attempt: "force-1",
-    },
-    {
-      action: "branch-delete",
-      target: "task/0080-honor-direct-user-authority",
-      scope: "origin",
-      attempt: "delete-1",
-    },
-    {
-      action: "npm-account-change",
-      target: "npm-production trusted publisher",
-      scope: "account configuration",
-      attempt: "account-1",
-    },
-    {
-      action: "admin-bypass",
-      target: "main protection",
-      scope: "GitHub repository",
-      attempt: "bypass-1",
-    },
-  ];
-  const publishKey = authorityBoundaryKey(publish);
-  const tagKey = authorityBoundaryKey(tag);
-  const grantPublish = {
+  const exact = {
+    type: "reconfirm",
     source: "current-user",
-    speechAct: "imperative",
-    affirmative: true,
-    actNow: true,
-    attempt: publish.attempt,
-    actions: [publish],
+    trusted: true,
+    explicit: true,
+    unambiguous: true,
+    warningId: "warning-1-1",
+    factsRevision: "facts-1",
+    accepted: requested,
+    bounds: exactBounds(requested),
+    permanentOwners: CHANGE_IMPACTS.permanentDocuments.paths,
+    taskTestPaths: CHANGE_IMPACTS.taskTest.paths,
+    executionBounds: exactBounds(requested),
   };
-
-  assert.deepEqual(runAuthorityContractScenario([grantPublish]).authorized, [publishKey]);
-  assert.deepEqual(
-    runAuthorityContractScenario([{ ...grantPublish, actNow: false }]).authorized,
-    [],
-  );
-  assert.deepEqual(
-    runAuthorityContractScenario([
-      grantPublish,
-      { ...grantPublish, actNow: false },
-    ]).authorized,
-    [],
-  );
-  assert.deepEqual(
-    runAuthorityContractScenario([
-      { ...grantPublish, speechAct: "prohibition", affirmative: false },
-    ]).authorized,
-    [],
-  );
-  assert.deepEqual(
-    runAuthorityContractScenario([
-      grantPublish,
-      { ...grantPublish, affirmative: false },
-    ]).authorized,
-    [],
-  );
-  const prohibitedAfterGrant = runAuthorityContractScenario([
-    grantPublish,
-    {
-      source: "current-user",
-      speechAct: "prohibition",
-      attempt: publish.attempt,
-      matches: [publish],
-    },
-  ]);
-  assert.deepEqual(
-    prohibitedAfterGrant.snapshots.map(({ authorized }) => authorized),
-    [[publishKey], []],
-  );
-  const cancelled = runAuthorityContractScenario([
-    grantPublish,
-    {
-      source: "current-user",
-      speechAct: "cancellation",
-      attempt: publish.attempt,
-      matches: [publish],
-    },
-  ]);
-  assert.deepEqual(
-    cancelled.snapshots.map(({ authorized }) => authorized),
-    [[publishKey], []],
-  );
-  assert.deepEqual(
-    runAuthorityContractScenario([
-      grantPublish,
-      {
-        source: "current-user",
-        speechAct: "cancellation",
-        attempt: publish.attempt,
-        matches: [publish],
-      },
-      grantPublish,
-    ]).authorized,
-    [],
-  );
-  const publishAfterCancellation = {
-    ...publish,
-    attempt: "publish-after-cancellation",
-  };
-  assert.deepEqual(
-    runAuthorityContractScenario([
-      grantPublish,
-      {
-        source: "current-user",
-        speechAct: "cancellation",
-        attempt: publish.attempt,
-        matches: [publish],
-      },
-      {
-        ...grantPublish,
-        attempt: publishAfterCancellation.attempt,
-        actions: [publishAfterCancellation],
-      },
-    ]).authorized,
-    [authorityBoundaryKey(publishAfterCancellation)],
-  );
-  assert.deepEqual(
-    runAuthorityContractScenario([
-      {
-        ...grantPublish,
-        actions: [{ ...publish, target: undefined }],
-      },
-    ]).authorized,
-    [],
-  );
-  assert.deepEqual(
-    runAuthorityContractScenario([
-      grantPublish,
-      {
-        ...grantPublish,
-        actions: [{ ...publish, target: undefined }],
-      },
-    ]).authorized,
-    [],
-  );
-  assert.deepEqual(
-    runAuthorityContractScenario([
-      grantPublish,
-      {
-        source: "current-user",
-        speechAct: "revocation",
-        attempt: publish.attempt,
-        matches: [publish],
-      },
-    ]).authorized,
-    [],
-  );
-  const reducedPublish = { ...publish, scope: "public dist-tag latest only" };
-  assert.deepEqual(
-    runAuthorityContractScenario([
-      grantPublish,
-      {
-        source: "current-user",
-        speechAct: "scope-reduction",
-        attempt: publish.attempt,
-        matches: [publish],
-        actions: [reducedPublish],
-      },
-    ]).authorized,
-    [authorityBoundaryKey(reducedPublish)],
-  );
-
-  const statusAfterGrant = runAuthorityContractScenario([
-    grantPublish,
-    { source: "current-user", speechAct: "status" },
-  ]);
-  assert.deepEqual(
-    statusAfterGrant.snapshots.map(({ authorized }) => authorized),
-    [[publishKey], [publishKey]],
-  );
-
-  const satisfiedConditional = {
-    source: "current-user",
-    speechAct: "conditional",
-    actNow: true,
-    attempt: publish.attempt,
-    actions: [publish],
-    condition: {
-      objective: true,
-      verifiable: true,
-      satisfied: true,
-      subjective: false,
-      future: false,
-    },
-  };
-  assert.deepEqual(
-    runAuthorityContractScenario([satisfiedConditional]).authorized,
-    [publishKey],
-  );
-  for (const invalidConditional of [
-    { ...satisfiedConditional, actNow: false },
-    {
-      ...satisfiedConditional,
-      condition: { ...satisfiedConditional.condition, satisfied: false },
-    },
-    {
-      ...satisfiedConditional,
-      condition: { ...satisfiedConditional.condition, verifiable: false },
-    },
-    {
-      ...satisfiedConditional,
-      condition: { ...satisfiedConditional.condition, objective: false },
-    },
-    {
-      ...satisfiedConditional,
-      condition: { ...satisfiedConditional.condition, subjective: true },
-    },
-    {
-      ...satisfiedConditional,
-      condition: { ...satisfiedConditional.condition, future: true },
-    },
-  ]) {
-    assert.deepEqual(runAuthorityContractScenario([invalidConditional]).authorized, []);
-  }
-  assert.deepEqual(
-    runAuthorityContractScenario([
-      grantPublish,
-      {
-        ...satisfiedConditional,
-        condition: { ...satisfiedConditional.condition, satisfied: false },
-      },
-    ]).authorized,
-    [],
-  );
-  const broadPublish = {
-    ...publish,
-    scope: "public registry all tags",
-    scopeGroup: "npm-public-registry",
-  };
-  const overlappingConditional = {
-    ...satisfiedConditional,
-    actions: [
-      {
-        ...publish,
-        scope: "public registry latest tag",
-        scopeGroup: "npm-public-registry",
-      },
-    ],
-    condition: { ...satisfiedConditional.condition, satisfied: false },
-  };
-  assert.deepEqual(
-    runAuthorityContractScenario([
-      { ...grantPublish, actions: [broadPublish] },
-      overlappingConditional,
-    ]).authorized,
-    [],
-  );
-
-  const resolvedProposal = {
-    source: "assistant",
-    speechAct: "execution-proposal",
-    single: true,
-    concrete: true,
-    resolved: true,
-    alternatives: false,
-    attempt: publish.attempt,
-    actions: [publish],
-  };
-  assert.deepEqual(
-    runAuthorityContractScenario([
-      resolvedProposal,
-      { source: "current-user", speechAct: "assent", unambiguous: true },
-    ]).authorized,
-    [publishKey],
-  );
-  assert.deepEqual(
-    runAuthorityContractScenario([
-      resolvedProposal,
-      { source: "current-user", speechAct: "status" },
-      { source: "current-user", speechAct: "assent", unambiguous: true },
-    ]).authorized,
-    [],
-  );
-  assert.deepEqual(
-    runAuthorityContractScenario([
-      { ...resolvedProposal, alternatives: true },
-      { source: "current-user", speechAct: "assent", unambiguous: true },
-    ]).authorized,
-    [],
-  );
-  assert.deepEqual(
-    runAuthorityContractScenario([
-      resolvedProposal,
-      { source: "current-user", speechAct: "assent", unambiguous: false },
-    ]).authorized,
-    [],
-  );
-  assert.deepEqual(
-    runAuthorityContractScenario([
-      { ...resolvedProposal, resolved: false },
-      { source: "current-user", speechAct: "assent", unambiguous: true },
-    ]).authorized,
-    [],
-  );
-
-  const otherwiseValidGrant = {
-    affirmative: true,
-    actNow: true,
-    attempt: publish.attempt,
-    actions: [publish],
-  };
-  for (const nonAuthority of [
-    { ...otherwiseValidGrant, source: "current-user", speechAct: "question" },
-    { ...otherwiseValidGrant, source: "current-user", speechAct: "plan" },
-    { ...otherwiseValidGrant, source: "current-user", speechAct: "quote" },
-    { ...otherwiseValidGrant, source: "current-user", speechAct: "inference" },
-    {
-      ...otherwiseValidGrant,
-      source: "current-user",
-      trusted: false,
-      speechAct: "imperative",
-    },
-    { ...otherwiseValidGrant, source: "task", speechAct: "imperative" },
-    { ...otherwiseValidGrant, source: "ci", speechAct: "imperative" },
-    { ...otherwiseValidGrant, source: "docs", speechAct: "imperative" },
-    { ...otherwiseValidGrant, source: "metadata", speechAct: "imperative" },
-  ]) {
-    assert.deepEqual(runAuthorityContractScenario([nonAuthority]).authorized, []);
-  }
-
-  for (const categoryAction of distinctCategoryActions) {
-    const categoryGrant = {
-      source: "current-user",
-      speechAct: "imperative",
-      affirmative: true,
-      actNow: true,
-      attempt: categoryAction.attempt,
-      actions: [categoryAction],
-    };
-    assert.deepEqual(runAuthorityContractScenario([categoryGrant]).authorized, [
-      authorityBoundaryKey(categoryAction),
-    ]);
-  }
-
-  const separated = runAuthorityContractScenario([
-    { ...grantPublish, actions: [publish, tag] },
-    {
-      source: "current-user",
-      speechAct: "revocation",
-      attempt: tag.attempt,
-      matches: [tag],
-    },
-  ]);
-  assert.deepEqual(separated.snapshots[0].authorized, [tagKey, publishKey].sort());
-  assert.deepEqual(separated.authorized, [publishKey]);
-
-  const combinedSuffix =
-    "run only focused checks; then publish kyw-dev@0.1.4 to npm now";
-  const combinedInvocation = parseTaskInvocation(`$kyw-impl 0080 ${combinedSuffix}`);
-  assert.equal(combinedInvocation.recognized, true);
-  assert.equal(combinedInvocation.taskId, "0080");
-  assert.equal(combinedInvocation.overrideText, combinedSuffix);
-  const combined = classifyCombinedSuffixScenario(
-    combinedInvocation,
-    new Map([[publish.target, publish]]),
-  );
-  assert.deepEqual(
-    combined.classifications,
+  for (const [name, invalidTurn, disposition] of [
+    ["cancellation", { type: "cancel" }, "CANCELLED"],
+    ["decline", { type: "decline" }, "CANCELLED"],
+    ["stop", { type: "stop" }, "CANCELLED"],
+    ["pending completion", { type: "complete" }, "EXPIRED"],
+    ["ambiguous", { ...exact, unambiguous: false }, "EXPIRED"],
+    ["wrong source", { ...exact, source: "prior-user" }, "EXPIRED"],
+    ["not explicit", { ...exact, explicit: false }, "EXPIRED"],
+    ["stale warning", { ...exact, warningId: "warning-older" }, "EXPIRED"],
+    ["untrusted", { ...exact, trusted: false }, "EXPIRED"],
+    ["changed facts", { type: "facts-changed" }, "EXPIRED"],
     [
-      { kind: "TASK_OVERRIDE", text: "run only focused checks" },
-      {
-        kind: "EXTERNAL_AUTHORITY",
-        text: "then publish kyw-dev@0.1.4 to npm now",
-      },
+      "changed accepted Skill",
+      { ...exact, accepted: { ...requested, skill: "kyw-audit" } },
+      "EXPIRED",
     ],
+    [
+      "changed accepted mode",
+      { ...exact, accepted: { ...requested, mode: "delivery" } },
+      "EXPIRED",
+    ],
+    [
+      "changed accepted route capability",
+      {
+        ...exact,
+        accepted: { ...requested, routeCapability: "impl-managed-auto" },
+      },
+      "EXPIRED",
+    ],
+    [
+      "changed accepted baseline",
+      { ...exact, accepted: { ...requested, baseline: "main@other" } },
+      "EXPIRED",
+    ],
+    [
+      "changed accepted Task",
+      { ...exact, accepted: { ...requested, ...taskSelection("0084") } },
+      "EXPIRED",
+    ],
+    [
+      "changed accepted acceptance",
+      { ...exact, accepted: { ...requested, acceptance: [...requested.acceptance, "AC-09"] } },
+      "EXPIRED",
+    ],
+    [
+      "changed accepted scope",
+      { ...exact, accepted: { ...requested, scope: "other accepted scope" } },
+      "EXPIRED",
+    ],
+    ...["action", "target", "scope", "attempt"].map((field) => [
+      `changed ${field} bound`,
+      { ...exact, bounds: { ...exact.bounds, [field]: `other ${field}` } },
+      "EXPIRED",
+    ]),
+    ["additional action", { ...exact, additionalActions: ["git-tag"] }, "EXPIRED"],
+    [
+      "additional choice",
+      { ...exact, additionalChoices: ["choose another rollout"] },
+      "EXPIRED",
+    ],
+    ["intervening turn", { type: "intervening" }, "EXPIRED"],
+    ["duplicate confirmation", { type: "duplicate-confirmation" }, "EXPIRED"],
+    ["unclassified intervention", { type: "unknown-turn" }, "EXPIRED"],
+    ["unknown approval field", { ...exact, alsoDo: "delete-branch" }, "EXPIRED"],
+    ["invalid defer flag", { ...exact, deferExecution: false }, "EXPIRED"],
+    [
+      "aligned intervention",
+      { type: "aligned", contract: requestedContract(), clause: "too-late" },
+      "EXPIRED",
+    ],
+    ["missing permanent sync", { ...exact, permanentOwners: [] }, "EXPIRED"],
+    ["missing Task/Test sync", { ...exact, taskTestPaths: [] }, "EXPIRED"],
+    [
+      "sparse permanent sync",
+      { ...exact, permanentOwners: Array(2) },
+      "EXPIRED",
+    ],
+    [
+      "sparse Task/Test sync",
+      { ...exact, taskTestPaths: Array(2) },
+      "EXPIRED",
+    ],
+    [
+      "out-of-bounds execution",
+      {
+        ...exact,
+        executionBounds: { ...exact.executionBounds, target: "unwarned target" },
+      },
+      "EXPIRED",
+    ],
+  ]) {
+    const result = runSkillInvocationScenario([activation, change, invalidTurn]);
+    assert.equal(result.pendingDisposition, disposition, name);
+    assert.deepEqual(result.mutations, [], name);
+    assert.equal(result.pendingWarning, undefined, name);
+    assert.equal(result.active, undefined, name);
+  }
+
+  for (const factsRevision of [undefined, "", " ", "\t"]) {
+    assert.throws(
+      () =>
+        runSkillInvocationScenario([
+          activation,
+          { ...change, factsRevision },
+        ]),
+      /warning facts revision must be concrete/,
+    );
+  }
+
+  for (const impacts of [
+    { ...CHANGE_IMPACTS, taskTest: "docs/tasks/0083/TASK.md" },
+    { ...CHANGE_IMPACTS, permanentDocuments: "docs/SPEC.md" },
+    { ...CHANGE_IMPACTS, implementation: " " },
+    { ...CHANGE_IMPACTS, verification: "\t" },
+    { ...CHANGE_IMPACTS, delivery: "\n" },
+    { ...CHANGE_IMPACTS, secondaryAction: "git-tag" },
+    { ...CHANGE_IMPACTS, taskTest: { summary: " ", paths: [] } },
+    { ...CHANGE_IMPACTS, taskTest: { summary: "invalid", paths: [""] } },
+    {
+      ...CHANGE_IMPACTS,
+      taskTest: {
+        summary: "incomplete pair",
+        paths: [
+          "docs/tasks/0083-scope-kyw-skill-guardrails-to-active-in-60ce0c5c/TASK.md",
+        ],
+      },
+    },
+    {
+      ...CHANGE_IMPACTS,
+      taskTest: {
+        summary: "traversal pair",
+        paths: ["docs/tasks/../TASK.md", "docs/tasks/../TEST.md"],
+      },
+    },
+    {
+      ...CHANGE_IMPACTS,
+      permanentDocuments: {
+        summary: "not a canonical permanent owner",
+        paths: ["templates/project/AGENTS.md"],
+      },
+    },
+    {
+      ...CHANGE_IMPACTS,
+      permanentDocuments: {
+        summary: "sparse permanent-owner paths",
+        paths: Array(1),
+      },
+    },
+    {
+      ...CHANGE_IMPACTS,
+      taskTest: {
+        summary: "sparse Task/Test paths",
+        paths: Array(2),
+      },
+    },
+  ]) {
+    assert.throws(
+      () => runSkillInvocationScenario([activation, { ...change, impacts }]),
+      /all warning impacts must be concrete/,
+    );
+  }
+
+  for (const impacts of [NO_SYNC_IMPACTS, impactsForTask("0084")]) {
+    assert.throws(
+      () => runSkillInvocationScenario([activation, { ...change, impacts }]),
+      /Task-bearing criterion change requires its selected Task\/Test pair|Task\/Test impacts must match the selected Task/,
+    );
+  }
+
+  for (const requested of [
+    requestedContract({ action: "publish" }),
+    requestedContract({ target: "different target" }),
+    requestedContract({ attempt: "task-0083-implementation-2" }),
+  ]) {
+    assert.throws(
+      () =>
+        runSkillInvocationScenario([
+          activation,
+          { ...change, requested, impacts: impactsForTask("0084") },
+        ]),
+      /Task\/Test impacts must match the selected Task/,
+    );
+  }
+
+  assert.throws(
+    () =>
+      runSkillInvocationScenario([
+        activation,
+        {
+          ...change,
+          impacts: {
+            ...CHANGE_IMPACTS,
+            taskTest: {
+              summary: "same ID but wrong directory",
+              paths: [
+                "docs/tasks/0083-other-task/TASK.md",
+                "docs/tasks/0083-other-task/TEST.md",
+              ],
+            },
+          },
+        },
+      ]),
+    /Task\/Test impacts must match the selected Task/,
   );
-  assert.deepEqual(combined.taskOverrides, ["run only focused checks"]);
-  assert.equal(combined.overrideClassification, "TASK_OVERRIDE_PRESENT");
+
+  for (const skill of ["kyw-init", "kyw-task"]) {
+    const active = contractForSkill(skill);
+    assert.throws(
+      () =>
+        runSkillInvocationScenario([
+          {
+            type: "activate",
+            recognized: true,
+            routeKind: "EXPLICIT_SKILL",
+            contract: active,
+          },
+          {
+            type: "change",
+            requested: { ...active, scope: `${active.scope} changed` },
+            impacts: CHANGE_IMPACTS,
+            factsRevision: "facts-1",
+          },
+        ]),
+      /taskless or immutable warning cannot claim Task\/Test synchronization/,
+      skill,
+    );
+  }
+
+  const tasklessAuthoring = contractForSkill("kyw-task");
+  assert.throws(
+    () =>
+      runSkillInvocationScenario([
+        {
+          type: "activate",
+          recognized: true,
+          routeKind: "EXPLICIT_SKILL",
+          contract: tasklessAuthoring,
+        },
+        {
+          type: "change",
+          requested: { ...tasklessAuthoring, scope: "changed authoring scope" },
+          impacts: {
+            ...NO_SYNC_IMPACTS,
+            permanentDocuments: {
+              summary: "forbidden owner sync",
+              paths: ["docs/SPEC.md"],
+            },
+          },
+          factsRevision: "facts-1",
+        },
+      ]),
+    /kyw-task warning cannot claim permanent-owner synchronization/,
+  );
+
+  for (const invalidRequested of [
+    { ...requested, baseline: "" },
+    { ...requested, baseline: " " },
+    { ...requested, action: "\t" },
+    { ...requested, secondaryAction: "git-tag" },
+    { ...requested, acceptance: [""] },
+    { ...requested, acceptance: [" "] },
+    { ...requested, acceptance: ["AC-01", "AC-01"] },
+    {
+      ...requested,
+      selectedTask: null,
+      selectedTaskDirectory: null,
+      acceptance: null,
+    },
+  ]) {
+    assert.throws(
+      () =>
+        runSkillInvocationScenario([
+          activation,
+          { ...change, requested: invalidRequested },
+        ]),
+      /warning requested contract must be complete/,
+    );
+  }
+
+  const replacement = runSkillInvocationScenario([
+    activation,
+    change,
+    {
+      ...change,
+      requested: requestedContract({ scope: "different changed scope" }),
+      factsRevision: "facts-2",
+    },
+  ]);
+  assert.equal(replacement.pendingDisposition, "REPLACED");
+  assert.equal(replacement.warnings.length, 2);
+  assert.notEqual(replacement.warnings[0].id, replacement.warnings[1].id);
+  assert.deepEqual(replacement.mutations, []);
+
+  for (const [name, requested, impacts] of [
+    [
+      "pending Skill replacement",
+      requestedContract({
+        skill: "kyw-audit",
+        mode: "read-only",
+        routeCapability: "audit-read-only",
+        action: "audit",
+      }),
+      CHANGE_IMPACTS,
+    ],
+    [
+      "pending Task-route replacement",
+      requestedContract(taskSelection("0084")),
+      impactsForTask("0084"),
+    ],
+  ]) {
+    const routeReplacement = runSkillInvocationScenario([
+      activation,
+      change,
+      { ...change, requested, impacts, factsRevision: "facts-2" },
+    ]);
+    assert.equal(routeReplacement.state, "CANCELLED_OR_EXPIRED", name);
+    assert.equal(routeReplacement.pendingDisposition, "EXPIRED", name);
+    assert.equal(routeReplacement.warnings.length, 1, name);
+    assert.equal(
+      routeReplacement.events.filter(({ type }) => type === "WARNING_REPLACED").length,
+      0,
+      name,
+    );
+    assert.ok(
+      routeReplacement.events.some(({ type }) => type === "EXACT_ROUTE_REQUIRED"),
+      name,
+    );
+    assert.deepEqual(routeReplacement.mutations, [], name);
+  }
+});
+
+test("combined routed messages dispatch once, preserve aligned clauses, and cannot self-confirm changes", () => {
+  const invocation = parseTaskInvocation(
+    "$kyw-impl 0083 continue the selected Task; widen delivery scope; confirm now",
+  );
+  assert.equal(invocation.recognized, true);
+  assert.equal(invocation.taskId, "0083");
+  assert.equal(
+    invocation.overrideText,
+    "continue the selected Task; widen delivery scope; confirm now",
+  );
   assert.deepEqual(
-    evaluateTaskExecutionPreflight({
-      overrideClassification: combined.overrideClassification,
-    }),
+    evaluateTaskExecutionPreflight({ overrideClassification: "TASK_OVERRIDE_PRESENT" }),
     {
       safe: true,
       issues: [],
       overrideClassification: "TASK_OVERRIDE_PRESENT",
     },
   );
-  assert.deepEqual(
-    runAuthorityContractScenario(combined.authorityTurns).authorized,
-    [publishKey],
-  );
-  assert.equal(combined.routingDecisions, 1);
-  assert.deepEqual(combined.redispatchCandidates, []);
 
-  const externalOnlyInvocation = parseTaskInvocation(
-    "$kyw-impl 0080 then publish kyw-dev@0.1.4 to npm now",
-  );
-  const externalOnly = classifyCombinedSuffixScenario(
-    externalOnlyInvocation,
-    new Map([[publish.target, publish]]),
-  );
-  assert.deepEqual(externalOnly.taskOverrides, []);
-  assert.equal(externalOnly.overrideClassification, "NO_TASK_OVERRIDE");
-  assert.deepEqual(
-    evaluateTaskExecutionPreflight({
-      overrideClassification: externalOnly.overrideClassification,
-    }),
+  const changed = requestedContract({ scope: "expanded delivery scope" });
+  const pending = runSkillInvocationScenario([
     {
-      safe: true,
-      issues: [],
-      overrideClassification: "NO_TASK_OVERRIDE",
+      type: "activate",
+      recognized: invocation.recognized,
+      routeKind: "EXPLICIT_SKILL",
+      dispatch: true,
+      contract: requestedContract(),
+      selfConfirmation: true,
+      clauses: [
+        { id: "aligned", kind: "ALIGNED", contract: requestedContract() },
+        {
+          id: "change",
+          kind: "CHANGE",
+          requested: changed,
+          impacts: CHANGE_IMPACTS,
+          factsRevision: "facts-1",
+        },
+      ],
     },
-  );
+  ]);
+  assert.equal(pending.routeCount, 1);
+  assert.equal(pending.dispatchCount, 1);
+  assert.equal(pending.skillChainCount, 0);
+  assert.equal(pending.activeSubstate, "CHANGE_PENDING");
+  assert.deepEqual(pending.mutations.map(({ type }) => type), ["ALIGNED_CONTINUE"]);
+  assert.ok(pending.events.some(({ type }) => type === "SELF_CONFIRMATION_REJECTED"));
 
-  const contradictoryInvocation = parseTaskInvocation(
-    "$kyw-impl 0080 run only focused checks; publish kyw-dev@0.1.4 to npm now but do not publish kyw-dev@0.1.4",
+  const confirmed = runSkillInvocationScenario([
+    {
+      type: "activate",
+      recognized: invocation.recognized,
+      routeKind: "EXPLICIT_SKILL",
+      dispatch: true,
+      contract: requestedContract(),
+      selfConfirmation: true,
+      clauses: [
+        { id: "aligned", kind: "ALIGNED", contract: requestedContract() },
+        {
+          id: "change",
+          kind: "CHANGE",
+          requested: changed,
+          impacts: CHANGE_IMPACTS,
+          factsRevision: "facts-1",
+        },
+      ],
+    },
+    {
+      type: "reconfirm",
+      source: "current-user",
+      trusted: true,
+      explicit: true,
+      unambiguous: true,
+      warningId: "warning-0-1",
+      factsRevision: "facts-1",
+      accepted: changed,
+      bounds: exactBounds(changed),
+      permanentOwners: CHANGE_IMPACTS.permanentDocuments.paths,
+      taskTestPaths: CHANGE_IMPACTS.taskTest.paths,
+      executionBounds: exactBounds(changed),
+    },
+  ]);
+  assert.equal(confirmed.routeCount, 1);
+  assert.equal(confirmed.dispatchCount, 1);
+  assert.equal(confirmed.skillChainCount, 0);
+  assert.equal(confirmed.state, "INACTIVE");
+  assert.equal(
+    confirmed.events.filter(({ type }) => type === "DISPATCH_PREFLIGHTED").length,
+    1,
   );
-  const contradictory = classifyCombinedSuffixScenario(
-    contradictoryInvocation,
-    new Map([[publish.target, publish]]),
+  assert.equal(
+    confirmed.events.find(({ type }) => type === "DISPATCH_PREFLIGHTED")
+      .repositoryMutation,
+    "NONE",
   );
-  assert.deepEqual(
-    contradictory.classifications.map(({ kind }) => kind),
-    ["TASK_OVERRIDE", "AMBIGUOUS_CONFLICT"],
-  );
-  assert.deepEqual(
-    runAuthorityContractScenario([grantPublish, ...contradictory.authorityTurns])
-      .authorized,
-    [],
-  );
-  assert.equal(contradictory.routingDecisions, 1);
-  assert.deepEqual(contradictory.redispatchCandidates, []);
+  assert.equal(confirmed.mutations.at(-1).type, "BOUNDED_ACTION");
 
-  const secondTarget = {
-    ...publish,
-    target: "other-package@0.1.4",
-    attempt: "publish-2",
+  const noChain = runSkillInvocationScenario([
+    {
+      type: "activate",
+      recognized: true,
+      routeKind: "EXPLICIT_SKILL",
+      dispatch: true,
+      contract: requestedContract(),
+    },
+    {
+      type: "activate",
+      recognized: true,
+      routeKind: "EXPLICIT_SKILL",
+      dispatch: true,
+      contract: contractForSkill("kyw-audit"),
+    },
+  ]);
+  assert.equal(noChain.routeCount, 1);
+  assert.equal(noChain.dispatchCount, 1);
+  assert.equal(noChain.skillChainAttempts, 1);
+  assert.equal(noChain.skillChainCount, 0);
+  assert.equal(noChain.state, "CANCELLED_OR_EXPIRED");
+  assert.equal(noChain.active, undefined);
+  assert.equal(noChain.pendingWarning, undefined);
+  assert.deepEqual(noChain.mutations, []);
+  assert.ok(noChain.events.some(({ type }) => type === "SKILL_CHAIN_REJECTED"));
+
+  const malformedNoChain = runSkillInvocationScenario([
+    {
+      type: "activate",
+      recognized: true,
+      routeKind: "EXPLICIT_SKILL",
+      dispatch: true,
+      contract: requestedContract(),
+    },
+    {
+      type: "activate",
+      recognized: true,
+      routeKind: "EXPLICIT_SKILL",
+      contract: requestedContract(),
+      secondAction: "publish",
+    },
+  ]);
+  assert.equal(malformedNoChain.routeCount, 1);
+  assert.equal(malformedNoChain.dispatchCount, 1);
+  assert.equal(malformedNoChain.skillChainAttempts, 1);
+  assert.equal(malformedNoChain.state, "CANCELLED_OR_EXPIRED");
+  assert.deepEqual(malformedNoChain.mutations, []);
+  assert.equal(malformedNoChain.events.at(-1).type, "SKILL_CHAIN_REJECTED");
+
+  const alignedClause = {
+    id: "aligned",
+    kind: "ALIGNED",
+    contract: requestedContract(),
   };
-  assert.deepEqual(
-    runAuthorityContractScenario([
-      grantPublish,
-      { ...grantPublish, actions: [secondTarget] },
-    ]).authorized,
-    [authorityBoundaryKey(secondTarget), publishKey].sort(),
-  );
+  const changeClause = {
+    id: "change",
+    kind: "CHANGE",
+    requested: changed,
+    impacts: CHANGE_IMPACTS,
+    factsRevision: "facts-1",
+  };
+  const changeBeforeAligned = runSkillInvocationScenario([
+    {
+      type: "activate",
+      recognized: true,
+      routeKind: "EXPLICIT_SKILL",
+      dispatch: true,
+      contract: requestedContract(),
+      clauses: [changeClause, alignedClause],
+    },
+  ]);
+  assert.equal(changeBeforeAligned.dispatchCount, 1);
+  assert.equal(changeBeforeAligned.activeSubstate, "CHANGE_PENDING");
+  assert.deepEqual(changeBeforeAligned.mutations.map(({ type }) => type), [
+    "ALIGNED_CONTINUE",
+  ]);
 
-  assert.deepEqual(
-    runAuthorityContractScenario([
-      grantPublish,
-      { speechAct: "attempt-terminal", attempt: publish.attempt },
-      { source: "current-user", speechAct: "status" },
-    ]).authorized,
-    [],
-  );
-  assert.deepEqual(
-    runAuthorityContractScenario([
-      grantPublish,
-      { speechAct: "attempt-terminal", attempt: publish.attempt },
-      grantPublish,
-    ]).authorized,
-    [],
-  );
-  const publishNewAttempt = { ...publish, attempt: "publish-2" };
-  assert.deepEqual(
-    runAuthorityContractScenario([
-      grantPublish,
-      { speechAct: "attempt-terminal", attempt: publish.attempt },
-      grantPublish,
+  for (const [name, clauses] of [
+    ["unknown clause", [alignedClause, { id: "unknown", kind: "UNKNOWN" }]],
+    [
+      "aligned clause extra action",
+      [{ ...alignedClause, secondAction: "git-tag" }],
+    ],
+    [
+      "changing clause extra choice",
+      [{ ...changeClause, additionalChoices: ["also publish"] }],
+    ],
+    ["duplicate clause identity", [alignedClause, { ...alignedClause }]],
+    [
+      "additional change",
+      [
+        changeClause,
+        {
+          ...changeClause,
+          id: "another-change",
+          requested: requestedContract({ target: "another target" }),
+        },
+      ],
+    ],
+  ]) {
+    const rejected = runSkillInvocationScenario([
       {
-        ...grantPublish,
-        attempt: publishNewAttempt.attempt,
-        actions: [publishNewAttempt],
+        type: "activate",
+        recognized: true,
+        routeKind: "EXPLICIT_SKILL",
+        dispatch: true,
+        contract: requestedContract(),
+        clauses,
       },
-    ]).authorized,
-    [authorityBoundaryKey(publishNewAttempt)],
-  );
-  assert.deepEqual(
-    runAuthorityContractScenario([
-      grantPublish,
+    ]);
+    assert.equal(rejected.routeCount, 1, name);
+    assert.equal(rejected.dispatchCount, 0, name);
+    assert.equal(rejected.state, "CANCELLED_OR_EXPIRED", name);
+    assert.deepEqual(rejected.mutations, [], name);
+    assert.equal(rejected.events.at(-1).type, "CLAUSE_PREFLIGHT_REJECTED", name);
+  }
+
+  for (const [skill, contract] of [
+    ["kyw-init", contractForSkill("kyw-init")],
+    ["kyw-task", draftTaskContract()],
+  ]) {
+    for (const [name, clause] of [
+      [
+        "invalid native operation",
+        {
+          id: "bad-operation",
+          kind: "ALIGNED",
+          contract,
+          operation: "bogus",
+        },
+      ],
+      [
+        "invalid native confirmation type",
+        {
+          id: "bad-confirmation",
+          kind: "ALIGNED",
+          contract,
+          operation: "write",
+          nativeConfirmation: "yes",
+        },
+      ],
+    ]) {
+      const rejected = runSkillInvocationScenario([
+        {
+          type: "activate",
+          recognized: true,
+          routeKind: "EXPLICIT_SKILL",
+          dispatch: true,
+          contract,
+          clauses: [clause],
+        },
+      ]);
+      assert.equal(rejected.routeCount, 1, `${skill}: ${name}`);
+      assert.equal(rejected.dispatchCount, 0, `${skill}: ${name}`);
+      assert.equal(rejected.state, "CANCELLED_OR_EXPIRED", `${skill}: ${name}`);
+      assert.deepEqual(rejected.mutations, [], `${skill}: ${name}`);
+      assert.equal(
+        rejected.events.at(-1).type,
+        "CLAUSE_PREFLIGHT_REJECTED",
+        `${skill}: ${name}`,
+      );
+    }
+  }
+
+  for (const [name, malformedActivation] of [
+    [
+      "top-level extra action",
       {
-        speechAct: "target-scope-drift",
-        attempt: publish.attempt,
-        matches: [publish],
+        clauses: [alignedClause],
+        secondAction: "git-tag",
       },
-    ]).authorized,
-    [],
-  );
-  assert.deepEqual(
-    runAuthorityContractScenario([
-      grantPublish,
+    ],
+    [
+      "top-level additional actions",
       {
-        speechAct: "target-scope-drift",
-        attempt: publish.attempt,
-        matches: [publish],
+        clauses: [alignedClause],
+        additionalActions: ["publish"],
       },
-      grantPublish,
-    ]).authorized,
-    [],
-  );
+    ],
+    ["explicit null clauses", { clauses: null }],
+  ]) {
+    const rejected = runSkillInvocationScenario([
+      {
+        type: "activate",
+        recognized: true,
+        routeKind: "EXPLICIT_SKILL",
+        dispatch: true,
+        contract: requestedContract(),
+        ...malformedActivation,
+      },
+    ]);
+    assert.equal(rejected.routeCount, 1, name);
+    assert.equal(rejected.dispatchCount, 0, name);
+    assert.equal(rejected.state, "CANCELLED_OR_EXPIRED", name);
+    assert.deepEqual(rejected.mutations, [], name);
+    assert.equal(rejected.events.at(-1).type, "ACTIVATION_PREFLIGHT_REJECTED", name);
+  }
 });
 
 test("README puts installation, explicit Skills, first use, and current status before maintainer detail", async () => {
@@ -1192,7 +2609,7 @@ test("README puts installation, explicit Skills, first use, and current status b
   );
   assert.match(readme, /No public plugin submission has occurred/);
   assert.match(readme, /npx --yes kyw-dev@0\.1\.4 install --scope user/);
-  assert.match(readme, /needs its own direct action-specific authority/);
+  assert.match(readme, /remain separate action\/target\/scope\/attempt bounds/);
   assert.doesNotMatch(readme, /\bTask 0\d{3}\b|READY_FOR_APPROVAL|UNCHANGED at the audited point/);
   assert.doesNotMatch(readme, /^### Grilling evaluation harness$/m);
   assert.doesNotMatch(readme, /^### Audit behavior smoke$/m);
@@ -1221,7 +2638,7 @@ test("permanent truth separates credential-free CI, manual OIDC publication, and
   );
   assert.match(
     readme,
-    /Merging the workflow, passing credential-free exact-SHA CI[\s\S]*neither dispatches nor authorizes/,
+    /Merging the workflow, passing credential-free exact-SHA CI[\s\S]*cannot execute it/,
   );
   assert.match(readme, /public repository receives npm provenance automatically/);
   assert.match(
@@ -1230,7 +2647,7 @@ test("permanent truth separates credential-free CI, manual OIDC publication, and
   );
   assert.match(
     readme,
-    /Routine release preflight validates (?:the )?expected tuple and exact workflow bytes; only (?:the )?authorized workflow validates public package identity and target-version absence/,
+    /Routine release preflight validates (?:the )?expected tuple and exact workflow bytes; only (?:the )?(?:authorized|requested) workflow validates public package identity and target-version absence/,
   );
   assert.doesNotMatch(
     readme,
@@ -1444,7 +2861,7 @@ test("routine Task workflows index owners before targeted reads and escalate onl
   for (const projection of [agents, agentsTemplate]) {
     assert.match(
       projection,
-      /Always load applicable `AGENTS\.md` and the selected\/current Task\/Test pair/,
+      /Always load applicable `AGENTS\.md`[\s\S]{0,100}active kyw workflow[\s\S]{0,80}selected\/current Task\/Test pair[\s\S]{0,100}inactive ordinary prompts? (?:does not select one|select(?:s)? none)/,
     );
     assert.match(projection, /Index or search README, SPEC, and ARCHITECTURE first/);
     assert.match(projection, /read only owner sections selected by [Gg]oal, scope/);
@@ -1462,18 +2879,21 @@ test("routine Task workflows index owners before targeted reads and escalate onl
     );
     assert.match(
       workflow,
-      /Index or search headings in `?README(?:\.md)?`?,\s*`?(?:docs\/)?SPEC(?:\.md)?`?,\s*and\s*`?(?:docs\/)?ARCHITECTURE(?:\.md)?`?/,
+      /(?:Index or search headings in `?README(?:\.md)?`?,\s*`?(?:docs\/)?SPEC(?:\.md)?`?,\s*and\s*`?(?:docs\/)?ARCHITECTURE(?:\.md)?`?|Search README, SPEC, and ARCHITECTURE headings)/,
     );
     assert.match(
       workflow,
-      /(?:read|to) only the\s+owning permanent-document sections/i,
+      /(?:read|to) (?:only the\s+owning permanent-document sections|owner sections)/i,
     );
     assert.match(
       workflow,
-      /(?:full(?:y)? read|full read of) all (?:existing|four) permanent documents/i,
+      /(?:full(?:y)? read|full read of|read) all (?:(?:existing|four) )?permanent documents/i,
     );
-    assert.match(workflow, /source conflict/i);
-    assert.match(workflow, /Stop[\s\S]*conflict remains\s+unresolved/i);
+    assert.match(workflow, /source conflict|conflicting work/i);
+    assert.match(
+      workflow,
+      /stop(?: with `BLOCKED`)? (?:if a conflict remains unresolved|on unresolved conflict|when a source conflict remains\s+unresolved)/i,
+    );
     assert.doesNotMatch(
       workflow,
       /Read `README\.md`, `AGENTS\.md`, `docs\/SPEC\.md`, and `docs\/ARCHITECTURE\.md`/,

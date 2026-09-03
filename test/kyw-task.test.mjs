@@ -215,11 +215,11 @@ test("kyw-task Skill is explicit-only and owns authoring without execution", asy
   assert.equal(frontmatter.name, "kyw-task");
   assert.match(frontmatter.description, /explicit \$kyw-task authoring/);
   assert.match(frontmatter.description, /do not use for implementation, delivery/);
-  assert.match(skill, /goal-style explicit `\$kyw-task`[\s\S]*`READY\/READY` pair set and stops/);
+  assert.match(skill, /goal-style explicit `\$kyw-task`[\s\S]*`READY\/READY` pair set and stops/i);
   assert.match(skill, /`DRAFT\/DRAFT`/);
-  assert.match(skill, /For any other state, make no change/);
-  assert.match(skill, /exact `\$kyw-impl NNNN` migration command/);
-  assert.match(skill, /managed Korean execution aliases belong to `kyw-impl`/);
+  assert.match(skill, /Other states stay unchanged/);
+  assert.match(skill, /return exact `\$kyw-impl NNNN`/);
+  assert.match(skill, /managed Korean execution aliases belong to `kyw-impl`/i);
   assert.doesNotMatch(skill, /task 진행해줘/);
   assert.doesNotMatch(skill, /남은 task 계속 실행해줘/);
   assert.match(skill, /Never auto-invoke another Skill/);
@@ -234,6 +234,26 @@ test("kyw-task Skill is explicit-only and owns authoring without execution", asy
   assert.doesNotMatch(metadata, /execute|implementation|resume|delivery/i);
   assert.match(metadata, /policy:\n  allow_implicit_invocation: false\n/);
   assert.doesNotMatch(metadata, /^dependencies:/m);
+});
+
+test("kyw-task projects activation-scoped guardrails and preserves authoring-only routing", async () => {
+  const skill = await readFile(SKILL_PATH, "utf8");
+
+  assert.equal(skill.match(/<!-- kyw-active-skill-guardrails:v1 -->/g)?.length, 1);
+  assert.match(skill, /Exact `\$kyw-task` alone activates/);
+  assert.match(skill, /Aligned work needs no duplicate confirmation/);
+  assert.match(skill, /baseline[\s\S]*Task(?: or |\/)acceptance[\s\S]*scope[\s\S]*action[\s\S]*target[\s\S]*attempt[\s\S]*Skill\/mode change[\s\S]*implementation[\s\S]*Task\/Test[\s\S]*permanent-document[\s\S]*verification[\s\S]*delivery impacts[\s\S]*zero-mutation wait/i);
+  assert.match(skill, /immediate(?:ly)? next unambiguous explicit reconfirmation of (?:those exact warned bounds|(?:that|the) unchanged warning)/);
+  assert.match(skill, /Cancel(?:lation)?(?:,|\/)decline(?:,|\/)ambiguity[\s\S]*clears(?: or |\/)replaces (?:the pending warning|it)/i);
+  assert.match(skill, /Sync applicable mutable Task\/Test and (?:affected permanent )?owners[\s\S]*warned action/);
+  assert.match(skill, /origin(?:ating turn)? cannot self-confirm/);
+  assert.match(skill, /completion(?:\/cancel\/stop\/expiry)?(?: also)? deactivates/);
+  assert.match(skill, /Never redispatch(?: or |\/)chain Skills/i);
+  assert.match(
+    skill,
+    /system\/platform safety[\s\S]*(?:evidence honesty|honest evidence)[\s\S]*delivered-pair immutability/i,
+  );
+  assert.match(skill, /DRAFT promotion (?:keeps|retains) native confirmation/);
 });
 
 test("kyw-task authoring inspects facts and grills only unresolved Task decisions", async () => {
@@ -359,9 +379,9 @@ test("kyw-task authoring mutation boundary permits only the atomic new set", asy
   const skill = await readFile(SKILL_PATH, "utf8");
 
   assert.deepEqual(scenarios.normal.allowedAuthoringFiles, ["TASK.md", "TEST.md"]);
-  assert.match(skill, /mutate only the returned pair set/);
-  assert.match(skill, /Do not edit implementation, tests, configuration/);
-  assert.match(skill, /`kyw-impl` owns actual synchronization/);
+  assert.match(skill, /mutate only returned pairs/);
+  assert.match(skill, /Do not edit implementation\/tests\/configuration/);
+  assert.match(skill, /`kyw-impl` owns synchronization/);
   assert.match(skill, /Do not write while a required answer is unknown/);
   assert.match(skill, /Expected failure rolls back batch-owned final paths only with complete ownership proof/);
   assert.match(skill, /do not retry, reuse an ID, hand-create a replacement/);

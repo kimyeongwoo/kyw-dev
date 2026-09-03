@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import {
+  ACTIVATION_SCOPED_SKILL_GUARDRAIL_CLAIM_IDS,
   INSTRUCTION_SURFACE_PATHS,
   PERMANENT_DOCUMENT_BUDGET_CHANGE_MARKER,
   PERMANENT_DOCUMENT_COMPACTION_ACCEPTANCE,
@@ -11,6 +12,7 @@ import {
   PERMANENT_DOCUMENT_POLICY,
   PERMANENT_RULE_FAMILIES,
   REPOSITORY_ROOT,
+  REQUIRED_ACTIVATION_SCOPED_SKILL_GUARDRAIL_MANIFEST,
   REQUIRED_INSTRUCTION_RULE_FAMILY_IDS,
   TRUSTED_PUBLISHER_EXPECTATION,
   derivePermanentDocumentEvidenceBaseline,
@@ -893,6 +895,7 @@ test("owner/projection registry rejects every ownership and projection failure c
       projections: [
         {
           path: "skills/demo/SKILL.md",
+          profile: "procedure",
           anchors: [{ source: "PROJECTION ANCHOR", flags: "" }],
         },
         {
@@ -1053,7 +1056,436 @@ test("every named instruction owner and required projection is mutation-guarded"
   );
 });
 
-test("direct-authority details cannot leak into concise projections", () => {
+test("activation-scoped guardrails fix their projection manifest, claims, and lifecycle graph", () => {
+  const expectedClaims = [
+    "exact-activation-only",
+    "inactive-ordinary",
+    "aligned-no-reconfirmation",
+    "change-warning-zero-mutation",
+    "fresh-exact-reconfirmation",
+    "truth-sync-before-action",
+    "bounded-action",
+    "invalid-or-stale-expiry",
+    "exact-skill-mode-route-preserved",
+    "combined-route-once-no-self-confirm",
+    "post-terminal-inactive",
+    "safety-boundary-preserved",
+  ];
+  const expectedProjections = [
+    { path: "README.md", profile: "concise" },
+    { path: "AGENTS.md", profile: "concise" },
+    { path: "templates/project/AGENTS.md", profile: "concise" },
+    { path: "docs/ARCHITECTURE.md", profile: "flow" },
+    { path: "skills/kyw-grilling/SKILL.md", profile: "procedure" },
+    { path: "skills/kyw-init/SKILL.md", profile: "procedure" },
+    { path: "skills/kyw-task/SKILL.md", profile: "procedure" },
+    { path: "skills/kyw-impl/SKILL.md", profile: "procedure" },
+    { path: "skills/kyw-impl/references/execution.md", profile: "procedure" },
+    { path: "skills/kyw-audit/SKILL.md", profile: "procedure" },
+    { path: "skills/kyw-audit/references/audit.md", profile: "procedure" },
+  ];
+  const expectedStates = [
+    "INACTIVE",
+    "ACTIVE_ALIGNED",
+    "CHANGE_PENDING",
+    "RECONFIRMED_BOUNDED",
+    "CANCELLED_OR_EXPIRED",
+  ];
+  const expectedTransitions = [
+    "ordinary-remains-inactive",
+    "exact-route-activates",
+    "aligned-turn-continues",
+    "material-change-warns",
+    "route-locked-change-requires-exact-route",
+    "exact-warning-reconfirmed",
+    "bounded-action-completes",
+    "invalid-or-stale-response-expires",
+    "changed-request-rewarns",
+    "aligned-cancel-or-expire",
+    "pending-cancel-or-expire",
+    "bounded-cancel-or-expire",
+    "aligned-workflow-completes",
+    "terminal-next-turn-is-inactive",
+  ];
+  const expectedTransitionTuples = [
+    [
+      "ordinary-remains-inactive",
+      "INACTIVE",
+      "ORDINARY_PROMPT",
+      "INACTIVE",
+      "NONE",
+      ["ALLOW_ORDINARY_OUTCOME"],
+      null,
+    ],
+    ["exact-route-activates", "INACTIVE", "EXACT_ROUTE", "ACTIVE_ALIGNED", "NONE", ["ACTIVATE_ONCE"], null],
+    ["aligned-turn-continues", "ACTIVE_ALIGNED", "ALIGNED_TURN", "ACTIVE_ALIGNED", "BOUNDED", ["EXECUTE_ALIGNED_ACTION"], null],
+    [
+      "material-change-warns",
+      "ACTIVE_ALIGNED",
+      "MATERIAL_CHANGE",
+      "CHANGE_PENDING",
+      "NONE",
+      ["EMIT_OLD_NEW_IMPACT_WARNING", "WAIT_FOR_RECONFIRMATION"],
+      null,
+    ],
+    [
+      "route-locked-change-requires-exact-route",
+      "CHANGE_PENDING",
+      "ROUTE_LOCKED_CHANGE",
+      "CANCELLED_OR_EXPIRED",
+      "NONE",
+      ["CLEAR_PENDING_WARNING", "REQUIRE_EXACT_ROUTE"],
+      null,
+    ],
+    [
+      "exact-warning-reconfirmed",
+      "CHANGE_PENDING",
+      "EXACT_FRESH_RECONFIRMATION",
+      "RECONFIRMED_BOUNDED",
+      "NONE",
+      ["BIND_EXACT_WARNING"],
+      ["ACTION", "TARGET", "SCOPE", "ATTEMPT"],
+    ],
+    [
+      "bounded-action-completes",
+      "RECONFIRMED_BOUNDED",
+      "SYNC_AND_EXECUTE_WARNED_ACTION",
+      "INACTIVE",
+      "BOUNDED",
+      ["SYNC_TASK_TEST", "SYNC_PERMANENT_OWNERS", "EXECUTE_WARNED_ACTION"],
+      ["ACTION", "TARGET", "SCOPE", "ATTEMPT"],
+    ],
+    [
+      "invalid-or-stale-response-expires",
+      "CHANGE_PENDING",
+      "INVALID_OR_STALE_RESPONSE",
+      "CANCELLED_OR_EXPIRED",
+      "NONE",
+      ["CLEAR_PENDING_WARNING"],
+      null,
+    ],
+    [
+      "changed-request-rewarns",
+      "CHANGE_PENDING",
+      "CHANGED_REQUEST",
+      "CHANGE_PENDING",
+      "NONE",
+      [
+        "CLEAR_PENDING_WARNING",
+        "EMIT_OLD_NEW_IMPACT_WARNING",
+        "WAIT_FOR_RECONFIRMATION",
+      ],
+      null,
+    ],
+    [
+      "aligned-cancel-or-expire",
+      "ACTIVE_ALIGNED",
+      "CANCEL_OR_EXPIRE",
+      "CANCELLED_OR_EXPIRED",
+      "NONE",
+      ["CANCEL_ACTIVE_WORKFLOW"],
+      null,
+    ],
+    [
+      "pending-cancel-or-expire",
+      "CHANGE_PENDING",
+      "CANCEL_OR_EXPIRE",
+      "CANCELLED_OR_EXPIRED",
+      "NONE",
+      ["CLEAR_PENDING_WARNING", "CANCEL_ACTIVE_WORKFLOW"],
+      null,
+    ],
+    [
+      "bounded-cancel-or-expire",
+      "RECONFIRMED_BOUNDED",
+      "CANCEL_OR_EXPIRE",
+      "CANCELLED_OR_EXPIRED",
+      "NONE",
+      ["CANCEL_ACTIVE_WORKFLOW"],
+      null,
+    ],
+    [
+      "aligned-workflow-completes",
+      "ACTIVE_ALIGNED",
+      "WORKFLOW_TERMINAL",
+      "INACTIVE",
+      "NONE",
+      ["COMPLETE_ACTIVE_WORKFLOW"],
+      null,
+    ],
+    [
+      "terminal-next-turn-is-inactive",
+      "CANCELLED_OR_EXPIRED",
+      "NEXT_TURN",
+      "INACTIVE",
+      "NONE",
+      ["CLEAR_INVOCATION_STATE"],
+      null,
+    ],
+  ];
+  assert.deepEqual(ACTIVATION_SCOPED_SKILL_GUARDRAIL_CLAIM_IDS, expectedClaims);
+  assert.deepEqual(REQUIRED_ACTIVATION_SCOPED_SKILL_GUARDRAIL_MANIFEST, {
+    id: "activation-scoped-skill-guardrails",
+    owner: { path: "docs/SPEC.md", profile: "owner" },
+    profiles: {
+      owner: { claims: expectedClaims },
+      concise: { claims: expectedClaims },
+      flow: { claims: expectedClaims },
+      procedure: { claims: expectedClaims },
+    },
+    projections: expectedProjections,
+    contract: {
+      schemaVersion: 1,
+      initialState: "INACTIVE",
+      exactRouteLockedFields: ["SKILL", "MODE", "ROUTE_CAPABILITY"],
+      taskIdentityRouteLockedFields: [
+        "SELECTED_TASK",
+        "SELECTED_TASK_DIRECTORY",
+        "TASK_PAIR_DISPOSITION",
+        "DELIVERY_DISPOSITION",
+      ],
+      taskIdentityRouteLockedSkills: ["kyw-task", "kyw-impl", "kyw-audit"],
+      implementationActionDispositions: [
+        ["IMPLEMENT", "MUTABLE", "NONE", "MUTATING"],
+        ["RESUME", "MUTABLE", "NONE", "MUTATING"],
+        ["DELIVER", "MUTABLE", "RESUMABLE", "MUTATING"],
+        ["REPORT", "IMMUTABLE", "SATISFIED", "READ_ONLY"],
+      ],
+      stateIds: expectedStates,
+      transitionIds: expectedTransitions,
+      transitionTuples: expectedTransitionTuples,
+      nonMutatingTransitionIds: [
+        "ordinary-remains-inactive",
+        "exact-route-activates",
+        "material-change-warns",
+        "route-locked-change-requires-exact-route",
+        "exact-warning-reconfirmed",
+        "invalid-or-stale-response-expires",
+        "changed-request-rewarns",
+        "aligned-cancel-or-expire",
+        "pending-cancel-or-expire",
+        "bounded-cancel-or-expire",
+        "aligned-workflow-completes",
+        "terminal-next-turn-is-inactive",
+      ],
+      boundedTransitionIds: ["aligned-turn-continues", "bounded-action-completes"],
+      warningTransitionId: "material-change-warns",
+      exactRouteRequiredTransitionId: "route-locked-change-requires-exact-route",
+      reconfirmationTransitionId: "exact-warning-reconfirmed",
+      boundedActionTransitionId: "bounded-action-completes",
+      requiredSyncEffects: ["SYNC_TASK_TEST", "SYNC_PERMANENT_OWNERS"],
+      boundedActionEffect: "EXECUTE_WARNED_ACTION",
+      requiredBounds: ["ACTION", "TARGET", "SCOPE", "ATTEMPT"],
+    },
+  });
+  const texts = Object.fromEntries(
+    INSTRUCTION_SURFACE_PATHS.map((relativePath) => [
+      relativePath,
+      readFileSync(join(REPOSITORY_ROOT, relativePath), "utf8"),
+    ]),
+  );
+  texts["docs/SPEC.md"] += [
+    "",
+    "### 6.3 Activation-scoped guardrails and ordinary prompts",
+    "Only an exact route activates this invocation-local workflow.",
+    "The controlling old criterion and requested new criterion create a zero mutation wait.",
+    "Only the immediately next explicit confirmation advances.",
+    "Synchronize every applicable mutable Task/Test contract before action.",
+    "The originating combined turn cannot confirm itself.",
+  ].join("\n");
+  texts["README.md"] +=
+    "\nOutside an active workflow, a warning requires reconfirmation.\n";
+  for (const relativePath of ["AGENTS.md", "templates/project/AGENTS.md"]) {
+    texts[relativePath] +=
+      "\nKYW guardrails start only on an exact route; zero-mutation wait requires reconfirmation.\n";
+  }
+  texts["docs/ARCHITECTURE.md"] +=
+    "\n<!-- kyw-active-skill-guardrails:v1 -->\ninactive ordinary handling; active aligned baseline; zero-mutation wait; permanent truth + mutable pair sync; bounded action/target/scope/attempt.\n";
+  for (const { path, profile } of
+    REQUIRED_ACTIVATION_SCOPED_SKILL_GUARDRAIL_MANIFEST.projections) {
+    if (profile === "procedure") {
+      texts[path] += "\n<!-- kyw-active-skill-guardrails:v1 -->\n";
+    }
+  }
+
+  const options = {
+    allowedSurfacePaths: new Set(INSTRUCTION_SURFACE_PATHS),
+    requiredFamilyIds: [REQUIRED_ACTIVATION_SCOPED_SKILL_GUARDRAIL_MANIFEST.id],
+  };
+  const family = PERMANENT_RULE_FAMILIES.find(
+    ({ id }) => id === REQUIRED_ACTIVATION_SCOPED_SKILL_GUARDRAIL_MANIFEST.id,
+  );
+  assert.ok(family);
+  assert.deepEqual(
+    { path: family.owner.path, profile: family.owner.profile },
+    REQUIRED_ACTIVATION_SCOPED_SKILL_GUARDRAIL_MANIFEST.owner,
+  );
+  assert.deepEqual(
+    family.projections.map(({ path, profile }) => ({ path, profile })),
+    REQUIRED_ACTIVATION_SCOPED_SKILL_GUARDRAIL_MANIFEST.projections,
+  );
+  assert.deepEqual(family.owner.claims, expectedClaims);
+  for (const projection of family.projections) {
+    assert.deepEqual(projection.claims, expectedClaims);
+  }
+  assert.deepEqual(family.contract.states, expectedStates);
+  assert.deepEqual(
+    family.contract.transitions.map(({ id }) => id),
+    expectedTransitions,
+  );
+  assert.deepEqual(validatePermanentRuleFamilies([family], texts, options), []);
+
+  const errorsAfter = (mutate) => {
+    const mutableFamily = structuredClone(family);
+    mutate(mutableFamily);
+    return validatePermanentRuleFamilies([mutableFamily], texts, options).join("\n");
+  };
+
+  assert.match(
+    errorsAfter((mutableFamily) => mutableFamily.projections.pop()),
+    /exact required projection path\/profile inventory/,
+  );
+  assert.match(
+    errorsAfter((mutableFamily) => {
+      mutableFamily.projections[0].profile = "flow";
+    }),
+    /exact required projection path\/profile inventory/,
+  );
+  assert.match(
+    errorsAfter((mutableFamily) => mutableFamily.projections[0].claims.pop()),
+    /missing or reorders required concise claims/,
+  );
+  assert.match(
+    errorsAfter((mutableFamily) => {
+      mutableFamily.owner.anchors = [];
+    }),
+    /must retain at least one wording smoke anchor/,
+  );
+  assert.match(
+    errorsAfter((mutableFamily) => mutableFamily.contract.states.pop()),
+    /lifecycle state inventory is incomplete or reordered/,
+  );
+  assert.match(
+    errorsAfter((mutableFamily) => {
+      mutableFamily.contract.states.push("INACTIVE");
+    }),
+    /lifecycle states must be unique nonempty IDs/,
+  );
+  assert.match(
+    errorsAfter((mutableFamily) => mutableFamily.contract.transitions.pop()),
+    /lifecycle transition inventory is incomplete or reordered/,
+  );
+  assert.match(
+    errorsAfter((mutableFamily) => {
+      mutableFamily.contract.transitions[1].to = "UNKNOWN";
+    }),
+    /references an unknown state/,
+  );
+  assert.match(
+    errorsAfter((mutableFamily) => {
+      mutableFamily.contract.transitions.find(
+        ({ id }) => id === "exact-warning-reconfirmed",
+      ).to = "INACTIVE";
+    }),
+    /lifecycle state is unreachable from INACTIVE: RECONFIRMED_BOUNDED/,
+  );
+  assert.match(
+    errorsAfter((mutableFamily) => {
+      mutableFamily.contract.transitions[1].from =
+        mutableFamily.contract.transitions[0].from;
+      mutableFamily.contract.transitions[1].event =
+        mutableFamily.contract.transitions[0].event;
+    }),
+    /lifecycle is nondeterministic/,
+  );
+  for (const [transitionId, field, value] of [
+    ["ordinary-remains-inactive", "to", "ACTIVE_ALIGNED"],
+    ["exact-route-activates", "effects", ["DO_NOT_ACTIVATE"]],
+    ["aligned-turn-continues", "event", "NOT_ALIGNED"],
+    ["invalid-or-stale-response-expires", "to", "CHANGE_PENDING"],
+    ["changed-request-rewarns", "to", "INACTIVE"],
+    ["terminal-next-turn-is-inactive", "to", "CANCELLED_OR_EXPIRED"],
+  ]) {
+    assert.match(
+      errorsAfter((mutableFamily) => {
+        mutableFamily.contract.transitions.find(({ id }) => id === transitionId)[field] =
+          value;
+      }),
+      /lifecycle transition contracts drifted from the manifest/,
+      `${transitionId}.${field}`,
+    );
+  }
+  assert.match(
+    errorsAfter((mutableFamily) => {
+      mutableFamily.contract.transitions.find(
+        ({ id }) => id === "material-change-warns",
+      ).mutation = "BOUNDED";
+    }),
+    /material-change-warns must remain mutation-free|warning must enter pending state with zero mutation/,
+  );
+  assert.match(
+    errorsAfter((mutableFamily) => {
+      mutableFamily.contract.invariants.exactRouteLockedFields.pop();
+    }),
+    /exact Skill\/mode route-locked fields must remain non-waivable/,
+  );
+  assert.match(
+    errorsAfter((mutableFamily) => {
+      mutableFamily.contract.invariants.taskIdentityRouteLockedFields.pop();
+    }),
+    /task-bearing route identity must lock selected Task, directory, pair, and delivery disposition/,
+  );
+  assert.match(
+    errorsAfter((mutableFamily) => {
+      mutableFamily.contract.invariants.taskIdentityRouteLockedSkills.pop();
+    }),
+    /task-bearing route identity must lock selected Task, directory, pair, and delivery disposition/,
+  );
+  assert.match(
+    errorsAfter((mutableFamily) => {
+      mutableFamily.contract.invariants.implementationActionDispositions[2][1] =
+        "IMMUTABLE";
+    }),
+    /implementation action must preserve pair and delivery disposition/,
+  );
+  assert.match(
+    errorsAfter((mutableFamily) => {
+      mutableFamily.contract.transitions.find(
+        ({ id }) => id === "route-locked-change-requires-exact-route",
+      ).mutation = "BOUNDED";
+    }),
+    /route-locked-change-requires-exact-route must remain mutation-free|route-locked change must expire mutation-free/,
+  );
+  assert.match(
+    errorsAfter((mutableFamily) => {
+      const transition = mutableFamily.contract.transitions.find(
+        ({ id }) => id === "bounded-action-completes",
+      );
+      transition.effects = [
+        "EXECUTE_WARNED_ACTION",
+        "SYNC_TASK_TEST",
+        "SYNC_PERMANENT_OWNERS",
+      ];
+    }),
+    /synchronize Task\/Test and permanent truth before bounded action/,
+  );
+  assert.match(
+    errorsAfter((mutableFamily) => {
+      mutableFamily.contract.transitions.find(
+        ({ id }) => id === "bounded-action-completes",
+      ).to = "RECONFIRMED_BOUNDED";
+    }),
+    /bounded action must complete the invocation in INACTIVE/,
+  );
+  assert.match(
+    errorsAfter((mutableFamily) => {
+      mutableFamily.contract.transitions[2].effects.push("EXECUTE_WARNED_ACTION");
+    }),
+    /warned bounded action may occur only after exact fresh reconfirmation/,
+  );
+});
+
+test("activation guardrail details are exempt only in procedure projections", () => {
   const texts = Object.fromEntries(
     INSTRUCTION_SURFACE_PATHS.map((relativePath) => [
       relativePath,
@@ -1061,14 +1493,17 @@ test("direct-authority details cannot leak into concise projections", () => {
     ]),
   );
   for (const [relativePath, detail] of [
-    ["README.md", "A conditional instruction grants authority only when copied here."],
+    [
+      "README.md",
+      "Immediately next unambiguous explicit reconfirmation of those exact warned bounds.",
+    ],
     [
       "AGENTS.md",
-      "Overlapping older authority does not revive after an invalid condition.",
+      "Concrete implementation, Task/Test, permanent-document, verification, and delivery impacts.",
     ],
     [
       "docs/ARCHITECTURE.md",
-      "Referential assent is single, concrete, fully resolved as to action, target, and scope.",
+      "Changed or additional action, target, scope, and attempt.",
     ],
   ]) {
     const injected = {
@@ -1086,11 +1521,47 @@ test("direct-authority details cannot leak into concise projections", () => {
     assert.match(
       errors,
       new RegExp(
-        `direct-user-mutation-authority detailed procedure appears as an unlisted projection in ${relativePath.replaceAll(".", "\\.")}`,
+        `activation-scoped-skill-guardrails detailed procedure appears as an unlisted projection in ${relativePath.replaceAll(".", "\\.")}`,
       ),
       relativePath,
     );
   }
+
+  const detail =
+    "Immediately next unambiguous explicit reconfirmation of those exact warned bounds.";
+  const procedurePath = "skills/kyw-init/SKILL.md";
+  const injectedProcedure = {
+    ...texts,
+    [procedurePath]: `${texts[procedurePath]}\n${detail}\n`,
+  };
+  const procedureErrors = validatePermanentRuleFamilies(
+    PERMANENT_RULE_FAMILIES,
+    injectedProcedure,
+    {
+      allowedSurfacePaths: new Set(INSTRUCTION_SURFACE_PATHS),
+      requiredFamilyIds: REQUIRED_INSTRUCTION_RULE_FAMILY_IDS,
+    },
+  ).join("\n");
+  assert.doesNotMatch(
+    procedureErrors,
+    new RegExp(
+      `activation-scoped-skill-guardrails detailed procedure appears as an unlisted projection in ${procedurePath.replaceAll(".", "\\.")}`,
+    ),
+  );
+
+  const demoted = structuredClone(PERMANENT_RULE_FAMILIES);
+  demoted
+    .find(({ id }) => id === "activation-scoped-skill-guardrails")
+    .projections.find(({ path }) => path === procedurePath).profile = "flow";
+  assert.match(
+    validatePermanentRuleFamilies(demoted, injectedProcedure, {
+      allowedSurfacePaths: new Set(INSTRUCTION_SURFACE_PATHS),
+      requiredFamilyIds: REQUIRED_INSTRUCTION_RULE_FAMILY_IDS,
+    }).join("\n"),
+    new RegExp(
+      `activation-scoped-skill-guardrails detailed procedure appears as an unlisted projection in ${procedurePath.replaceAll(".", "\\.")}`,
+    ),
+  );
 });
 
 test("progressive loading targets owner sections and omits a nonexistent authoring pair", () => {

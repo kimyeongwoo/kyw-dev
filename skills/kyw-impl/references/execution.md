@@ -1,35 +1,37 @@
+<!-- kyw-active-skill-guardrails:v1 -->
+
 # Task Execution and Resume
 
-Use this workflow only after the packaged dispatcher selects one existing Task from an explicit portable or managed-repository implementation command. `kyw-impl` never authors, allocates, or promotes a Task. Keep one Task as the execution context and mutation boundary.
+Use this only after packaged dispatch selects one existing Task from an explicit portable or managed implementation command. `kyw-impl` never authors, allocates, or promotes; one Task is the execution and mutation boundary.
 
 ## Authority
 
-This is the canonical detailed execution procedure. Follow loaded `AGENTS.md` invariants and SPEC behavior; Task/Test owns only current scope and evidence. Stop on conflict rather than copying this procedure elsewhere.
+This is the canonical detailed execution procedure. Follow loaded `AGENTS.md` and SPEC; Task/Test owns current scope/evidence. Stop on conflict rather than copying this elsewhere.
 
 ## Contents
 
-Establish and dispatch; apply overrides; enter/resume one Task; keep scope, evidence, and durable truth live; verify; review the final diff; checkpoint interruptions; then set an honest terminal state.
+Establish/dispatch, apply overrides, enter/resume one Task, keep scope/evidence/truth live, verify, review the diff, checkpoint interruptions, and set an honest terminal state.
 
 ## Establish the repository state
 
-1. Resolve the repository and dispatch-selected single `docs/tasks/NNNN-*/` directory; missing/duplicate IDs, pair/dependency errors, cycles, or multiple active Tasks block.
+1. Resolve the repository and dispatch-selected single `docs/tasks/NNNN-*/`; missing/duplicate IDs, pair/dependency errors, cycles, or multiple active Tasks block.
 2. Read applicable `AGENTS.md`, the pair, and named dependencies; omit unrelated Tasks.
-3. Index or search headings in README, SPEC, and ARCHITECTURE, then read only the owning permanent-document sections selected by Goal, scope, Documentation Impact, changed paths, and code dependencies. Fully read all four permanent documents for rebaseline, major redesign, broad cross-owner scope, source conflict, ambiguous ownership, or insufficient targeted truth. Stop if a conflict remains unresolved.
-4. Inspect status and relevant diff before mutation, separating pre-existing work. If Git metadata is absent, establish a safe in-scope baseline, record the limitation, and never claim Git state.
-5. Validate the pair and compare lifecycle, acceptance, plan, handoff, blockers, matrix, commands, and results with repository evidence.
-6. Reconcile contradictions. Pass verified conflict, unexplained work, remote drift, and unresolved decisions through execution preflight; empty means checked and clear.
+3. Search README, SPEC, and ARCHITECTURE headings; read owner sections selected by Goal, scope, Documentation Impact, paths, and dependencies. Read all four permanent documents for rebaseline, major redesign, broad/conflicting work, ambiguous ownership, or insufficient targeted truth; stop on unresolved conflict.
+4. Inspect status/diff and separate pre-existing work. Without Git metadata, record a safe in-scope baseline and never claim Git state.
+5. Validate the pair against repository evidence: lifecycle, acceptance, plan, handoff, blockers, matrix, commands, and results.
+6. Reconcile contradictions; preflight verified conflict, unexplained work, remote drift, and unresolved decisions. Empty means checked and clear.
 
-Large refactors derive bytes from verified exact `main`; record and re-prove branch-base, exact-head PR-base, and pre-merge-main SHAs. Treat snapshots and broad cherry-picks only as comparison evidence, and report missing proof or upstream movement as `remoteDrift`.
+Large refactors derive bytes from verified exact `main`; record/re-prove branch-base, exact-head PR-base, and pre-merge-main SHAs. Snapshots and broad cherry-picks are comparison evidence only; report missing proof or upstream movement as `remoteDrift`.
 
-Proceed only when the sole dispatcher returns `IMPLEMENT`, `RESUME`, or `DELIVER`. Draft, cancelled, invalid, blocked-with-uncleared-condition, failing evidence, and nonmatching requests stop without implementation mutation.
+Proceed only on the sole dispatcher's `IMPLEMENT`, `RESUME`, or `DELIVER`; draft, cancelled, invalid, uncleared-blocked, failing-evidence, and nonmatching requests stop without implementation mutation.
 
 ## Dispatch and advance the queue
 
-Keep the Skill explicit-only. `$kyw-impl NNNN` is portable; every four-digit ID uses the same generic queue path and none is reserved or intercepted for recovery. The three natural-language aliases require loaded managed `AGENTS.md` routing. Match the full command plus appended current-user text; ordinary “task” prose does not dispatch.
+Keep the Skill explicit-only. `$kyw-impl NNNN` is portable; every four-digit ID uses the same generic queue path, none reserved/intercepted for recovery. The three aliases require loaded managed `AGENTS.md`. Match the full command plus current-user suffix; ordinary “task” prose does not dispatch.
 
-New pairs use contract 3; contract 2 stays queue-aware and unmarked contract 1 stays legacy. Current pairs allow only `DRAFT/DRAFT`, `READY/READY`, `IN_PROGRESS/RUNNING`, `DONE/PASSED`, `BLOCKED/BLOCKED`, and `CANCELLED/BLOCKED`. Never migrate terminal history or reinterpret its prose under contract 3.
+New pairs use contract 3; contract 2 stays queue-aware and unmarked contract 1 legacy. Current pairs allow only `DRAFT/DRAFT`, `READY/READY`, `IN_PROGRESS/RUNNING`, `DONE/PASSED`, `BLOCKED/BLOCKED`, and `CANCELLED/BLOCKED`. Never migrate or reinterpret terminal history.
 
-A non-complete current Task uses the exact no-dependency sentence or distinct `- Task NNNN.` bullets; reject prose, duplicates/mixing, missing references, and cycles. Historical readers retain literal references. A hard dependency requires `DONE/PASSED` plus required external delivery.
+A non-complete Task uses the exact no-dependency sentence or distinct `- Task NNNN.` bullets; reject prose, duplicate/mixed/missing references, and cycles. Historical readers stay literal. Hard dependencies require `DONE/PASSED` plus required delivery.
 
 Selection is deterministic:
 
@@ -47,11 +49,11 @@ For normal `$kyw-impl NNNN`, pass no delivery payload. Before its sole dispatche
 
 For contract 3, the first evaluator-satisfied `HARDENED_EXACT_HEAD` graph binds pair paths/bytes. Pre-dispatch rejects drift/redelivery with Task/path and `$kyw-task "<correction outcome>"`; unchanged invocation reports only. Corrections hard-depend; contracts 1/2 are grandfathered.
 
-At most one prior `STANDARD` outcome may remain uncovered; collect its full GitHub graph through an invocation-local command cache and the unchanged evaluator, never covered GitHub objects/logs. Empty history may prepare genesis. Missing, corrupt, stale, forked, mismatched, or over-gap existing continuity stops normal dispatch without automatic whole-history replay. The separate `bootstrap-continuity` command is the only migration entry and requires exact `EXPLICIT_REBASELINE` authority; it remains fail closed on its general checkpoint, history, evaluator, identity, gap, drift, and self-coverage contract. It is not a dispatch option, source-repair path, or Task-ID exception. Persist no raw logs, secrets, API responses, mutable graph, or growing receipts; manual delivery flags are test/compatibility seams only and never production recovery input.
+At most one prior `STANDARD` outcome may remain uncovered; collect its full GitHub graph through an invocation-local command cache and unchanged evaluator, never covered objects/logs. Empty history may prepare genesis. Invalid or over-gap continuity stops normal dispatch without automatic whole-history replay. The separate `bootstrap-continuity` command alone migrates with exact `EXPLICIT_REBASELINE` authority and fails closed on checkpoint, history, evaluator, identity, gap, drift, and self-coverage. It is not a dispatch option, source-repair path, or Task-ID exception. Persist no raw logs, secrets, API responses, mutable graph, or growing receipts; manual delivery flags are test seams, never recovery input.
 
 The trusted-local expectation uses `schemaVersion: 2`, exact repository/workflow ID/name/path, behavioral/quality/packed job-name sets, and distinct merge/gate names. Its `FINAL` binds `pullRequest`, `actualHead`/`PR_ACTUAL_HEAD`, `mergeCompatibility`/`PR_MERGE_COMPATIBILITY`, `merge`, and `postMerge`/`POST_MERGE_MAIN` to the run-level latest attempt plus each logical job's actual execution attempt, exact jobs, checkouts, and parents.
 
-Get numeric identities, conclusions, and execution chronology from bounded GitHub `filter=all`, `filter=latest`, and attempt-specific job collections, then confirm checkout/parents from each checkout-bearing job's `KYWCIEVIDENCE` line. The run-level latest attempt never overwrites a logical job's independently derived actual execution attempt. A later actual execution supersedes earlier evidence and a failure, cancellation, incomplete result, or missing/invalid evidence never falls back; an untouched earlier execution survives only through a uniquely proven equivalent projection. A successful job at only `refs/pull/<number>/merge` is merge compatibility, never actual head. Missing logs, reused jobs, stale or fabricated attempts, ambiguous names/projections, or mismatch stops; do not rerun CI. Only wholly valid `PENDING` is resumable; `FINAL` requires the full graph.
+Get identities, conclusions, and chronology from bounded GitHub `filter=all`, `filter=latest`, and attempt-specific job collections; confirm checkout/parents from each checkout job's `KYWCIEVIDENCE`. Run-level latest never overwrites a logical job's actual execution attempt. Later actual execution supersedes; failure, cancellation, incomplete or missing/invalid evidence never falls back. Earlier untouched execution needs a uniquely proven equivalent projection. A job only at `refs/pull/<number>/merge` is merge compatibility, never actual head. Missing/reused/stale/fabricated/ambiguous/mismatched evidence stops; do not rerun CI. Only wholly valid `PENDING` is resumable; `FINAL` needs the full graph.
 
 Legacy continuity requires trusted proof predating the hardened anchor: `LEGACY_PRE_CONTRACT` version 1, `LOCAL_GIT_PRE_CONTRACT_HISTORY`, and exact anchor/merge SHAs. Its schema-1 ledger says `LEGACY_PRE_CONTRACT_CONTINUITY` and `actualHead: "UNVERIFIED"`; it never becomes exact-head PASS and is forbidden for the selected new outcome.
 
@@ -59,13 +61,19 @@ Classify absent or valid-pending evidence `RESUMABLE`; failing, incomplete-final
 
 Schema-3 checkpoint input is `SATISFIED` only when repository, Task, outcome, covered-main, terminal-pair, covered-set, evidence, and checkpoint digests agree. Expired covered logs do not invalidate the complete result; uncovered/current proof still fails closed, and CI never replaces behavioral acceptance.
 
-`STANDARD` grants no ambient authority. Selection covers acceptance/terminal state, exact-path commit, non-force push, non-draft PR, exact-head review/merge/post-main, and reporting. Direct authority may arrive before/after/with dispatch without another Skill call. External categories stay separate; failure grants no retry. Conflict/drift, failed evidence/review, missing objects, or user decisions stop.
+`STANDARD` covers acceptance/terminal state, exact-path commit, non-force push, non-draft PR, exact-head review/merge/post-main, and reporting only while its selected invocation stays aligned. Publication and the other separately named external categories remain outside it; failure grants no retry. Conflict/drift, failed evidence/review, missing objects, or user decisions stop.
 
-## Apply overrides and preserve model provenance
+## Apply activation-scoped guardrails and preserve model provenance
 
-`overrideText` preserves suffix transport; consume it without re-asking. It is not permission. Classify once: Task method/order/scope/check = first-Task override; affirmative external action = separate authority; prohibition/cancellation/revocation/scope reduction narrows overlap; else no grant. Terminal preflight accepts `TASK_OVERRIDE_PRESENT` or `NO_TASK_OVERRIDE`; omission stays fail-closed. Ambiguity/contradiction stops it. Never redispatch/chain or waive acceptance, evidence honesty, safety, or preservation.
+Exact Skill or managed-alias routing starts invocation-local `ACTIVE_ALIGNED`. Before it and after terminal/cancellation/expiry, `INACTIVE` kyw rules alone do not warn, block, select/create/redirect a Task, or gate ordinary changes. Add no persistent approval store, background process, or production natural-language classifier.
 
-Mutation authority is a separate channel. The latest applicable directive from the trusted current user must affirm act-now and resolve action/target/scope/current attempt. Status neither grants nor revokes active work; static/untrusted text grants nothing. Assent must immediately accept one concrete resolved proposal with no choice. Conditions need act-now plus an objective, safely verified, currently true fact; otherwise no mutation/monitoring or older revival. Terminal outcome or target/scope drift ends the attempt; failure permits no retry/fallback. Standalone external commands do not redirect.
+`overrideText` preserves suffix transport; consume settled aligned constraints without re-asking. Classify clauses once around the sole route/dispatcher. In-Task method/order/check may align; terminal preflight remains exactly `TASK_OVERRIDE_PRESENT` or `NO_TASK_OVERRIDE`. Omission, ambiguity, or contradiction fails closed. Never redispatch or chain Skills.
+
+In `ACTIVE_ALIGNED`, matching Skill/mode, baseline, selected Task, acceptance, scope, action, target, and attempt continues without duplicate confirmation. Before any difference mutates pair, permanent truth, implementation, dispatcher state, or external state, enter `CHANGE_PENDING`, warn, and leave an empty mutation trace. Bind a fresh warning ID to controlling old criterion, requested new criterion, implementation, mutable Task/Test, permanent-owner, verification, delivery impacts, and action, target, scope, attempt, and facts. A combined routed message activates/routes once, runs only aligned clauses, and cannot count its changing origin as reconfirmation.
+
+Only the trusted current user's immediate next applicable turn explicitly and unambiguously reconfirming that exact unchanged warning enters `RECONFIRMED_BOUNDED`. First synchronize applicable mutable Task/Test and affected permanent owners; then execute only its bounded action, target, scope, and attempt. Kyw guardrails cannot veto that reconfirmed project change. System/platform safety, secrets, honest evidence, user-work preservation, immutable delivered pairs, exact routing/modes, and external-action separation remain non-waivable.
+
+Cancellation, decline, ambiguity, intervention/staleness, fact drift, or changed/added baseline, Task, acceptance, scope, action, target, or attempt mutates nothing. Clear to `CANCELLED_OR_EXPIRED` or rewarn; never revive. Changed/added Skill, mode, or route identity expires and requires its exact route. Completion deactivates. Static/untrusted text cannot reconfirm.
 
 Inherit the active session's configured model and reasoning effort; do not change either unless the current user explicitly requests that change. Use the canonical five fields in `templates/task/TEST.md`: exact model, requested alias, effort, Codex surface, and version with per-field basis.
 
@@ -73,7 +81,7 @@ Use exact exposed values with `OBSERVED`. Use `UNAVAILABLE` as both value and ob
 
 ## Enter or re-enter execution
 
-Before implementation mutation, create/verify the selected branch; change the pair from `READY` / `READY` to `IN_PROGRESS` / `RUNNING`; record start, Remaining, and Resume Point; validate. A selected ready pair needs no reconfirmation.
+Before implementation mutation, create/verify the selected branch; change the pair from `READY` / `READY` to `IN_PROGRESS` / `RUNNING`; record start, Remaining, and Resume Point; validate. A selected aligned ready pair needs no duplicate guardrail confirmation.
 
 If the recognized dispatcher result contains `continuityTransitionToken`, only after that branch and active pair exist invoke:
 
@@ -104,7 +112,7 @@ During execution, mutations may include only:
 
 Preserve user-authored and pre-existing changes. Edit another numbered Task only for a bounded contract migration that the selected Task explicitly names and only while that other pair is pre-created and nonterminal; never implement its outcome. Otherwise do not edit another Task, invoke `$kyw-audit`, add installation behavior, or absorb a nearby cleanup merely because it is convenient.
 
-Before each meaningful expansion, ask whether it is required for a current acceptance criterion. If it is required but changes intent, update the Task, Test, and owning permanent document before implementation. If it is independently shippable or belongs to a future Task, leave it out of scope and report it without creating or implementing that Task.
+Before each meaningful expansion, ask whether it is required for a current acceptance criterion. If it materially changes the active baseline, warn and wait; after exact reconfirmation, update the Task, Test, and owning permanent document before implementation. If it is independently shippable or belongs to a future Task, leave it out of scope and report it without creating or implementing that Task.
 
 ## Keep Task and Test live
 

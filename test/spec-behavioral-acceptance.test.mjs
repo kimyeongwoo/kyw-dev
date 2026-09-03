@@ -101,6 +101,10 @@ function checksFor(id) {
   return {
     ...common,
     ordinaryCreatedTask: false,
+    kywWorkflowActivated: false,
+    kywWarningIssued: false,
+    taskSelected: false,
+    taskRedirected: false,
     noSkillInvocation: true,
     sourceChanged: true,
     testChanged: true,
@@ -292,6 +296,19 @@ test("an ordinary prompt that creates a numbered Task fails", () => {
   const record = validRecord("S-06");
   record.checks.ordinaryCreatedTask = true;
   expectFailure(record, "ordinaryCreatedTask");
+});
+
+test("an inactive ordinary prompt cannot activate kyw workflow handling", () => {
+  for (const name of [
+    "kywWorkflowActivated",
+    "kywWarningIssued",
+    "taskSelected",
+    "taskRedirected",
+  ]) {
+    const record = validRecord("S-06");
+    record.checks[name] = true;
+    expectFailure(record, name);
+  }
 });
 
 test("a durable visible change without README impact handling fails", () => {

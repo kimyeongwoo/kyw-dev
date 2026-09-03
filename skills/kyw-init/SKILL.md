@@ -9,6 +9,10 @@ description: Initialize, adopt, or intentionally rebaseline a project's four dur
 
 Use the repository containing the current working directory unless the explicit `$kyw-init` invocation names another target. Treat an optional project brief, redesign goal, or rebaseline request as context, not as permission to skip inspection or confirmation.
 
+<!-- kyw-active-skill-guardrails:v1 -->
+
+Only an exact `$kyw-init` route activates this invocation-local workflow; otherwise and after completion, cancellation, stop, or expiry, prompts are ordinary. Aligned turns continue without duplicate confirmation. Any established baseline, applicable Task or acceptance, scope, action, target, attempt, or Skill/mode change requires a concrete old/new warning naming implementation, Task/Test, permanent-document, verification, and delivery impacts plus exact bounds, then a zero-mutation wait. Only the trusted current user's immediate next unambiguous explicit reconfirmation of that unchanged warning advances mutable criteria; Skill/route-locked-mode replacement expires; its own exact route is required. The origin cannot self-confirm. Cancel, decline, ambiguity, intervention, staleness, fact drift, or changed/added bounds clears or replaces it. Sync applicable mutable Task/Test and affected permanent owners before performing only the warned action; completion deactivates. Never redispatch or chain Skills, or relax system/platform safety, evidence honesty, user-work preservation, or delivered-pair immutability. Answers to open durable-decision questions are aligned; the final shared-understanding and write-plan confirmation remains required.
+
 Limit final mutations to:
 
 - `README.md`
@@ -58,13 +62,13 @@ When no answerable decision remains, present one shared-understanding summary co
 - the exact four-path mutation boundary;
 - an ordered, session-sized Task decomposition as recommendations only.
 
-Ask the user to confirm that summary and write plan explicitly, recommend correcting any mismatch first, and wait. The initial invocation, an earlier general approval, or agreement with one interview answer is not confirmation of the final summary. If the user changes any material decision, revise the summary and ask for confirmation again.
+Ask the user to confirm that summary and write plan explicitly, recommend correcting any mismatch first, and wait. The initial invocation, an earlier general approval, or agreement with one interview answer is not confirmation of the final summary. A material change to a settled criterion or confirmed plan uses the warning transition above; after exact reconfirmation, revise the summary before materialization.
 
 ## Phase 3 - Materialize the confirmed baseline
 
 Proceed only after explicit confirmation of the current summary.
 
-1. Re-read the four target paths and relevant version-control diff immediately before editing. If any inspected document changed during the interview, stop, explain the difference, reconcile it through the interview, and obtain confirmation again.
+1. Re-read the four target paths and relevant version-control diff immediately before editing. If any inspected document changed during the interview, clear pending authority, explain the changed facts and impacts, reconcile them through a fresh warning, and wait for exact reconfirmation before editing.
 2. Use `templates/project/{README,AGENTS,SPEC,ARCHITECTURE}.md` from the kyw-dev package as the canonical section contract when accessible. Treat templates as responsibilities and authoring guidance, not as text to paste blindly.
 3. For an absent document, create complete project-specific content from inspected facts and confirmed decisions. For an existing document, make the smallest semantic update that satisfies its responsibility:
    - preserve unrelated user-authored sections and stable wording;

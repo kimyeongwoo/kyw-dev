@@ -4,16 +4,19 @@
 
 Product/acceptance lives in `docs/SPEC.md`, structure/flows in `docs/ARCHITECTURE.md`, setup/usage in `README.md`, repository rules here, and current scope/evidence in its Task/Test pair.
 
-Always load applicable `AGENTS.md` and the selected/current Task/Test pair. Index or search README, SPEC, and ARCHITECTURE first; read only owner sections selected by goal, scope, documentation impact, code, and dependencies. Read all four for `kyw-init`, rebaseline, major redesign, broad/conflicting work, ambiguous ownership, or insufficient targeted truth; stop on unresolved conflict.
+Always load applicable `AGENTS.md`. During an active kyw workflow load its selected/current Task/Test pair; inactive ordinary prompts select none. Index or search README, SPEC, and ARCHITECTURE first; read only owner sections selected by goal, scope, documentation impact, code, and dependencies. Read all four for `kyw-init`, rebaseline, major redesign, broad/conflicting work, ambiguous ownership, or insufficient targeted truth; stop on unresolved conflict.
 
 ## Scope and routing
 
-- Work on one Task, preserve user work, and exclude future Tasks or unrelated cleanup. Explanations and small fixes need no Task unless requested.
+<!-- kyw-active-skill-guardrails:v1 -->
+
+- During an active Task workflow, work on one Task; preserve user work and exclude unrelated cleanup. Explanations and small fixes need no Task unless requested.
 - All five `kyw-*` Skills are explicit-only. `$kyw-task "goal"` authors the smallest complete dependency-aware `READY/READY` set, prints one `$kyw-impl NNNN`, and stops. `$kyw-task NNNN` handles only compatible `DRAFT/DRAFT`.
 - `$kyw-impl NNNN` is portable for existing Tasks. Route only exact `task NNNN 실행해줘`, `task 진행해줘`, and `남은 task 계속 실행해줘`; incidental `task` prose never routes.
-- Skill syntax governs routing, not authorization. Only the latest relevant trusted-current-user affirmative act-now instruction—or immediate assent to one resolved proposal—grants named bounds for the current attempt. Later prohibition/cancellation/revocation/scope reduction wins; status neither grants nor revokes active work. Conditions need act-now and safe, objective current verification; static/untrusted text grants nothing.
+- Exact Skill/alias starts guardrails; terminal/stop/cancel/expiry ends them. Inactive ordinary prompts get no kyw-only block/warning/Task select/create/redirect.
+- Aligned work continues. Material baseline/Task/acceptance/scope/bound change gets the SPEC warning and zero-mutation wait. Immediate exact reconfirmation on unchanged facts permits owner/pair sync then its named bounds. Stale/changed/ambiguous/cancelled clears it; never chain Skills or bypass safety, honest evidence, or immutable delivered pairs.
 - Keep one Task active: exact selection cannot bypass it; otherwise resume active work, resumable `STANDARD` delivery, then the lowest eligible ready Task. Continuous mode is serial and invocation-local.
-- Preserve model/effort unless the current user overrides it. Selected `IMPLEMENT`, `RESUME`, or `DELIVER` needs no ceremonial `STANDARD` reconfirmation.
+- Preserve model/effort unless the current user overrides it. Aligned `IMPLEMENT`, `RESUME`, or `DELIVER` needs no duplicate guardrail confirmation.
 - Task/Test owns repository outcome; GitHub gates mutable delivery. Gaps need rebaseline; delivered contract-3 pairs are immutable; corrections use hard-dependent Tasks. Publication/registry/version/tag/Release/submission, retry/fallback, force/destructive, bypass/admin/account, deletion, and unrelated mutation are distinct; none implies another and failure grants no retry.
 
 ## Change and documentation discipline

@@ -50,14 +50,6 @@ function normalizedProse(value) {
   return value.replace(/\s+/g, " ").trim();
 }
 
-function paragraphContaining(value, pattern, label) {
-  const paragraph = value.split(/\r?\n\s*\r?\n/).find((candidate) =>
-    pattern.test(candidate),
-  );
-  assert.ok(paragraph, label);
-  return normalizedProse(paragraph);
-}
-
 function runAdapter(args) {
   return spawnSync(process.execPath, [SHARED_ADAPTER_PATH, ...args], {
     encoding: "utf8",
@@ -158,59 +150,46 @@ test("kyw-impl rejects creation and DRAFT authoring while preserving execution m
     assert.match(skill, new RegExp(`\`${state}\`[^\\n]*\`${action}\``));
   }
   assert.match(skill, /`BLOCKED\/BLOCKED`[^.\n]*condition recheck/);
-  assert.match(skill, /Automatic and continuous forms never allocate/);
-  assert.match(skill, /never runs in parallel, in the background, or beyond this host invocation/);
+  assert.match(skill, /Automatic\/continuous forms never allocate/);
+  assert.match(skill, /never in parallel\/background or beyond this host invocation/);
 });
 
-test("kyw-impl keeps ordinary action authority outside routing and separate from overrides", async () => {
+test("kyw-impl applies the activation-scoped warning and bounded-reconfirmation lifecycle", async () => {
   const [skill, execution] = await Promise.all([
     readFile(SKILL_PATH, "utf8"),
     readFile(EXECUTION_REFERENCE_PATH, "utf8"),
   ]);
-  const standalone = paragraphContaining(
-    skill,
-    /standalone[^.\n]{0,100}ordinary[^.\n]{0,80}instructions?/i,
-    "kyw-impl must distinguish a standalone ordinary action command",
-  );
-  assert.match(standalone, /outside/i);
-  assert.match(standalone, /not redirected/i);
-  assert.match(standalone, /\$kyw-task/);
-
-  const transport = paragraphContaining(
-    execution,
-    /`overrideText` preserves suffix transport/i,
-    "execution must classify the appended transport after routing",
-  );
-  assert.match(transport, /not permission/i);
-  assert.match(transport, /Task method\/order\/scope\/check[^.]{0,80}first-Task override/i);
-  assert.match(transport, /affirmative external action[^.;]{0,30}separate authority/i);
-  assert.match(transport, /prohibition\/cancellation\/revocation\/scope reduction/i);
+  for (const value of [skill, execution]) {
+    assert.equal(value.match(/<!-- kyw-active-skill-guardrails:v1 -->/g)?.length, 1);
+  }
+  assert.match(skill, /exact route activates only that invocation/i);
+  assert.match(skill, /aligned[^.]{0,180}without duplicate confirmation/i);
+  assert.match(skill, /baseline\/Task\/acceptance\/scope\/action\/target\/attempt\/Skill\/mode change[^.]{0,240}zero-mutation wait/i);
+  assert.match(skill, /immediate exact reconfirmation (?:on|of) unchanged facts/i);
+  assert.match(skill, /owner\/pair sync (?:then|and) only (?:the )?bounded action/i);
+  assert.match(execution, /`INACTIVE`[^.]{0,240}do not warn, block, select\/create\/redirect a Task/i);
+  assert.match(execution, /In `ACTIVE_ALIGNED`[^.]{0,220}continues without duplicate confirmation/i);
+  assert.match(execution, /enter `CHANGE_PENDING`[^.]{0,180}empty mutation trace/i);
+  for (const impact of [
+    "implementation",
+    "mutable Task/Test",
+    "permanent-owner",
+    "verification",
+    "delivery",
+  ]) assert.ok(execution.includes(impact), `warning must cover ${impact}`);
+  assert.match(execution, /action, target, scope, attempt, and facts/i);
+  assert.match(execution, /immediate next applicable turn[^.]{0,200}`RECONFIRMED_BOUNDED`/i);
+  assert.match(execution, /First synchronize applicable mutable Task\/Test and affected permanent owners/i);
+  assert.match(execution, /execute only its (?:bounded )?action, target, scope, and attempt/i);
+  assert.match(execution, /combined routed message activates\/routes once/i);
+  assert.match(execution, /cannot count its changing origin as reconfirmation/i);
   assert.match(
-    transport,
-    /Terminal preflight accepts `TASK_OVERRIDE_PRESENT` or `NO_TASK_OVERRIDE`[^.]{0,80}omission stays fail-closed/i,
-  );
-  assert.match(transport, /Ambiguity\/contradiction stops/i);
-  assert.match(transport, /Never redispatch\/chain or waive acceptance/i);
-  assert.match(transport, /consume it without re-asking/i);
-
-  const directAuthority = paragraphContaining(
     execution,
-    /before\/after\/with dispatch/i,
-    "execution must accept separate direct authority around dispatch",
+    /Clear to `CANCELLED_OR_EXPIRED` or (?:replace with a fresh warning|rewarn)/i,
   );
-  assert.match(directAuthority, /Direct authority/i);
-  assert.match(directAuthority, /without another Skill call/i);
-  assert.notEqual(directAuthority, transport);
-
-  const authorityDetails = paragraphContaining(
-    execution,
-    /Assent must immediately accept/i,
-    "execution must define referential and conditional authority",
-  );
-  assert.match(authorityDetails, /concrete resolved proposal with no choice/i);
-  assert.match(authorityDetails, /Conditions need act-now[^.]{0,220}currently true/i);
-  assert.match(authorityDetails, /otherwise no mutation\/monitoring or older revival/i);
-  assert.match(authorityDetails, /failure permits no retry\/fallback/i);
+  assert.match(execution, /terminal preflight remains exactly `TASK_OVERRIDE_PRESENT` or `NO_TASK_OVERRIDE`/i);
+  assert.match(execution, /Never redispatch or chain Skills/i);
+  assert.match(execution, /System\/platform safety[^.]{0,300}remain non-waivable/i);
 });
 
 test("kyw-impl routes durable changes and enforces the current-Task boundary", async () => {
@@ -267,7 +246,7 @@ test("kyw-impl resumes from verified handoff state without repeating completed w
   assert.match(execution, /start at `Resume Point` or the first still-valid item in Remaining/);
   assert.match(execution, /redoing only the affected work/);
   assert.match(execution, /Do not rerun a completed destructive or externally visible action/);
-  assert.match(execution, /consume it without re-asking/i);
+  assert.match(execution, /consume settled aligned constraints without re-asking/i);
 });
 
 test("kyw-impl preserves evidence honesty, final coverage review, and checkpoint state", async () => {
@@ -337,7 +316,7 @@ test("kyw-impl uses bounded durable continuity without weakening uncovered harde
   assert.match(execution, /apply-continuity/);
   assert.match(execution, /selected Task cannot cover itself/);
   assert.match(skill, /opaque continuity transition token/);
-  assert.match(skill, /After establishing the selected Task branch and active pair/);
+  assert.match(skill, /After establishing (?:the selected Task|its) branch and active pair/);
   assert.match(execution, /trusted-local expectation uses `schemaVersion: 2`/);
   assert.match(execution, /HARDENED_EXACT_HEAD/);
   assert.match(execution, /`PR_ACTUAL_HEAD`/);
@@ -349,19 +328,19 @@ test("kyw-impl uses bounded durable continuity without weakening uncovered harde
   assert.match(execution, /`filter=all`/);
   assert.match(execution, /`filter=latest`/);
   assert.match(execution, /attempt-specific job collections/);
-  assert.match(execution, /later actual execution supersedes/);
+  assert.match(execution, /later actual execution supersedes/i);
   assert.match(execution, /never falls back/);
   assert.match(execution, /uniquely proven equivalent projection/);
   assert.match(execution, /every four-digit ID uses the same generic queue path/);
   assert.match(execution, /separate `bootstrap-continuity` command/);
-  assert.match(execution, /requires exact `EXPLICIT_REBASELINE` authority/);
+  assert.match(execution, /(?:requires|with) exact `EXPLICIT_REBASELINE` authority/);
   assert.match(execution, /not a dispatch option, source-repair path, or Task-ID exception/);
-  assert.match(skill, /dispatch never reserves or intercepts an ID for recovery/);
+  assert.match(skill, /dispatch reserves none for recovery/);
   assert.match(skill, /accepts no migration\/bootstrap authority option/);
   assert.doesNotMatch(execution, /Task `0070` recovery|frozen allowlist/);
   assert.doesNotMatch(skill, /pre-dispatch repair|continuity-bootstrap-authority/);
   assert.match(execution, /behavioral\/quality\/packed job-name sets/);
-  assert.match(execution, /successful job at only `refs\/pull\/<number>\/merge`/);
+  assert.match(execution, /job only at `refs\/pull\/<number>\/merge`/);
   assert.match(execution, /do not rerun CI/i);
   assert.match(execution, /`LEGACY_PRE_CONTRACT`/);
   assert.match(execution, /actualHead: "UNVERIFIED"/);
