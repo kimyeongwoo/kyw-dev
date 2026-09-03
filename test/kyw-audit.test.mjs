@@ -300,7 +300,7 @@ test("kyw-audit gives a clean Task PASS without churn and documents the verdict 
   assert.match(prompts, /\$kyw-audit 000N --fix/);
   assert.match(prompts, /자연어로 “고쳐줘”라고 덧붙이는 것은 수리 승인이 아니며/);
   assert.match(
-    plugin.interface.defaultPrompt[3],
+    plugin.interface.defaultPrompt[4],
     /\$kyw-audit 0001.*without modifying the repository/,
   );
   assert.match(spec, /evidence-based findings and a `PASS` or `BLOCKED` verdict/);

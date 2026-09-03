@@ -1,0 +1,213 @@
+{
+  "schemaVersion": 1,
+  "orderedStages": [
+    "APPLY_PREDECESSOR_CONTINUITY",
+    "COMMIT",
+    "PUSH",
+    "CREATE_PR",
+    "OBSERVE_ACTUAL_HEAD_CI",
+    "OBSERVE_MERGE_COMPATIBILITY",
+    "INSPECT_REVIEW_AND_MERGEABILITY",
+    "MERGE_EXPECTED_HEAD",
+    "OBSERVE_POST_MAIN_CI",
+    "REPORT"
+  ],
+  "externallyVisibleActions": [
+    "COMMIT",
+    "PUSH",
+    "CREATE_PR",
+    "MERGE_EXPECTED_HEAD"
+  ],
+  "scenarios": [
+    {
+      "name": "pre-commit",
+      "completed": [
+        "APPLY_PREDECESSOR_CONTINUITY"
+      ],
+      "pending": "COMMIT",
+      "blocked": false,
+      "expectedNext": "COMMIT",
+      "mustNotRepeat": [
+        "APPLY_PREDECESSOR_CONTINUITY"
+      ]
+    },
+    {
+      "name": "committed-unpushed",
+      "completed": [
+        "APPLY_PREDECESSOR_CONTINUITY",
+        "COMMIT"
+      ],
+      "pending": "PUSH",
+      "blocked": false,
+      "expectedNext": "PUSH",
+      "mustNotRepeat": [
+        "APPLY_PREDECESSOR_CONTINUITY",
+        "COMMIT"
+      ]
+    },
+    {
+      "name": "pushed-no-pr",
+      "completed": [
+        "APPLY_PREDECESSOR_CONTINUITY",
+        "COMMIT",
+        "PUSH"
+      ],
+      "pending": "CREATE_PR",
+      "blocked": false,
+      "expectedNext": "CREATE_PR",
+      "mustNotRepeat": [
+        "APPLY_PREDECESSOR_CONTINUITY",
+        "COMMIT",
+        "PUSH"
+      ]
+    },
+    {
+      "name": "pr-head-ci-pending",
+      "completed": [
+        "APPLY_PREDECESSOR_CONTINUITY",
+        "COMMIT",
+        "PUSH",
+        "CREATE_PR"
+      ],
+      "pending": "OBSERVE_ACTUAL_HEAD_CI",
+      "blocked": false,
+      "expectedNext": "OBSERVE_ACTUAL_HEAD_CI",
+      "mustNotRepeat": [
+        "APPLY_PREDECESSOR_CONTINUITY",
+        "COMMIT",
+        "PUSH",
+        "CREATE_PR"
+      ]
+    },
+    {
+      "name": "synthetic-merge-pending",
+      "completed": [
+        "APPLY_PREDECESSOR_CONTINUITY",
+        "COMMIT",
+        "PUSH",
+        "CREATE_PR",
+        "OBSERVE_ACTUAL_HEAD_CI"
+      ],
+      "pending": "OBSERVE_MERGE_COMPATIBILITY",
+      "blocked": false,
+      "expectedNext": "OBSERVE_MERGE_COMPATIBILITY",
+      "mustNotRepeat": [
+        "APPLY_PREDECESSOR_CONTINUITY",
+        "COMMIT",
+        "PUSH",
+        "CREATE_PR"
+      ]
+    },
+    {
+      "name": "review-blocked",
+      "completed": [
+        "APPLY_PREDECESSOR_CONTINUITY",
+        "COMMIT",
+        "PUSH",
+        "CREATE_PR",
+        "OBSERVE_ACTUAL_HEAD_CI",
+        "OBSERVE_MERGE_COMPATIBILITY"
+      ],
+      "pending": "INSPECT_REVIEW_AND_MERGEABILITY",
+      "blocked": true,
+      "blocker": "review requirement is not satisfied",
+      "expectedNext": null,
+      "mustNotRepeat": [
+        "APPLY_PREDECESSOR_CONTINUITY",
+        "COMMIT",
+        "PUSH",
+        "CREATE_PR"
+      ]
+    },
+    {
+      "name": "reviewed-merge-pending",
+      "completed": [
+        "APPLY_PREDECESSOR_CONTINUITY",
+        "COMMIT",
+        "PUSH",
+        "CREATE_PR",
+        "OBSERVE_ACTUAL_HEAD_CI",
+        "OBSERVE_MERGE_COMPATIBILITY",
+        "INSPECT_REVIEW_AND_MERGEABILITY"
+      ],
+      "pending": "MERGE_EXPECTED_HEAD",
+      "blocked": false,
+      "expectedNext": "MERGE_EXPECTED_HEAD",
+      "mustNotRepeat": [
+        "APPLY_PREDECESSOR_CONTINUITY",
+        "COMMIT",
+        "PUSH",
+        "CREATE_PR"
+      ]
+    },
+    {
+      "name": "merged-post-main-pending",
+      "completed": [
+        "APPLY_PREDECESSOR_CONTINUITY",
+        "COMMIT",
+        "PUSH",
+        "CREATE_PR",
+        "OBSERVE_ACTUAL_HEAD_CI",
+        "OBSERVE_MERGE_COMPATIBILITY",
+        "INSPECT_REVIEW_AND_MERGEABILITY",
+        "MERGE_EXPECTED_HEAD"
+      ],
+      "pending": "OBSERVE_POST_MAIN_CI",
+      "blocked": false,
+      "expectedNext": "OBSERVE_POST_MAIN_CI",
+      "mustNotRepeat": [
+        "APPLY_PREDECESSOR_CONTINUITY",
+        "COMMIT",
+        "PUSH",
+        "CREATE_PR",
+        "MERGE_EXPECTED_HEAD"
+      ]
+    },
+    {
+      "name": "later-failed-attempt",
+      "completed": [
+        "APPLY_PREDECESSOR_CONTINUITY",
+        "COMMIT",
+        "PUSH",
+        "CREATE_PR"
+      ],
+      "pending": "OBSERVE_ACTUAL_HEAD_CI",
+      "blocked": true,
+      "blocker": "latest actual-head execution failed after an older success",
+      "olderSuccessfulAttempt": 1,
+      "authoritativeFailedAttempt": 2,
+      "fallbackAllowed": false,
+      "expectedNext": null,
+      "mustNotRepeat": [
+        "APPLY_PREDECESSOR_CONTINUITY",
+        "COMMIT",
+        "PUSH",
+        "CREATE_PR"
+      ]
+    },
+    {
+      "name": "satisfied",
+      "completed": [
+        "APPLY_PREDECESSOR_CONTINUITY",
+        "COMMIT",
+        "PUSH",
+        "CREATE_PR",
+        "OBSERVE_ACTUAL_HEAD_CI",
+        "OBSERVE_MERGE_COMPATIBILITY",
+        "INSPECT_REVIEW_AND_MERGEABILITY",
+        "MERGE_EXPECTED_HEAD",
+        "OBSERVE_POST_MAIN_CI"
+      ],
+      "pending": "REPORT",
+      "blocked": false,
+      "expectedNext": "REPORT",
+      "mustNotRepeat": [
+        "APPLY_PREDECESSOR_CONTINUITY",
+        "COMMIT",
+        "PUSH",
+        "CREATE_PR",
+        "MERGE_EXPECTED_HEAD"
+      ]
+    }
+  ]
+}

@@ -6,6 +6,7 @@ import {
   INSTALL_SCHEMA_VERSION,
   LEGACY_MANAGED_SKILL_NAMES,
   MANAGED_SKILL_NAMES,
+  PREVIOUS_MANAGED_SKILL_NAMES,
   PACKAGE_ROOT,
   SkillInstallationError,
   assertCanonicalRealPath,
@@ -13,6 +14,7 @@ import {
   hashFile,
   installationError,
   isAllowedManagedPath,
+  isAllowedManagedPathForSkills,
   managedManifestErrors,
   normalizeManagedPath,
   packageName,
@@ -300,6 +302,7 @@ export function validateInstallMetadata(metadata, { expectedScope } = {}) {
   }
 
   const skillNames = [];
+  let recognizedSkillNames;
   if (!Array.isArray(metadata.skills)) {
     errors.push("skills must be an array");
   } else {
@@ -311,13 +314,16 @@ export function validateInstallMetadata(metadata, { expectedScope } = {}) {
       skillNames.push(skill.name);
     }
     const skillListIdentity = JSON.stringify(skillNames);
-    if (
-      skillListIdentity !== JSON.stringify(MANAGED_SKILL_NAMES) &&
-      skillListIdentity !== JSON.stringify(LEGACY_MANAGED_SKILL_NAMES)
-    ) {
+    recognizedSkillNames = [
+      MANAGED_SKILL_NAMES,
+      PREVIOUS_MANAGED_SKILL_NAMES,
+      LEGACY_MANAGED_SKILL_NAMES,
+    ].find((names) => skillListIdentity === JSON.stringify(names));
+    if (!recognizedSkillNames) {
       errors.push(
         "skills must list exactly the current inventory " +
-          `(${MANAGED_SKILL_NAMES.join(", ")}) or legacy schema-1 inventory ` +
+          `(${MANAGED_SKILL_NAMES.join(", ")}), immediately previous schema-1 inventory ` +
+          `(${PREVIOUS_MANAGED_SKILL_NAMES.join(", ")}), or original schema-1 inventory ` +
           `(${LEGACY_MANAGED_SKILL_NAMES.join(", ")})`,
       );
     }
@@ -338,7 +344,7 @@ export function validateInstallMetadata(metadata, { expectedScope } = {}) {
         errors.push(error.message);
         continue;
       }
-      if (!isAllowedManagedPath(file.path)) {
+      if (!isAllowedManagedPathForSkills(file.path, recognizedSkillNames ?? MANAGED_SKILL_NAMES)) {
         errors.push(`managed file is outside kyw-dev containers: ${file.path}`);
       }
       filePaths.push(file.path);

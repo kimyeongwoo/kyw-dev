@@ -65,6 +65,8 @@ test("release metadata is public-ready while publication remains an explicit com
   assert.deepEqual(packageJson.bugs, { url: RELEASE_METADATA.issuesUrl });
   assert.equal(packageJson.engines.node, RELEASE_METADATA.nodeRange);
   assert.equal("maintainers" in packageJson, false);
+  assert.equal("dependencies" in packageJson, false);
+  assert.equal("devDependencies" in packageJson, false);
   assert.equal(packageJson.bin["kyw-dev"], "bin/kyw-dev.mjs");
   assert.match(
     readFileSync(join(repositoryRoot, packageJson.bin["kyw-dev"]), "utf8"),
@@ -94,17 +96,36 @@ test("release metadata is public-ready while publication remains an explicit com
   assert.equal(pluginJson.author.name, packageJson.author.name);
   assert.equal(pluginJson.homepage, packageJson.homepage);
   assert.equal(pluginJson.repository, RELEASE_METADATA.repositoryWebUrl);
+  assert.equal(pluginJson.skills, "./skills/");
   assert.deepEqual(pluginJson.keywords, packageJson.keywords);
   assert.equal(pluginJson.interface.developerName, packageJson.author.name);
   assert.equal(pluginJson.interface.websiteURL, RELEASE_METADATA.repositoryWebUrl);
   assert.deepEqual(pluginJson.interface.capabilities, ["Interactive", "Write"]);
-  assert.equal(pluginJson.interface.defaultPrompt.length, 4);
+  assert.deepEqual(
+    readdirSync(join(repositoryRoot, "skills"), { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && !entry.isSymbolicLink())
+      .map((entry) => entry.name)
+      .sort(),
+    [
+      "kyw-audit",
+      "kyw-deliver",
+      "kyw-grilling",
+      "kyw-impl",
+      "kyw-init",
+      "kyw-task",
+    ],
+  );
+  assert.equal(pluginJson.interface.defaultPrompt.length, 5);
   assert.match(
     pluginJson.interface.defaultPrompt[2],
-    /\$kyw-impl 0001.*execute an existing Task/,
+    /\$kyw-impl 0001.*implement an existing Task through repository completion.*stop/,
   );
   assert.match(
     pluginJson.interface.defaultPrompt[3],
+    /\$kyw-deliver 0001.*completed Task's current STANDARD delivery/,
+  );
+  assert.match(
+    pluginJson.interface.defaultPrompt[4],
     /\$kyw-audit 0001.*without modifying the repository/,
   );
 });

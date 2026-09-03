@@ -15,6 +15,7 @@ export const SKILL_NAMES = [
   "kyw-init",
   "kyw-task",
   "kyw-impl",
+  "kyw-deliver",
   "kyw-audit",
 ];
 
@@ -72,6 +73,9 @@ export const EXPECTED_TARBALL_FILES = [
   "skills/kyw-impl/SKILL.md",
   "skills/kyw-impl/agents/openai.yaml",
   "skills/kyw-impl/references/execution.md",
+  "skills/kyw-deliver/SKILL.md",
+  "skills/kyw-deliver/agents/openai.yaml",
+  "skills/kyw-deliver/references/delivery.md",
   "skills/kyw-init/SKILL.md",
   "skills/kyw-init/agents/openai.yaml",
   "skills/kyw-task/SKILL.md",
@@ -261,12 +265,13 @@ export const PERMANENT_DOCUMENT_BUDGET_CHANGE_MARKER =
   "<!-- kyw-permanent-document-budget-change:v1 -->";
 
 export const REQUIRED_INSTRUCTION_RULE_FAMILY_IDS = Object.freeze([
-  "five-skills-explicit-invocation",
+  "six-skills-explicit-invocation",
   "activation-scoped-skill-guardrails",
   "grilling-procedure",
   "initialization-procedure",
   "task-authoring-procedure",
   "existing-task-execution-procedure",
+  "standard-delivery-procedure",
   "independent-audit-procedure",
   "task-artifact-shape",
   "test-evidence-shape",
@@ -316,6 +321,8 @@ export const REQUIRED_ACTIVATION_SCOPED_SKILL_GUARDRAIL_MANIFEST = deepFreeze({
     { path: "skills/kyw-task/SKILL.md", profile: "procedure" },
     { path: "skills/kyw-impl/SKILL.md", profile: "procedure" },
     { path: "skills/kyw-impl/references/execution.md", profile: "procedure" },
+    { path: "skills/kyw-deliver/SKILL.md", profile: "procedure" },
+    { path: "skills/kyw-deliver/references/delivery.md", profile: "procedure" },
     { path: "skills/kyw-audit/SKILL.md", profile: "procedure" },
     { path: "skills/kyw-audit/references/audit.md", profile: "procedure" },
   ],
@@ -329,11 +336,11 @@ export const REQUIRED_ACTIVATION_SCOPED_SKILL_GUARDRAIL_MANIFEST = deepFreeze({
       "TASK_PAIR_DISPOSITION",
       "DELIVERY_DISPOSITION",
     ],
-    taskIdentityRouteLockedSkills: ["kyw-task", "kyw-impl", "kyw-audit"],
-    implementationActionDispositions: [
+    taskIdentityRouteLockedSkills: ["kyw-task", "kyw-impl", "kyw-deliver", "kyw-audit"],
+    routeActionDispositions: [
       ["IMPLEMENT", "MUTABLE", "NONE", "MUTATING"],
       ["RESUME", "MUTABLE", "NONE", "MUTATING"],
-      ["DELIVER", "MUTABLE", "RESUMABLE", "MUTATING"],
+      ["DELIVER", "IMMUTABLE", "RESUMABLE", "MUTATING"],
       ["REPORT", "IMMUTABLE", "SATISFIED", "READ_ONLY"],
     ],
     stateIds: [
@@ -502,19 +509,19 @@ export const REQUIRED_ACTIVATION_SCOPED_SKILL_GUARDRAIL_MANIFEST = deepFreeze({
 
 export const PERMANENT_RULE_FAMILIES = deepFreeze([
   {
-    id: "five-skills-explicit-invocation",
+    id: "six-skills-explicit-invocation",
     owner: {
       path: "docs/SPEC.md",
-      anchors: [pattern("five .*Skills", "i"), pattern("explicit", "i")],
+      anchors: [pattern("six .*Skills", "i"), pattern("explicit", "i")],
     },
     projections: [
       {
         path: "README.md",
-        anchors: [pattern("All five packaged Skills disable implicit invocation")],
+        anchors: [pattern("All six packaged Skills disable implicit invocation")],
       },
       {
         path: "AGENTS.md",
-        anchors: [pattern("All five `kyw-\\*` Skills are explicit-only")],
+        anchors: [pattern("All six `kyw-\\*` Skills are explicit-only")],
       },
       ...SKILL_NAMES.map((skillName) => ({
         path: `skills/${skillName}/SKILL.md`,
@@ -547,11 +554,11 @@ export const PERMANENT_RULE_FAMILIES = deepFreeze([
           "TASK_PAIR_DISPOSITION",
           "DELIVERY_DISPOSITION",
         ],
-        taskIdentityRouteLockedSkills: ["kyw-task", "kyw-impl", "kyw-audit"],
-        implementationActionDispositions: [
+        taskIdentityRouteLockedSkills: ["kyw-task", "kyw-impl", "kyw-deliver", "kyw-audit"],
+        routeActionDispositions: [
           ["IMPLEMENT", "MUTABLE", "NONE", "MUTATING"],
           ["RESUME", "MUTABLE", "NONE", "MUTATING"],
-          ["DELIVER", "MUTABLE", "RESUMABLE", "MUTATING"],
+          ["DELIVER", "IMMUTABLE", "RESUMABLE", "MUTATING"],
           ["REPORT", "IMMUTABLE", "SATISFIED", "READ_ONLY"],
         ],
       },
@@ -702,7 +709,7 @@ export const PERMANENT_RULE_FAMILIES = deepFreeze([
         claims: activationGuardrailClaims(),
         anchors: [
           pattern("<!-- kyw-active-skill-guardrails:v1 -->"),
-          pattern("Only exact Skill syntax or the three managed aliases", "i"),
+          pattern("Only exact Skill syntax or the three (?:managed )?implementation aliases", "i"),
           pattern("Outside an active workflow", "i"),
           pattern("warns and waits; only the immediately next exact reconfirmation", "i"),
         ],
@@ -749,6 +756,8 @@ export const PERMANENT_RULE_FAMILIES = deepFreeze([
         "skills/kyw-task/SKILL.md",
         "skills/kyw-impl/SKILL.md",
         "skills/kyw-impl/references/execution.md",
+        "skills/kyw-deliver/SKILL.md",
+        "skills/kyw-deliver/references/delivery.md",
         "skills/kyw-audit/SKILL.md",
         "skills/kyw-audit/references/audit.md",
       ].map((path) => ({
@@ -757,16 +766,21 @@ export const PERMANENT_RULE_FAMILIES = deepFreeze([
         claims: activationGuardrailClaims(),
         anchors: [
           pattern("<!-- kyw-active-skill-guardrails:v1 -->"),
-          pattern("Skill/mode", "i"),
+          pattern("Skill[\\s,\\/]+mode", "i"),
           pattern("implementation.*Task/Test.*permanent-(?:document|owner).*verification.*delivery", "is"),
           pattern("zero-mutation wait|empty mutation trace", "i"),
           pattern("immediate(?:ly)?[^.]*reconfirm", "i"),
           pattern("own exact route|exact routing/modes|exact `--fix` route", "i"),
           path === "skills/kyw-impl/SKILL.md"
             ? pattern("owner/pair sync", "i")
-            : pattern("sync(?:hronize)?[^.]*Task/Test[^.]*owner", "i"),
-          pattern("bounded action|warned action", "i"),
-          pattern("completion[^.]{0,40}deactivates|completed bounded action expires", "i"),
+            : path.startsWith("skills/kyw-deliver/")
+              ? pattern("affected-owner synchronization|Synchronize only affected mutable owners", "i")
+              : pattern("sync(?:hronize)?[^.]*Task/Test[^.]*owner", "i"),
+          pattern("bounded action|warned action|executing its exact bounds", "i"),
+          pattern(
+            "completion[^.]{0,40}deactivates|completed bounded action expires|terminal report[^.]{0,40}ends it|post-terminal prompts[^.]{0,40}inactive|Stop after the report",
+            "i",
+          ),
         ],
       })),
     ],
@@ -867,8 +881,8 @@ export const PERMANENT_RULE_FAMILIES = deepFreeze([
     owner: {
       path: "skills/kyw-impl/references/execution.md",
       anchors: [
-        pattern("canonical detailed execution procedure"),
-        pattern("HARDENED_EXACT_HEAD"),
+        pattern("canonical detailed repository implementation procedure"),
+        pattern("through truthful `DONE/PASSED`"),
       ],
     },
     projections: [
@@ -879,11 +893,11 @@ export const PERMANENT_RULE_FAMILIES = deepFreeze([
       },
       {
         path: "AGENTS.md",
-        anchors: [pattern("Detailed procedure: `skills/kyw-impl/references/execution\\.md`")],
+        anchors: [pattern("`skills/kyw-impl/references/execution\\.md` through `DONE/PASSED`")],
       },
       {
         path: "README.md",
-        anchors: [pattern("\\$kyw-impl` never allocates or authors a Task")],
+        anchors: [pattern("\\$kyw-impl` never allocates, authors")],
       },
       {
         path: "docs/SPEC.md",
@@ -893,11 +907,47 @@ export const PERMANENT_RULE_FAMILIES = deepFreeze([
         path: "docs/ARCHITECTURE.md",
         anchors: [pattern("kyw-impl", "i")],
       },
+      {
+        path: "skills/kyw-deliver/references/delivery.md",
+        profile: "procedure",
+        anchors: [
+          pattern(
+            "implementation ends at truthful repository `DONE/PASSED` and does not copy or execute this procedure",
+          ),
+        ],
+      },
     ],
     forbiddenDetailedAnchors: [
       pattern("--delivery-expectations-json"),
+      pattern("PR_ACTUAL_HEAD|PR_MERGE_COMPATIBILITY|POST_MERGE_MAIN"),
       pattern("actualHead: \"UNVERIFIED\""),
       pattern("claim: \"FINAL\""),
+    ],
+  },
+  {
+    id: "standard-delivery-procedure",
+    owner: {
+      path: "skills/kyw-deliver/references/delivery.md",
+      anchors: [
+        pattern("canonical detailed Git/GitHub delivery procedure"),
+        pattern("^## Perform the ordered delivery$"),
+        pattern("^### 9\\. final report$"),
+      ],
+    },
+    projections: [
+      {
+        path: "skills/kyw-deliver/SKILL.md",
+        profile: "procedure",
+        anchors: [pattern("\\[STANDARD Delivery and Resume\\]\\(references/delivery\\.md\\)")],
+      },
+      { path: "AGENTS.md", anchors: [pattern("skills/kyw-deliver/references/delivery\\.md")] },
+      { path: "README.md", anchors: [pattern("\\[`kyw-deliver`\\]\\(skills/kyw-deliver/references/delivery\\.md\\)")] },
+      { path: "docs/SPEC.md", anchors: [pattern("skills/kyw-deliver/references/delivery\\.md")] },
+      { path: "docs/ARCHITECTURE.md", anchors: [pattern("skills/kyw-deliver/references/delivery\\.md")] },
+    ],
+    forbiddenDetailedAnchors: [
+      pattern("^### 1\\. exact-path commit$"),
+      pattern("apply-continuity --tasks-root"),
     ],
   },
   {
@@ -1038,7 +1088,7 @@ export const PERMANENT_RULE_FAMILIES = deepFreeze([
         anchors: [pattern("merge compatib", "i"), pattern("post-merge", "i")],
       },
       {
-        path: "skills/kyw-impl/references/execution.md",
+        path: "skills/kyw-deliver/references/delivery.md",
         profile: "procedure",
         anchors: [
           pattern("HARDENED_EXACT_HEAD"),
@@ -1066,7 +1116,7 @@ export const PERMANENT_RULE_FAMILIES = deepFreeze([
       },
       {
         path: "docs/SPEC.md",
-        anchors: [pattern("docs/ARCHITECTURE\\.md` owns stable structure and boundaries")],
+        anchors: [pattern("docs/ARCHITECTURE\\.md` owns structure and boundaries")],
       },
     ],
     forbiddenDetailedAnchors: [
@@ -1130,8 +1180,20 @@ export const PERMANENT_RULE_FAMILIES = deepFreeze([
         path: "skills/kyw-impl/references/execution.md",
         profile: "procedure",
         anchors: [
-          pattern("separately named external categories remain outside it"),
-          pattern("failure grants no retry"),
+          pattern("Local verification grants no delivery or publication authority"),
+        ],
+      },
+      {
+        path: "skills/kyw-deliver/SKILL.md",
+        profile: "procedure",
+        anchors: [pattern("never implements, authors, promotes, audits, publishes")],
+      },
+      {
+        path: "skills/kyw-deliver/references/delivery.md",
+        profile: "procedure",
+        anchors: [
+          pattern("publication, registry/version/tag/Release/submission"),
+          pattern("Failure grants no retry"),
         ],
       },
     ],
@@ -1146,7 +1208,7 @@ export const PERMANENT_RULE_FAMILIES = deepFreeze([
           "Always load applicable `AGENTS\\.md`[\\s\\S]{0,120}active kyw workflow[\\s\\S]{0,120}selected/current Task/Test pair",
         ),
         pattern("Index or search README, SPEC, and ARCHITECTURE first"),
-        pattern("Read all four for `kyw-init`, rebaseline, major redesign"),
+        pattern("Read all four for `kyw-init`, rebaseline, (?:major )?redesign"),
       ],
     },
     projections: [
@@ -1169,6 +1231,14 @@ export const PERMANENT_RULE_FAMILIES = deepFreeze([
       },
       {
         path: "skills/kyw-impl/references/execution.md",
+        profile: "procedure",
+        anchors: [
+          pattern("Search README, SPEC, and ARCHITECTURE headings"),
+          pattern("read owner sections selected by"),
+        ],
+      },
+      {
+        path: "skills/kyw-deliver/references/delivery.md",
         profile: "procedure",
         anchors: [
           pattern("Search README, SPEC, and ARCHITECTURE headings"),
@@ -1226,6 +1296,8 @@ export const INSTRUCTION_SURFACE_PATHS = Object.freeze([
   "skills/kyw-task/SKILL.md",
   "skills/kyw-impl/SKILL.md",
   "skills/kyw-impl/references/execution.md",
+  "skills/kyw-deliver/SKILL.md",
+  "skills/kyw-deliver/references/delivery.md",
   "skills/kyw-audit/SKILL.md",
   "skills/kyw-audit/references/audit.md",
 ]);
@@ -2087,10 +2159,10 @@ function validateActivationScopedSkillGuardrailFamily(family, errors) {
   );
   expect(
     sameJson(
-      contract.invariants?.implementationActionDispositions,
-      manifest.contract.implementationActionDispositions,
+      contract.invariants?.routeActionDispositions,
+      manifest.contract.routeActionDispositions,
     ),
-    `${prefix} implementation action must preserve pair and delivery disposition`,
+    `${prefix} routed action must preserve pair and delivery disposition`,
     errors,
   );
   const states = Array.isArray(contract.states) ? contract.states : [];
@@ -2858,6 +2930,66 @@ function validateSkill(root, skillName, errors) {
         expect(executionReference.includes("Perform the final diff coverage review"), `${skillName} must define final coverage review`, errors);
       }
     }
+    if (skillName === "kyw-deliver") {
+      const deliveryReferencePath = join(
+        root,
+        "skills",
+        skillName,
+        "references",
+        "delivery.md",
+      );
+      expect(
+        skill.includes("Only exact `$kyw-deliver NNNN` selects a Task"),
+        `${skillName} must require its exact four-digit route`,
+        errors,
+      );
+      expect(
+        skill.includes("no bare form, Korean alias, implicit invocation") &&
+          skill.includes("next/continuous mode, chaining, or background behavior"),
+        `${skillName} must reject aliases, implicit routing, chaining, and background behavior`,
+        errors,
+      );
+      expect(
+        skill.includes("[STANDARD Delivery and Resume](references/delivery.md)"),
+        `${skillName} must link its delivery reference`,
+        errors,
+      );
+      expect(
+        !existsSync(join(root, "skills", skillName, "scripts", "task-artifacts.mjs")),
+        `${skillName} must reuse the sole kyw-task adapter rather than duplicate it`,
+        errors,
+      );
+      expect(
+        existsSync(deliveryReferencePath),
+        `${skillName} is missing its delivery reference`,
+        errors,
+      );
+      if (existsSync(deliveryReferencePath)) {
+        const deliveryReference = readFileSync(deliveryReferencePath, "utf8");
+        expect(
+          deliveryReference.includes("## Perform the ordered delivery"),
+          `${skillName} delivery reference must own the ordered procedure`,
+          errors,
+        );
+        expect(
+          deliveryReference.includes("Resume only at the first unfinished safe action"),
+          `${skillName} must resume without repeating completed stages`,
+          errors,
+        );
+        expect(
+          deliveryReference.includes("Never rerun CI") &&
+            deliveryReference.includes("no retry, rerun, or fallback"),
+          `${skillName} must prohibit CI reruns, retries, and fallback`,
+          errors,
+        );
+        expect(
+          deliveryReference.includes("An unchanged satisfied contract-3 result is immutable and report-only") ||
+            deliveryReference.includes("Later unchanged `$kyw-deliver NNNN` is report-only"),
+          `${skillName} must keep satisfied contract-3 delivery immutable and report-only`,
+          errors,
+        );
+      }
+    }
     if (skillName === "kyw-audit") {
       const auditReferencePath = join(root, "skills", skillName, "references", "audit.md");
       expect(skill.includes("[Independent Task Audit](references/audit.md)"), `${skillName} must link its audit reference`, errors);
@@ -3083,8 +3215,8 @@ export function validateFoundation(
     expect(!/foundation|stub/i.test(pluginJson.description ?? ""), "plugin description must describe the implemented release", errors);
     expect(!/foundation|stub/i.test(pluginJson.interface?.longDescription ?? ""), "plugin longDescription must not describe stubs", errors);
     expect(
-      Array.isArray(pluginJson.interface?.defaultPrompt) && pluginJson.interface.defaultPrompt.length === 4,
-      "plugin defaultPrompt must contain the four release workflows",
+      Array.isArray(pluginJson.interface?.defaultPrompt) && pluginJson.interface.defaultPrompt.length === 5,
+      "plugin defaultPrompt must contain the five workflow prompts",
       errors,
     );
     for (const prompt of pluginJson.interface?.defaultPrompt ?? []) {

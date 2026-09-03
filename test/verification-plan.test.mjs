@@ -277,6 +277,12 @@ test("template owners stay focused while an unknown packaged Skill fails closed 
   assert.equal(implementationSkill.changeClass, "skill");
   assert.match(implementationSkill.commands[0].command, /test\/kyw-impl\.test\.mjs/);
 
+  const deliverySkill = planVerification({
+    changedPaths: ["skills/kyw-deliver/references/delivery.md"],
+  });
+  assert.equal(deliverySkill.changeClass, "skill");
+  assert.match(deliverySkill.commands[0].command, /test\/kyw-deliver\.test\.mjs/);
+
   const unknownSkill = planVerification({ changedPaths: ["skills/unknown/SKILL.md"] });
   assert.equal(unknownSkill.changeClass, "runtime");
   assert.deepEqual(unknownSkill.commands.map(({ command }) => command), ["npm run check"]);

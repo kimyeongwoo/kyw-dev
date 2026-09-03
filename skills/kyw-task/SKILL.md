@@ -7,7 +7,7 @@ description: Author a complete dependency-aware Task/Test set or finish one DRAF
 
 ## Inputs and boundary
 
-Goal-style explicit `$kyw-task` publishes the smallest justified complete `READY/READY` pair set and stops; `$kyw-task NNNN` accepts only `DRAFT/DRAFT`. Other states stay unchanged and return exact `$kyw-impl NNNN`. Managed Korean execution aliases belong to `kyw-impl`; execution needs a later `$kyw-impl NNNN`.
+Goal-style explicit `$kyw-task` publishes the smallest justified complete `READY/READY` pair set and stops; `$kyw-task NNNN` accepts only `DRAFT/DRAFT`. Other states stay unchanged and get state-appropriate report-only guidance: repository work uses exact `$kyw-impl NNNN`, pending terminal `STANDARD` delivery uses exact `$kyw-deliver NNNN`, and locally complete, satisfied, or cancelled state gets no invented next action. Managed Korean execution aliases belong only to `kyw-impl`.
 
 <!-- kyw-active-skill-guardrails:v1 -->
 
@@ -73,4 +73,4 @@ Do not print several implementation commands, call `kyw-impl`, implement, edit p
 
 ## Existing DRAFT compatibility
 
-Resolve exact `$kyw-task NNNN` without allocation. If not `DRAFT/DRAFT`, report state and `$kyw-impl NNNN` without editing. Otherwise complete, validate, summarize, then require explicit confirmation before promoting both statuses to `READY`. Preserve ID/path/contract and stop with `$kyw-impl NNNN`.
+Resolve exact `$kyw-task NNNN` without allocation. If not `DRAFT/DRAFT`, report state without editing and give only its applicable exact `$kyw-impl NNNN` or `$kyw-deliver NNNN`; terminal local, satisfied, or cancelled state gets neither. Do not invoke either Skill. Otherwise complete, validate, summarize, then require explicit confirmation before promoting both statuses to `READY`. Preserve ID/path/contract and stop with `$kyw-impl NNNN`.

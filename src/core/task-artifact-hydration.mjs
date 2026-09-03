@@ -30,6 +30,8 @@ import {
 } from "./template-contracts.mjs";
 
 const SHA_PATTERN = /^[a-f0-9]{40}$/;
+const TASK_BRANCH_IDENTITY_PATTERN =
+  /^(?:agent\/)?task(?:\/|-)(\d{4})(?:-|$)/u;
 const MAX_REQUIRED_DELIVERIES = 128;
 const MAX_FIRST_PARENT_COMMITS = 4096;
 const MAX_TASK_PATH_COMMITS = 64;
@@ -96,7 +98,7 @@ function addCompletionClosure(task, byId, selected, visited = new Set()) {
   for (const dependencyId of task.dependencies ?? []) {
     addCompletionClosure(byId.get(dependencyId), byId, selected, visited);
   }
-  if ((completeTask(task) || cancelledTask(task)) && requiresStandardDelivery(task)) {
+  if (completeTask(task) && requiresStandardDelivery(task)) {
     selected.set(task.id, task);
   }
 }
@@ -121,13 +123,21 @@ function addSelectionPrerequisites(task, currentTasks, byId, selected) {
  * Mirrors only the dispatcher's read-only delivery prerequisites. The dispatcher
  * remains the selection authority and is called once after hydration succeeds.
  */
-export function discoverRequiredStandardDeliveries({
+function discoverStandardDeliveryHydrationPlan({
   tasks,
   invocation,
   managedRoutingAvailable = false,
+  parsedInvocation: suppliedParsedInvocation,
 }) {
-  const parsed = parseTaskInvocation(invocation, { managedRoutingAvailable });
-  if (!parsed.recognized || parsed.mode === "FALLBACK_REQUIRED") return Object.freeze([]);
+  const parsed =
+    suppliedParsedInvocation ??
+    parseTaskInvocation(invocation, { managedRoutingAvailable });
+  if (!parsed.recognized || parsed.mode === "FALLBACK_REQUIRED") {
+    return Object.freeze({
+      requiredTasks: Object.freeze([]),
+      currentDeliveryTask: undefined,
+    });
+  }
 
   const byId = new Map(tasks.map((task) => [task.id, task]));
   const currentTasks = tasks
@@ -139,12 +149,19 @@ export function discoverRequiredStandardDeliveries({
   if (parsed.mode === "EXACT") {
     const task = byId.get(parsed.taskId);
     if (!task || (active.length === 1 && active[0].id !== task.id)) {
-      return Object.freeze([]);
+      return Object.freeze({
+        requiredTasks: Object.freeze([]),
+        currentDeliveryTask: undefined,
+      });
     }
-    if (selectableTask(task)) {
+    if (parsed.route === "DELIVERY") {
+      if (completeTask(task) && requiresStandardDelivery(task) && active.length === 0) {
+        addSelectionPrerequisites(task, currentTasks, byId, selected);
+      }
+    } else if (selectableTask(task)) {
       addSelectionPrerequisites(task, currentTasks, byId, selected);
     } else if (completeTask(task) || cancelledTask(task)) {
-      addCompletionClosure(task, byId, selected);
+      addSelectionPrerequisites(task, currentTasks, byId, selected);
     }
   } else if (active.length === 1) {
     addSelectionPrerequisites(active[0], currentTasks, byId, selected);
@@ -164,9 +181,23 @@ export function discoverRequiredStandardDeliveries({
       "DELIVERY_HYDRATION_BOUND_EXCEEDED",
     );
   }
-  return Object.freeze(
-    [...selected.values()].sort((left, right) => left.number - right.number),
-  );
+  const exactTask =
+    parsed.mode === "EXACT" ? byId.get(parsed.taskId) : undefined;
+  const currentDeliveryTask =
+    exactTask && completeTask(exactTask) && requiresStandardDelivery(exactTask)
+      ? exactTask
+      : undefined;
+  if (currentDeliveryTask) selected.delete(currentDeliveryTask.id);
+  return Object.freeze({
+    requiredTasks: Object.freeze(
+      [...selected.values()].sort((left, right) => left.number - right.number),
+    ),
+    currentDeliveryTask,
+  });
+}
+
+export function discoverRequiredStandardDeliveries(options) {
+  return discoverStandardDeliveryHydrationPlan(options).requiredTasks;
 }
 
 function defaultCommandRunner({ command, args, cwd, timeoutMs, maxBuffer }) {
@@ -1060,9 +1091,7 @@ export function parseProtectedMergeTaskIdentity(record) {
   const pullRequestNumber = Number(standardMerge?.[1]);
   if (!positiveInteger(pullRequestNumber)) return undefined;
   const [, , owner, sourceBranch] = standardMerge;
-  const leadingIdentity = /^(?:agent\/)?task(?:\/|-)(\d{4})(?:-|$)/.exec(
-    sourceBranch,
-  );
+  const leadingIdentity = TASK_BRANCH_IDENTITY_PATTERN.exec(sourceBranch);
   if (!leadingIdentity) return undefined;
   return Object.freeze({
     pullRequestNumber,
@@ -1933,6 +1962,8 @@ export async function loadTrustedStandardDeliveryContinuity({
   tasksRoot,
   requiredTasks,
   coverageTasks = requiredTasks,
+  currentDeliveryTaskId,
+  maxUncoveredTasks = 1,
   commandCache,
   githubClient,
 }) {
@@ -2068,11 +2099,24 @@ export async function loadTrustedStandardDeliveryContinuity({
       .filter((task) => !originalCoverageTaskIds.has(task.id))
       .map((task) => task.id),
   );
+  const currentDeliveryIndex = currentDeliveryTaskId
+    ? effectiveCoverageTasks.findIndex(
+        (task) => task.id === currentDeliveryTaskId,
+      )
+    : -1;
+  const continuityCoverageTasks = Object.freeze(
+    currentDeliveryIndex >= checkpoint.coverage.taskCount
+      ? effectiveCoverageTasks.filter(
+          (task) => task.id !== currentDeliveryTaskId,
+        )
+      : [...effectiveCoverageTasks],
+  );
   let coveragePartition;
   try {
     coveragePartition = partitionStandardDeliveryContinuity({
       checkpoint,
-      requiredTasks: effectiveCoverageTasks,
+      requiredTasks: continuityCoverageTasks,
+      maxUncoveredTasks,
     });
   } catch (error) {
     throw hydrationError(
@@ -2111,7 +2155,7 @@ export async function loadTrustedStandardDeliveryContinuity({
     }
   }
   const coverageTaskIds = new Set(
-    effectiveCoverageTasks.map((task) => task.id),
+    continuityCoverageTasks.map((task) => task.id),
   );
   const checkpointCoveredTaskIds = new Set(
     coveragePartition.coveredTasks.map((task) => task.id),
@@ -2132,7 +2176,7 @@ export async function loadTrustedStandardDeliveryContinuity({
       ...requiredOutsideCoverage,
     ]),
   });
-  if (partition.uncoveredTasks.length > 1) {
+  if (partition.uncoveredTasks.length > maxUncoveredTasks) {
     throw hydrationError(
       undefined,
       "CHECKPOINT",
@@ -2326,7 +2370,7 @@ export async function loadTrustedStandardDeliveryContinuity({
     checkpoint,
     partition,
     coveragePartition,
-    coverageTasks: effectiveCoverageTasks,
+    coverageTasks: continuityCoverageTasks,
     recoveredImmutableTaskIds,
     identity,
     source,
@@ -2661,6 +2705,36 @@ function newestRun(runs, taskId, role) {
   )[0];
 }
 
+const RESUMABLE_RUN_STATUSES = new Set([
+  "queued",
+  "in_progress",
+  "pending",
+  "requested",
+  "waiting",
+]);
+
+function assertSuccessfulRunState(run, taskId, role, { pendingAllowed = false } = {}) {
+  if (run.status === "completed" && run.conclusion === "success") return;
+  if (
+    pendingAllowed &&
+    RESUMABLE_RUN_STATUSES.has(run.status) &&
+    !run.conclusion
+  ) {
+    throw hydrationError(
+      taskId,
+      role,
+      `latest run ${run.id} attempt ${run.runAttempt} is ${run.status}`,
+      "DELIVERY_HYDRATION_PENDING",
+    );
+  }
+  throw hydrationError(
+    taskId,
+    role,
+    `latest run ${run.id} attempt ${run.runAttempt} is ${run.status}/${run.conclusion || "NONE"}`,
+    "DELIVERY_BLOCKED",
+  );
+}
+
 export function createGitHubEvidenceClient({
   repository,
   repositoryRoot,
@@ -2725,6 +2799,26 @@ export function createGitHubEvidenceClient({
     },
     async getPullRequest(number, context = {}) {
       return api(`repos/${repository}/pulls/${number}`, context);
+    },
+    async listPullRequests(query, context = {}) {
+      const parameters = new URLSearchParams({
+        ...query,
+        per_page: String(MAX_GITHUB_RESULTS),
+        page: "1",
+      });
+      const response = await api(
+        `repos/${repository}/pulls?${parameters}`,
+        context,
+      );
+      if (!Array.isArray(response) || response.length >= MAX_GITHUB_RESULTS) {
+        throw hydrationError(
+          context.taskId,
+          context.role,
+          `GitHub pull request pagination is malformed or reaches bound ${MAX_GITHUB_RESULTS}`,
+          "DELIVERY_HYDRATION_BOUND_EXCEEDED",
+        );
+      }
+      return response;
     },
     async listReviews(number, context = {}) {
       const reviews = [];
@@ -2884,6 +2978,126 @@ function validatePullRequestSnapshot({
     );
   }
   return pullRequest;
+}
+
+function validateCurrentPullRequestSnapshot({
+  outcome,
+  repository,
+  rawPullRequest,
+  reviews,
+}) {
+  const role = "CURRENT_PULL_REQUEST";
+  const pullRequest = normalizePullRequest(rawPullRequest);
+  if (!positiveInteger(pullRequest.number)) {
+    throw hydrationError(outcome.taskId, role, "number must be a positive integer");
+  }
+  exact(pullRequest.headSha, outcome.outcomeSha, outcome.taskId, role, "head SHA");
+  exact(pullRequest.headRef, outcome.headRef, outcome.taskId, role, "head ref");
+  exact(
+    pullRequest.headRepository,
+    repository,
+    outcome.taskId,
+    role,
+    "head repository",
+  );
+  exact(pullRequest.baseRef, outcome.baseRef, outcome.taskId, role, "base ref");
+  exact(pullRequest.baseSha, outcome.baseSha, outcome.taskId, role, "base SHA");
+  exact(
+    pullRequest.baseRepository,
+    repository,
+    outcome.taskId,
+    role,
+    "base repository",
+  );
+  exact(pullRequest.draft, false, outcome.taskId, role, "draft state");
+  const state = String(rawPullRequest?.state ?? "").toUpperCase();
+  if (state !== "OPEN" || pullRequest.merged) {
+    throw hydrationError(
+      outcome.taskId,
+      role,
+      "a pre-merge delivery probe requires one open, unmerged pull request",
+    );
+  }
+  return Object.freeze({
+    ...pullRequest,
+    state,
+    review: reviews === undefined ? "PENDING" : reviewState(reviews),
+    mergeable:
+      typeof rawPullRequest?.mergeable === "boolean"
+        ? rawPullRequest.mergeable
+        : undefined,
+    mergeableState: String(
+      apiField(rawPullRequest, "mergeableState", "mergeable_state") ?? "",
+    ).toLowerCase(),
+  });
+}
+
+function pendingHardenedDeliverySnapshot({
+  task,
+  repository,
+  outcome,
+  workflowContract,
+  pullRequest,
+  pullRequestStages,
+  stage,
+  chronology = [],
+  commandCache,
+}) {
+  const entry = {
+    schemaVersion: 2,
+    claim: "PENDING",
+    source: "GITHUB",
+    taskId: task.id,
+    repository,
+    outcomeSha: outcome.outcomeSha,
+    pullRequest: {
+      number: pullRequest.number,
+      headSha: pullRequest.headSha,
+      baseRef: pullRequest.baseRef,
+      baseSha: pullRequest.baseSha,
+      state: "OPEN",
+      review: pullRequest.review,
+    },
+    ...(pullRequestStages
+      ? {
+          actualHead: pullRequestStages.actualHead,
+          mergeCompatibility: pullRequestStages.mergeCompatibility,
+        }
+      : {}),
+  };
+  return Object.freeze({
+    deliveryLedger: Object.freeze({ [task.id]: Object.freeze(entry) }),
+    deliveryExpectations: Object.freeze({
+      [task.id]: Object.freeze(
+        hardenedExpectation(outcome, repository, workflowContract),
+      ),
+    }),
+    classifications: Object.freeze({ [task.id]: "HARDENED_EXACT_HEAD" }),
+    chronology: Object.freeze([...chronology]),
+    diagnostics: Object.freeze({
+      taskId: task.id,
+      state: "RESUMABLE",
+      source: "CURRENT_DELIVERY_PROBE",
+      stage,
+      cache: commandCache.stats(),
+    }),
+  });
+}
+
+function resumableCurrentDeliverySnapshot({ task, stage, source, commandCache }) {
+  return Object.freeze({
+    deliveryLedger: Object.freeze({}),
+    deliveryExpectations: Object.freeze({}),
+    classifications: Object.freeze({ [task.id]: "PENDING" }),
+    chronology: Object.freeze([]),
+    diagnostics: Object.freeze({
+      taskId: task.id,
+      state: "RESUMABLE",
+      source,
+      stage,
+      cache: commandCache.stats(),
+    }),
+  });
 }
 
 function validateRun(run, {
@@ -3076,18 +3290,13 @@ function hardenedExpectation(outcome, repository, workflowContract) {
   };
 }
 
-export function normalizeHardenedDeliveryEvidence({
+function normalizeHardenedPullRequestStages({
   outcome,
+  pullRequest,
   repository,
   workflowContract,
   snapshot,
 }) {
-  const pullRequest = validatePullRequestSnapshot({
-    outcome,
-    repository,
-    rawPullRequest: snapshot.pullRequest,
-    reviews: snapshot.reviews ?? [],
-  });
   const prRun = validateRun(normalizeRun(snapshot.pullRequestRun), {
     taskId: outcome.taskId,
     role: "PR_ACTUAL_HEAD",
@@ -3098,25 +3307,7 @@ export function normalizeHardenedDeliveryEvidence({
     sha: outcome.outcomeSha,
     pullRequestNumber: outcome.pullRequestNumber,
   });
-  const postRun = validateRun(normalizeRun(snapshot.postMergeRun), {
-    taskId: outcome.taskId,
-    role: "POST_MERGE_MAIN",
-    repository,
-    workflow: workflowContract.workflow,
-    event: "push",
-    branch: outcome.baseRef,
-    sha: outcome.mergeSha,
-  });
-  if (postRun.id === prRun.id) {
-    throw hydrationError(
-      outcome.taskId,
-      "POST_MERGE_MAIN",
-      "post-main run must be distinct from the pull-request run",
-    );
-  }
-
   const prJobs = (snapshot.pullRequestJobs ?? []).map((job) => normalizeJob(job));
-  const postJobs = (snapshot.postMergeJobs ?? []).map((job) => normalizeJob(job));
   const actualHeadJobs = normalizeAcceptedJobs({
     jobs: prJobs,
     run: prRun,
@@ -3223,6 +3414,83 @@ export function normalizeHardenedDeliveryEvidence({
     );
   }
 
+  return Object.freeze({
+    run: prRun,
+    actualHead: {
+      role: "PR_ACTUAL_HEAD",
+      repository,
+      event: "pull_request",
+      pullRequestNumber: pullRequest.number,
+      workflowId: workflowContract.workflow.id,
+      workflowName: workflowContract.workflow.name,
+      workflowPath: workflowContract.workflow.path,
+      runId: prRun.id,
+      runAttempt: prRun.runAttempt,
+      runHeadSha: prRun.headSha,
+      jobs: actualHeadJobs,
+      gateJob: actualGate,
+    },
+    mergeCompatibility: Object.freeze({
+      role: "PR_MERGE_COMPATIBILITY",
+      repository,
+      event: "pull_request",
+      pullRequestNumber: pullRequest.number,
+      workflowId: workflowContract.workflow.id,
+      workflowName: workflowContract.workflow.name,
+      workflowPath: workflowContract.workflow.path,
+      runId: prRun.id,
+      runAttempt: prRun.runAttempt,
+      runHeadSha: prRun.headSha,
+      syntheticMergeSha: syntheticCommit.sha,
+      expectedBaseSha: outcome.baseSha,
+      actualBaseParentSha: syntheticCommit.parents[0],
+      expectedHeadSha: outcome.outcomeSha,
+      actualHeadParentSha: syntheticCommit.parents[1],
+      job: checkoutLedgerJob(
+        mergeJob,
+        workflowContract.jobKeys[mergeJob.name],
+        syntheticCommit.sha,
+      ),
+    }),
+  });
+}
+
+export function normalizeHardenedDeliveryEvidence({
+  outcome,
+  repository,
+  workflowContract,
+  snapshot,
+}) {
+  const pullRequest = validatePullRequestSnapshot({
+    outcome,
+    repository,
+    rawPullRequest: snapshot.pullRequest,
+    reviews: snapshot.reviews ?? [],
+  });
+  const pullRequestStages = normalizeHardenedPullRequestStages({
+    outcome,
+    pullRequest,
+    repository,
+    workflowContract,
+    snapshot,
+  });
+  const postRun = validateRun(normalizeRun(snapshot.postMergeRun), {
+    taskId: outcome.taskId,
+    role: "POST_MERGE_MAIN",
+    repository,
+    workflow: workflowContract.workflow,
+    event: "push",
+    branch: outcome.baseRef,
+    sha: outcome.mergeSha,
+  });
+  if (postRun.id === pullRequestStages.run.id) {
+    throw hydrationError(
+      outcome.taskId,
+      "POST_MERGE_MAIN",
+      "post-main run must be distinct from the pull-request run",
+    );
+  }
+  const postJobs = (snapshot.postMergeJobs ?? []).map((job) => normalizeJob(job));
   const postMergeJobs = normalizeAcceptedJobs({
     jobs: postJobs,
     run: postRun,
@@ -3259,42 +3527,8 @@ export function normalizeHardenedDeliveryEvidence({
       state: "MERGED",
       review: "CLEAR",
     },
-    actualHead: {
-      role: "PR_ACTUAL_HEAD",
-      repository,
-      event: "pull_request",
-      pullRequestNumber: pullRequest.number,
-      workflowId: workflowContract.workflow.id,
-      workflowName: workflowContract.workflow.name,
-      workflowPath: workflowContract.workflow.path,
-      runId: prRun.id,
-      runAttempt: prRun.runAttempt,
-      runHeadSha: prRun.headSha,
-      jobs: actualHeadJobs,
-      gateJob: actualGate,
-    },
-    mergeCompatibility: {
-      role: "PR_MERGE_COMPATIBILITY",
-      repository,
-      event: "pull_request",
-      pullRequestNumber: pullRequest.number,
-      workflowId: workflowContract.workflow.id,
-      workflowName: workflowContract.workflow.name,
-      workflowPath: workflowContract.workflow.path,
-      runId: prRun.id,
-      runAttempt: prRun.runAttempt,
-      runHeadSha: prRun.headSha,
-      syntheticMergeSha: syntheticCommit.sha,
-      expectedBaseSha: outcome.baseSha,
-      actualBaseParentSha: syntheticCommit.parents[0],
-      expectedHeadSha: outcome.outcomeSha,
-      actualHeadParentSha: syntheticCommit.parents[1],
-      job: checkoutLedgerJob(
-        mergeJob,
-        workflowContract.jobKeys[mergeJob.name],
-        syntheticCommit.sha,
-      ),
-    },
+    actualHead: pullRequestStages.actualHead,
+    mergeCompatibility: pullRequestStages.mergeCompatibility,
     merge: {
       repository,
       branch: outcome.baseRef,
@@ -3944,12 +4178,12 @@ export async function reconcileAuthoritativeJobs({
   });
 }
 
-async function collectHardenedSnapshot({
+async function collectHardenedPullRequestSnapshot({
   client,
   outcome,
+  repository,
   workflowContract,
-  rawPullRequest,
-  reviews,
+  allowPending = false,
 }) {
   const prContext = { taskId: outcome.taskId, role: "PR_RUNS" };
   const rawPrRuns = await client.listRuns(
@@ -3965,7 +4199,196 @@ async function collectHardenedSnapshot({
     branch: outcome.headRef,
   });
   const exactPrRuns = prRuns.filter((run) => run.headSha === outcome.outcomeSha);
+  if (allowPending && exactPrRuns.length === 0) {
+    return Object.freeze({
+      pending: true,
+      stage: "OBSERVE_ACTUAL_HEAD_CI",
+      chronology: Object.freeze(
+        prRuns.map((run) => runSummary(run, outcome.taskId, "PR_RUN")),
+      ),
+    });
+  }
   const selectedPrRun = newestRun(exactPrRuns, outcome.taskId, "PR_ACTUAL_HEAD");
+  if (
+    allowPending &&
+    RESUMABLE_RUN_STATUSES.has(selectedPrRun.status) &&
+    !selectedPrRun.conclusion
+  ) {
+    const rawLatestJobs = await client.listJobs(selectedPrRun.id, "latest", {
+      taskId: outcome.taskId,
+      role: "PR_PENDING_LATEST_JOBS",
+    });
+    if (!Array.isArray(rawLatestJobs)) {
+      throw hydrationError(
+        outcome.taskId,
+        "PR_PENDING_LATEST_JOBS",
+        "latest job collection is malformed",
+      );
+    }
+    const latestJobs = rawLatestJobs.map((raw) => normalizeJob(raw, {
+      apiRunAttempt: apiField(raw, "runAttempt", "run_attempt"),
+      collectionAttempt: selectedPrRun.runAttempt,
+    }));
+    const byName = new Map();
+    for (const job of latestJobs) {
+      if (
+        !positiveInteger(job.id) ||
+        job.runId !== selectedPrRun.id ||
+        job.headSha !== selectedPrRun.headSha ||
+        job.apiRunAttempt !== selectedPrRun.runAttempt ||
+        !job.name ||
+        byName.has(job.name)
+      ) {
+        throw hydrationError(
+          outcome.taskId,
+          "PR_PENDING_LATEST_JOBS",
+          "latest job collection has ambiguous or mismatched identity",
+        );
+      }
+      byName.set(job.name, job);
+    }
+    for (const name of [
+      ...workflowContract.actualHeadJobs,
+      workflowContract.mergeCompatibilityJob,
+      workflowContract.requiredGateJob,
+    ]) {
+      const job = byName.get(name);
+      if (
+        job &&
+        !(RESUMABLE_RUN_STATUSES.has(job.status) && !job.conclusion) &&
+        (job.status !== "completed" || job.conclusion !== "success")
+      ) {
+        throw hydrationError(
+          outcome.taskId,
+          "PR_PENDING_LATEST_JOBS",
+          `latest job ${name} is ${job.status}/${job.conclusion || "NONE"}`,
+          "DELIVERY_BLOCKED",
+        );
+      }
+    }
+    const pendingStageFor = (names, stage) => {
+      for (const name of names) {
+        const job = byName.get(name);
+        if (!job || (RESUMABLE_RUN_STATUSES.has(job.status) && !job.conclusion)) {
+          return stage;
+        }
+      }
+      return undefined;
+    };
+    const actualHeadPending = pendingStageFor(
+      workflowContract.actualHeadJobs,
+      "OBSERVE_ACTUAL_HEAD_CI",
+    );
+    let actualHeadProven = false;
+    let actualHeadChronology = [];
+    if (
+      !actualHeadPending &&
+      typeof client.getRunAttempt === "function" &&
+      typeof client.getJobLog === "function"
+    ) {
+      const attemptState = await acceptedAttempt(client, selectedPrRun, {
+        taskId: outcome.taskId,
+        role: "PR_PENDING_ACTUAL_HEAD",
+      });
+      const acceptedAttemptState = attemptState.accepted;
+      if (
+        !(
+          (acceptedAttemptState.status === "completed" &&
+            acceptedAttemptState.conclusion === "success") ||
+          (RESUMABLE_RUN_STATUSES.has(acceptedAttemptState.status) &&
+            !acceptedAttemptState.conclusion)
+        )
+      ) {
+        throw hydrationError(
+          outcome.taskId,
+          "PR_PENDING_ACTUAL_HEAD",
+          `latest attempt ${acceptedAttemptState.runAttempt} is ${acceptedAttemptState.status}/${acceptedAttemptState.conclusion || "NONE"}`,
+          "DELIVERY_BLOCKED",
+        );
+      }
+      const actualHeadNames = new Set(workflowContract.actualHeadJobs);
+      const actualHeadClient = {
+        async listJobs(...args) {
+          const jobs = await client.listJobs(...args);
+          return Array.isArray(jobs)
+            ? jobs.filter((job) => actualHeadNames.has(job?.name))
+            : jobs;
+        },
+        async getJobLog(...args) {
+          return client.getJobLog(...args);
+        },
+      };
+      const actualHeadState = await reconcileAuthoritativeJobs({
+        client: actualHeadClient,
+        run: attemptState.accepted,
+        attempts: attemptState.attempts,
+        names: workflowContract.actualHeadJobs,
+        evidenceNames: workflowContract.actualHeadJobs,
+        taskId: outcome.taskId,
+        role: "PR_PENDING_ACTUAL_HEAD_JOB_LOG",
+      });
+      normalizeAcceptedJobs({
+        jobs: actualHeadState.jobs,
+        run: attemptState.accepted,
+        taskId: outcome.taskId,
+        role: "PR_ACTUAL_HEAD",
+        names: workflowContract.actualHeadJobs,
+        workflowContract,
+        repository,
+        event: "pull_request",
+        pullRequestNumber: outcome.pullRequestNumber,
+        expectedSha: outcome.outcomeSha,
+      });
+      actualHeadProven = true;
+      actualHeadChronology = [
+        ...attemptState.attempts.map((run) =>
+          runSummary(run, outcome.taskId, "PR_PENDING_ACTUAL_HEAD_ATTEMPT"),
+        ),
+        ...actualHeadState.chronology,
+      ];
+    }
+    const stage =
+      actualHeadPending || !actualHeadProven
+        ? "OBSERVE_ACTUAL_HEAD_CI"
+        : pendingStageFor(
+              [
+                workflowContract.mergeCompatibilityJob,
+                workflowContract.requiredGateJob,
+              ],
+              "OBSERVE_MERGE_COMPATIBILITY",
+            ) ?? "OBSERVE_MERGE_COMPATIBILITY";
+    return Object.freeze({
+      pending: true,
+      stage,
+      chronology: Object.freeze([
+        ...prRuns.map((run) => runSummary(run, outcome.taskId, "PR_RUN")),
+        ...actualHeadChronology,
+        ...latestJobs.map((job) => Object.freeze({
+          taskId: outcome.taskId,
+          role: "PR_PENDING_JOB",
+          runId: selectedPrRun.id,
+          runAttempt: selectedPrRun.runAttempt,
+          jobId: job.id,
+          jobName: job.name,
+          conclusion: job.conclusion,
+        })),
+      ]),
+    });
+  }
+  try {
+    assertSuccessfulRunState(selectedPrRun, outcome.taskId, "PR_ACTUAL_HEAD", {
+      pendingAllowed: allowPending,
+    });
+  } catch (error) {
+    if (!allowPending || error?.code !== "DELIVERY_HYDRATION_PENDING") throw error;
+    return Object.freeze({
+      pending: true,
+      stage: "OBSERVE_ACTUAL_HEAD_CI",
+      chronology: Object.freeze(
+        prRuns.map((run) => runSummary(run, outcome.taskId, "PR_RUN")),
+      ),
+    });
+  }
   const prAttemptState = await acceptedAttempt(client, selectedPrRun, {
     taskId: outcome.taskId,
     role: "PR_ACTUAL_HEAD",
@@ -4006,6 +4429,46 @@ async function collectHardenedSnapshot({
     taskId: outcome.taskId,
     role: "PR_MERGE_COMPATIBILITY",
   });
+  return Object.freeze({
+    pending: false,
+    pullRequestRun: acceptedPrRun,
+    pullRequestJobs,
+    syntheticCommit,
+    chronology: Object.freeze([
+      ...prRuns.map((run) => runSummary(run, outcome.taskId, "PR_RUN")),
+      ...prAttemptState.attempts.map((run) =>
+        runSummary(run, outcome.taskId, "PR_ATTEMPT"),
+      ),
+      ...prJobState.chronology,
+    ]),
+  });
+}
+
+async function collectHardenedSnapshot({
+  client,
+  outcome,
+  repository,
+  workflowContract,
+  rawPullRequest,
+  reviews,
+}) {
+  validatePullRequestSnapshot({
+    outcome,
+    repository,
+    rawPullRequest,
+    reviews,
+  });
+  const pullRequestSnapshot = await collectHardenedPullRequestSnapshot({
+    client,
+    outcome,
+    repository,
+    workflowContract,
+  });
+  const {
+    pullRequestRun: acceptedPrRun,
+    pullRequestJobs,
+    syntheticCommit,
+  } = pullRequestSnapshot;
 
   const rawPostRuns = await client.listRuns(
     workflowContract.workflow.id,
@@ -4019,7 +4482,18 @@ async function collectHardenedSnapshot({
     event: "push",
     branch: outcome.baseRef,
   }).filter((run) => run.headSha === outcome.mergeSha);
+  if (postRuns.length === 0) {
+    throw hydrationError(
+      outcome.taskId,
+      "POST_MERGE_MAIN",
+      "required workflow run is not visible yet",
+      "DELIVERY_HYDRATION_PENDING",
+    );
+  }
   const selectedPostRun = newestRun(postRuns, outcome.taskId, "POST_MERGE_MAIN");
+  assertSuccessfulRunState(selectedPostRun, outcome.taskId, "POST_MERGE_MAIN", {
+    pendingAllowed: true,
+  });
   const postAttemptState = await acceptedAttempt(client, selectedPostRun, {
     taskId: outcome.taskId,
     role: "POST_MERGE_MAIN",
@@ -4041,14 +4515,10 @@ async function collectHardenedSnapshot({
   const postMergeJobs = postJobState.jobs;
 
   const chronology = [
-    ...prRuns.map((run) => runSummary(run, outcome.taskId, "PR_RUN")),
-    ...prAttemptState.attempts.map((run) =>
-      runSummary(run, outcome.taskId, "PR_ATTEMPT"),
-    ),
+    ...pullRequestSnapshot.chronology,
     ...postAttemptState.attempts.map((run) =>
       runSummary(run, outcome.taskId, "POST_MAIN_ATTEMPT"),
     ),
-    ...prJobState.chronology,
     ...postJobState.chronology,
   ];
   return {
@@ -4135,6 +4605,497 @@ function freezeHydrationResult({
     ...(preparedCheckpoint
       ? { preparedCheckpoint: Object.freeze(preparedCheckpoint) }
       : {}),
+  });
+}
+
+function missingCurrentDeliveryOutcome(error, taskId) {
+  return (
+    error?.code === "DELIVERY_HYDRATION_FAILED" &&
+    typeof error.message === "string" &&
+    error.message.includes(`Task ${taskId} LOCAL_GIT:`) &&
+    error.message.includes(
+      "could not map the terminal pair to an exact two-parent Task delivery merge",
+    )
+  );
+}
+
+function branchOwnsTask(branch, taskId) {
+  return TASK_BRANCH_IDENTITY_PATTERN.exec(branch)?.[1] === taskId;
+}
+
+async function currentDeliveryWorkflowContract({
+  task,
+  identity,
+  localHeadSha,
+  commandCache,
+}) {
+  const workflowText = await showGitFile(
+    commandCache,
+    identity.repositoryRoot,
+    localHeadSha,
+    WORKFLOW_PATH,
+    task.id,
+  );
+  const localContract = workflowText
+    ? parseHardenedWorkflowContract(workflowText)
+    : false;
+  if (!localContract) {
+    throw hydrationError(
+      task.id,
+      "CURRENT_DELIVERY_WORKFLOW",
+      "selected head does not contain the hardened exact-SHA workflow contract",
+    );
+  }
+  const workflow = normalizeWorkflow(
+    await identity.githubClient.getWorkflow({
+      taskId: task.id,
+      role: "CURRENT_DELIVERY_WORKFLOW",
+    }),
+  );
+  if (
+    !positiveInteger(workflow.id) ||
+    workflow.name !== "CI" ||
+    workflow.path !== WORKFLOW_PATH ||
+    workflow.state !== "active"
+  ) {
+    throw hydrationError(
+      task.id,
+      "CURRENT_DELIVERY_WORKFLOW",
+      "workflow ID/name/path/state is malformed or unexpected",
+    );
+  }
+  return Object.freeze({
+    ...localContract,
+    workflow: Object.freeze({
+      id: workflow.id,
+      name: workflow.name,
+      path: workflow.path,
+    }),
+  });
+}
+
+export async function probeCurrentStandardDeliveryState({
+  tasksRoot,
+  task,
+  commandCache,
+  githubClient,
+}) {
+  const identity = await discoverAlignedMainIdentity({
+    tasksRoot,
+    commandCache,
+    githubClient,
+  });
+  const branch = await gitText(
+    commandCache,
+    identity.repositoryRoot,
+    ["symbolic-ref", "--quiet", "--short", "HEAD"],
+    { taskId: task.id, role: "CURRENT_DELIVERY_BRANCH" },
+  );
+  if (!branchOwnsTask(branch, task.id)) {
+    throw hydrationError(
+      task.id,
+      "CURRENT_DELIVERY_BRANCH",
+      "current branch does not prove selected-Task ownership",
+    );
+  }
+  const localHeadSha = await gitText(
+    commandCache,
+    identity.repositoryRoot,
+    ["rev-parse", "HEAD"],
+    { taskId: task.id, role: "CURRENT_DELIVERY_BRANCH" },
+  );
+  requireSha(localHeadSha, task.id, "CURRENT_DELIVERY_BRANCH", "local head");
+  if (
+    localHeadSha !== identity.currentMainSha &&
+    !(await gitIsAncestor(
+      commandCache,
+      identity.repositoryRoot,
+      identity.currentMainSha,
+      localHeadSha,
+    ))
+  ) {
+    throw hydrationError(
+      task.id,
+      "CURRENT_DELIVERY_BRANCH",
+      "local selected head is not based on exact aligned main",
+    );
+  }
+  const directBranch = await gitText(
+    commandCache,
+    identity.repositoryRoot,
+    ["ls-remote", "--heads", "origin", `refs/heads/${branch}`],
+    { taskId: task.id, role: "CURRENT_DELIVERY_REMOTE" },
+  );
+  const remoteLines = directBranch ? directBranch.split(/\r?\n/) : [];
+  if (remoteLines.length > 1) {
+    throw hydrationError(
+      task.id,
+      "CURRENT_DELIVERY_REMOTE",
+      "remote selected branch identity is ambiguous",
+    );
+  }
+  const [remoteHeadSha, remoteRef, ...remoteRemainder] = directBranch
+    ? directBranch.split(/\s+/)
+    : [];
+  if (
+    directBranch &&
+    (!SHA_PATTERN.test(remoteHeadSha ?? "") ||
+      remoteRef !== `refs/heads/${branch}` ||
+      remoteRemainder.length > 0)
+  ) {
+    throw hydrationError(
+      task.id,
+      "CURRENT_DELIVERY_REMOTE",
+      "remote selected branch identity is malformed",
+    );
+  }
+  const [owner] = identity.repository.split("/");
+  const pullRequests = await identity.githubClient.listPullRequests(
+    {
+      state: "all",
+      head: `${owner}:${branch}`,
+      base: "main",
+    },
+    { taskId: task.id, role: "CURRENT_PULL_REQUESTS" },
+  );
+  if (pullRequests.length > 1) {
+    throw hydrationError(
+      task.id,
+      "CURRENT_PULL_REQUESTS",
+      "selected branch maps to more than one pull request",
+    );
+  }
+  if (localHeadSha === identity.currentMainSha) {
+    if (remoteHeadSha || pullRequests.length > 0) {
+      throw hydrationError(
+        task.id,
+        "CURRENT_DELIVERY_REMOTE",
+        "existing remote or pull-request history conflicts with the pre-commit state",
+      );
+    }
+    return resumableCurrentDeliverySnapshot({
+      task,
+      stage: "COMMIT",
+      source: "CURRENT_DELIVERY_PROBE",
+      commandCache,
+    });
+  }
+  const workflowContract = await currentDeliveryWorkflowContract({
+    task,
+    identity,
+    localHeadSha,
+    commandCache,
+  });
+  if (!remoteHeadSha) {
+    if (pullRequests.length > 0) {
+      throw hydrationError(
+        task.id,
+        "CURRENT_DELIVERY_REMOTE",
+        "pull-request history exists but the exact remote selected branch is missing",
+      );
+    }
+    return resumableCurrentDeliverySnapshot({
+      task,
+      stage: "PUSH",
+      source: "CURRENT_DELIVERY_PROBE",
+      commandCache,
+    });
+  }
+  if (remoteHeadSha !== localHeadSha) {
+    if (
+      !(await gitIsAncestor(
+        commandCache,
+        identity.repositoryRoot,
+        remoteHeadSha,
+        localHeadSha,
+      ))
+    ) {
+      throw hydrationError(
+        task.id,
+        "CURRENT_DELIVERY_REMOTE",
+        "remote selected head diverges from the local selected head",
+      );
+    }
+    if (pullRequests.length > 0) {
+      throw hydrationError(
+        task.id,
+        "CURRENT_DELIVERY_REMOTE",
+        "pull-request history exists at a different remote selected head",
+      );
+    }
+    return resumableCurrentDeliverySnapshot({
+      task,
+      stage: "PUSH",
+      source: "CURRENT_DELIVERY_PROBE",
+      commandCache,
+    });
+  }
+
+  if (pullRequests.length === 0) {
+    return resumableCurrentDeliverySnapshot({
+      task,
+      stage: "CREATE_PR",
+      source: "CURRENT_DELIVERY_PROBE",
+      commandCache,
+    });
+  }
+  const rawPullRequest = pullRequests[0];
+  const outcome = Object.freeze({
+    taskId: task.id,
+    baseRef: "main",
+    baseSha: identity.currentMainSha,
+    outcomeSha: localHeadSha,
+    pullRequestNumber: Number(rawPullRequest.number),
+    headRef: branch,
+  });
+  let pullRequest = validateCurrentPullRequestSnapshot({
+    outcome,
+    repository: identity.repository,
+    rawPullRequest,
+    reviews: undefined,
+  });
+  const pullRequestSnapshot = await collectHardenedPullRequestSnapshot({
+    client: identity.githubClient,
+    outcome,
+    repository: identity.repository,
+    workflowContract,
+    allowPending: true,
+  });
+  if (pullRequestSnapshot.pending) {
+    return pendingHardenedDeliverySnapshot({
+      task,
+      repository: identity.repository,
+      outcome,
+      workflowContract,
+      pullRequest,
+      stage: pullRequestSnapshot.stage,
+      chronology: pullRequestSnapshot.chronology,
+      commandCache,
+    });
+  }
+  const reviews = await identity.githubClient.listReviews(rawPullRequest.number, {
+    taskId: task.id,
+    role: "CURRENT_PULL_REQUEST_REVIEWS",
+  });
+  pullRequest = validateCurrentPullRequestSnapshot({
+    outcome,
+    repository: identity.repository,
+    rawPullRequest,
+    reviews,
+  });
+  const pullRequestStages = normalizeHardenedPullRequestStages({
+    outcome,
+    pullRequest,
+    repository: identity.repository,
+    workflowContract,
+    snapshot: {
+      pullRequestRun: pullRequestSnapshot.pullRequestRun,
+      pullRequestJobs: pullRequestSnapshot.pullRequestJobs,
+      syntheticCommit: pullRequestSnapshot.syntheticCommit,
+    },
+  });
+  if (pullRequest.review === "CHANGES_REQUESTED") {
+    return pendingHardenedDeliverySnapshot({
+      task,
+      repository: identity.repository,
+      outcome,
+      workflowContract,
+      pullRequest,
+      pullRequestStages,
+      stage: "INSPECT_REVIEW_AND_MERGEABILITY",
+      chronology: pullRequestSnapshot.chronology,
+      commandCache,
+    });
+  }
+  if (
+    pullRequest.mergeable !== true ||
+    pullRequest.mergeableState !== "clean"
+  ) {
+    throw hydrationError(
+      task.id,
+      "CURRENT_PULL_REQUEST",
+      `reviewed pull request is not safely mergeable (${pullRequest.mergeableState || "UNKNOWN"})`,
+      "DELIVERY_BLOCKED",
+    );
+  }
+  return pendingHardenedDeliverySnapshot({
+    task,
+    repository: identity.repository,
+    outcome,
+    workflowContract,
+    pullRequest,
+    pullRequestStages,
+    stage: "MERGE_EXPECTED_HEAD",
+    chronology: pullRequestSnapshot.chronology,
+    commandCache,
+  });
+}
+
+async function hydrateSelectedStandardDeliverySnapshot({
+  tasksRoot,
+  task,
+  contractTasks,
+  commandRunner,
+  localDiscovery,
+  deliveryCollector,
+  githubClient,
+  currentDeliveryProbe,
+  allowCurrentDeliveryProbe = false,
+}) {
+  const commandCache = createInvocationCommandCache({ runner: commandRunner });
+  let local;
+  try {
+    local = await localDiscovery({
+      tasksRoot: path.resolve(tasksRoot),
+      requiredTasks: Object.freeze([task]),
+      contractTasks,
+      commandCache,
+    });
+  } catch (error) {
+    if (!missingCurrentDeliveryOutcome(error, task.id)) throw error;
+    if (!allowCurrentDeliveryProbe) {
+      return Object.freeze({
+        deliveryLedger: Object.freeze({}),
+        deliveryExpectations: Object.freeze({}),
+        classifications: Object.freeze({ [task.id]: "PENDING" }),
+        chronology: Object.freeze([]),
+        diagnostics: Object.freeze({
+          taskId: task.id,
+          state: "RESUMABLE",
+          source: "IMPLEMENTATION_DELIVERY_HANDOFF",
+          stage: "EXACT_DELIVERY_REQUIRED",
+          issue: error.message,
+          cache: commandCache.stats(),
+        }),
+      });
+    }
+    return currentDeliveryProbe({
+      tasksRoot: path.resolve(tasksRoot),
+      task,
+      commandCache,
+      githubClient,
+    });
+  }
+  if (
+    !isRecord(local) ||
+    !Array.isArray(local.outcomes) ||
+    local.outcomes.length !== 1 ||
+    local.outcomes[0]?.taskId !== task.id
+  ) {
+    throw hydrationError(
+      task.id,
+      "CURRENT_DELIVERY",
+      "selected delivery discovery returned a partial or malformed outcome",
+    );
+  }
+  assertFutureTerminalOutcomeImmutable(task, local.outcomes[0]);
+  let collected;
+  try {
+    collected = await deliveryCollector({
+      local,
+      commandCache,
+      githubClient,
+    });
+  } catch (error) {
+    if (error?.code !== "DELIVERY_HYDRATION_PENDING") throw error;
+    return Object.freeze({
+      deliveryLedger: Object.freeze({}),
+      deliveryExpectations: Object.freeze({}),
+      classifications: Object.freeze({ [task.id]: "PENDING" }),
+      chronology: Object.freeze([]),
+      diagnostics: Object.freeze({
+        taskId: task.id,
+        state: "RESUMABLE",
+        source: "CANONICAL_DELIVERY_GRAPH_PENDING",
+        stage: "OBSERVE_POST_MAIN_CI",
+        issue: error.message,
+        cache: commandCache.stats(),
+      }),
+    });
+  }
+  return Object.freeze({
+    deliveryLedger: collected.deliveryLedger,
+    deliveryExpectations: collected.deliveryExpectations,
+    classifications: collected.classifications,
+    chronology: collected.chronology,
+    diagnostics: Object.freeze({
+      taskId: task.id,
+      state: "SATISFIED",
+      source: "CANONICAL_DELIVERY_GRAPH",
+      cache: commandCache.stats(),
+    }),
+  });
+}
+
+async function mergeSelectedStandardDeliverySnapshot({
+  hydrated,
+  currentDeliveryTask,
+  tasksRoot,
+  commandRunner,
+  localDiscovery,
+  deliveryCollector,
+  githubClient,
+  currentDeliveryHydrator,
+  currentDeliveryProbe,
+  allowCurrentDeliveryProbe = false,
+}) {
+  const selectedTask = currentDeliveryTask;
+  if (!selectedTask || hydrated.deliveryLedger[selectedTask.id] !== undefined) {
+    return hydrated;
+  }
+  const contractTasks = Object.freeze(
+    [selectedTask].filter((task) =>
+      isQueueAwareTaskContractVersion(task.contractVersion),
+    ),
+  );
+  const current = await currentDeliveryHydrator({
+    tasksRoot,
+    task: selectedTask,
+    contractTasks,
+    commandRunner,
+    localDiscovery,
+    deliveryCollector,
+    githubClient,
+    currentDeliveryProbe,
+    allowCurrentDeliveryProbe,
+  });
+  const acceptedIds = new Set(
+    Object.values(hydrated.deliveryLedger).flatMap(evidenceJobIds),
+  );
+  for (const entry of Object.values(current.deliveryLedger)) {
+    for (const jobId of evidenceJobIds(entry)) {
+      if (acceptedIds.has(jobId)) {
+        throw hydrationError(
+          selectedTask.id,
+          "CURRENT_DELIVERY",
+          `accepted job ID ${jobId} is reused across delivery graphs`,
+        );
+      }
+      acceptedIds.add(jobId);
+    }
+  }
+  return freezeHydrationResult({
+    deliveryLedger: {
+      ...hydrated.deliveryLedger,
+      ...current.deliveryLedger,
+    },
+    deliveryExpectations: {
+      ...hydrated.deliveryExpectations,
+      ...current.deliveryExpectations,
+    },
+    preparedCheckpoint: hydrated.preparedCheckpoint,
+    diagnostics: {
+      ...hydrated.diagnostics,
+      classifications: Object.freeze({
+        ...(hydrated.diagnostics?.classifications ?? {}),
+        ...current.classifications,
+      }),
+      chronology: Object.freeze([
+        ...(hydrated.diagnostics?.chronology ?? []),
+        ...current.chronology,
+      ]),
+      currentDelivery: current.diagnostics,
+    },
   });
 }
 
@@ -4227,6 +5188,7 @@ async function collectNormalizedDeliveryOutcomes({
       const snapshot = await collectHardenedSnapshot({
         client,
         outcome: observedOutcome,
+        repository: local.repository,
         workflowContract,
         rawPullRequest,
         reviews,
@@ -4394,9 +5356,15 @@ export async function bootstrapStandardDeliveryContinuity({
   const parsedInvocation = parseTaskInvocation(invocation, {
     managedRoutingAvailable,
   });
+  const invokedTask = queue.tasks.find(
+    (task) => task.id === parsedInvocation.taskId,
+  );
   if (
     parsedInvocation.mode === "EXACT" &&
-    requiredTasks.some((task) => task.id === parsedInvocation.taskId)
+    (requiredTasks.some((task) => task.id === parsedInvocation.taskId) ||
+      (invokedTask &&
+        completeTask(invokedTask) &&
+        requiresStandardDelivery(invokedTask)))
   ) {
     throw hydrationError(
       parsedInvocation.taskId,
@@ -4540,6 +5508,7 @@ export async function applyStandardDeliveryContinuityTransition({
   transitionToken,
   commandRunner,
   queueInspector = inspectTaskQueue,
+  githubClient,
 } = {}) {
   let prepared;
   try {
@@ -4560,185 +5529,453 @@ export async function applyStandardDeliveryContinuityTransition({
     );
   }
   const resolvedTasksRoot = path.resolve(tasksRoot);
-  const queue = await queueInspector(resolvedTasksRoot);
-  if (!isRecord(queue) || !Array.isArray(queue.tasks) || !Array.isArray(queue.errors)) {
-    throw hydrationError(
-      selectedTaskId,
-      "CHECKPOINT_APPLY",
-      "queue inspection returned a malformed response",
-    );
-  }
-  if (queue.errors.length > 0) {
-    throw hydrationError(
-      selectedTaskId,
-      "CHECKPOINT_APPLY",
-      `queue validation failed: ${queue.errors.join("; ")}`,
-    );
-  }
-  const selectedTask = queue.tasks.find((task) => task.id === selectedTaskId);
-  if (
-    !selectedTask ||
-    selectedTask.taskStatus !== "IN_PROGRESS" ||
-    selectedTask.testStatus !== "RUNNING"
-  ) {
-    throw hydrationError(
-      selectedTaskId,
-      "CHECKPOINT_APPLY",
-      "selected Task must own the active IN_PROGRESS/RUNNING lifecycle",
-    );
-  }
-  const requiredTasks = discoverRequiredStandardDeliveries({
-    tasks: queue.tasks,
-    invocation: `$kyw-impl ${selectedTaskId}`,
-    managedRoutingAvailable: false,
-  });
-  let partition;
-  try {
-    partition = partitionStandardDeliveryContinuity({
-      checkpoint: prepared.checkpoint,
-      requiredTasks,
+  const validateQueue = async () => {
+    const queue = await queueInspector(resolvedTasksRoot);
+    if (
+      !isRecord(queue) ||
+      !Array.isArray(queue.tasks) ||
+      !Array.isArray(queue.errors)
+    ) {
+      throw hydrationError(
+        selectedTaskId,
+        "CHECKPOINT_APPLY",
+        "queue inspection returned a malformed response",
+      );
+    }
+    if (queue.errors.length > 0) {
+      throw hydrationError(
+        selectedTaskId,
+        "CHECKPOINT_APPLY",
+        `queue validation failed: ${queue.errors.join("; ")}`,
+      );
+    }
+    const activeTasks = queue.tasks.filter(activeTask);
+    if (activeTasks.length > 0) {
+      throw hydrationError(
+        selectedTaskId,
+        "CHECKPOINT_APPLY",
+        `continuity cannot apply while implementation is active: ${activeTasks.map((task) => task.id).join(", ")}`,
+      );
+    }
+    const selectedTask = queue.tasks.find((task) => task.id === selectedTaskId);
+    if (
+      !selectedTask ||
+      selectedTask.taskStatus !== "DONE" ||
+      selectedTask.testStatus !== "PASSED" ||
+      !requiresStandardDelivery(selectedTask)
+    ) {
+      throw hydrationError(
+        selectedTaskId,
+        "CHECKPOINT_APPLY",
+        "selected Task must be terminal DONE/PASSED STANDARD delivery work",
+      );
+    }
+    const requiredTasks = discoverRequiredStandardDeliveries({
+      tasks: queue.tasks,
+      invocation: `$kyw-deliver ${selectedTaskId}`,
+      managedRoutingAvailable: false,
     });
-  } catch (error) {
-    throw hydrationError(
-      selectedTaskId,
-      "CHECKPOINT_APPLY",
-      error instanceof Error ? error.message : "prepared coverage is invalid",
-      error?.code ?? "DELIVERY_CONTINUITY_INVALID",
-    );
-  }
-  if (partition.uncoveredTasks.length !== 0) {
-    throw hydrationError(
-      selectedTaskId,
-      "CHECKPOINT_APPLY",
-      "prepared checkpoint does not cover the exact prior delivery set",
-    );
-  }
+    let partition;
+    try {
+      partition = partitionStandardDeliveryContinuity({
+        checkpoint: prepared.checkpoint,
+        requiredTasks,
+      });
+    } catch (error) {
+      throw hydrationError(
+        selectedTaskId,
+        "CHECKPOINT_APPLY",
+        error instanceof Error ? error.message : "prepared coverage is invalid",
+        error?.code ?? "DELIVERY_CONTINUITY_INVALID",
+      );
+    }
+    if (partition.uncoveredTasks.length !== 0) {
+      throw hydrationError(
+        selectedTaskId,
+        "CHECKPOINT_APPLY",
+        "prepared checkpoint does not cover the exact prior delivery set",
+      );
+    }
+    return Object.freeze({ queue, requiredTasks });
+  };
 
-  const commandCache = createInvocationCommandCache({ runner: commandRunner });
-  const repositoryRoot = await gitText(
-    commandCache,
-    resolvedTasksRoot,
-    ["rev-parse", "--show-toplevel"],
-    { taskId: selectedTaskId, role: "CHECKPOINT_APPLY" },
-  );
-  if (!(await tasksRootMatchesRepository(resolvedTasksRoot, repositoryRoot))) {
-    throw hydrationError(
-      selectedTaskId,
-      "CHECKPOINT_APPLY",
-      "tasks root must be the repository docs/tasks directory",
+  const desiredBytes = `${JSON.stringify(prepared.checkpoint, null, 2)}\n`;
+  const checkpointBytesKind = (bytes) => {
+    if (bytes === desiredBytes) return "DESIRED";
+    if (bytes === undefined) {
+      return prepared.checkpoint.previousCheckpointDigest === "GENESIS"
+        ? "PREVIOUS"
+        : "UNKNOWN";
+    }
+    try {
+      return parseStandardDeliveryContinuityCheckpoint(bytes)
+        .checkpointDigest === prepared.checkpoint.previousCheckpointDigest
+        ? "PREVIOUS"
+        : "UNKNOWN";
+    } catch {
+      return "UNKNOWN";
+    }
+  };
+  const validateCheckpointGitTuple = async (commandCache, repositoryRoot) => {
+    const relativePath = STANDARD_DELIVERY_CONTINUITY_RELATIVE_PATH;
+    const [headBytes, indexBytes, headEntryText, indexEntryText] = await Promise.all([
+      showGitFile(commandCache, repositoryRoot, "HEAD", relativePath, selectedTaskId),
+      showGitFile(commandCache, repositoryRoot, "", relativePath, selectedTaskId),
+      gitPorcelainText(
+        commandCache,
+        repositoryRoot,
+        ["ls-tree", "HEAD", "--", relativePath],
+        { taskId: selectedTaskId, role: "CHECKPOINT_APPLY" },
+      ),
+      gitPorcelainText(
+        commandCache,
+        repositoryRoot,
+        ["ls-files", "--stage", "--", relativePath],
+        { taskId: selectedTaskId, role: "CHECKPOINT_APPLY" },
+      ),
+    ]);
+    const validateEntry = ({ source, text, bytes }) => {
+      const entries = parseTerminalArtifactGitEntries(text, { source });
+      const validEntry =
+        entries?.length === 1 &&
+        entries[0].relativePath === relativePath &&
+        entries[0].mode === "100644" &&
+        (source === "tree"
+          ? entries[0].type === "blob"
+          : entries[0].stage === 0);
+      if (
+        (!entries || entries.length > 1) ||
+        (entries.length === 0 && bytes !== undefined) ||
+        (entries.length === 1 && (!validEntry || bytes === undefined))
+      ) {
+        throw hydrationError(
+          selectedTaskId,
+          "CHECKPOINT_APPLY",
+          `checkpoint ${source === "tree" ? "HEAD" : "index"} entry must be absent or exactly one stage-0 regular 100644 blob`,
+        );
+      }
+    };
+    validateEntry({ source: "tree", text: headEntryText, bytes: headBytes });
+    validateEntry({ source: "index", text: indexEntryText, bytes: indexBytes });
+    const target = path.resolve(
+      resolvedTasksRoot,
+      STANDARD_DELIVERY_CONTINUITY_FILE,
     );
-  }
-  const [
-    currentBranch,
-    currentMainSha,
-    currentHeadSha,
-    upstreamSha,
-    cachedMainSha,
-    originUrl,
-  ] = await Promise.all([
-    gitText(commandCache, repositoryRoot, ["branch", "--show-current"], {
-      taskId: selectedTaskId,
-      role: "CHECKPOINT_APPLY",
-    }),
-    gitText(commandCache, repositoryRoot, ["rev-parse", "refs/heads/main"], {
-      taskId: selectedTaskId,
-      role: "CHECKPOINT_APPLY",
-    }),
-    gitText(commandCache, repositoryRoot, ["rev-parse", "HEAD"], {
-      taskId: selectedTaskId,
-      role: "CHECKPOINT_APPLY",
-    }),
-    gitText(commandCache, repositoryRoot, ["rev-parse", "main@{upstream}"], {
-      taskId: selectedTaskId,
-      role: "CHECKPOINT_APPLY",
-    }),
-    gitText(
+    let worktreeBytes;
+    try {
+      const targetState = await lstat(target);
+      if (targetState.isSymbolicLink() || !targetState.isFile()) {
+        throw hydrationError(
+          selectedTaskId,
+          "CHECKPOINT_APPLY",
+          "checkpoint worktree target must be absent or a regular file",
+        );
+      }
+      worktreeBytes = await readFile(target, "utf8");
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+    }
+    const tuple = [headBytes, indexBytes, worktreeBytes].map(checkpointBytesKind);
+    const tupleKey = tuple.join("/");
+    if (
+      tuple.includes("UNKNOWN") ||
+      !new Set([
+        "PREVIOUS/PREVIOUS/PREVIOUS",
+        "PREVIOUS/PREVIOUS/DESIRED",
+        "PREVIOUS/DESIRED/DESIRED",
+        "DESIRED/DESIRED/DESIRED",
+      ]).has(tupleKey)
+    ) {
+      throw hydrationError(
+        selectedTaskId,
+        "CHECKPOINT_APPLY",
+        `checkpoint HEAD/index/worktree state is unsafe (${tupleKey})`,
+      );
+    }
+    return Object.freeze({ head: tuple[0], index: tuple[1], worktree: tuple[2] });
+  };
+
+  const validatePreparedTerminalPairs = async ({
+    requiredTasks,
+    commandCache,
+    repositoryRoot,
+  }) => {
+    const pairs = requiredTasks.map((task) => {
+      const artifacts = [
+        { kind: "TASK", absolutePath: task.taskPath },
+        { kind: "TEST", absolutePath: task.testPath },
+      ].map(({ kind, absolutePath }) => {
+        if (typeof absolutePath !== "string" || !path.isAbsolute(absolutePath)) {
+          throw hydrationError(
+            task.id,
+            "CHECKPOINT_PAIR_STATE",
+            `${kind}.md path must be one absolute canonical Task-pair path`,
+          );
+        }
+        const resolvedPath = path.resolve(absolutePath);
+        const relativePath = path
+          .relative(resolvedTasksRoot, resolvedPath)
+          .replaceAll("\\", "/");
+        if (
+          path.isAbsolute(relativePath) ||
+          relativePath === ".." ||
+          relativePath.startsWith("../")
+        ) {
+          throw hydrationError(
+            task.id,
+            "CHECKPOINT_PAIR_STATE",
+            `${kind}.md path escapes the exact tasks root`,
+          );
+        }
+        const repositoryRelativePath = `docs/tasks/${relativePath}`;
+        const match = taskPairPathMatch(task.id, repositoryRelativePath);
+        if (!match || match.kind !== kind) {
+          throw hydrationError(
+            task.id,
+            "CHECKPOINT_PAIR_STATE",
+            `${kind}.md path is not the exact canonical Task ${task.id} pair path`,
+          );
+        }
+        return Object.freeze({
+          kind,
+          absolutePath: resolvedPath,
+          relativePath: repositoryRelativePath,
+          directory: match.directory,
+        });
+      });
+      if (artifacts[0].directory !== artifacts[1].directory) {
+        throw hydrationError(
+          task.id,
+          "CHECKPOINT_PAIR_STATE",
+          "Task/Test paths do not name one canonical pair directory",
+        );
+      }
+      return Object.freeze({ task, artifacts: Object.freeze(artifacts) });
+    });
+    const relativePaths = pairs.flatMap(({ artifacts }) =>
+      artifacts.map(({ relativePath }) => relativePath),
+    );
+    const [treeEntries, indexEntries] = await Promise.all([
+      readTerminalArtifactGitEntries({
+        cache: commandCache,
+        repositoryRoot,
+        source: "tree",
+        revision: prepared.checkpoint.sourceMainSha,
+        relativePaths,
+        taskId: selectedTaskId,
+        role: "CHECKPOINT_PAIR_STATE",
+      }),
+      readTerminalArtifactGitEntries({
+        cache: commandCache,
+        repositoryRoot,
+        source: "index",
+        relativePaths,
+        taskId: selectedTaskId,
+        role: "CHECKPOINT_PAIR_STATE",
+      }),
+    ]);
+    if (!treeEntries || !indexEntries) {
+      throw hydrationError(
+        selectedTaskId,
+        "CHECKPOINT_PAIR_STATE",
+        "terminal-pair tree or index entries are malformed or ambiguous",
+      );
+    }
+    const terminalPairs = [];
+    for (const { task, artifacts } of pairs) {
+      const markdown = {};
+      for (const artifact of artifacts) {
+        const treeEntry = treeEntries.get(artifact.relativePath);
+        const indexEntry = indexEntries.get(artifact.relativePath);
+        if (
+          !terminalArtifactGitEntryIsRegular(treeEntry, { source: "tree" }) ||
+          !terminalArtifactGitEntryIsRegular(indexEntry, { source: "index" }) ||
+          treeEntry.mode !== indexEntry.mode ||
+          treeEntry.objectSha !== indexEntry.objectSha
+        ) {
+          throw hydrationError(
+            task.id,
+            "CHECKPOINT_PAIR_STATE",
+            `${artifact.relativePath} tree/index mode, type, stage, or blob changed after preparation`,
+          );
+        }
+        let state;
+        let worktreeBytes;
+        try {
+          state = await lstat(artifact.absolutePath);
+          worktreeBytes = await readFile(artifact.absolutePath, "utf8");
+        } catch (error) {
+          throw hydrationError(
+            task.id,
+            "CHECKPOINT_PAIR_STATE",
+            `${artifact.relativePath} could not be read as a terminal artifact: ${error.message}`,
+          );
+        }
+        if (
+          state.isSymbolicLink() ||
+          !state.isFile() ||
+          !terminalArtifactWorktreeModeMatches(treeEntry.mode, state)
+        ) {
+          throw hydrationError(
+            task.id,
+            "CHECKPOINT_PAIR_STATE",
+            `${artifact.relativePath} worktree type or executable mode changed after preparation`,
+          );
+        }
+        const sourceBytes = await showGitFile(
+          commandCache,
+          repositoryRoot,
+          prepared.checkpoint.sourceMainSha,
+          artifact.relativePath,
+          task.id,
+        );
+        if (sourceBytes === undefined || sourceBytes !== worktreeBytes) {
+          throw hydrationError(
+            task.id,
+            "CHECKPOINT_PAIR_STATE",
+            `${artifact.relativePath} bytes changed after preparation`,
+          );
+        }
+        markdown[artifact.kind] = sourceBytes;
+      }
+      if (
+        sectionStatus(markdown.TASK) !== "DONE" ||
+        sectionStatus(markdown.TEST) !== "PASSED"
+      ) {
+        throw hydrationError(
+          task.id,
+          "CHECKPOINT_PAIR_STATE",
+          "prepared terminal pair no longer proves DONE/PASSED",
+        );
+      }
+      terminalPairs.push({
+        taskId: task.id,
+        taskSha256: sha256Text(markdown.TASK),
+        testSha256: sha256Text(markdown.TEST),
+        taskStatus: "DONE",
+        testStatus: "PASSED",
+      });
+    }
+    if (
+      digestStandardDeliveryContinuityTerminalPairs(terminalPairs) !==
+      prepared.checkpoint.coverage.terminalPairStateSha256
+    ) {
+      throw hydrationError(
+        selectedTaskId,
+        "CHECKPOINT_PAIR_STATE",
+        "terminal Task/Test path, mode, or byte state no longer matches the prepared checkpoint",
+      );
+    }
+  };
+
+  const validateRepository = async (requiredTasks) => {
+    const commandCache = createInvocationCommandCache({ runner: commandRunner });
+    const identity = await discoverAlignedMainIdentity({
+      tasksRoot: resolvedTasksRoot,
       commandCache,
-      repositoryRoot,
-      ["rev-parse", "refs/remotes/origin/main"],
-      {
+      githubClient,
+    });
+    if (identity.currentMainSha !== prepared.checkpoint.sourceMainSha) {
+      throw hydrationError(
+        selectedTaskId,
+        "CHECKPOINT_APPLY",
+        "local or remote main advanced after checkpoint preparation",
+      );
+    }
+    if (identity.repository !== prepared.checkpoint.repository) {
+      throw hydrationError(
+        selectedTaskId,
+        "CHECKPOINT_APPLY",
+        "repository identity changed after checkpoint preparation",
+      );
+    }
+    const [currentBranch, currentHeadSha] = await Promise.all([
+      gitText(
+        commandCache,
+        identity.repositoryRoot,
+        ["symbolic-ref", "--quiet", "--short", "HEAD"],
+        { taskId: selectedTaskId, role: "CHECKPOINT_APPLY" },
+      ),
+      gitText(commandCache, identity.repositoryRoot, ["rev-parse", "HEAD"], {
         taskId: selectedTaskId,
         role: "CHECKPOINT_APPLY",
-      },
-    ),
-    gitText(commandCache, repositoryRoot, ["remote", "get-url", "origin"], {
-      taskId: selectedTaskId,
-      role: "CHECKPOINT_APPLY",
-    }),
-  ]);
-  const branchPattern = new RegExp(
-    `(?:^|/)task(?:/|-)${selectedTaskId}(?:-|$)`,
-  );
-  if (currentBranch === "main" || !branchPattern.test(currentBranch)) {
-    throw hydrationError(
-      selectedTaskId,
-      "CHECKPOINT_APPLY",
-      "current branch does not prove selected-Task ownership",
-    );
-  }
-  if (currentMainSha !== prepared.checkpoint.sourceMainSha) {
-    throw hydrationError(
-      selectedTaskId,
-      "CHECKPOINT_APPLY",
-      "local main advanced after checkpoint preparation",
-    );
-  }
-  if (upstreamSha !== currentMainSha || cachedMainSha !== currentMainSha) {
-    throw hydrationError(
-      selectedTaskId,
-      "CHECKPOINT_APPLY",
-      "local main, upstream, and cached origin/main no longer align",
-    );
-  }
-  if (parseRepositorySlug(originUrl) !== prepared.checkpoint.repository) {
-    throw hydrationError(
-      selectedTaskId,
-      "CHECKPOINT_APPLY",
-      "repository identity changed after checkpoint preparation",
-    );
-  }
-  if (
-    !(await gitIsAncestor(
+      }),
+    ]);
+    if (!branchOwnsTask(currentBranch, selectedTaskId)) {
+      throw hydrationError(
+        selectedTaskId,
+        "CHECKPOINT_APPLY",
+        "current branch does not prove selected-Task ownership",
+      );
+    }
+    requireSha(currentHeadSha, selectedTaskId, "CHECKPOINT_APPLY", "current HEAD");
+    if (
+      !(await gitIsAncestor(
+        commandCache,
+        identity.repositoryRoot,
+        identity.currentMainSha,
+        currentHeadSha,
+      ))
+    ) {
+      throw hydrationError(
+        selectedTaskId,
+        "CHECKPOINT_APPLY",
+        "selected branch is not descended from prepared main",
+      );
+    }
+    if (
+      !(await gitIsAncestor(
+        commandCache,
+        identity.repositoryRoot,
+        prepared.checkpoint.coveredMainSha,
+        identity.currentMainSha,
+      ))
+    ) {
+      throw hydrationError(
+        selectedTaskId,
+        "CHECKPOINT_APPLY",
+        "covered main is not an ancestor of prepared source main",
+      );
+    }
+    const checkpointTuple = await validateCheckpointGitTuple(
       commandCache,
-      repositoryRoot,
-      currentMainSha,
+      identity.repositoryRoot,
+    );
+    await validatePreparedTerminalPairs({
+      requiredTasks,
+      commandCache,
+      repositoryRoot: identity.repositoryRoot,
+    });
+    return Object.freeze({
+      identity,
+      currentBranch,
       currentHeadSha,
-    ))
-  ) {
-    throw hydrationError(
-      selectedTaskId,
-      "CHECKPOINT_APPLY",
-      "selected branch is not descended from prepared main",
-    );
-  }
-  if (
-    !(await gitIsAncestor(
+      checkpointTuple,
       commandCache,
-      repositoryRoot,
-      prepared.checkpoint.coveredMainSha,
-      currentMainSha,
-    ))
-  ) {
-    throw hydrationError(
-      selectedTaskId,
-      "CHECKPOINT_APPLY",
-      "covered main is not an ancestor of prepared source main",
-    );
-  }
-  const bytes = `${JSON.stringify(prepared.checkpoint, null, 2)}\n`;
+    });
+  };
+
+  const initialQueue = await validateQueue();
+  const initial = await validateRepository(initialQueue.requiredTasks);
+
   const write = await writeStandardDeliveryContinuityCheckpoint({
     tasksRoot: resolvedTasksRoot,
-    bytes,
+    bytes: desiredBytes,
+    beforePublish: async () => {
+      const finalQueue = await validateQueue();
+      await validateRepository(finalQueue.requiredTasks);
+    },
   });
   return Object.freeze({
     selectedTaskId,
-    currentBranch,
-    currentMainSha,
-    currentHeadSha,
+    currentBranch: initial.currentBranch,
+    currentMainSha: initial.identity.currentMainSha,
+    currentHeadSha: initial.currentHeadSha,
     checkpointDigest: prepared.checkpoint.checkpointDigest,
     coveredTaskCount: prepared.checkpoint.coverage.taskCount,
     write,
-    cache: commandCache.details(),
+    checkpointTuple: initial.checkpointTuple,
+    cache: initial.commandCache.details(),
   });
 }
 
@@ -4798,6 +6035,7 @@ export async function hydratePriorStandardDeliveries({
   tasksRoot,
   invocation,
   managedRoutingAvailable = false,
+  parsedInvocation: suppliedParsedInvocation,
   commandRunner,
   queueInspector = inspectTaskQueue,
   localDiscovery = discoverLocalDeliveryOutcomes,
@@ -4806,9 +6044,14 @@ export async function hydratePriorStandardDeliveries({
   continuityLoader = loadTrustedStandardDeliveryContinuity,
   emptyContinuityPreparer = prepareEmptyHistoryStandardDeliveryContinuity,
   deliveryCollector = collectNormalizedDeliveryOutcomes,
+  currentDeliveryHydrator = hydrateSelectedStandardDeliverySnapshot,
+  currentDeliveryProbe = probeCurrentStandardDeliveryState,
   continuityRecordBuilder = buildContinuityCoveredRecord,
   _skipImmutableTerminalFallback = false,
 } = {}) {
+  const parsedInvocation =
+    suppliedParsedInvocation ??
+    parseTaskInvocation(invocation, { managedRoutingAvailable });
   const queue = await queueInspector(path.resolve(tasksRoot));
   if (!isRecord(queue) || !Array.isArray(queue.tasks) || !Array.isArray(queue.errors)) {
     throw hydrationError(
@@ -4835,6 +6078,7 @@ export async function hydratePriorStandardDeliveries({
         tasksRoot,
         invocation,
         managedRoutingAvailable,
+        parsedInvocation,
         commandRunner,
         queueInspector: async () => fallbackQueue,
         localDiscovery,
@@ -4843,6 +6087,8 @@ export async function hydratePriorStandardDeliveries({
         continuityLoader,
         emptyContinuityPreparer,
         deliveryCollector,
+        currentDeliveryHydrator,
+        currentDeliveryProbe,
         continuityRecordBuilder,
         _skipImmutableTerminalFallback: true,
       });
@@ -4863,23 +6109,132 @@ export async function hydratePriorStandardDeliveries({
       `queue validation failed: ${queue.errors.join("; ")}`,
     );
   }
-  const requiredTasks = discoverRequiredStandardDeliveries({
+  const hydrationPlan = discoverStandardDeliveryHydrationPlan({
     tasks: queue.tasks,
     invocation,
     managedRoutingAvailable,
+    parsedInvocation,
   });
+  const { requiredTasks, currentDeliveryTask } = hydrationPlan;
+  const finalizeHydration = (
+    hydrated,
+    selectedCurrentDeliveryTask = currentDeliveryTask,
+  ) =>
+    mergeSelectedStandardDeliverySnapshot({
+      hydrated,
+      currentDeliveryTask: selectedCurrentDeliveryTask,
+      tasksRoot: path.resolve(tasksRoot),
+      commandRunner,
+      localDiscovery,
+      deliveryCollector,
+      githubClient,
+      currentDeliveryHydrator,
+      currentDeliveryProbe,
+      allowCurrentDeliveryProbe: parsedInvocation.route === "DELIVERY",
+    });
   if (requiredTasks.length === 0) {
     await rethrowProvenImmutableTerminalDrift();
     if (!allowUncheckpointedCompatibility) {
       const commandCache = createInvocationCommandCache({
         runner: commandRunner,
       });
+      const selectedDeliveryTask = currentDeliveryTask;
+      if (selectedDeliveryTask) {
+        const coverageTasks = queue.tasks
+          .filter(
+            (task) =>
+              isQueueAwareTaskContractVersion(task.contractVersion) &&
+              completeTask(task) &&
+              requiresStandardDelivery(task),
+          )
+          .sort((left, right) => left.number - right.number);
+        let continuity;
+        try {
+          continuity = await continuityLoader({
+            tasksRoot: path.resolve(tasksRoot),
+            requiredTasks,
+            coverageTasks,
+            currentDeliveryTaskId: selectedDeliveryTask.id,
+            commandCache,
+            githubClient,
+          });
+        } catch (error) {
+          if (
+            error?.code !== "DELIVERY_CONTINUITY_REBASELINE_REQUIRED" ||
+            !String(error.message).includes("has no durable continuity checkpoint")
+          ) {
+            throw error;
+          }
+        }
+        if (continuity) {
+          const coveredTasks =
+            continuity.coveragePartition?.coveredTasks ??
+            continuity.partition.coveredTasks;
+          const coveredState = buildStandardDeliveryContinuityState({
+            checkpoint: continuity.checkpoint,
+            coveredTasks,
+            coverageTasks: continuity.coverageTasks ?? coverageTasks,
+          });
+          const metrics = commandCache.details();
+          return finalizeHydration(freezeHydrationResult({
+            deliveryLedger: coveredState.deliveryLedger,
+            deliveryExpectations: coveredState.deliveryExpectations,
+            diagnostics: {
+              requiredTaskIds: Object.freeze([]),
+              classifications: Object.freeze(
+                Object.fromEntries(
+                  coveredTasks.map((task) => [
+                    task.id,
+                    "DURABLE_STANDARD_CONTINUITY",
+                  ]),
+                ),
+              ),
+              chronology: Object.freeze([]),
+              identities: Object.freeze({
+                repository: continuity.identity.repository,
+                localMainSha: continuity.identity.currentMainSha,
+                upstreamSha: continuity.identity.upstreamSha,
+                cachedMainSha: continuity.identity.cachedMainSha,
+                directRemoteSha: continuity.identity.directRemoteSha,
+                githubMainSha: continuity.identity.githubMainSha,
+              }),
+              continuity: Object.freeze({
+                source: continuity.source,
+                checkpointDigest: continuity.checkpoint.checkpointDigest,
+                coveredTaskCount: 0,
+                checkpointCoveredTaskCount: coveredTasks.length,
+                coveredTaskIds: Object.freeze([]),
+                uncoveredTaskIds: Object.freeze([]),
+                freshEvidenceTaskCount: 0,
+                preparedAdvancement: false,
+                fullHistoryFallback: false,
+              }),
+              cache: commandCache.stats(),
+              queryCounts: Object.freeze({
+                commands: metrics.misses,
+                gitCommands: metrics.gitCommands,
+                githubApiCommands: metrics.githubApiCommands,
+                jobLogFetches: metrics.jobLogFetches,
+              }),
+              queryPolicy: Object.freeze({
+                retries: 0,
+                maxRequiredDeliveries: MAX_REQUIRED_DELIVERIES,
+                maxUncoveredDeliveries: 1,
+                maxGitHubResults: MAX_GITHUB_RESULTS,
+                maxRunAttempts: MAX_RUN_ATTEMPTS,
+                persistentCache: false,
+                persistentRawLogs: false,
+              }),
+            },
+          }));
+        }
+      }
       const empty = await emptyContinuityPreparer({
         tasksRoot: path.resolve(tasksRoot),
         commandCache,
       });
       const metrics = commandCache.details();
-      return freezeHydrationResult({
+      return finalizeHydration(freezeHydrationResult({
         deliveryLedger: {},
         deliveryExpectations: {},
         preparedCheckpoint: empty.preparedCheckpoint,
@@ -4920,9 +6275,9 @@ export async function hydratePriorStandardDeliveries({
             persistentRawLogs: false,
           }),
         },
-      });
+      }));
     }
-    return freezeHydrationResult({
+    return finalizeHydration(freezeHydrationResult({
       deliveryLedger: {},
       deliveryExpectations: {},
       diagnostics: {
@@ -4938,7 +6293,7 @@ export async function hydratePriorStandardDeliveries({
           persistentCache: false,
         }),
       },
-    });
+    }));
   }
 
   if (!allowUncheckpointedCompatibility) {
@@ -4955,15 +6310,33 @@ export async function hydratePriorStandardDeliveries({
       tasksRoot: path.resolve(tasksRoot),
       requiredTasks,
       coverageTasks,
+      currentDeliveryTaskId: currentDeliveryTask?.id,
+      maxUncoveredTasks: currentDeliveryTask
+        ? 1
+        : MAX_REQUIRED_DELIVERIES,
       commandCache,
       githubClient,
     });
+    const checkpointCoveredCurrentTask = currentDeliveryTask
+      ? continuity.coveragePartition?.coveredTasks.find(
+          (task) => task.id === currentDeliveryTask.id,
+        )
+      : undefined;
+    const durableTasks = Object.freeze([
+      ...continuity.partition.coveredTasks,
+      ...(checkpointCoveredCurrentTask &&
+      !continuity.partition.coveredTasks.some(
+        (task) => task.id === checkpointCoveredCurrentTask.id,
+      )
+        ? [checkpointCoveredCurrentTask]
+        : []),
+    ]);
     const coveredState = buildStandardDeliveryContinuityState({
       checkpoint: continuity.checkpoint,
-      coveredTasks: continuity.partition.coveredTasks,
+      coveredTasks: durableTasks,
       coverageTasks: continuity.coverageTasks ?? coverageTasks,
     });
-    for (const task of continuity.partition.coveredTasks) {
+    for (const task of durableTasks) {
       const evaluation = evaluateDeliveryEvidence(
         task.id,
         coveredState.deliveryLedger[task.id],
@@ -4987,6 +6360,8 @@ export async function hydratePriorStandardDeliveries({
     };
     let freshLocal;
     let preparedCheckpoint;
+    let dynamicCurrentDeliveryTask;
+    let freshEvidenceTaskCount = 0;
     const recoveredImmutableTaskIds = new Set(
       continuity.recoveredImmutableTaskIds ?? [],
     );
@@ -5000,7 +6375,9 @@ export async function hydratePriorStandardDeliveries({
         ),
       ),
     ]);
-    if (uncoveredTasks.length > 1) {
+    const strictDeliveryPredecessor =
+      parsedInvocation.route === "DELIVERY" && Boolean(currentDeliveryTask);
+    if (currentDeliveryTask && uncoveredTasks.length > 1) {
       throw hydrationError(
         undefined,
         "CHECKPOINT",
@@ -5008,13 +6385,29 @@ export async function hydratePriorStandardDeliveries({
         "DELIVERY_CONTINUITY_REBASELINE_REQUIRED",
       );
     }
-    if (uncoveredTasks.length === 1) {
-      freshLocal = await localDiscovery({
-        tasksRoot: path.resolve(tasksRoot),
-        requiredTasks: uncoveredTasks,
-        contractTasks: uncoveredTasks,
-        commandCache,
-      });
+    const predecessorCandidates = currentDeliveryTask
+      ? uncoveredTasks
+      : uncoveredTasks.slice(0, 1);
+    if (predecessorCandidates.length === 1) {
+      const predecessor = predecessorCandidates[0];
+      try {
+        freshLocal = await localDiscovery({
+          tasksRoot: path.resolve(tasksRoot),
+          requiredTasks: predecessorCandidates,
+          contractTasks: predecessorCandidates,
+          commandCache,
+        });
+      } catch (error) {
+        if (
+          strictDeliveryPredecessor ||
+          !missingCurrentDeliveryOutcome(error, predecessor.id)
+        ) {
+          throw error;
+        }
+        dynamicCurrentDeliveryTask = predecessor;
+      }
+    }
+    if (freshLocal) {
       if (
         !isRecord(freshLocal) ||
         !Array.isArray(freshLocal.outcomes) ||
@@ -5026,12 +6419,23 @@ export async function hydratePriorStandardDeliveries({
           "uncovered local discovery returned a partial or malformed outcome set",
         );
       }
-      fresh = await deliveryCollector({
-        local: freshLocal,
-        commandCache,
-        githubClient: continuity.identity.githubClient,
-      });
-      const uncoveredTask = uncoveredTasks[0];
+      const uncoveredTask = predecessorCandidates[0];
+      try {
+        fresh = await deliveryCollector({
+          local: freshLocal,
+          commandCache,
+          githubClient: continuity.identity.githubClient,
+        });
+      } catch (error) {
+        if (
+          strictDeliveryPredecessor ||
+          error?.code !== "DELIVERY_HYDRATION_PENDING"
+        ) {
+          throw error;
+        }
+        dynamicCurrentDeliveryTask = uncoveredTask;
+      }
+      if (!dynamicCurrentDeliveryTask) {
       const outcome = freshLocal.outcomes[0];
       const freshEvaluation = evaluateDeliveryEvidence(
         uncoveredTask.id,
@@ -5039,39 +6443,53 @@ export async function hydratePriorStandardDeliveries({
         fresh.deliveryExpectations[uncoveredTask.id],
       );
       if (!freshEvaluation.satisfied) {
+        if (!strictDeliveryPredecessor) {
+          dynamicCurrentDeliveryTask = uncoveredTask;
+        } else {
         throw hydrationError(
           uncoveredTask.id,
           "HARDENED_EXACT_HEAD",
           `production evaluator rejected uncovered evidence: ${freshEvaluation.issues.join("; ")}`,
         );
+        }
       }
-      assertFutureTerminalOutcomeImmutable(uncoveredTask, outcome);
-      const coveredRecord = await continuityRecordBuilder({
-        task: uncoveredTask,
-        outcome,
-        entry: fresh.deliveryLedger[uncoveredTask.id],
-        expectation: fresh.deliveryExpectations[uncoveredTask.id],
-        local: freshLocal,
-        commandCache,
-        role: "CHECKPOINT_PREPARE",
-      });
-      preparedCheckpoint = createStandardDeliveryContinuityCheckpoint({
-        repository: continuity.identity.repository,
-        baseRef: "main",
-        sourceMainSha: continuity.identity.currentMainSha,
-        coveredRecords: [coveredRecord],
-        previousCheckpoint: continuity.checkpoint,
-      }).checkpoint;
+      if (freshEvaluation.satisfied) {
+        assertFutureTerminalOutcomeImmutable(uncoveredTask, outcome);
+        const coveredRecord = await continuityRecordBuilder({
+          task: uncoveredTask,
+          outcome,
+          entry: fresh.deliveryLedger[uncoveredTask.id],
+          expectation: fresh.deliveryExpectations[uncoveredTask.id],
+          local: freshLocal,
+          commandCache,
+          role: "CHECKPOINT_PREPARE",
+        });
+        preparedCheckpoint = createStandardDeliveryContinuityCheckpoint({
+          repository: continuity.identity.repository,
+          baseRef: "main",
+          sourceMainSha: continuity.identity.currentMainSha,
+          coveredRecords: [coveredRecord],
+          previousCheckpoint: continuity.checkpoint,
+        }).checkpoint;
+        freshEvidenceTaskCount = 1;
+        if (!currentDeliveryTask) {
+          dynamicCurrentDeliveryTask = uncoveredTasks[1];
+        }
+      }
+      }
     }
     const classifications = Object.fromEntries(
-      continuity.partition.coveredTasks.map((task) => [
+      durableTasks.map((task) => [
         task.id,
         "DURABLE_STANDARD_CONTINUITY",
       ]),
     );
     Object.assign(classifications, fresh.classifications);
     const metrics = commandCache.details();
-    return freezeHydrationResult({
+    const visibleUncoveredTasks = currentDeliveryTask
+      ? uncoveredTasks
+      : uncoveredTasks.slice(0, dynamicCurrentDeliveryTask ? 2 : 1);
+    return finalizeHydration(freezeHydrationResult({
       deliveryLedger: {
         ...coveredState.deliveryLedger,
         ...fresh.deliveryLedger,
@@ -5106,9 +6524,9 @@ export async function hydratePriorStandardDeliveries({
             continuity.partition.coveredTasks.map((task) => task.id),
           ),
           uncoveredTaskIds: Object.freeze(
-            uncoveredTasks.map((task) => task.id),
+            visibleUncoveredTasks.map((task) => task.id),
           ),
-          freshEvidenceTaskCount: uncoveredTasks.length,
+          freshEvidenceTaskCount,
           preparedAdvancement: Boolean(preparedCheckpoint),
           fullHistoryFallback: false,
         }),
@@ -5122,7 +6540,7 @@ export async function hydratePriorStandardDeliveries({
         queryPolicy: Object.freeze({
           retries: 0,
           maxRequiredDeliveries: MAX_REQUIRED_DELIVERIES,
-          maxUncoveredDeliveries: 1,
+          maxUncoveredDeliveries: currentDeliveryTask ? 1 : 2,
           maxFirstParentCommits: MAX_FIRST_PARENT_COMMITS,
           maxTaskPathCommits: MAX_TASK_PATH_COMMITS,
           maxGitHubResults: MAX_GITHUB_RESULTS,
@@ -5133,7 +6551,7 @@ export async function hydratePriorStandardDeliveries({
           persistentRawLogs: false,
         }),
       },
-    });
+    }), dynamicCurrentDeliveryTask);
   }
 
   const commandCache = createInvocationCommandCache({ runner: commandRunner });
@@ -5181,7 +6599,7 @@ export async function hydratePriorStandardDeliveries({
     }
   }
 
-  return freezeHydrationResult({
+  return finalizeHydration(freezeHydrationResult({
     deliveryLedger: collected.deliveryLedger,
     deliveryExpectations: collected.deliveryExpectations,
     diagnostics: {
@@ -5210,5 +6628,5 @@ export async function hydratePriorStandardDeliveries({
         persistentCache: false,
       }),
     },
-  });
+  }));
 }

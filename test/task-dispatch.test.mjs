@@ -23,6 +23,7 @@ import {
   TASK_CONTRACT_MARKER,
   TASK_TEST_STATUS_PAIRS,
 } from "../src/core/template-contracts.mjs";
+import { runTaskArtifactCommand } from "../skills/kyw-task/scripts/task-artifacts.mjs";
 
 test("all-complete dispatch message remains the exact product phrase", () => {
   assert.equal(
@@ -423,8 +424,15 @@ function assertStandardAuthority(result, action) {
   assert.equal(result.outcome, "SELECTED");
   assert.equal(result.action, action);
   assert.equal(result.authoritySource, "RECOGNIZED_TASK_INVOCATION");
-  assert.equal(result.authorityScope, "STANDARD_LIFECYCLE");
-  assert.equal(result.standardDeliveryAuthorized, true);
+  assert.equal(
+    result.authorityScope,
+    action === "DELIVER" ? "STANDARD_DELIVERY" : "REPOSITORY_LIFECYCLE",
+  );
+  assert.equal(result.standardDeliveryAuthorized, action === "DELIVER");
+  assert.equal(
+    result.route,
+    action === "DELIVER" ? "DELIVERY" : "IMPLEMENTATION",
+  );
   assert.equal(result.ceremonialConfirmationRequired, false);
   assert.equal(result.separateAuthorityBoundary, "NON_STANDARD_EXTERNAL_MUTATIONS");
 }
@@ -432,6 +440,7 @@ function assertStandardAuthority(result, action) {
 test("anchored invocation parsing preserves overrides and rejects non-Skill text", () => {
   assert.deepEqual(parseTaskInvocation("$kyw-impl 0042 verify only the parser"), {
     recognized: true,
+    route: "IMPLEMENTATION",
     mode: "EXACT",
     source: "PORTABLE_SKILL",
     taskId: "0042",
@@ -442,6 +451,7 @@ test("anchored invocation parsing preserves overrides and rejects non-Skill text
     "run only focused checks; then publish kyw-dev@0.1.4 to npm now";
   assert.deepEqual(parseTaskInvocation(`$kyw-impl 0080 ${combinedSuffix}`), {
     recognized: true,
+    route: "IMPLEMENTATION",
     mode: "EXACT",
     source: "PORTABLE_SKILL",
     taskId: "0080",
@@ -458,6 +468,7 @@ test("anchored invocation parsing preserves overrides and rejects non-Skill text
     }),
     {
       recognized: true,
+      route: "IMPLEMENTATION",
       mode: "EXACT",
       source: "MANAGED_ALIAS",
       taskId: "0042",
@@ -473,6 +484,15 @@ test("anchored invocation parsing preserves overrides and rejects non-Skill text
     parseTaskInvocation("남은 task 계속 실행해줘", { managedRoutingAvailable: true }).mode,
     "CONTINUOUS",
   );
+  assert.deepEqual(parseTaskInvocation("$kyw-deliver 0042"), {
+    recognized: true,
+    route: "DELIVERY",
+    mode: "EXACT",
+    source: "PORTABLE_SKILL",
+    taskId: "0042",
+    overrideText: "",
+    overrideScope: "NONE",
+  });
   for (const incidental of [
     "Please update this task description.",
     "please task 진행해줘",
@@ -483,9 +503,23 @@ test("anchored invocation parsing preserves overrides and rejects non-Skill text
     "$kyw-impl 00420",
     "$kyw-impl 0042.",
     "$kyw-task 0042",
+    "task 0042 deliver",
   ]) {
     assert.deepEqual(parseTaskInvocation(incidental, { managedRoutingAvailable: true }), {
       recognized: false,
+      mode: "NONE",
+    });
+  }
+
+  for (const malformedDelivery of [
+    "$kyw-deliver",
+    "$kyw-deliver 42",
+    "$kyw-deliver 00420",
+    "$kyw-deliver 0042 extra",
+  ]) {
+    assert.deepEqual(parseTaskInvocation(malformedDelivery), {
+      recognized: false,
+      route: "DELIVERY",
       mode: "NONE",
     });
   }
@@ -516,6 +550,7 @@ test("anchored invocation parsing preserves overrides and rejects non-Skill text
 
   const fallback = parseTaskInvocation("task 0042 실행해줘 preserve this constraint");
   assert.equal(fallback.mode, "FALLBACK_REQUIRED");
+  assert.equal(fallback.route, "IMPLEMENTATION");
   assert.equal(fallback.overrideText, "preserve this constraint");
   assert.equal(fallback.portableFallback, "$kyw-impl 0042 preserve this constraint");
   assert.equal(
@@ -526,6 +561,125 @@ test("anchored invocation parsing preserves overrides and rejects non-Skill text
     parseTaskInvocation("남은 task 계속 실행해줘 every remaining Task").portableFallback,
     "$kyw-impl NNNN every remaining Task",
   );
+});
+
+test("implementation and exact delivery routes keep disjoint terminal authority", async (t) => {
+  const root = await createQueue(t, [{ id: "0001", status: "DONE" }]);
+
+  const implementation = await resolveTaskDispatch({
+    tasksRoot: root,
+    invocation: "$kyw-impl 0001",
+  });
+  assert.equal(implementation.outcome, "TERMINAL");
+  assert.equal(implementation.code, "STANDARD_DELIVERY_REQUIRED");
+  assert.equal(implementation.route, "IMPLEMENTATION");
+  assert.equal(implementation.message, "다음 단계: $kyw-deliver 0001");
+  assert.equal(implementation.deliveryCommand, "$kyw-deliver 0001");
+  assert.equal("action" in implementation, false);
+  assert.equal("continuityTransitionToken" in implementation, false);
+
+  const delivery = await resolveTaskDispatch({
+    tasksRoot: root,
+    invocation: "$kyw-deliver 0001",
+  });
+  assert.equal(delivery.outcome, "SELECTED");
+  assert.equal(delivery.action, "DELIVER");
+  assert.equal(delivery.route, "DELIVERY");
+  assert.equal(delivery.authorityScope, "STANDARD_DELIVERY");
+  assert.equal(delivery.standardDeliveryAuthorized, true);
+  assert.equal(delivery.continuous, false);
+  assert.equal(delivery.overrideScope, "NONE");
+});
+
+test("exact delivery rejects every nonterminal or non-STANDARD lifecycle", async (t) => {
+  for (const row of [
+    ["DRAFT", "TASK_NOT_DELIVERABLE"],
+    ["READY", "TASK_NOT_DELIVERABLE"],
+    ["IN_PROGRESS", "TASK_NOT_DELIVERABLE"],
+    ["BLOCKED", "TASK_NOT_DELIVERABLE"],
+    ["CANCELLED", "TASK_NOT_DELIVERABLE"],
+  ]) {
+    const [status, code] = row;
+    const root = await createQueue(t, [{
+      id: "0001",
+      status,
+      blocker: status === "BLOCKED" ? "- Fixture blocker." : undefined,
+    }]);
+    const result = await resolveTaskDispatch({
+      tasksRoot: root,
+      invocation: "$kyw-deliver 0001",
+    });
+    assert.equal(result.outcome, "BLOCKED", status);
+    assert.equal(result.code, code, status);
+    assert.equal("action" in result, false, status);
+  }
+
+  const localRoot = await createQueue(t, [{
+    id: "0001",
+    status: "DONE",
+    delivery: "local-only fixture",
+  }]);
+  const local = await resolveTaskDispatch({
+    tasksRoot: localRoot,
+    invocation: "$kyw-deliver 0001",
+  });
+  assert.equal(local.outcome, "BLOCKED");
+  assert.equal(local.code, "DELIVERY_NOT_REQUIRED");
+  assert.equal("action" in local, false);
+});
+
+test("implementation aliases stop at the first pending STANDARD delivery", async (t) => {
+  const root = await createQueue(t, [
+    { id: "0001", status: "DONE" },
+    { id: "0002", status: "READY", dependencies: "- Task 0001." },
+  ]);
+  for (const invocation of ["task 진행해줘", "남은 task 계속 실행해줘"]) {
+    const result = await resolveTaskDispatch({
+      tasksRoot: root,
+      invocation,
+      managedRoutingAvailable: true,
+    });
+    assert.equal(result.outcome, "BLOCKED", invocation);
+    assert.equal(result.code, "STANDARD_DELIVERY_REQUIRED", invocation);
+    assert.equal(result.deliveryCommand, "$kyw-deliver 0001", invocation);
+    assert.match(result.message, /다음 단계: \$kyw-deliver 0001/, invocation);
+    assert.equal("action" in result, false, invocation);
+  }
+});
+
+test("exact terminal implementation hands off the earliest pending prior delivery through the adapter", async (t) => {
+  const root = await createQueue(t, [
+    { id: "0100", status: "DONE" },
+    { id: "0101", status: "DONE" },
+    { id: "0102", status: "DONE" },
+  ]);
+  const result = await runTaskArtifactCommand(
+    [
+      "dispatch",
+      "--tasks-root",
+      root,
+      "--invocation",
+      "$kyw-impl 0102",
+      "--managed-routing",
+      "false",
+    ],
+    {
+      hydratePriorStandardDeliveries: async () => ({
+        deliveryLedger: { "0100": deliveredEntry({ taskId: "0100" }) },
+        deliveryExpectations: {
+          "0100": deliveredExpectation({ taskId: "0100" }),
+        },
+        diagnostics: {
+          currentDelivery: { taskId: "0101", state: "RESUMABLE" },
+        },
+      }),
+    },
+  );
+  assert.equal(result.outcome, "BLOCKED");
+  assert.equal(result.code, "STANDARD_DELIVERY_REQUIRED");
+  assert.equal(result.deliveryTaskId, "0101");
+  assert.equal(result.message, "다음 단계: $kyw-deliver 0101");
+  assert.equal("continuityTransitionToken" in result, false);
 });
 
 test("implementation-only dispatch guides missing and goal-style inputs without allocation", async (t) => {
@@ -762,7 +916,7 @@ test("Task 0070 exact routing is ID-isomorphic across queue outcomes", async (t)
     {
       label: "deliver",
       definitions: (id) => [{ id, status: "DONE", delivery: "STANDARD" }],
-      expected: { outcome: "SELECTED", action: "DELIVER" },
+      expected: { outcome: "TERMINAL", code: "STANDARD_DELIVERY_REQUIRED" },
     },
     {
       label: "active conflict",
@@ -859,7 +1013,7 @@ test("every non-highest current state prevents a false all-complete verdict", as
     {
       status: "DONE",
       delivery: "STANDARD",
-      expected: { outcome: "SELECTED", action: "DELIVER" },
+      expected: { outcome: "BLOCKED", code: "STANDARD_DELIVERY_REQUIRED" },
     },
   ];
 
@@ -1022,7 +1176,8 @@ test("a future correction stays a new hard-dependent Task and preserves the deli
     invocation: "$kyw-impl 0002",
   });
   assert.equal(blocked.outcome, "BLOCKED");
-  assert.match(blocked.message, /Task 0001 delivery is resumable/);
+  assert.equal(blocked.code, "STANDARD_DELIVERY_REQUIRED");
+  assert.equal(blocked.message, "다음 단계: $kyw-deliver 0001");
 
   const selected = await resolveTaskDispatch({
     tasksRoot: root,
@@ -1254,10 +1409,11 @@ test("continuous dispatch re-inspects serial state, gates transitions, and scope
     invocation: "남은 task 계속 실행해줘",
     managedRoutingAvailable: true,
   });
-  assertStandardAuthority(pendingDelivery, "DELIVER");
+  assert.equal(pendingDelivery.outcome, "BLOCKED");
+  assert.equal(pendingDelivery.code, "STANDARD_DELIVERY_REQUIRED");
   assert.equal(pendingDelivery.task.id, "0001");
   assert.equal(pendingDelivery.deliveryDisposition, "RESUMABLE");
-  assert.match(pendingDelivery.message, /without ceremonial reconfirmation/);
+  assert.equal(pendingDelivery.message, "다음 단계: $kyw-deliver 0001");
 
   const next = await resolveTaskDispatch({
     tasksRoot: root,
@@ -1275,8 +1431,7 @@ test("exact GitHub ledger evidence gates terminal queue advancement and no-work 
   const root = await createQueue(t, [{ id: "0001", status: "DONE" }]);
   const pending = await resolveTaskDispatch({
     tasksRoot: root,
-    invocation: "task 진행해줘",
-    managedRoutingAvailable: true,
+    invocation: "$kyw-deliver 0001",
   });
   assertStandardAuthority(pending, "DELIVER");
   assert.equal(pending.task.id, "0001");
@@ -1289,8 +1444,7 @@ test("exact GitHub ledger evidence gates terminal queue advancement and no-work 
   const expectation = deliveredExpectation();
   const pendingWithExpectation = await resolveTaskDispatch({
     tasksRoot: root,
-    invocation: "task 진행해줘",
-    managedRoutingAvailable: true,
+    invocation: "$kyw-deliver 0001",
     deliveryExpectations: { "0001": expectation },
   });
   assertStandardAuthority(pendingWithExpectation, "DELIVER");
@@ -1318,8 +1472,7 @@ test("exact GitHub ledger evidence gates terminal queue advancement and no-work 
   };
   const pendingWithSnapshot = await resolveTaskDispatch({
     tasksRoot: root,
-    invocation: "task 진행해줘",
-    managedRoutingAvailable: true,
+    invocation: "$kyw-deliver 0001",
     deliveryLedger: { "0001": pendingPullRequest },
     deliveryExpectations: { "0001": expectation },
   });
@@ -1336,8 +1489,7 @@ test("exact GitHub ledger evidence gates terminal queue advancement and no-work 
   delete pendingMain.postMerge;
   const pendingAfterMerge = await resolveTaskDispatch({
     tasksRoot: root,
-    invocation: "task 진행해줘",
-    managedRoutingAvailable: true,
+    invocation: "$kyw-deliver 0001",
     deliveryLedger: { "0001": pendingMain },
     deliveryExpectations: { "0001": expectation },
   });
@@ -1636,7 +1788,9 @@ test("exact GitHub ledger evidence gates terminal queue advancement and no-work 
     invocation: "task 진행해줘",
     managedRoutingAvailable: true,
   });
-  assertStandardAuthority(cannotSkip, "DELIVER");
+  assert.equal(cannotSkip.outcome, "BLOCKED");
+  assert.equal(cannotSkip.code, "STANDARD_DELIVERY_REQUIRED");
+  assert.equal(cannotSkip.deliveryCommand, "$kyw-deliver 0001");
   assert.equal(cannotSkip.task.id, "0001");
   const allDelivered = await resolveTaskDispatch({
     tasksRoot: independentRoot,
@@ -1779,7 +1933,7 @@ test("explicit legacy continuity advances the queue without claiming exact-head 
   assert.equal(next.task.id, "0002");
 });
 
-test("Task 0031 regression resumes delivery before Task 0032 without another approval", async (t) => {
+test("Task 0031 regression hands delivery off before Task 0032", async (t) => {
   const root = await createQueue(t, [
     { id: "0030", status: "DONE" },
     { id: "0031", status: "DONE", dependencies: "- Task 0030." },
@@ -1807,10 +1961,22 @@ test("Task 0031 regression resumes delivery before Task 0032 without another app
       managedRoutingAvailable,
       ...sharedState,
     });
-    assertStandardAuthority(result, "DELIVER");
+    assert.equal(
+      result.outcome,
+      invocation === "task 진행해줘" ? "BLOCKED" : "TERMINAL",
+    );
+    assert.equal(result.code, "STANDARD_DELIVERY_REQUIRED");
+    assert.equal(result.deliveryCommand, "$kyw-deliver 0031");
     assert.equal(result.task.id, "0031");
-    assert.equal(result.confirmation, false);
+    assert.equal("action" in result, false);
   }
+
+  const deliverySelection = await resolveTaskDispatch({
+    tasksRoot: root,
+    invocation: "$kyw-deliver 0031",
+    ...sharedState,
+  });
+  assertStandardAuthority(deliverySelection, "DELIVER");
 
   const ledger31 = deliveredEntry({
     taskId: "0031",
@@ -1888,7 +2054,9 @@ test("Task 0039 active, blocked, and pending delivery states protect Task 0032",
     invocation: "task 진행해줘",
     managedRoutingAvailable: true,
   });
-  assertStandardAuthority(pending, "DELIVER");
+  assert.equal(pending.outcome, "BLOCKED");
+  assert.equal(pending.code, "STANDARD_DELIVERY_REQUIRED");
+  assert.equal(pending.deliveryCommand, "$kyw-deliver 0039");
   assert.equal(pending.task.id, "0039");
 
   const delivered = await resolveTaskDispatch({
@@ -1935,8 +2103,7 @@ test("supplied CI, review, and identity failures block delivery resume", async (
     mutate(entry);
     const result = await resolveTaskDispatch({
       tasksRoot: root,
-      invocation: "task 진행해줘",
-      managedRoutingAvailable: true,
+      invocation: "$kyw-deliver 0001",
       deliveryLedger: { "0001": entry },
       deliveryExpectations: { "0001": expectation },
     });
@@ -1947,14 +2114,14 @@ test("supplied CI, review, and identity failures block delivery resume", async (
   }
 });
 
-test("cancelled frontiers require standard delivery, stay distinct, and preserve historical isolation", async (t) => {
+test("cancelled frontiers stay distinct and preserve historical isolation", async (t) => {
   const cancelledRoot = await createQueue(t, [{ id: "0001", status: "CANCELLED" }]);
   const pending = await resolveTaskDispatch({
     tasksRoot: cancelledRoot,
     invocation: "task 진행해줘",
     managedRoutingAvailable: true,
   });
-  assert.equal(pending.code, "DELIVERY_EVIDENCE_REQUIRED");
+  assert.equal(pending.code, "TASK_CANCELLED");
   const delivered = await resolveTaskDispatch({
     tasksRoot: cancelledRoot,
     invocation: "task 진행해줘",
@@ -2005,6 +2172,19 @@ test("cancelled frontiers require standard delivery, stay distinct, and preserve
   });
   assert.equal(frontier.outcome, "NO_WORK");
   assert.equal(frontier.message, ALL_TASKS_COMPLETE_MESSAGE);
+
+  const laterReadyRoot = await createQueue(t, [
+    { id: "0001", status: "CANCELLED" },
+    { id: "0002", status: "READY" },
+  ]);
+  const laterReady = await resolveTaskDispatch({
+    tasksRoot: laterReadyRoot,
+    invocation: "task 진행해줘",
+    managedRoutingAvailable: true,
+  });
+  assertStandardAuthority(laterReady, "IMPLEMENT");
+  assert.equal(laterReady.task.id, "0002");
+  assert.equal("deliveryCommand" in laterReady, false);
 });
 
 test("queue dispatch rejects identity drift, an in-flight creation lock, and a symbolic-link root", async (t) => {

@@ -29,6 +29,7 @@ const {
   hydratePriorStandardDeliveries,
   inspectTaskBatchTransaction,
   recoverTaskBatchTransaction,
+  parseTaskInvocation,
   resolveTaskDispatch,
   validateTaskDirectory,
 } = await import(coreUrl);
@@ -304,6 +305,9 @@ export async function runTaskArtifactCommand(argv, runtime = {}) {
     const tasksRoot = resolve(options.get("--tasks-root"));
     const invocation = options.get("--invocation");
     const managedRoutingAvailable = managedRoutingValue === "true";
+    const parsedInvocation = parseTaskInvocation(invocation, {
+      managedRoutingAvailable,
+    });
     const manualDeliveryInput = [
       "--delivery-ledger",
       "--delivery-ledger-json",
@@ -332,6 +336,7 @@ export async function runTaskArtifactCommand(argv, runtime = {}) {
         tasksRoot,
         invocation,
         managedRoutingAvailable,
+        parsedInvocation,
       });
       deliveryLedger = hydrated.deliveryLedger;
       deliveryExpectations = hydrated.deliveryExpectations;
@@ -346,11 +351,16 @@ export async function runTaskArtifactCommand(argv, runtime = {}) {
       deliveryLedger,
       deliveryExpectations,
       executionPreflight,
+      parsedInvocation,
     });
     const continuityTransitionToken =
       preparedCheckpoint &&
+      parsedInvocation.route === "DELIVERY" &&
       result.outcome === "SELECTED" &&
-      ["IMPLEMENT", "RESUME", "DELIVER"].includes(result.action) &&
+      result.action === "DELIVER" &&
+      result.task?.taskStatus === "DONE" &&
+      result.task?.testStatus === "PASSED" &&
+      result.task?.deliveryRequirement?.kind === "STANDARD" &&
       result.task?.id
         ? createStandardDeliveryContinuityTransitionToken({
             selectedTaskId: result.task.id,

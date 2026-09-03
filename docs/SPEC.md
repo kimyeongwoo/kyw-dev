@@ -2,7 +2,7 @@
 
 ## 1. Purpose and authority
 
-This document owns `kyw-dev` behavior, business rules, safety, and acceptance. `docs/ARCHITECTURE.md` owns stable structure and boundaries. Skills/references own authoring, execution, and audit procedure; source/tests own mechanics and edge cases; the current Task/Test pair and GitHub own work evidence.
+This document owns `kyw-dev` behavior, safety, and acceptance. `docs/ARCHITECTURE.md` owns structure and boundaries. Skills/references own authoring, implementation, delivery, and audit procedure; source/tests own mechanics; Task/Test and GitHub own work evidence.
 
 `kyw-dev` is a lightweight, spec-driven development workflow for Codex. It helps a user clarify intent, retain durable project truth, author independently verifiable work, implement it with test evidence, and keep documentation synchronized across both managed Task workflows and ordinary prompts.
 
@@ -39,7 +39,7 @@ Managed Task work and ordinary bounded prompts use the same documentation-impact
 
 ### G-06 — Portable, shareable installation
 
-The five packaged Skills and their deterministic support are distributable through GitHub and npm, usable as a Codex plugin where plugins are supported, and directly installable as managed user- or project-scope Skills.
+The six packaged Skills and deterministic support are distributable through GitHub/npm as a Codex plugin or managed user/project Skills.
 
 ## 3. Product boundaries
 
@@ -59,9 +59,9 @@ Supporting installation/discovery paths beyond managed direct user/project Skill
 
 The product preserves user-authored work and public behavior unless the user or selected Task explicitly changes them. It fails closed when ownership, evidence, identity, scope, dependency, or required authority cannot be established.
 
-## 4. Five explicit-only Skills
+## 4. Six explicit-only Skills
 
-The product exposes exactly five user-visible Skills: `$kyw-grilling`, `$kyw-init`, `$kyw-task`, `$kyw-impl`, and `$kyw-audit`. All five are explicit-only and publish `allow_implicit_invocation: false`; ordinary prose never invokes them by resemblance. Only an exact explicit invocation or the three anchored managed aliases activates an invocation-local kyw workflow.
+The product exposes exactly six user-visible Skills: `$kyw-grilling`, `$kyw-init`, `$kyw-task`, `$kyw-impl`, `$kyw-deliver`, and `$kyw-audit`. All six publish `allow_implicit_invocation: false`; ordinary prose never invokes them by resemblance. Exact Skill syntax or the three implementation-only managed aliases activates an invocation-local workflow.
 
 ### 4.1 `$kyw-grilling`
 
@@ -113,7 +113,7 @@ Required behavior:
 - leave application files and permanent documents unchanged while recording expected documentation impact for execution;
 - fail closed without claiming a clean partial queue when publication ownership or rollback safety is uncertain;
 - retain existing `DRAFT/DRAFT` and legacy readers for compatibility without making new adaptive authoring depend on placeholders;
-- redirect a non-DRAFT exact pair to the state-appropriate `$kyw-impl NNNN` command.
+- redirect a non-DRAFT exact pair to its state-appropriate `$kyw-impl NNNN` or `$kyw-deliver NNNN` command.
 
 `$kyw-task` does not invoke or chain `$kyw-impl`. After successful authoring it reports created paths and dependencies, prints exactly one next `$kyw-impl NNNN` command for the first eligible pair, and stops without implementation, commit, PR, or delivery.
 
@@ -121,7 +121,7 @@ Detailed decomposition and publication procedure belongs to `skills/kyw-task/SKI
 
 ### 4.4 `$kyw-impl`
 
-`$kyw-impl NNNN` selects one exact existing Task for implementation, resume, verification, documentation synchronization, terminal repository state, and ordinary declared delivery. It never allocates or authors a Task. Only an attempted `kyw-impl` form that supplies a goal, missing ID, or new outcome redirects to `$kyw-task "<outcome>"`; a standalone ordinary-language instruction never enters that redirection.
+`$kyw-impl NNNN` selects one exact existing Task for implementation, resume, verification, documentation synchronization, and truthful repository terminal state. It never allocates, authors, selects delivery, or performs delivery. Only an attempted `kyw-impl` with a goal, missing ID, or new outcome redirects to `$kyw-task "<outcome>"`; ordinary prose does not.
 
 When a managed `AGENTS.md` contract is loaded, only these anchored aliases are equivalent existing-Task requests:
 
@@ -141,7 +141,7 @@ Required behavior:
 - on resume, verify recorded completed work against files and version control and continue from the valid resume point instead of repeating externally visible or destructive actions;
 - classify appended clauses once: continue aligned constraints, but put a changed baseline, Task, acceptance, scope, action, target, or attempt through Section 6.3 before mutation;
 - preserve the configured model and effort unless the current user explicitly overrides them, and label unavailable model provenance rather than inferring it;
-- before its one dispatcher call, derive the exact prior `STANDARD` set, validate repository-owned continuity only from aligned `main`, production-evaluate fresh GitHub evidence for at most one uncovered prior outcome, and fail before selection or mutation on a missing, malformed, stale, over-gap, or evaluator-rejected proof;
+- before its one dispatcher call, read-only validate prior `STANDARD` continuity from aligned `main` and at most one freshly evaluated uncovered predecessor, blocking before mutation on invalid or over-gap proof;
 - treat a canonically delivered future-contract Task as report-only, reject later terminal-pair or delivery-identity drift before dispatch, and route correction intent to a new explicit hard-dependent Task;
 - run acceptance-specific and risk-proportionate verification, record failures as well as later passes, and block when required evidence cannot run;
 - synchronize only permanent owners whose durable meaning changed;
@@ -149,11 +149,19 @@ Required behavior:
 - checkpoint verified completed work, ordered remaining work, an executable resume point, blockers, repository state, and test evidence before interruption or compaction;
 - set repository success only when acceptance, verification, final coverage, documentation, scope, and pair validation all agree.
 
-`task 진행해줘` resumes the sole active Task, otherwise resumes the lowest repository-complete Task with resumable required delivery, otherwise selects the lowest dependency-satisfied ready Task. Continuous mode repeats that same selection serially for pre-created work only, rechecks state after each transition, and never promises background continuation.
+`task 진행해줘` resumes the sole active Task, otherwise selects the lowest dependency-satisfied ready Task. Any current or predecessor pending `STANDARD` delivery blocks with its exact `$kyw-deliver NNNN`; implementation aliases never select it. Continuous mode is serial and invocation-local, may advance after reasoned `NONE`, and stops at every `STANDARD` completion.
 
-A selected `IMPLEMENT`, `RESUME`, or `DELIVER` continues its aligned repository and declared `STANDARD` lifecycle without duplicate guardrail confirmation. A material change enters Section 6.3; conflicts, unsafe drift, unexplained work, failed evidence, review blockage, and genuine user-owned decisions remain fail-closed. Detailed procedure belongs to `skills/kyw-impl/references/execution.md`.
+A selected `IMPLEMENT` or `RESUME` continues its aligned repository lifecycle without duplicate guardrail confirmation. On `STANDARD` `DONE/PASSED`, every implementation mode prints exactly `다음 단계: $kyw-deliver NNNN` and stops without chaining. Reasoned `NONE` ends locally. Material change enters Section 6.3; conflict, unsafe drift, unexplained work, failed evidence, or user decision blocks. Detailed repository procedure belongs to `skills/kyw-impl/references/execution.md`.
 
-### 4.5 `$kyw-audit`
+### 4.5 `$kyw-deliver`
+
+Only exact `$kyw-deliver NNNN` may select a repository-complete `DONE/PASSED` Task's current `STANDARD` delivery. It has no bare form, Korean alias, suffix, implicit, automatic, continuous, chaining, or background route. Wrong lifecycle/policy, dependency or continuity gaps, another active Task, unsafe work, drift, malformed evidence, or user decision blocks without pair or implementation mutation.
+
+A valid pending graph resumes at its first unfinished safe action after revalidating Git and GitHub state. It never repeats a completed commit, push, PR creation, or merge; reruns CI; retries/falls back after external failure; force-pushes; bypasses protection; or absorbs unrelated work. Delivery follows exact-path commit, non-force push, non-draft PR, actual-head CI, distinct synthetic compatibility, review/mergeability, expected-head protected merge, post-main CI, and final report. Only delivery may apply an issued predecessor-only continuity transition; it cannot cover itself.
+
+An unchanged satisfied contract-3 result is immutable report-only. Corrections use a new hard-dependent `$kyw-task "<correction outcome>"`. The canonical detailed procedure belongs only to `skills/kyw-deliver/references/delivery.md`.
+
+### 4.6 `$kyw-audit`
 
 `$kyw-audit NNNN` independently evaluates one Task against its acceptance, implementation, evidence, scope, package effects, and permanent truth.
 
@@ -223,10 +231,9 @@ A correction of a canonically delivered contract-3 Task must name that Task as a
 At most one pair may be `IN_PROGRESS/RUNNING`. Exact selection cannot bypass another active Task. Automatic selection prefers:
 
 1. the sole active Task;
-2. the lowest repository-complete current Task whose required `STANDARD` delivery is resumable;
-3. the lowest dependency-satisfied `READY/READY` Task.
+2. the lowest dependency-satisfied `READY/READY` Task whose predecessors have satisfied delivery.
 
-A historical blocker that is neither active nor a hard dependency does not freeze unrelated current work. When no Task is selectable, the product reports the actual draft, blocked, cancelled, dependency, delivery, or queue-frontier condition rather than inferring completion from the highest ID.
+A historical blocker that is neither active nor a hard dependency does not freeze unrelated work. Implementation never skips pending earlier delivery; it reports the exact deliver command. Delivery selects only its explicit ID. Otherwise the actual draft, blocked, cancelled, dependency, delivery, or frontier condition is reported rather than inferred completion.
 
 The exact all-complete message is returned only when every applicable current pair is `DONE/PASSED`, every hard dependency is satisfied, and every required delivery is satisfied:
 
@@ -291,11 +298,11 @@ A current Task declares one static delivery policy:
 - `STANDARD` — GitHub PR/Actions exact-SHA state is the canonical mutable ledger;
 - `NONE — <reason>` — no external delivery gate applies.
 
-The Task/Test pair owns repository outcome and reproducible local evidence; GitHub owns mutable PR, review, run, merge, and post-merge state. A recognized `$kyw-impl` selection establishes its declared `STANDARD` lifecycle, which proceeds while aligned without duplicate guardrail confirmation. Another active action or changed bound follows Section 6.3; a later post-terminal prompt is ordinary. Static `STANDARD` text alone executes nothing.
+Task/Test owns repository outcome and reproducible local evidence; GitHub owns mutable PR, review, run, merge, and post-merge state. Exact `$kyw-deliver NNNN` establishes only that Task's declared `STANDARD` lifecycle. Changed bounds follow Section 6.3; post-terminal prompts are ordinary. Static `STANDARD` text executes nothing.
 
-The normal `$kyw-impl NNNN` path accepts only the invocation. It derives the exact required prior-delivery set from queue and dependency truth, validates one fixed-bounded rolling continuity checkpoint read from exact aligned `main`, and creates a distinct production-evaluated continuity classification for its exact covered prefix. The checkpoint binds repository/base/main ancestry, the ordered covered-set and terminal-pair digests, hardened-contract version, cumulative evidence digest, prior checkpoint or genesis, and one sanitized transition receipt. It stores no raw log, credential, API response, or mutable GitHub graph and never becomes the current delivery ledger.
+Normal dispatch accepts only the invocation. The implementation route read-only derives required prior delivery; delivery separately hydrates the selected current graph. Both validate one fixed-bounded continuity checkpoint from exact aligned `main`. It binds repository/base/main ancestry, ordered covered set and terminal-pair digests, contract version, cumulative evidence digest, prior checkpoint/genesis, and one sanitized transition receipt; it stores no raw log, credential, API response, or mutable GitHub graph.
 
-At most one prior `STANDARD` outcome may be uncovered. That outcome is freshly reconstructed from local ancestry and GitHub, must satisfy the existing production evaluator, and may prepare the next rolling checkpoint without mutation. Only a recognized `IMPLEMENT`, `RESUME`, or `DELIVER` result may hand the opaque transition into the selected active Task branch for atomic, idempotent application; the selected Task cannot attest to itself. An empty history may prepare genesis without GitHub access. Existing delivered history with no valid checkpoint, a gap larger than one, or a corrupt, stale, forked, downgraded, repository-mismatched, pair-mismatched, or noncanonical checkpoint stops ordinary dispatch without replaying history. Migration is a separate `bootstrap-continuity` invocation requiring exact `EXPLICIT_REBASELINE` authority and rejecting invalid history/checkpoints, gaps, drift, evaluator failure, or self-coverage. It is not a dispatch option, Task-ID exception, or source-repair path.
+At most one prior `STANDARD` outcome may be uncovered; it is freshly reconstructed and production-evaluated. Only selected `DELIVER` may apply its opaque transition on the exact terminal Task branch, atomically and idempotently, for delivered predecessors only; the selected Task cannot attest to itself. Invalid checkpoint/history, a gap over one, drift, evaluator failure, or self-coverage blocks without replay. Separate `bootstrap-continuity` requires exact `EXPLICIT_REBASELINE`; it is not a dispatch option, Task-ID exception, or source-repair path.
 
 The current hardened contract is `HARDENED_EXACT_HEAD`. Trusted local expectations bind repository, base ref and SHA, outcome SHA, workflow identity, and required job-name sets. GitHub evidence keeps these roles distinct:
 
@@ -332,7 +339,7 @@ Scope is required exactly once. Only uninstall accepts `--force`. `doctor`, help
 
 ### 8.1 Direct installation
 
-User scope installs the five managed Skills beneath the user's managed Skills root. Project scope resolves the current Git repository and installs beneath its repository Skills root. Neither mode creates or replaces product documents.
+User/project scope installs six managed Skills beneath its resolved Skills root without creating or replacing product documents.
 
 Install and update:
 
@@ -381,7 +388,7 @@ Stable exit categories are:
 
 ### 9.2 Package boundary
 
-The source package and plugin metadata version and public npm `latest` are `0.1.4`. The release tarball includes plugin metadata, all five Skills, their required templates and deterministic support, CLI/runtime source, README, license, third-party notices, and upstream attribution.
+The source package, plugin metadata, and public npm `latest` remain `0.1.4`. The tarball includes plugin metadata, six Skills, templates/support, CLI/runtime, README, and legal/attribution bytes.
 
 Semantic versioning applies; `0.x` unfinished interfaces may change only with documented migration impact.
 
@@ -395,7 +402,7 @@ Public pull requests and base-branch pushes run credential-free, read-only stabl
 
 ### 10.1 Context loading
 
-Every active kyw workflow loads the applicable `AGENTS.md` and its selected/current Task/Test pair when one exists. An inactive ordinary prompt does not select or resume a Task merely because one is present. For active authoring, implementation, and audit work, first index or search `README.md`, `docs/SPEC.md`, and `docs/ARCHITECTURE.md`, then read the owner sections indicated by the goal, scope, Documentation Impact, changed code, and explicit dependencies.
+Every active kyw workflow loads applicable `AGENTS.md` and its selected/current Task/Test pair when one exists. Inactive ordinary prompts select none. For active authoring, implementation, delivery, and audit, first index or search `README.md`, `docs/SPEC.md`, and `docs/ARCHITECTURE.md`, then read owner sections indicated by goal, scope, Documentation Impact, code, and dependencies.
 
 Read all four permanent documents for `$kyw-init`, rebaseline, major redesign, broad cross-owner work, a source conflict, ambiguous ownership, a missing expected owner heading, or insufficient targeted truth. If full reading does not resolve the conflict or establish authority, fail closed instead of choosing a convenient source.
 
@@ -436,19 +443,19 @@ That evidence identifies the canonical owner of added meaning, why existing sect
 
 The product is accepted when the following observable results are demonstrated:
 
-- **AC-01:** The package contains valid plugin metadata, five explicit-only packaged Skills, deterministic support, legal notices, and only the intended distribution bytes.
-- **AC-02:** User-scope direct installation makes the five Skills discoverable without modifying project documents or unrelated Skills.
-- **AC-03:** Project-scope direct installation confines the five Skills to the selected repository and preserves existing product files.
+- **AC-01:** The package contains valid plugin metadata, six explicit-only Skills, deterministic support, legal notices, and only intended bytes.
+- **AC-02:** User-scope direct installation exposes six Skills without modifying project documents or unrelated Skills.
+- **AC-03:** Project-scope direct installation confines six Skills to the repository and preserves product files.
 - **AC-04:** `$kyw-init` initializes an empty project and adopts an existing project only after shared understanding, producing exactly the four permanent documents without destructive replacement.
-- **AC-05:** `$kyw-task` authors one complete pair for one outcome or the smallest dependency-aware complete set, while `$kyw-impl` selects only an existing eligible pair and never allocates or recreates one.
+- **AC-05:** `$kyw-task` authors complete pairs; `$kyw-impl` selects existing implementation only; exact `$kyw-deliver NNNN` alone selects current `STANDARD` delivery.
 - **AC-06:** Authoring publishes canonically valid `READY/READY` pairs, reports exactly one next `$kyw-impl NNNN`, and stops without implementation or automatic chaining.
 - **AC-07:** Verification detects an intentionally uncovered implementation branch despite a passing generic suite, retains failed or blocked evidence honestly, and closes final-diff coverage before repository success.
 - **AC-08:** An ordinary bounded change updates only affected code, tests, and durable owner documents without creating a numbered Task by default.
 - **AC-09:** `$kyw-audit` detects stale permanent truth, unsupported pass claims, scope drift, and missing acceptance mapping while remaining byte-stable unless exact `--fix` authority is present.
 - **AC-10:** Update, doctor, and uninstall preserve unrelated files, detect duplicates and unsafe state, and keep `--force` within valid recorded ownership.
-- **AC-11:** Contract-3, contract-2, and legacy Task readers, one-active selection, hard dependencies, immutable future terminal evidence, terminal queue verdicts, and current `STANDARD` delivery classifications remain deterministic and fail closed.
+- **AC-11:** Current/legacy readers, one-active selection, dependencies, implementation/delivery split, immutable terminal evidence, queue verdicts, resume/no-rerun, and delivery classifications remain deterministic and fail closed.
 - **AC-12:** Hosted CI distinguishes actual PR-head evidence, synthetic merge compatibility, protected merge, and post-merge base evidence at exact identities without using CI as behavioral or publication approval.
-- **AC-13:** Direct and plugin installation load the same five Skill contracts on supported surfaces without lifecycle scripts or a duplicate engine.
+- **AC-13:** Direct/plugin installation load the same six Skills without lifecycle scripts or a duplicate engine and safely read prior five-/four-Skill ownership generations.
 - **AC-14:** Progressive loading selects the durable owner from explicit scope signals and escalates broad, conflicting, ambiguous, missing, or insufficient truth to a full read.
 - **AC-15:** Permanent-document validation enforces the exact four-path inventory, ownership, growth evidence, budgets, chronology separation, and command validity through ordinary CI.
 - **AC-16:** The published package version and third-party licensing are truthful, while publication remains separately authorized.

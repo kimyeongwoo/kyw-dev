@@ -7,14 +7,14 @@ dependency direction, control and data flow, distribution, validation, and
 technical trade-offs. Observable product behavior belongs in
 [`SPEC.md`](SPEC.md); setup and usage belong in [`README.md`](../README.md);
 repository-wide Codex invariants belong in [`AGENTS.md`](../AGENTS.md).
-Detailed authoring, execution, and audit procedure lives with the owning Skill,
+Detailed authoring, implementation, delivery, and audit procedure lives with its Skill,
 and current work or evidence lives in the selected Task/Test pair.
 
 ```text
 GitHub source repository
         │
         ├─ npm package / Codex plugin bytes
-        │       └─ plugin cache with five Skills
+        │       └─ plugin cache with six Skills
         │
         └─ direct CLI installation
                 └─ user or project Skills + hidden runtime support
@@ -51,9 +51,9 @@ digests, trust, coverage, and atomic replacement for both boundaries.
 
 ### A-02 — Explicit heavyweight workflows
 
-The five user-visible Skills—`kyw-grilling`, `kyw-init`, `kyw-task`,
-`kyw-impl`, and `kyw-audit`—disable implicit invocation. Only their exact
-explicit forms or the three exact managed existing-Task aliases activate kyw
+The six user-visible Skills—`kyw-grilling`, `kyw-init`, `kyw-task`,
+`kyw-impl`, `kyw-deliver`, and `kyw-audit`—disable implicit invocation. Only
+exact forms or the three implementation-only managed aliases activate kyw
 workflow guardrails. An inactive ordinary prompt never enters Task selection,
 warning, or redirection by resemblance; active aligned work continues, while a
 material change uses the bounded warning transition in SPEC Section 6.3.
@@ -75,10 +75,9 @@ workflow to guess at missing durable truth.
 ### A-04 — One Task is the execution boundary
 
 A Task/Test directory is one resumable implementation packet. Authoring may
-atomically create a dependency-aware set, but later implementation activates
-at most one pair. Continuous execution is serial, advances only after the
-current repository and delivery gates finish, and never becomes background
-work. A future-contract pair becomes immutable after its first complete
+create a dependency-aware set, but implementation activates at most one pair.
+Continuous implementation is serial and never crosses pending `STANDARD`
+delivery or becomes background work. A future-contract pair becomes immutable after complete
 hardened delivery; a correction receives a new hard-dependent Task identity.
 Prior contracts stay grandfathered. Completed pairs remain historical evidence;
 durable meaning is promoted to a permanent owner rather than recovered by
@@ -126,11 +125,12 @@ minimal projection needed before that owner can be loaded.
 | Rule family | Canonical owner | Permitted projection |
 |---|---|---|
 | Observable product and acceptance contracts | `docs/SPEC.md` | Concise purpose, invocation, and current status in README |
-| Activation-scoped Skill guardrails and bounded reconfirmation | `docs/SPEC.md` | Concise inactive/aligned/change projections in README and AGENTS/template; lifecycle flow here and procedures in all five Skills plus implementation/audit references |
+| Activation-scoped Skill guardrails and bounded reconfirmation | `docs/SPEC.md` | Concise README/AGENTS/template projection; flow here; procedures in all six Skills and owned references |
 | Stable components, dependency direction, flows, and distribution structure | `docs/ARCHITECTURE.md` | Short repository-map links in README |
 | Repository routing, preservation, progressive loading, evidence honesty, and completion | Root `AGENTS.md` | Canonical generated `AGENTS.md` template |
 | New Task/Test authoring | `skills/kyw-task/SKILL.md` | Invocation and outcome summaries only |
-| Existing-Task execution, resume, verification, documentation sync, and delivery | `skills/kyw-impl/references/execution.md` | `kyw-impl/SKILL.md` dispatch handoff plus concise repository/user projections |
+| Existing-Task implementation through `DONE/PASSED` | `skills/kyw-impl/references/execution.md` | `kyw-impl/SKILL.md` handoff and concise projections |
+| Current `STANDARD` delivery and resume | `skills/kyw-deliver/references/delivery.md` | `kyw-deliver/SKILL.md` handoff and concise projections |
 | Independent audit and bounded repair | `skills/kyw-audit/references/audit.md` | Audit Skill handoff plus invocation summaries |
 | Exact Task/Test shape | Canonical Task and Test templates | Deterministic template validator and minimal state semantics |
 | Deterministic algorithms and exhaustive edge cases | Source and focused tests | Stable component/invariant descriptions here |
@@ -159,8 +159,8 @@ development validation
   └─ is never imported by runtime, CLI, or packaged Skills
 ```
 
-`kyw-task` and `kyw-impl` share the same packaged adapter and core graph. There
-is one deterministic Task/runtime/delivery engine; neither Skill owns a copied
+`kyw-task`, `kyw-impl`, and `kyw-deliver` share one packaged adapter/core graph.
+There is one deterministic Task/runtime/delivery engine; no Skill owns a copied
 parser, allocator, queue, transaction, or delivery classifier. Facades keep
 public imports stable while cohesive internals remain acyclic.
 
@@ -174,9 +174,10 @@ public imports stable while cohesive internals remain acyclic.
   permanent documents. It does not implement the application or create Tasks.
 - `kyw-task` owns new complete Task/Test authoring and compatible DRAFT
   completion. It does not implement or deliver an existing Task.
-- `kyw-impl` owns selection and execution of an existing Task through
-  repository outcome and ordinary declared delivery. It never allocates or
-  authors a pair.
+- `kyw-impl` owns existing-Task implementation through repository
+  `DONE/PASSED`; it never allocates, authors, selects, or performs delivery.
+- `kyw-deliver` owns only exact-ID current `STANDARD` delivery/resume/report.
+  It has no bare, managed, implicit, continuous, chained, or background route.
 - `kyw-audit` independently compares one Task with established truth and
   evidence. Its bare mode has no mutation authority; exact repair mode remains
   bounded to demonstrated in-scope findings.
@@ -199,15 +200,15 @@ The Task runtime is grouped by responsibility:
   declarations;
 - queue logic validates the dependency graph and deterministic selection;
 - creation logic publishes complete authored sets under ownership proof;
-- delivery logic parses invocation, preflight, and exact-SHA evidence roles;
+- delivery logic parses route-aware invocation, preflight, and exact-SHA evidence roles;
 - hydration binds a future terminal pair's canonical path, regular-file Git
   mode, and bytes to its first evaluator-satisfied hardened merge and rejects
   later history/worktree drift before dispatch;
 - continuity logic owns the canonical rolling checkpoint, ordered coverage and
   terminal-state digests, aligned-main trust, opaque transition, and atomic
   idempotent replacement;
-- one facade and one process adapter expose generic dispatch and separate
-  bootstrap entry without an ID-specific intercept.
+- one facade and process adapter expose shared route-aware dispatch and a
+  separate bootstrap entry without an ID-specific intercept.
 
 The process adapter accepts explicit validated arguments and delegates all
 meaningful mechanics. In an npm/plugin tree it imports the package core. A
@@ -350,33 +351,34 @@ in-flight or unproven transaction, so a partial prefix cannot become dispatchabl
 ```text
 exact existing-Task invocation
    → repository, pair, dependency, immutable-terminal, and preflight validation
-   → queue-derived prior STANDARD set
-   → aligned-main checkpoint trust + exact covered-prefix evaluation
-   → zero or one local ancestry / fresh GitHub hardened evaluation
-   → read-only checkpoint transition preparation
+   → read-only prior STANDARD continuity gate
    → one route + clause classification + closed terminal override flag
    → one generic dispatcher call with no Task-ID or migration intercept
-   → IMPLEMENT | RESUME | DELIVER
-   → selected active Task branch + atomic/idempotent transition application
+   → IMPLEMENT | RESUME | repository-complete handoff/report
    ├─ aligned baseline → one current mutation boundary
    └─ changed baseline/Task/acceptance/scope → warning + wait
           → fresh exact reconfirmation → truth sync → bounded mutation
    → acceptance-specific verification + durable-owner synchronization
    → final diff and coverage review
    → repository DONE/PASSED or truthful BLOCKED
-   → declared delivery gate
+   → STANDARD: exact `$kyw-deliver NNNN` handoff + stop
 ```
 
 Resume verifies recorded completion and handoff. A selected Task changes only
 its pair, required implementation/tests/configuration, and affected permanent
 owners. The exact route establishes the workflow; its `overrideText` clauses
 are classified once into the closed Task-override-present/absent preflight.
-Aligned clauses continue. A changing clause warns before branch, pair,
-continuity, implementation, or external mutation; fresh exact reconfirmation
+Aligned clauses continue. A changing clause warns before branch, pair, or
+implementation mutation; fresh exact reconfirmation
 syncs mutable truth before named bounds execute. Routing stays singular: the
 origin cannot self-confirm, redispatch, or chain Skills.
 
 ### 5.4 `STANDARD` delivery
+
+Exact `$kyw-deliver NNNN` alone enters after shared dispatch proves the selected
+pair is `DONE/PASSED` with `STANDARD`. It revalidates state and resumes the first
+unfinished safe stage without repeats; satisfied contract-3 results are
+immutable report-only. Detailed ordering lives only in its delivery reference.
 
 `HARDENED_EXACT_HEAD` keeps four identities distinct:
 
@@ -414,10 +416,10 @@ After one complete evaluator result is no longer current, a later selected
 Task may roll it into durable continuity. The checkpoint carries only an exact
 ordered-set digest, terminal-pair digest, cumulative evidence digest, ancestry
 identities, previous digest/genesis, and one sanitized receipt. Preparation is
-read-only before dispatch. Application requires the selected Task's
-`IN_PROGRESS/RUNNING` branch and can cover only already delivered predecessors,
-preserving one-delivery causal lag. Missing/corrupt checkpoints and gaps larger
-than one stop ordinary dispatch rather than replaying history. The separate
+read-only before dispatch. Application belongs only to selected delivery on the
+exact terminal Task branch and covers already delivered predecessors,
+preserving causal lag and forbidding self-coverage. Missing/corrupt checkpoints
+or gaps larger than one stop ordinary dispatch rather than replaying history. The separate
 `bootstrap-continuity` entry requires exact `EXPLICIT_REBASELINE` authority and
 applies general fail-closed checkpoint/history, gap, drift, evaluator, and
 self-coverage guards. It is not a dispatch option, source-repair path, or
@@ -433,25 +435,10 @@ correction to a new hard-dependent Task. The graph, rolling checkpoint, and Git
 history provide the binding; there is no PR-chain array, correction receipt
 collection, second checkpoint, or alternate ledger.
 
-First-parent redelivery inspection parses a standard two-parent protected-merge
-subject into owner and source branch, then compares only the source branch's
-leading `task/NNNN`, `task-NNNN`, `agent/task/NNNN`, or `agent/task-NNNN`
-identity at the exact ID boundary. Owner, nested-branch, and later slug tokens
-are not attribution inputs; a genuine later same-Task leading identity still
-enters terminal-pair immutability rejection.
-
-Terminal worktree inspection first preserves and parses the exact fixed-width
-porcelain path/status, with only one exact ` M` record at the bound path eligible
-for later suppression. It then rejects a missing, linked, or unsupported
-filesystem type; compares the canonical tree's regular-file mode and object
-with aligned main and the stage-zero index plus the host-observable worktree
-executable class; and finally compares raw canonical/worktree bytes. Only
-unchanged modes plus genuinely different bytes whose worktree-only CRLF-pair
-conversion equals the untouched canonical blob suppress that ` M` record.
-Malformed or ambiguous, staged, added, deleted, renamed, copied, alternate-path,
-metadata-only, type, and mode states—including chmod plus CRLF—remain drift.
-Canonical bytes, bare CR, final newline, other whitespace, and Unicode are
-never normalized.
+Redelivery attribution uses only an exact supported leading Task identity on a
+standard protected-merge source branch. Terminal worktree validation compares
+canonical path, type, mode, index, status, and raw bytes; its sole line-ending
+exception is narrowly product-defined. Ambiguous or other drift blocks.
 
 ### 5.5 Independent audit
 
@@ -502,8 +489,9 @@ CANCELLED / BLOCKED
 Non-complete current Tasks use either the canonical no-dependency sentinel or
 distinct hard-dependency bullets. The queue rejects marker or status mismatch,
 duplicate IDs, missing dependencies, cycles, and multiple active pairs.
-Selection resumes the one active Task, then repository-complete delivery, then
-the lowest dependency-satisfied ready Task. Historical blockers that are
+Implementation resumes the active Task, otherwise the lowest eligible ready
+Task; pending delivery blocks with its exact deliver command. Exact delivery
+selects only its named terminal Task. Historical blockers that are
 neither active nor hard dependencies do not freeze unrelated work.
 
 Contract-2 and unmarked legacy pairs retain their historical readers and
@@ -559,7 +547,7 @@ and diagnostics belong in source and focused tests.
 
 Checkpoint replacement is a third narrow single-file boundary, not a shared
 transaction framework. A canonical opaque transition is prepared without
-writes, validated again against active Task ownership and unchanged `main`,
+writes, validated against selected terminal Task ownership and unchanged `main`,
 then atomically replaces only the checkpoint. Exact repeat is idempotent;
 staging occupation, prior-digest mismatch, branch drift, or write uncertainty
 stops with bounded recovery evidence.
@@ -600,9 +588,9 @@ be real, supported, link-free objects.
 ### 7.3 Ownership and mutation
 
 Direct installation stores a versioned ownership manifest beside managed
-Skills. It binds package identity, scope, Skill paths, runtime support, and
-sorted file hashes. New writes use the current five-Skill inventory; exact
-legacy four-Skill metadata remains readable for ownership-safe transition.
+Skills, binding package/scope, Skill paths, runtime support, and file hashes.
+New writes use six Skills; exact prior five- and original four-Skill metadata
+remain readable for ownership-safe transition.
 
 Install and update publish metadata last after staged bytes and ownership state
 are proved. Normal uninstall removes only unchanged owned files. Force may
@@ -637,7 +625,7 @@ rather than being repaired optimistically.
 
 ### 8.1 Direct Skills
 
-Direct installation copies the five visible Skill directories plus namespaced
+Direct installation copies the six visible Skill directories plus namespaced
 runtime support to user or project scope. The hidden runtime carries the one
 Task adapter's required core and templates and is managed by the same ownership
 metadata. It is not discoverable as another Skill.
@@ -719,8 +707,8 @@ state, and later provenance proof remain separate evidence states.
 
 ### 9.1 Foundation and permanent-document policy
 
-The existing foundation validator is the deterministic owner for package and
-plugin identity, five-Skill metadata, canonical templates, legal bytes, package
+The foundation validator is the deterministic owner for package/plugin
+identity, six-Skill metadata, canonical templates, legal bytes, package
 selection, and permanent-document guardrails. One registry declares exactly
 four permanent paths, their roles, byte budgets, canonical rule owners, and
 allowed projections.

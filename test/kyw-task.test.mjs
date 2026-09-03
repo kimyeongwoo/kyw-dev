@@ -218,8 +218,10 @@ test("kyw-task Skill is explicit-only and owns authoring without execution", asy
   assert.match(skill, /goal-style explicit `\$kyw-task`[\s\S]*`READY\/READY` pair set and stops/i);
   assert.match(skill, /`DRAFT\/DRAFT`/);
   assert.match(skill, /Other states stay unchanged/);
-  assert.match(skill, /return exact `\$kyw-impl NNNN`/);
-  assert.match(skill, /managed Korean execution aliases belong to `kyw-impl`/i);
+  assert.match(skill, /repository work uses exact `\$kyw-impl NNNN`/);
+  assert.match(skill, /pending terminal `STANDARD` delivery uses exact `\$kyw-deliver NNNN`/);
+  assert.match(skill, /Do not invoke either Skill/);
+  assert.match(skill, /managed Korean execution aliases belong only to `kyw-impl`/i);
   assert.doesNotMatch(skill, /task 진행해줘/);
   assert.doesNotMatch(skill, /남은 task 계속 실행해줘/);
   assert.match(skill, /Never auto-invoke another Skill/);

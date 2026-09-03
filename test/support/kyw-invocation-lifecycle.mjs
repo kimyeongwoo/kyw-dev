@@ -79,6 +79,7 @@ const SKILL_NAMES = new Set([
   "kyw-init",
   "kyw-task",
   "kyw-impl",
+  "kyw-deliver",
   "kyw-audit",
 ]);
 const TASK_PAIR_DISPOSITIONS = new Set(["NONE", "MUTABLE", "IMMUTABLE"]);
@@ -86,7 +87,9 @@ const DELIVERY_DISPOSITIONS = new Set(["NONE", "RESUMABLE", "SATISFIED"]);
 const IMPLEMENTATION_ACTION_DISPOSITIONS = Object.freeze({
   implement: Object.freeze({ taskPair: "MUTABLE", delivery: "NONE" }),
   resume: Object.freeze({ taskPair: "MUTABLE", delivery: "NONE" }),
-  deliver: Object.freeze({ taskPair: "MUTABLE", delivery: "RESUMABLE" }),
+});
+const DELIVERY_ACTION_DISPOSITIONS = Object.freeze({
+  deliver: Object.freeze({ taskPair: "IMMUTABLE", delivery: "RESUMABLE" }),
   report: Object.freeze({ taskPair: "IMMUTABLE", delivery: "SATISFIED" }),
 });
 
@@ -195,8 +198,13 @@ function validImpacts(value) {
   );
 }
 
-function implActionDispositionValid(value) {
-  const expected = IMPLEMENTATION_ACTION_DISPOSITIONS[value.action];
+function actionDispositionValid(value) {
+  const expected =
+    value.skill === "kyw-impl"
+      ? IMPLEMENTATION_ACTION_DISPOSITIONS[value.action]
+      : value.skill === "kyw-deliver"
+        ? DELIVERY_ACTION_DISPOSITIONS[value.action]
+        : undefined;
   return (
     !expected ||
     (value.taskPairDisposition === expected.taskPair &&
@@ -220,16 +228,16 @@ function contractApplicabilityValid(value) {
     );
     if (!match || match[2] !== value.selectedTask) return false;
   }
-  if (
-    value.skill === "kyw-impl" &&
-    !implActionDispositionValid(value)
-  ) {
+  if (["kyw-impl", "kyw-deliver"].includes(value.skill) && !actionDispositionValid(value)) {
     return false;
   }
-  if (value.skill !== "kyw-impl" && value.deliveryDisposition !== "NONE") {
+  if (value.skill === "kyw-impl" && value.deliveryDisposition !== "NONE") {
     return false;
   }
-  if (["kyw-impl", "kyw-audit"].includes(value.skill)) return hasTask;
+  if (!["kyw-impl", "kyw-deliver"].includes(value.skill) && value.deliveryDisposition !== "NONE") {
+    return false;
+  }
+  if (["kyw-impl", "kyw-deliver", "kyw-audit"].includes(value.skill)) return hasTask;
   if (["kyw-grilling", "kyw-init"].includes(value.skill)) return !hasTask;
   return value.skill === "kyw-task";
 }
@@ -319,7 +327,17 @@ function validActivationContract(value, routeKind) {
           ].includes(value.routeCapability)) &&
       value.mode === "implementation" &&
       Object.hasOwn(IMPLEMENTATION_ACTION_DISPOSITIONS, value.action) &&
-      implActionDispositionValid(value) &&
+      actionDispositionValid(value) &&
+      hasTask
+    );
+  }
+  if (value.skill === "kyw-deliver") {
+    return (
+      routeKind === "EXPLICIT_SKILL" &&
+      value.routeCapability === "deliver-exact-task" &&
+      value.mode === "delivery" &&
+      Object.hasOwn(DELIVERY_ACTION_DISPOSITIONS, value.action) &&
+      actionDispositionValid(value) &&
       hasTask
     );
   }
@@ -338,7 +356,7 @@ function validActivationContract(value, routeKind) {
 function permitsRepositoryMutation(contract) {
   return !(
     contract.skill === "kyw-grilling" ||
-    (contract.skill === "kyw-impl" && contract.action === "report") ||
+    (contract.skill === "kyw-deliver" && contract.action === "report") ||
     (contract.skill === "kyw-audit" && contract.mode === "read-only")
   );
 }
@@ -356,8 +374,17 @@ function actionFitsRouteLockedProfile(contract) {
   if (contract.skill === "kyw-impl") {
     return (
       contract.mode === "implementation" &&
-      implActionDispositionValid(contract) &&
+      actionDispositionValid(contract) &&
       !["audit", "repair", "interview", "initialize", "author"].includes(
+        contract.action,
+      )
+    );
+  }
+  if (contract.skill === "kyw-deliver") {
+    return (
+      contract.mode === "delivery" &&
+      actionDispositionValid(contract) &&
+      !["audit", "repair", "interview", "initialize", "author", "implement", "resume"].includes(
         contract.action,
       )
     );
@@ -381,15 +408,15 @@ function actionFitsRouteLockedProfile(contract) {
 function requiresExactRoute(active, requested) {
   return (
     WORKFLOW_FIELDS.some((field) => !same(active[field], requested[field])) ||
-    (["kyw-task", "kyw-impl", "kyw-audit"].includes(active.skill) &&
+    (["kyw-task", "kyw-impl", "kyw-deliver", "kyw-audit"].includes(active.skill) &&
       (!same(active.selectedTask, requested.selectedTask) ||
         !same(active.selectedTaskDirectory, requested.selectedTaskDirectory) ||
         !same(active.taskPairDisposition, requested.taskPairDisposition) ||
         !same(active.deliveryDisposition, requested.deliveryDisposition))) ||
     (active.taskPairDisposition === "IMMUTABLE" &&
-      (active.skill === "kyw-impl" || permitsRepositoryMutation(requested)) &&
+      (active.skill === "kyw-deliver" || permitsRepositoryMutation(requested)) &&
       CRITERION_FIELDS.some((field) => !same(active[field], requested[field]))) ||
-    (active.skill === "kyw-impl" &&
+    (active.skill === "kyw-deliver" &&
       active.action === "report" &&
       requested.action !== "report") ||
     !actionFitsRouteLockedProfile(requested)
