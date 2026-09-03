@@ -19,6 +19,7 @@ import { fileURLToPath } from "node:url";
 import {
   buildStandardDeliveryContinuityState,
   bootstrapStandardDeliveryContinuity,
+  classifyDeliveryEvidence,
   classifyLocalDeliveryContracts,
   createStandardDeliveryContinuityCheckpoint,
   createGitHubEvidenceClient,
@@ -36,9 +37,11 @@ import {
 import {
   gitPorcelainText,
   gitScalarText,
+  parseHardenedWorkflowContract,
   parseProtectedMergeTaskIdentity,
   parseTerminalArtifactGitEntries,
   parseTerminalPairWorktreeStatus,
+  probeCurrentStandardDeliveryState,
   reconcileAuthoritativeJobs,
   terminalArtifactGitModeClass,
   terminalArtifactNewlineEquivalent,
@@ -167,7 +170,7 @@ Prove immutable terminal delivery behavior.
 
 ## Discoveries and Changes
 
-- The fixture uses one protected merge.
+- The fixture uses one expected-head PR merge.
 
 ## Documentation Impact
 
@@ -490,7 +493,7 @@ test("required delivery discovery is empty when the selected Task has no prior o
   );
 });
 
-test("required delivery discovery follows queue transition and dependency truth", () => {
+test("required delivery discovery retains implementation candidates for evidence-relative frontier selection", () => {
   const tasks = [
     task({ id: "0001" }),
     task({ id: "0002", delivery: "NONE" }),
@@ -507,6 +510,913 @@ test("required delivery discovery follows queue transition and dependency truth"
     }).map(({ id }) => id),
     ["0001", "0004"],
   );
+});
+
+test("exact delivery discovery returns predecessors only and keeps selected evidence separate", async () => {
+  const tasks = [
+    task({ id: "0001" }),
+    task({ id: "0002", dependencies: ["0001"] }),
+  ];
+  assert.deepEqual(
+    discoverRequiredStandardDeliveries({
+      tasks,
+      invocation: "$kyw-deliver 0002",
+    }).map(({ id }) => id),
+    ["0001"],
+  );
+
+  let currentCalls = 0;
+  const hydrated = await hydratePriorStandardDeliveries({
+    tasksRoot: "C:\\fixture\\docs\\tasks",
+    invocation: "$kyw-deliver 0002",
+    allowUncheckpointedCompatibility: true,
+    queueInspector: async () => ({ tasks: [tasks[1]], errors: [] }),
+    localDiscovery: async () => {
+      throw new Error("prior discovery must remain empty");
+    },
+    currentDeliveryHydrator: async ({ task: selected, contractTasks }) => {
+      currentCalls += 1;
+      assert.equal(selected.id, "0002");
+      assert.deepEqual(contractTasks.map(({ id }) => id), ["0002"]);
+      return {
+        deliveryLedger: {},
+        deliveryExpectations: {},
+        classifications: { "0002": "PENDING" },
+        chronology: [],
+        diagnostics: {
+          taskId: "0002",
+          state: "RESUMABLE",
+          source: "IN_FLIGHT_NO_CANONICAL_MERGE",
+        },
+      };
+    },
+  });
+  assert.equal(currentCalls, 1);
+  assert.deepEqual(hydrated.diagnostics.requiredTaskIds, []);
+  assert.equal(hydrated.diagnostics.currentDelivery.taskId, "0002");
+  assert.deepEqual(hydrated.deliveryLedger, {});
+});
+
+test("only exact delivery invokes branch-bound partial current probing", async () => {
+  const selected = task({ id: "0001" });
+  const localDiscovery = async () => {
+    const error = new Error(
+      "Task 0001 LOCAL_GIT: could not map the terminal pair to an exact two-parent Task delivery merge",
+    );
+    error.code = "DELIVERY_HYDRATION_FAILED";
+    throw error;
+  };
+  let probeCalls = 0;
+  const currentDeliveryProbe = async ({ task: current }) => {
+    probeCalls += 1;
+    return {
+      deliveryLedger: {},
+      deliveryExpectations: {},
+      classifications: { [current.id]: "PENDING" },
+      chronology: [],
+      diagnostics: {
+        taskId: current.id,
+        state: "RESUMABLE",
+        source: "DELIVERY_PARTIAL_PROBE",
+      },
+    };
+  };
+  const implementation = await hydratePriorStandardDeliveries({
+    tasksRoot: "C:\\fixture\\docs\\tasks",
+    invocation: "$kyw-impl 0001",
+    allowUncheckpointedCompatibility: true,
+    queueInspector: async () => ({ tasks: [selected], errors: [] }),
+    localDiscovery,
+    currentDeliveryProbe,
+  });
+  assert.equal(probeCalls, 0);
+  assert.equal(
+    implementation.diagnostics.currentDelivery.source,
+    "IMPLEMENTATION_DELIVERY_HANDOFF",
+  );
+
+  const delivery = await hydratePriorStandardDeliveries({
+    tasksRoot: "C:\\fixture\\docs\\tasks",
+    invocation: "$kyw-deliver 0001",
+    allowUncheckpointedCompatibility: true,
+    queueInspector: async () => ({ tasks: [selected], errors: [] }),
+    localDiscovery,
+    currentDeliveryProbe,
+  });
+  assert.equal(probeCalls, 1);
+  assert.equal(
+    delivery.diagnostics.currentDelivery.source,
+    "DELIVERY_PARTIAL_PROBE",
+  );
+});
+
+test("canonical merged delivery resumes at post-main CI without partial branch probing", async () => {
+  const selected = task({ id: "0001" });
+  let partialProbeCalls = 0;
+  const pending = new Error("required post-main workflow is still in progress");
+  pending.code = "DELIVERY_HYDRATION_PENDING";
+  const hydrated = await hydratePriorStandardDeliveries({
+    tasksRoot: "C:\\fixture\\docs\\tasks",
+    invocation: "$kyw-deliver 0001",
+    allowUncheckpointedCompatibility: true,
+    queueInspector: async () => ({ tasks: [selected], errors: [] }),
+    localDiscovery: async () => ({
+      outcomes: [{ taskId: "0001" }],
+    }),
+    deliveryCollector: async () => {
+      throw pending;
+    },
+    currentDeliveryProbe: async () => {
+      partialProbeCalls += 1;
+      throw new Error("partial pre-merge probe must not run after canonical merge");
+    },
+  });
+  assert.equal(partialProbeCalls, 0);
+  assert.equal(
+    hydrated.diagnostics.currentDelivery.stage,
+    "OBSERVE_POST_MAIN_CI",
+  );
+  assert.equal(
+    hydrated.diagnostics.currentDelivery.source,
+    "CANONICAL_DELIVERY_GRAPH_PENDING",
+  );
+});
+
+test("managed implementation routes stop at the earliest pending delivery frontier", async () => {
+  const tasks = [
+    task({ id: "0100" }),
+    task({ id: "0101" }),
+    task({ id: "0102" }),
+  ];
+  for (const invocation of ["task 진행해줘", "남은 task 계속 실행해줘"]) {
+    assert.deepEqual(
+      discoverRequiredStandardDeliveries({
+        tasks,
+        invocation,
+        managedRoutingAvailable: true,
+      }).map(({ id }) => id),
+      ["0100", "0101", "0102"],
+      invocation,
+    );
+    const checkpoint = createStandardDeliveryContinuityCheckpoint({
+      repository: "owner/repository",
+      sourceMainSha: "f".repeat(40),
+      coveredRecords: [],
+    }).checkpoint;
+    let currentCalls = 0;
+    const hydrated = await hydratePriorStandardDeliveries({
+      tasksRoot: "C:\\fixture\\docs\\tasks",
+      invocation,
+      managedRoutingAvailable: true,
+      queueInspector: async () => ({ tasks, errors: [] }),
+      continuityLoader: async ({ maxUncoveredTasks }) => {
+        assert.equal(maxUncoveredTasks, 128);
+        return {
+          checkpoint,
+          partition: { coveredTasks: [], uncoveredTasks: tasks },
+          coveragePartition: { coveredTasks: [], uncoveredTasks: tasks },
+          coverageTasks: tasks,
+          recoveredImmutableTaskIds: [],
+          source: "ALIGNED_MAIN",
+          identity: {
+            repository: "owner/repository",
+            currentMainSha: "f".repeat(40),
+            upstreamSha: "f".repeat(40),
+            cachedMainSha: "f".repeat(40),
+            directRemoteSha: "f".repeat(40),
+            githubMainSha: "f".repeat(40),
+            githubClient: {},
+          },
+        };
+      },
+      localDiscovery: async ({ requiredTasks }) => {
+        const [selected] = requiredTasks;
+        const error = new Error(
+          `Task ${selected.id} LOCAL_GIT: could not map the terminal pair to an exact two-parent Task delivery merge`,
+        );
+        error.code = "DELIVERY_HYDRATION_FAILED";
+        throw error;
+      },
+      currentDeliveryHydrator: async ({ task: selected, contractTasks }) => {
+        currentCalls += 1;
+        assert.equal(selected.id, "0100", invocation);
+        assert.deepEqual(contractTasks.map(({ id }) => id), ["0100"]);
+        return {
+          deliveryLedger: {},
+          deliveryExpectations: {},
+          classifications: { "0100": "PENDING" },
+          chronology: [],
+          diagnostics: {
+            taskId: "0100",
+            state: "RESUMABLE",
+            source: "IN_FLIGHT_NO_CANONICAL_MERGE",
+          },
+        };
+      },
+    });
+    assert.equal(currentCalls, 1, invocation);
+    assert.equal(hydrated.diagnostics.currentDelivery.taskId, "0100");
+    assert.deepEqual(hydrated.diagnostics.continuity.uncoveredTaskIds, [
+      "0100",
+      "0101",
+    ]);
+  }
+});
+
+test("exact implementation hands off an earlier pending terminal delivery", async () => {
+  const covered = task({ id: "0100" });
+  const pendingPredecessor = task({ id: "0101" });
+  const laterSelected = task({ id: "0102" });
+  const checkpoint = createStandardDeliveryContinuityCheckpoint({
+    repository: "owner/repository",
+    sourceMainSha: "f".repeat(40),
+    coveredRecords: [
+      {
+        taskId: "0100",
+        taskSha256: "1".repeat(64),
+        testSha256: "2".repeat(64),
+        taskStatus: "DONE",
+        testStatus: "PASSED",
+        classification: "HARDENED_EXACT_HEAD",
+        outcomeSha: "3".repeat(40),
+        mergeSha: "4".repeat(40),
+        evidenceSha256: "5".repeat(64),
+      },
+    ],
+  }).checkpoint;
+  const hydrated = await hydratePriorStandardDeliveries({
+    tasksRoot: "C:\\fixture\\docs\\tasks",
+    invocation: "$kyw-impl 0102",
+    queueInspector: async () => ({
+      tasks: [covered, pendingPredecessor, laterSelected],
+      errors: [],
+    }),
+    continuityLoader: async ({
+      requiredTasks,
+      currentDeliveryTaskId,
+      maxUncoveredTasks,
+    }) => {
+      assert.deepEqual(requiredTasks.map(({ id }) => id), ["0100", "0101"]);
+      assert.equal(currentDeliveryTaskId, "0102");
+      assert.equal(maxUncoveredTasks, 1);
+      return {
+        checkpoint,
+        partition: {
+          coveredTasks: [covered],
+          uncoveredTasks: [pendingPredecessor],
+        },
+        coveragePartition: {
+          coveredTasks: [covered],
+          uncoveredTasks: [pendingPredecessor],
+        },
+        coverageTasks: [covered, pendingPredecessor],
+        recoveredImmutableTaskIds: [],
+        source: "ALIGNED_MAIN",
+        identity: {
+          repository: "owner/repository",
+          currentMainSha: "f".repeat(40),
+          upstreamSha: "f".repeat(40),
+          cachedMainSha: "f".repeat(40),
+          directRemoteSha: "f".repeat(40),
+          githubMainSha: "f".repeat(40),
+          githubClient: {},
+        },
+      };
+    },
+    localDiscovery: async () => {
+      const error = new Error(
+        "Task 0101 LOCAL_GIT: could not map the terminal pair to an exact two-parent Task delivery merge",
+      );
+      error.code = "DELIVERY_HYDRATION_FAILED";
+      throw error;
+    },
+    currentDeliveryHydrator: async ({ task: current }) => ({
+      deliveryLedger: {},
+      deliveryExpectations: {},
+      classifications: { [current.id]: "PENDING" },
+      chronology: [],
+      diagnostics: {
+        taskId: current.id,
+        state: "RESUMABLE",
+        source: "IMPLEMENTATION_DELIVERY_HANDOFF",
+      },
+    }),
+  });
+  assert.equal(hydrated.diagnostics.currentDelivery.taskId, "0101");
+  assert.equal(hydrated.deliveryLedger["0102"], undefined);
+});
+
+test("exact later implementation still rejects more than one uncovered predecessor", async () => {
+  const predecessors = [task({ id: "0100" }), task({ id: "0101" })];
+  const selected = task({ id: "0102" });
+  const checkpoint = createStandardDeliveryContinuityCheckpoint({
+    repository: "owner/repository",
+    sourceMainSha: "f".repeat(40),
+    coveredRecords: [],
+  }).checkpoint;
+  await assert.rejects(
+    hydratePriorStandardDeliveries({
+      tasksRoot: "C:\\fixture\\docs\\tasks",
+      invocation: "$kyw-impl 0102",
+      queueInspector: async () => ({
+        tasks: [...predecessors, selected],
+        errors: [],
+      }),
+      continuityLoader: async () => ({
+        checkpoint,
+        partition: {
+          coveredTasks: [],
+          uncoveredTasks: predecessors,
+        },
+        coveragePartition: {
+          coveredTasks: [],
+          uncoveredTasks: predecessors,
+        },
+        coverageTasks: predecessors,
+        recoveredImmutableTaskIds: [],
+        source: "ALIGNED_MAIN",
+        identity: {
+          repository: "owner/repository",
+          currentMainSha: "f".repeat(40),
+          upstreamSha: "f".repeat(40),
+          cachedMainSha: "f".repeat(40),
+          directRemoteSha: "f".repeat(40),
+          githubMainSha: "f".repeat(40),
+          githubClient: {},
+        },
+      }),
+    }),
+    (error) => error.code === "DELIVERY_CONTINUITY_REBASELINE_REQUIRED",
+  );
+});
+
+test("current delivery probe preserves safe PR resume and rejects latest failure or review drift", async () => {
+  const selected = task({ id: "0084", contractVersion: 3 });
+  const mainSha = "a".repeat(40);
+  const headSha = "b".repeat(40);
+  const branch = "task/0084-current-delivery-probe";
+  const workflowText = await readFile(
+    path.join(REPOSITORY_ROOT, ".github", "workflows", "ci.yml"),
+    "utf8",
+  );
+  const workflowContract = parseHardenedWorkflowContract(workflowText);
+  const commandCache = {
+    async run({ args }) {
+      const key = args.join("\u0000");
+      const stdout =
+        key === "rev-parse\u0000--show-toplevel"
+          ? `${REPOSITORY_ROOT}\n`
+          : key === "rev-parse\u0000refs/heads/main" ||
+              key === "rev-parse\u0000main@{upstream}" ||
+              key === "rev-parse\u0000refs/remotes/origin/main"
+            ? `${mainSha}\n`
+            : key === "remote\u0000get-url\u0000origin"
+              ? "https://github.com/owner/repository.git\n"
+              : key === "ls-remote\u0000--heads\u0000origin\u0000refs/heads/main"
+                ? `${mainSha}\trefs/heads/main\n`
+                : key === "symbolic-ref\u0000--quiet\u0000--short\u0000HEAD"
+                  ? `${branch}\n`
+                  : key === "rev-parse\u0000HEAD"
+                    ? `${headSha}\n`
+                    : key ===
+                        `ls-remote\u0000--heads\u0000origin\u0000refs/heads/${branch}`
+                      ? `${headSha}\trefs/heads/${branch}\n`
+                      : key === `show\u0000${headSha}:.github/workflows/ci.yml`
+                        ? workflowText
+                        : "";
+      return { status: 0, stdout, stderr: "" };
+    },
+    stats() {
+      return { hits: 0, misses: 0, entries: 0, maxCommands: 1024 };
+    },
+  };
+  const pullRequest = {
+    number: 84,
+    state: "open",
+    merged: false,
+    draft: false,
+    mergeable: null,
+    mergeable_state: "unknown",
+    head: {
+      sha: headSha,
+      ref: branch,
+      repo: { full_name: "owner/repository" },
+    },
+    base: {
+      sha: mainSha,
+      ref: "main",
+      repo: { full_name: "owner/repository" },
+    },
+  };
+  const run = (status, conclusion = null) => ({
+    id: 8401,
+    run_attempt: 2,
+    workflow_id: 71,
+    name: "CI",
+    path: ".github/workflows/ci.yml",
+    event: "pull_request",
+    head_branch: branch,
+    head_sha: headSha,
+    status,
+    conclusion,
+    created_at: "2026-09-03T00:00:00Z",
+    pull_requests: [{ number: 84 }],
+  });
+  let reviewFetches = 0;
+  const client = ({
+    runState = run("in_progress"),
+    reviews = [],
+    pullRequestState = pullRequest,
+    pullRequests,
+    jobs = [],
+    workflowState = "active",
+  } = {}) => ({
+    async getMainRef() {
+      return { object: { sha: mainSha } };
+    },
+    async getWorkflow() {
+      return {
+        id: 71,
+        name: "CI",
+        path: ".github/workflows/ci.yml",
+        state: workflowState,
+      };
+    },
+    async listPullRequests() {
+      return structuredClone(pullRequests ?? [pullRequestState]);
+    },
+    async listReviews() {
+      reviewFetches += 1;
+      return structuredClone(reviews);
+    },
+    async listRuns() {
+      return [structuredClone(runState)];
+    },
+    async listJobs() {
+      return structuredClone(jobs);
+    },
+  });
+
+  const pairStatusKey = [
+    "status",
+    "--porcelain=v1",
+    "--untracked-files=all",
+    "--",
+    `:(glob)docs/tasks/${selected.id}-*/TASK.md`,
+    `:(glob)docs/tasks/${selected.id}-*/TEST.md`,
+  ].join("\u0000");
+  const stageCache = ({
+    localHead = headSha,
+    remoteHead = headSha,
+    pairStatus = "",
+    unscopedWorktreeStatus = "",
+  } = {}) => {
+    const ancestryQueries = [];
+    const statusQueries = [];
+    return {
+      ...commandCache,
+      ancestryQueries,
+      statusQueries,
+      async run(request) {
+        const key = request.args.join("\u0000");
+        if (key === "rev-parse\u0000HEAD") {
+          return { status: 0, stdout: `${localHead}\n`, stderr: "" };
+        }
+        if (
+          key ===
+          `ls-remote\u0000--heads\u0000origin\u0000refs/heads/${branch}`
+        ) {
+          return {
+            status: 0,
+            stdout: remoteHead
+              ? `${remoteHead}\trefs/heads/${branch}\n`
+              : "",
+            stderr: "",
+          };
+        }
+        if (key === pairStatusKey) {
+          statusQueries.push(key);
+          return { status: 0, stdout: pairStatus, stderr: "" };
+        }
+        if (key === "status\u0000--porcelain=v1\u0000--untracked-files=all") {
+          statusQueries.push(key);
+          return { status: 0, stdout: unscopedWorktreeStatus, stderr: "" };
+        }
+        if (key.startsWith("merge-base\u0000--is-ancestor\u0000")) {
+          ancestryQueries.push(key);
+          return { status: 0, stdout: "", stderr: "" };
+        }
+        if (key === `show\u0000${localHead}:.github/workflows/ci.yml`) {
+          return { status: 0, stdout: workflowText, stderr: "" };
+        }
+        return commandCache.run(request);
+      },
+    };
+  };
+  for (const [expectedStage, cache] of [
+    ["COMMIT", stageCache({ localHead: mainSha, remoteHead: null })],
+    ["PUSH", stageCache({ remoteHead: null })],
+    ["CREATE_PR", stageCache()],
+  ]) {
+    const staged = await probeCurrentStandardDeliveryState({
+      tasksRoot: REPOSITORY_TASKS_ROOT,
+      task: selected,
+      commandCache: cache,
+      githubClient: client({ pullRequests: [] }),
+    });
+    assert.equal(staged.diagnostics.stage, expectedStage);
+  }
+
+  const dirtyExistingPullRequest = await probeCurrentStandardDeliveryState({
+    tasksRoot: REPOSITORY_TASKS_ROOT,
+    task: selected,
+    commandCache: stageCache({
+      pairStatus: " M docs/tasks/0084-fixture/TASK.md\n",
+    }),
+    githubClient: client(),
+  });
+  assert.equal(dirtyExistingPullRequest.diagnostics.stage, "COMMIT");
+
+  const unrelatedOnlyCache = stageCache({
+    unscopedWorktreeStatus: "?? unrelated-user-note.txt\n",
+  });
+  const unrelatedOnlyWork = await probeCurrentStandardDeliveryState({
+    tasksRoot: REPOSITORY_TASKS_ROOT,
+    task: selected,
+    commandCache: unrelatedOnlyCache,
+    githubClient: client(),
+  });
+  assert.equal(unrelatedOnlyWork.diagnostics.stage, "OBSERVE_ACTUAL_HEAD_CI");
+  assert.deepEqual(unrelatedOnlyCache.statusQueries, [pairStatusKey]);
+
+  const repairedHead = "d".repeat(40);
+  const existingPullRequestUpdateCache = stageCache({ localHead: repairedHead });
+  const existingPullRequestUpdate = await probeCurrentStandardDeliveryState({
+    tasksRoot: REPOSITORY_TASKS_ROOT,
+    task: selected,
+    commandCache: existingPullRequestUpdateCache,
+    githubClient: client(),
+  });
+  assert.equal(existingPullRequestUpdate.diagnostics.stage, "PUSH");
+  assert.ok(
+    existingPullRequestUpdateCache.ancestryQueries.includes(
+      `merge-base\u0000--is-ancestor\u0000${headSha}\u0000${repairedHead}`,
+    ),
+  );
+
+  const repairedHeadWithoutPullRequest = await probeCurrentStandardDeliveryState({
+    tasksRoot: REPOSITORY_TASKS_ROOT,
+    task: selected,
+    commandCache: stageCache({ localHead: repairedHead }),
+    githubClient: client({ pullRequests: [] }),
+  });
+  assert.equal(repairedHeadWithoutPullRequest.diagnostics.stage, "PUSH");
+
+  const dirtyRepairedHead = await probeCurrentStandardDeliveryState({
+    tasksRoot: REPOSITORY_TASKS_ROOT,
+    task: selected,
+    commandCache: stageCache({
+      localHead: repairedHead,
+      pairStatus: " M docs/tasks/0084-fixture/TEST.md\n",
+    }),
+    githubClient: client(),
+  });
+  assert.equal(dirtyRepairedHead.diagnostics.stage, "COMMIT");
+
+  const summaryDrifts = [
+    (candidate) => {
+      candidate.draft = true;
+    },
+    (candidate) => {
+      candidate.state = "closed";
+    },
+    (candidate) => {
+      candidate.merged = true;
+    },
+    (candidate) => {
+      candidate.head.sha = "e".repeat(40);
+    },
+    (candidate) => {
+      candidate.head.ref = "task/other";
+    },
+    (candidate) => {
+      candidate.head.repo.full_name = "other/repository";
+    },
+    (candidate) => {
+      candidate.base.sha = "e".repeat(40);
+    },
+    (candidate) => {
+      candidate.base.ref = "trunk";
+    },
+    (candidate) => {
+      candidate.base.repo.full_name = "other/repository";
+    },
+  ];
+  for (const drift of summaryDrifts) {
+    const unusablePullRequest = structuredClone(pullRequest);
+    drift(unusablePullRequest);
+    for (const cache of [
+      stageCache({ localHead: repairedHead }),
+      stageCache({
+        pairStatus: " M docs/tasks/0084-fixture/TASK.md\n",
+      }),
+    ]) {
+      await assert.rejects(
+        probeCurrentStandardDeliveryState({
+          tasksRoot: REPOSITORY_TASKS_ROOT,
+          task: selected,
+          commandCache: cache,
+          githubClient: client({ pullRequestState: unusablePullRequest }),
+        }),
+        /CURRENT_PULL_REQUEST/,
+      );
+    }
+  }
+
+  const divergentRepairCache = {
+    ...stageCache({ localHead: repairedHead }),
+    async run(request) {
+      if (
+        request.args.join("\u0000") ===
+        `merge-base\u0000--is-ancestor\u0000${headSha}\u0000${repairedHead}`
+      ) {
+        return { status: 1, stdout: "", stderr: "" };
+      }
+      return stageCache({ localHead: repairedHead }).run(request);
+    },
+  };
+  await assert.rejects(
+    probeCurrentStandardDeliveryState({
+      tasksRoot: REPOSITORY_TASKS_ROOT,
+      task: selected,
+      commandCache: divergentRepairCache,
+      githubClient: client(),
+    }),
+    /remote selected head diverges from the local selected head/,
+  );
+
+  for (const [stage, cache] of [
+    ["PUSH", stageCache({ remoteHead: null })],
+    ["CREATE_PR", stageCache()],
+  ]) {
+    const malformedWorkflowCache = {
+      ...cache,
+      async run(request) {
+        if (
+          request.args.join("\u0000") ===
+          `show\u0000${headSha}:.github/workflows/ci.yml`
+        ) {
+          return { status: 0, stdout: "name: malformed\n", stderr: "" };
+        }
+        return cache.run(request);
+      },
+    };
+    await assert.rejects(
+      probeCurrentStandardDeliveryState({
+        tasksRoot: REPOSITORY_TASKS_ROOT,
+        task: selected,
+        commandCache: malformedWorkflowCache,
+        githubClient: client({ pullRequests: [] }),
+      }),
+      /workflow contract/i,
+      `${stage} must reject a malformed local workflow`,
+    );
+    await assert.rejects(
+      probeCurrentStandardDeliveryState({
+        tasksRoot: REPOSITORY_TASKS_ROOT,
+        task: selected,
+        commandCache: cache,
+        githubClient: client({
+          pullRequests: [],
+          workflowState: "disabled_manually",
+        }),
+      }),
+      /workflow ID\/name\/path\/state is malformed or unexpected/,
+      `${stage} must reject an inactive GitHub workflow`,
+    );
+  }
+
+  const pending = await probeCurrentStandardDeliveryState({
+    tasksRoot: REPOSITORY_TASKS_ROOT,
+    task: selected,
+    commandCache,
+    githubClient: client(),
+  });
+  assert.equal(pending.diagnostics.stage, "OBSERVE_ACTUAL_HEAD_CI");
+  assert.equal(
+    classifyDeliveryEvidence(
+      "0084",
+      pending.deliveryLedger["0084"],
+      pending.deliveryExpectations["0084"],
+    ).disposition,
+    "RESUMABLE",
+  );
+
+  const partialJobs = [
+    ...workflowContract.actualHeadJobs.map((name, index) => ({
+      id: 8500 + index,
+      run_id: 8401,
+      run_attempt: 2,
+      name,
+      head_sha: headSha,
+      status: "completed",
+      conclusion: "success",
+    })),
+    {
+      id: 8600,
+      run_id: 8401,
+      run_attempt: 2,
+      name: workflowContract.mergeCompatibilityJob,
+      head_sha: headSha,
+      status: "in_progress",
+      conclusion: null,
+    },
+  ];
+  const syntheticPending = await probeCurrentStandardDeliveryState({
+    tasksRoot: REPOSITORY_TASKS_ROOT,
+    task: selected,
+    commandCache,
+    githubClient: client({ jobs: partialJobs }),
+  });
+  assert.equal(
+    syntheticPending.diagnostics.stage,
+    "OBSERVE_ACTUAL_HEAD_CI",
+  );
+  const failedKnownJob = {
+    id: 8700,
+    run_id: 8401,
+    run_attempt: 2,
+    name: workflowContract.mergeCompatibilityJob,
+    head_sha: headSha,
+    status: "completed",
+    conclusion: "failure",
+  };
+  await assert.rejects(
+    probeCurrentStandardDeliveryState({
+      tasksRoot: REPOSITORY_TASKS_ROOT,
+      task: selected,
+      commandCache,
+      githubClient: client({ jobs: [failedKnownJob] }),
+    }),
+    (error) =>
+      error.code === "DELIVERY_BLOCKED" &&
+      /latest job .* is completed\/failure/.test(error.message),
+  );
+
+  await assert.rejects(
+    probeCurrentStandardDeliveryState({
+      tasksRoot: REPOSITORY_TASKS_ROOT,
+      task: selected,
+      commandCache,
+      githubClient: client({ runState: run("completed", "failure") }),
+    }),
+    (error) =>
+      error.code === "DELIVERY_BLOCKED" &&
+      /latest run 8401 attempt 2 is completed\/failure/.test(error.message),
+  );
+
+  const driftedPullRequest = structuredClone(pullRequest);
+  driftedPullRequest.head.sha = "c".repeat(40);
+  await assert.rejects(
+    probeCurrentStandardDeliveryState({
+      tasksRoot: REPOSITORY_TASKS_ROOT,
+      task: selected,
+      commandCache,
+      githubClient: client({ pullRequestState: driftedPullRequest }),
+    }),
+    /CURRENT_PULL_REQUEST: head SHA must equal/,
+  );
+
+  const nestedPrefixCache = {
+    ...commandCache,
+    async run(request) {
+      if (request.args.join("\u0000") === "symbolic-ref\u0000--quiet\u0000--short\u0000HEAD") {
+        return {
+          status: 0,
+          stdout: "evil/task/0084-current-delivery-probe\n",
+          stderr: "",
+        };
+      }
+      return commandCache.run(request);
+    },
+  };
+  await assert.rejects(
+    probeCurrentStandardDeliveryState({
+      tasksRoot: REPOSITORY_TASKS_ROOT,
+      task: selected,
+      commandCache: nestedPrefixCache,
+      githubClient: client(),
+    }),
+    /current branch does not prove selected-Task ownership/,
+  );
+
+  const missingRemoteCache = {
+    ...commandCache,
+    async run(request) {
+      if (
+        request.args.join("\u0000") ===
+        `ls-remote\u0000--heads\u0000origin\u0000refs/heads/${branch}`
+      ) {
+        return { status: 0, stdout: "", stderr: "" };
+      }
+      return commandCache.run(request);
+    },
+  };
+  await assert.rejects(
+    probeCurrentStandardDeliveryState({
+      tasksRoot: REPOSITORY_TASKS_ROOT,
+      task: selected,
+      commandCache: missingRemoteCache,
+      githubClient: client(),
+    }),
+    /pull-request history exists but the exact remote selected branch is missing/,
+  );
+
+  const protectedBlockedPullRequest = structuredClone(pullRequest);
+  protectedBlockedPullRequest.mergeable = false;
+  protectedBlockedPullRequest.mergeable_state = "blocked";
+  const protectedActualHeadPending = await probeCurrentStandardDeliveryState({
+    tasksRoot: REPOSITORY_TASKS_ROOT,
+    task: selected,
+    commandCache,
+    githubClient: client({
+      pullRequestState: protectedBlockedPullRequest,
+    }),
+  });
+  assert.equal(
+    protectedActualHeadPending.diagnostics.stage,
+    "OBSERVE_ACTUAL_HEAD_CI",
+  );
+  const protectedSyntheticPending = await probeCurrentStandardDeliveryState({
+    tasksRoot: REPOSITORY_TASKS_ROOT,
+    task: selected,
+    commandCache,
+    githubClient: client({
+      pullRequestState: protectedBlockedPullRequest,
+      jobs: partialJobs,
+    }),
+  });
+  assert.equal(
+    protectedSyntheticPending.diagnostics.stage,
+    "OBSERVE_ACTUAL_HEAD_CI",
+  );
+
+  const requestedChanges = [
+    {
+      user: { login: "reviewer" },
+      state: "CHANGES_REQUESTED",
+      submitted_at: "2026-09-03T00:01:00Z",
+    },
+  ];
+  const reviewActualHeadPending = await probeCurrentStandardDeliveryState({
+    tasksRoot: REPOSITORY_TASKS_ROOT,
+    task: selected,
+    commandCache,
+    githubClient: client({
+      reviews: requestedChanges,
+    }),
+  });
+  assert.equal(
+    reviewActualHeadPending.diagnostics.stage,
+    "OBSERVE_ACTUAL_HEAD_CI",
+  );
+  assert.equal(reviewFetches, 0);
+  assert.equal(
+    reviewActualHeadPending.deliveryLedger["0084"].pullRequest.review,
+    "PENDING",
+  );
+  assert.equal(
+    classifyDeliveryEvidence(
+      "0084",
+      reviewActualHeadPending.deliveryLedger["0084"],
+      reviewActualHeadPending.deliveryExpectations["0084"],
+    ).disposition,
+    "RESUMABLE",
+  );
+  const reviewSyntheticPending = await probeCurrentStandardDeliveryState({
+    tasksRoot: REPOSITORY_TASKS_ROOT,
+    task: selected,
+    commandCache,
+    githubClient: client({
+      reviews: requestedChanges,
+      jobs: partialJobs,
+    }),
+  });
+  assert.equal(
+    reviewSyntheticPending.diagnostics.stage,
+    "OBSERVE_ACTUAL_HEAD_CI",
+  );
+  assert.equal(reviewFetches, 0);
+  assert.equal(
+    reviewSyntheticPending.deliveryLedger["0084"].pullRequest.review,
+    "PENDING",
+  );
+  const reviewClassification = classifyDeliveryEvidence(
+    "0084",
+    reviewSyntheticPending.deliveryLedger["0084"],
+    reviewSyntheticPending.deliveryExpectations["0084"],
+  );
+  assert.equal(reviewClassification.disposition, "RESUMABLE");
 });
 
 test("future terminal delivery binds canonical pair bytes and rejects worktree mutation before dispatch", async (t) => {
@@ -1250,7 +2160,7 @@ test("future terminal history rejects committed mutation even after byte reversi
   );
 });
 
-test("protected merge source branch has one leading Task identity", () => {
+test("expected-head PR merge source branch has one leading Task identity", () => {
   const parents = ["a".repeat(40), "b".repeat(40)];
   for (const [subject, expected] of [
     [
@@ -1346,7 +2256,7 @@ test("protected merge source branch has one leading Task identity", () => {
   }
 });
 
-test("PR #60-isomorphic protected merge ignores a later Task token in its slug", async (t) => {
+test("PR #60-isomorphic expected-head merge ignores a later Task token in its slug", async (t) => {
   const fixture = await futureTerminalFixture(t, { taskId: "0070" });
   const branch = "task/0072-retire-consumed-task-0070-rebaseline-shim";
   const subject = `Merge pull request #60 from kimyeongwoo/${branch}`;
@@ -1391,7 +2301,7 @@ test("future terminal history rejects a second Task-scoped delivery graph", asyn
       error.code === "FUTURE_TERMINAL_PAIR_IMMUTABLE" &&
       error.message.includes("docs/tasks/0070-immutable/TASK.md") &&
       error.message.includes(mergeSha) &&
-      /another Task-scoped protected merge/.test(error.message) &&
+      /another Task-scoped PR merge/.test(error.message) &&
       error.message.includes('$kyw-task "<correction outcome>"') &&
       error.message.includes("hard-depend on Task 0070"),
   );
@@ -2466,6 +3376,425 @@ async function normalizePr57MixedAttemptFixture(fixture) {
   return { normalized, prState, postState };
 }
 
+test("current delivery probe reaches reviewed clean merge resume after exact CI evidence", async () => {
+  const fixture = pr57MixedAttemptFixture();
+  const workflowText = await readFile(
+    path.join(REPOSITORY_ROOT, ".github", "workflows", "ci.yml"),
+    "utf8",
+  );
+  const commandCache = createInvocationCommandCache({
+    runner: ({ args }) => {
+      const key = args.join("\u0000");
+      const stdout =
+        key === "rev-parse\u0000--show-toplevel"
+          ? `${REPOSITORY_ROOT}\n`
+          : key === "rev-parse\u0000refs/heads/main" ||
+              key === "rev-parse\u0000main@{upstream}" ||
+              key === "rev-parse\u0000refs/remotes/origin/main"
+            ? `${fixture.outcome.baseSha}\n`
+            : key === "remote\u0000get-url\u0000origin"
+              ? `https://github.com/${fixture.repository}.git\n`
+              : key === "ls-remote\u0000--heads\u0000origin\u0000refs/heads/main"
+                ? `${fixture.outcome.baseSha}\trefs/heads/main\n`
+                : key === "symbolic-ref\u0000--quiet\u0000--short\u0000HEAD"
+                  ? `${fixture.outcome.headRef}\n`
+                  : key === "rev-parse\u0000HEAD"
+                    ? `${fixture.outcome.outcomeSha}\n`
+                    : key ===
+                        `ls-remote\u0000--heads\u0000origin\u0000refs/heads/${fixture.outcome.headRef}`
+                      ? `${fixture.outcome.outcomeSha}\trefs/heads/${fixture.outcome.headRef}\n`
+                      : key ===
+                          `show\u0000${fixture.outcome.outcomeSha}:.github/workflows/ci.yml`
+                        ? workflowText
+                        : "";
+      return { status: 0, stdout, stderr: "" };
+    },
+  });
+  const history = fixture.historyClient(fixture.prHistory);
+  const pullRequest = {
+    number: fixture.outcome.pullRequestNumber,
+    state: "open",
+    merged: false,
+    draft: false,
+    mergeable: true,
+    mergeable_state: "clean",
+    head: {
+      sha: fixture.outcome.outcomeSha,
+      ref: fixture.outcome.headRef,
+      repo: { full_name: fixture.repository },
+    },
+    base: {
+      sha: fixture.outcome.baseSha,
+      ref: "main",
+      repo: { full_name: fixture.repository },
+    },
+  };
+  const pullRequestSummary = structuredClone(pullRequest);
+  delete pullRequestSummary.mergeable;
+  delete pullRequestSummary.mergeable_state;
+  let currentReviews = [];
+  let latestAttemptOverride;
+  const githubCallOrder = [];
+  const githubClient = {
+    async getMainRef() {
+      return { object: { sha: fixture.outcome.baseSha } };
+    },
+    async getWorkflow() {
+      return {
+        ...fixture.workflowContract.workflow,
+        state: "active",
+      };
+    },
+    async listPullRequests() {
+      return [structuredClone(pullRequestSummary)];
+    },
+    async getPullRequest(number, context) {
+      githubCallOrder.push("pull-detail");
+      assert.equal(number, fixture.outcome.pullRequestNumber);
+      assert.equal(context.role, "CURRENT_PULL_REQUEST");
+      return structuredClone(pullRequest);
+    },
+    async listReviews() {
+      githubCallOrder.push("reviews");
+      return structuredClone(currentReviews);
+    },
+    async listRuns() {
+      githubCallOrder.push("runs");
+      return [structuredClone(fixture.prHistory.run)];
+    },
+    async getRunAttempt(_runId, attempt) {
+      if (
+        latestAttemptOverride &&
+        latestAttemptOverride.runAttempt === attempt
+      ) {
+        return structuredClone(latestAttemptOverride);
+      }
+      return structuredClone(
+        fixture.prHistory.attempts.find(
+          (candidate) => candidate.runAttempt === attempt,
+        ),
+      );
+    },
+    async listJobs(...args) {
+      githubCallOrder.push("jobs");
+      return history.listJobs(...args);
+    },
+    async getJobLog(...args) {
+      return history.getJobLog(...args);
+    },
+    async getCommit() {
+      return structuredClone(fixture.baseSnapshot.syntheticCommit);
+    },
+  };
+  const pendingRunState = {
+    status: fixture.prHistory.run.status,
+    conclusion: fixture.prHistory.run.conclusion,
+  };
+  const pendingJobs = fixture.prHistory.byAttempt
+    .get(fixture.prHistory.run.runAttempt)
+    .filter((job) =>
+      [
+        fixture.workflowContract.mergeCompatibilityJob,
+        fixture.workflowContract.requiredGateJob,
+      ].includes(job.name),
+    );
+  const pendingJobStates = pendingJobs.map((job) => ({
+    job,
+    status: job.status,
+    conclusion: job.conclusion,
+  }));
+  fixture.prHistory.run.status = "in_progress";
+  fixture.prHistory.run.conclusion = null;
+  for (const { job } of pendingJobStates) {
+    job.status = "in_progress";
+    job.conclusion = null;
+  }
+  pullRequest.mergeable = false;
+  pullRequest.mergeable_state = "blocked";
+  currentReviews = [
+    {
+      user: { login: "reviewer" },
+      state: "CHANGES_REQUESTED",
+      submitted_at: "2026-09-03T00:01:00Z",
+    },
+  ];
+  const reviewCallsBeforePending = githubCallOrder.filter(
+    (call) => call === "reviews",
+  ).length;
+  const exactActualHeadPending = await probeCurrentStandardDeliveryState({
+    tasksRoot: REPOSITORY_TASKS_ROOT,
+    task: task({ id: fixture.outcome.taskId, contractVersion: 3 }),
+    commandCache,
+    githubClient,
+  });
+  assert.equal(
+    exactActualHeadPending.diagnostics.stage,
+    "OBSERVE_MERGE_COMPATIBILITY",
+  );
+  assert.equal(
+    githubCallOrder.filter((call) => call === "reviews").length,
+    reviewCallsBeforePending,
+  );
+  assert.equal(
+    exactActualHeadPending.deliveryLedger[fixture.outcome.taskId].pullRequest
+      .review,
+    "PENDING",
+  );
+  assert.equal(
+    githubCallOrder.filter((call) => call === "pull-detail").length,
+    0,
+  );
+
+  latestAttemptOverride = {
+    ...fixture.prHistory.attempts.at(-1),
+    status: "completed",
+    conclusion: "failure",
+  };
+  await assert.rejects(
+    probeCurrentStandardDeliveryState({
+      tasksRoot: REPOSITORY_TASKS_ROOT,
+      task: task({ id: fixture.outcome.taskId, contractVersion: 3 }),
+      commandCache,
+      githubClient,
+    }),
+    (error) =>
+      error.code === "DELIVERY_BLOCKED" &&
+      /latest attempt 2 is completed\/failure/.test(error.message),
+  );
+  latestAttemptOverride = undefined;
+
+  const latestActualJob = fixture.prHistory.byAttempt
+    .get(fixture.prHistory.run.runAttempt)
+    .find((job) =>
+      job.name.includes("Behavioral / Windows / Node 22.x"),
+    );
+  const latestActualLogKey = `${fixture.prHistory.run.runAttempt}:${latestActualJob.id}`;
+  const latestActualLog = fixture.prHistory.logs.get(latestActualLogKey);
+  fixture.prHistory.logs.set(
+    latestActualLogKey,
+    latestActualLog.replace(
+      "role=PR_ACTUAL_HEAD",
+      "role=POST_MERGE_MAIN",
+    ),
+  );
+  await assert.rejects(
+    probeCurrentStandardDeliveryState({
+      tasksRoot: REPOSITORY_TASKS_ROOT,
+      task: task({ id: fixture.outcome.taskId, contractVersion: 3 }),
+      commandCache,
+      githubClient,
+    }),
+    /evidence role must equal "PR_ACTUAL_HEAD"/,
+  );
+  fixture.prHistory.logs.set(latestActualLogKey, latestActualLog);
+  fixture.prHistory.run.status = pendingRunState.status;
+  fixture.prHistory.run.conclusion = pendingRunState.conclusion;
+  for (const { job, status, conclusion } of pendingJobStates) {
+    job.status = status;
+    job.conclusion = conclusion;
+  }
+  pullRequest.mergeable = true;
+  pullRequest.mergeable_state = "clean";
+  currentReviews = [];
+
+  const current = await probeCurrentStandardDeliveryState({
+    tasksRoot: REPOSITORY_TASKS_ROOT,
+    task: task({ id: fixture.outcome.taskId, contractVersion: 3 }),
+    commandCache,
+    githubClient,
+  });
+  assert.equal(current.diagnostics.stage, "MERGE_EXPECTED_HEAD");
+  assert.equal(githubCallOrder.filter((call) => call === "reviews").length, 1);
+  assert.equal(
+    githubCallOrder.filter((call) => call === "pull-detail").length,
+    1,
+  );
+  assert.ok(
+    githubCallOrder.lastIndexOf("reviews") >
+      githubCallOrder.lastIndexOf("jobs"),
+  );
+  assert.ok(
+    githubCallOrder.lastIndexOf("pull-detail") >
+      githubCallOrder.lastIndexOf("jobs"),
+  );
+  assert.equal(
+    classifyDeliveryEvidence(
+      fixture.outcome.taskId,
+      current.deliveryLedger[fixture.outcome.taskId],
+      current.deliveryExpectations[fixture.outcome.taskId],
+    ).disposition,
+    "RESUMABLE",
+  );
+  currentReviews = [
+    {
+      user: { login: "reviewer" },
+      state: "CHANGES_REQUESTED",
+      submitted_at: "2026-09-03T00:01:00Z",
+    },
+  ];
+  const reviewBlocked = await probeCurrentStandardDeliveryState({
+    tasksRoot: REPOSITORY_TASKS_ROOT,
+    task: task({ id: fixture.outcome.taskId, contractVersion: 3 }),
+    commandCache,
+    githubClient,
+  });
+  assert.equal(
+    reviewBlocked.diagnostics.stage,
+    "INSPECT_REVIEW_AND_MERGEABILITY",
+  );
+  assert.equal(githubCallOrder.filter((call) => call === "reviews").length, 2);
+  assert.ok(
+    githubCallOrder.lastIndexOf("reviews") >
+      githubCallOrder.lastIndexOf("jobs"),
+  );
+  const reviewBlockedClassification = classifyDeliveryEvidence(
+    fixture.outcome.taskId,
+    reviewBlocked.deliveryLedger[fixture.outcome.taskId],
+    reviewBlocked.deliveryExpectations[fixture.outcome.taskId],
+  );
+  assert.equal(reviewBlockedClassification.disposition, "BLOCKED");
+  assert.equal(reviewBlockedClassification.blockerCode, "DELIVERY_BLOCKED");
+  assert.match(
+    reviewBlockedClassification.issues.join("\n"),
+    /CHANGES_REQUESTED/,
+  );
+  currentReviews = [];
+  for (const [mergeable, mergeableState, diagnosticState] of [
+    [true, "has_hooks", "has_hooks"],
+    [false, "blocked", "blocked"],
+    [null, "unknown", "unknown"],
+    [undefined, undefined, "UNKNOWN"],
+  ]) {
+    pullRequest.mergeable = mergeable;
+    pullRequest.mergeable_state = mergeableState;
+    await assert.rejects(
+      probeCurrentStandardDeliveryState({
+        tasksRoot: REPOSITORY_TASKS_ROOT,
+        task: task({ id: fixture.outcome.taskId, contractVersion: 3 }),
+        commandCache,
+        githubClient,
+      }),
+      (error) =>
+        error.code === "DELIVERY_BLOCKED" &&
+        new RegExp(`not safely mergeable \\(${diagnosticState}\\)`).test(
+          error.message,
+        ),
+    );
+  }
+  pullRequest.mergeable = true;
+  pullRequest.mergeable_state = "clean";
+  pullRequest.number += 1;
+  await assert.rejects(
+    probeCurrentStandardDeliveryState({
+      tasksRoot: REPOSITORY_TASKS_ROOT,
+      task: task({ id: fixture.outcome.taskId, contractVersion: 3 }),
+      commandCache,
+      githubClient,
+    }),
+    /CURRENT_PULL_REQUEST: number must equal/,
+  );
+  pullRequest.number -= 1;
+  pullRequest.head.sha = "f".repeat(40);
+  await assert.rejects(
+    probeCurrentStandardDeliveryState({
+      tasksRoot: REPOSITORY_TASKS_ROOT,
+      task: task({ id: fixture.outcome.taskId, contractVersion: 3 }),
+      commandCache,
+      githubClient,
+    }),
+    /CURRENT_PULL_REQUEST: head SHA must equal/,
+  );
+  pullRequest.head.sha = fixture.outcome.outcomeSha;
+  pullRequest.head.ref = "task/other";
+  await assert.rejects(
+    probeCurrentStandardDeliveryState({
+      tasksRoot: REPOSITORY_TASKS_ROOT,
+      task: task({ id: fixture.outcome.taskId, contractVersion: 3 }),
+      commandCache,
+      githubClient,
+    }),
+    /CURRENT_PULL_REQUEST: head ref must equal/,
+  );
+  pullRequest.head.ref = fixture.outcome.headRef;
+  pullRequest.head.repo.full_name = "other/repository";
+  await assert.rejects(
+    probeCurrentStandardDeliveryState({
+      tasksRoot: REPOSITORY_TASKS_ROOT,
+      task: task({ id: fixture.outcome.taskId, contractVersion: 3 }),
+      commandCache,
+      githubClient,
+    }),
+    /CURRENT_PULL_REQUEST: head repository must equal/,
+  );
+  pullRequest.head.repo.full_name = fixture.repository;
+  pullRequest.base.sha = "f".repeat(40);
+  await assert.rejects(
+    probeCurrentStandardDeliveryState({
+      tasksRoot: REPOSITORY_TASKS_ROOT,
+      task: task({ id: fixture.outcome.taskId, contractVersion: 3 }),
+      commandCache,
+      githubClient,
+    }),
+    /CURRENT_PULL_REQUEST: base SHA must equal/,
+  );
+  pullRequest.base.sha = fixture.outcome.baseSha;
+  pullRequest.base.ref = "trunk";
+  await assert.rejects(
+    probeCurrentStandardDeliveryState({
+      tasksRoot: REPOSITORY_TASKS_ROOT,
+      task: task({ id: fixture.outcome.taskId, contractVersion: 3 }),
+      commandCache,
+      githubClient,
+    }),
+    /CURRENT_PULL_REQUEST: base ref must equal/,
+  );
+  pullRequest.base.ref = "main";
+  pullRequest.base.repo.full_name = "other/repository";
+  await assert.rejects(
+    probeCurrentStandardDeliveryState({
+      tasksRoot: REPOSITORY_TASKS_ROOT,
+      task: task({ id: fixture.outcome.taskId, contractVersion: 3 }),
+      commandCache,
+      githubClient,
+    }),
+    /CURRENT_PULL_REQUEST: base repository must equal/,
+  );
+  pullRequest.base.repo.full_name = fixture.repository;
+  pullRequest.draft = true;
+  await assert.rejects(
+    probeCurrentStandardDeliveryState({
+      tasksRoot: REPOSITORY_TASKS_ROOT,
+      task: task({ id: fixture.outcome.taskId, contractVersion: 3 }),
+      commandCache,
+      githubClient,
+    }),
+    /CURRENT_PULL_REQUEST: draft state must equal false/,
+  );
+  pullRequest.draft = false;
+  pullRequest.merged = true;
+  await assert.rejects(
+    probeCurrentStandardDeliveryState({
+      tasksRoot: REPOSITORY_TASKS_ROOT,
+      task: task({ id: fixture.outcome.taskId, contractVersion: 3 }),
+      commandCache,
+      githubClient,
+    }),
+    /requires one open, unmerged pull request/,
+  );
+  pullRequest.merged = false;
+  pullRequest.state = "closed";
+  await assert.rejects(
+    probeCurrentStandardDeliveryState({
+      tasksRoot: REPOSITORY_TASKS_ROOT,
+      task: task({ id: fixture.outcome.taskId, contractVersion: 3 }),
+      commandCache,
+      githubClient,
+    }),
+    /requires one open, unmerged pull request/,
+  );
+  pullRequest.state = "open";
+});
+
 test("complete hardened graph reaches the existing production evaluator", () => {
   const fixture = hardenedFixture();
   const normalized = normalizeFixture(fixture);
@@ -2722,7 +4051,7 @@ test("authoritative job history rejects stale aliases, collection attacks, and l
   }
 });
 
-test("checkpoint hydration freshly evaluates only one uncovered hardened outcome", async () => {
+test("terminal delivery with a two-Task causal lag evaluates one predecessor and keeps current pending", async () => {
   const fixture = hardenedFixture();
   const normalized = normalizeFixture(fixture);
   const checkpoint = createStandardDeliveryContinuityCheckpoint({
@@ -2744,18 +4073,19 @@ test("checkpoint hydration freshly evaluates only one uncovered hardened outcome
   }).checkpoint;
   const coveredTask = task({ id: "0057" });
   const uncoveredTask = task({ id: "0058" });
-  const selectedTask = task({ id: "0059", status: "READY" });
+  const selectedTask = task({ id: "0059" });
   let localDiscoveryCalls = 0;
   let collectionCalls = 0;
   const hydrated = await hydratePriorStandardDeliveries({
     tasksRoot: path.join(REPOSITORY_ROOT, "docs", "tasks"),
-    invocation: "$kyw-impl 0059",
+    invocation: "$kyw-deliver 0059",
     queueInspector: async () => ({
       tasks: [coveredTask, uncoveredTask, selectedTask],
       errors: [],
     }),
-    continuityLoader: async ({ requiredTasks }) => {
+    continuityLoader: async ({ requiredTasks, currentDeliveryTaskId }) => {
       assert.deepEqual(requiredTasks.map(({ id }) => id), ["0057", "0058"]);
+      assert.equal(currentDeliveryTaskId, "0059");
       return {
         checkpoint,
         partition: {
@@ -2811,6 +4141,21 @@ test("checkpoint hydration freshly evaluates only one uncovered hardened outcome
       mergeSha: fixture.outcome.mergeSha,
       evidenceSha256: "8".repeat(64),
     }),
+    currentDeliveryHydrator: async ({ task: selected, contractTasks }) => {
+      assert.equal(selected.id, "0059");
+      assert.deepEqual(contractTasks.map(({ id }) => id), ["0059"]);
+      return {
+        deliveryLedger: {},
+        deliveryExpectations: {},
+        classifications: { "0059": "PENDING" },
+        chronology: [],
+        diagnostics: {
+          taskId: "0059",
+          state: "RESUMABLE",
+          source: "IN_FLIGHT_NO_CANONICAL_MERGE",
+        },
+      };
+    },
   });
   assert.equal(localDiscoveryCalls, 1);
   assert.equal(collectionCalls, 1);
@@ -2828,6 +4173,84 @@ test("checkpoint hydration freshly evaluates only one uncovered hardened outcome
       "0058",
       hydrated.deliveryLedger["0058"],
       hydrated.deliveryExpectations["0058"],
+    ).satisfied,
+    true,
+  );
+});
+
+test("checkpoint-covered selected delivery remains durable report-only with prerequisites", async () => {
+  const prerequisite = task({ id: "0099", contractVersion: 3 });
+  const selected = task({
+    id: "0100",
+    dependencies: ["0099"],
+    contractVersion: 3,
+  });
+  const record = (taskId, digit) => ({
+    taskId,
+    taskSha256: digit.repeat(64),
+    testSha256: String(Number(digit) + 1).repeat(64),
+    taskStatus: "DONE",
+    testStatus: "PASSED",
+    classification: "HARDENED_EXACT_HEAD",
+    outcomeSha: digit.repeat(40),
+    mergeSha: String(Number(digit) + 1).repeat(40),
+    evidenceSha256: String(Number(digit) + 2).repeat(64),
+  });
+  const checkpoint = createStandardDeliveryContinuityCheckpoint({
+    repository: "owner/repository",
+    sourceMainSha: "f".repeat(40),
+    coveredRecords: [record("0099", "1"), record("0100", "4")],
+  }).checkpoint;
+  let currentCalls = 0;
+  const hydrated = await hydratePriorStandardDeliveries({
+    tasksRoot: "C:\\fixture\\docs\\tasks",
+    invocation: "$kyw-deliver 0100",
+    queueInspector: async () => ({ tasks: [prerequisite, selected], errors: [] }),
+    continuityLoader: async ({
+      requiredTasks,
+      coverageTasks,
+      currentDeliveryTaskId,
+    }) => {
+      assert.deepEqual(requiredTasks.map(({ id }) => id), ["0099"]);
+      assert.deepEqual(coverageTasks.map(({ id }) => id), ["0099", "0100"]);
+      assert.equal(currentDeliveryTaskId, "0100");
+      return {
+        checkpoint,
+        partition: { coveredTasks: [prerequisite], uncoveredTasks: [] },
+        coveragePartition: {
+          coveredTasks: [prerequisite, selected],
+          uncoveredTasks: [],
+        },
+        coverageTasks: [prerequisite, selected],
+        recoveredImmutableTaskIds: [],
+        source: "ALIGNED_MAIN",
+        identity: {
+          repository: "owner/repository",
+          repositoryRoot: REPOSITORY_ROOT,
+          currentMainSha: "f".repeat(40),
+          upstreamSha: "f".repeat(40),
+          cachedMainSha: "f".repeat(40),
+          directRemoteSha: "f".repeat(40),
+          githubMainSha: "f".repeat(40),
+          githubClient: {},
+        },
+      };
+    },
+    currentDeliveryHydrator: async () => {
+      currentCalls += 1;
+      throw new Error("checkpoint-covered current delivery must not refetch GitHub");
+    },
+  });
+  assert.equal(currentCalls, 0);
+  assert.equal(
+    hydrated.deliveryLedger["0100"].classification,
+    "DURABLE_STANDARD_CONTINUITY",
+  );
+  assert.equal(
+    evaluateDeliveryEvidence(
+      "0100",
+      hydrated.deliveryLedger["0100"],
+      hydrated.deliveryExpectations["0100"],
     ).satisfied,
     true,
   );
@@ -3871,7 +5294,7 @@ test("no-prior hydration performs no local Git or GitHub collection", async () =
   assert.deepEqual(result.deliveryLedger, {});
 });
 
-test("an old exact Task derives the legacy anchor from all completed STANDARD contracts", async () => {
+test("an old exact Task hydrates its selected contract without replaying later pending Tasks", async () => {
   await assert.rejects(
     hydratePriorStandardDeliveries({
       tasksRoot: path.join(REPOSITORY_ROOT, "docs", "tasks"),
@@ -3887,7 +5310,7 @@ test("an old exact Task derives the legacy anchor from all completed STANDARD co
       }),
       localDiscovery: async ({ requiredTasks, contractTasks }) => {
         assert.deepEqual(requiredTasks.map(({ id }) => id), ["0030"]);
-        assert.deepEqual(contractTasks.map(({ id }) => id), ["0030", "0054"]);
+        assert.deepEqual(contractTasks.map(({ id }) => id), ["0030"]);
         throw new Error("anchor planning observed");
       },
     }),
@@ -3942,7 +5365,7 @@ test("normal adapter hydrates before one dispatcher call and failure invokes non
   assert.equal(dispatchCalls, 0);
 });
 
-test("ordinary Task 0070 adapter matches a control ID", async () => {
+test("ordinary implementation adapters pass route identity and never receive a transition", async () => {
   const prepared = createStandardDeliveryContinuityCheckpoint({
     repository: "owner/repository",
     sourceMainSha: "f".repeat(40),
@@ -3979,6 +5402,7 @@ test("ordinary Task 0070 adapter matches a control ID", async () => {
         hydratePriorStandardDeliveries: async (options) => {
           events.push("hydrate");
           assert.equal(options.invocation, invocation);
+          assert.equal(options.parsedInvocation.route, "IMPLEMENTATION");
           assert.equal("continuityBootstrapAuthority" in options, false);
           assert.equal("allowBootstrapWorktreeCheckpoint" in options, false);
           return {
@@ -3988,8 +5412,9 @@ test("ordinary Task 0070 adapter matches a control ID", async () => {
             diagnostics: { requiredTaskIds: ["0100"] },
           };
         },
-        resolveTaskDispatch: async () => {
+        resolveTaskDispatch: async (options) => {
           events.push("dispatch");
+          assert.equal(options.parsedInvocation.route, "IMPLEMENTATION");
           return {
             outcome: "SELECTED",
             action: "IMPLEMENT",
@@ -3998,11 +5423,7 @@ test("ordinary Task 0070 adapter matches a control ID", async () => {
         },
       },
     );
-    const transition = parseStandardDeliveryContinuityTransitionToken(
-      result.continuityTransitionToken,
-    );
-    assert.equal(transition.selectedTaskId, id);
-    assert.equal(transition.checkpoint.coverage.lastTaskId, "0100");
+    assert.equal("continuityTransitionToken" in result, false);
     assert.deepEqual(events, ["hydrate", "dispatch"]);
     observed.push({
       outcome: result.outcome,

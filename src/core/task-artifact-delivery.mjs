@@ -1,4 +1,5 @@
 const exactInvocationPattern = /^\$kyw-impl\s+(\d{4})(?:\s+([\s\S]*\S))?\s*$/u;
+const exactDeliveryInvocationPattern = /^\$kyw-deliver\s+(\d{4})\s*$/u;
 const managedExactAliasPattern = /^task\s+(\d{4})\s+실행해줘(?:\s+([\s\S]*\S))?\s*$/iu;
 const managedNextAliasPattern = /^task\s+진행해줘(?:\s+([\s\S]*\S))?\s*$/iu;
 const managedContinuousAliasPattern =
@@ -32,11 +33,33 @@ export function parseTaskInvocation(invocation, { managedRoutingAvailable = fals
   if (exact) {
     return Object.freeze({
       recognized: true,
+      route: "IMPLEMENTATION",
       mode: "EXACT",
       source: "PORTABLE_SKILL",
       taskId: exact[1],
       overrideText: exact[2] ?? "",
       overrideScope: "FIRST_SELECTED_TASK",
+    });
+  }
+
+  const exactDelivery = exactDeliveryInvocationPattern.exec(invocation);
+  if (exactDelivery) {
+    return Object.freeze({
+      recognized: true,
+      route: "DELIVERY",
+      mode: "EXACT",
+      source: "PORTABLE_SKILL",
+      taskId: exactDelivery[1],
+      overrideText: "",
+      overrideScope: "NONE",
+    });
+  }
+
+  if (/^\$kyw-deliver(?:\s|$)/u.test(invocation)) {
+    return Object.freeze({
+      recognized: false,
+      route: "DELIVERY",
+      mode: "NONE",
     });
   }
 
@@ -54,6 +77,7 @@ export function parseTaskInvocation(invocation, { managedRoutingAvailable = fals
     const fallback = `${portableFallback(taskId)}${overrideText ? ` ${overrideText}` : ""}`;
     return Object.freeze({
       recognized: true,
+      route: "IMPLEMENTATION",
       mode: "FALLBACK_REQUIRED",
       source: "MANAGED_ALIAS",
       taskId,
@@ -66,6 +90,7 @@ export function parseTaskInvocation(invocation, { managedRoutingAvailable = fals
 
   return Object.freeze({
     recognized: true,
+    route: "IMPLEMENTATION",
     mode: managedExact ? "EXACT" : managedContinuous ? "CONTINUOUS" : "NEXT",
     source: "MANAGED_ALIAS",
     taskId,

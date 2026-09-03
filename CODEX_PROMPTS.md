@@ -18,11 +18,11 @@ $kyw-task "<outcome>"
 
 이 호출은 complete `READY/READY` Task/Test pair set을 원자적으로 작성하고, 첫 eligible pair를 위한 exact `$kyw-impl NNNN` 하나를 안내한 뒤 멈춘다. 구현, permanent-document 수정, delivery 또는 자동 Skill 호출은 하지 않는다.
 
-`$kyw-task NNNN`은 기존 `DRAFT/DRAFT` pair의 authoring/promotion에만 사용한다. 다른 상태의 기존 Task는 이 form으로 실행하지 않고 안내된 `$kyw-impl NNNN`을 새로 호출한다.
+`$kyw-task NNNN`은 기존 `DRAFT/DRAFT` pair의 authoring/promotion에만 사용한다. 다른 상태는 안내된 exact implementation 또는 delivery Skill을 새로 호출한다.
 
 ## Task 실행과 재개
 
-`AGENTS.md`는 저장소 불변 규칙을, 현재 Task/Test는 현재 범위와 증거를, 설치된 `$kyw-impl` 실행 reference는 상세 실행 절차를 소유한다. 이 파일은 절차를 복제하지 않고 호출만 제공한다.
+`AGENTS.md`는 저장소 불변 규칙을, 현재 Task/Test는 범위와 local evidence를, 설치된 `$kyw-impl` reference는 `DONE/PASSED`까지의 상세 구현 절차를 소유한다. 이 파일은 절차를 복제하지 않고 호출만 제공한다.
 
 관리되는 저장소에서 정확한 Task를 실행하거나 재개:
 
@@ -48,7 +48,23 @@ task 진행해줘
 남은 task 계속 실행해줘
 ```
 
+세 Korean alias는 구현 전용이다. Pending `STANDARD` delivery를 선택하거나 실행하지 않으며, 구현이 `DONE/PASSED`가 되면 다음 한 줄을 출력하고 continuous mode에서도 멈춘다.
+
+```text
+다음 단계: $kyw-deliver NNNN
+```
+
 번호만 바꾼다. 사용자가 새로 정한 제약이 없다면 문서 목록, lifecycle, 검증 checklist, 이전 대화를 호출에 다시 붙이지 않는다. Compact나 새 세션 이후에도 같은 짧은 호출을 사용하며, 저장소에 기록된 `Completed`, `Remaining`, `Resume Point`, `TEST.md` evidence가 재개 상태다.
+
+## STANDARD delivery 실행과 재개
+
+Repository-complete Task의 현재 `STANDARD` delivery만 다음 exact form으로 수행하거나 재개한다.
+
+```text
+$kyw-deliver 0001
+```
+
+Bare form, Korean alias, implicit 호출, suffix, 자동 Skill chaining, background delivery는 지원하지 않는다. 상세 Git/GitHub 절차는 설치된 `$kyw-deliver` reference 하나가 소유하며, 여기서는 복제하지 않는다. 이미 satisfied인 contract-3 Task는 immutable report-only이고 correction은 새 hard-dependent `$kyw-task "<correction outcome>"`로 작성한다.
 
 ## Task 없이 수행할 소규모 변경 프롬프트
 

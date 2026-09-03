@@ -74,7 +74,7 @@ async function temporaryTasksRoot(t) {
   return { tasksRoot, taskDirectory, taskMarkdown, testMarkdown };
 }
 
-test("kyw-impl Skill is explicit-only and owns existing-Task execution", async () => {
+test("kyw-impl Skill is explicit-only and owns repository implementation", async () => {
   const [skill, metadata, execution] = await Promise.all([
     readFile(SKILL_PATH, "utf8"),
     readFile(METADATA_PATH, "utf8"),
@@ -86,7 +86,8 @@ test("kyw-impl Skill is explicit-only and owns existing-Task execution", async (
   assert.equal(frontmatter.name, "kyw-impl");
   assert.match(frontmatter.description, /explicitly invokes \$kyw-impl/);
   assert.match(frontmatter.description, /already existing kyw-dev Task/);
-  assert.match(frontmatter.description, /do not use for Task authoring, new outcomes, ordinary prompts/);
+  assert.match(frontmatter.description, /through DONE\/PASSED/);
+  assert.match(frontmatter.description, /do not use for Task authoring,[^.]*new outcomes,[^.]*ordinary prompts/);
   assert.match(skill, /`\$kyw-impl NNNN` selects one exact existing Task/);
   assert.match(skill, /task \d{4} 실행해줘/);
   assert.match(skill, /task 진행해줘/);
@@ -94,15 +95,15 @@ test("kyw-impl Skill is explicit-only and owns existing-Task execution", async (
   assert.match(skill, /anchored repository routing, not Skill matching/);
   assert.match(skill, /Without managed routing, return `\$kyw-impl NNNN`/);
   assert.match(skill, /\[Task Execution and Resume\]\(references\/execution\.md\)/);
-  assert.match(execution, /canonical detailed execution procedure/);
+  assert.match(execution, /canonical detailed repository implementation procedure/);
   assert.match(metadata, /default_prompt: "Use \$kyw-impl NNNN/);
-  assert.match(metadata, /implement, resume, verify, and ordinarily deliver an existing Task/);
+  assert.match(metadata, /implement, resume, and verify an existing Task through repository completion/);
   assert.match(metadata, /policy:\n  allow_implicit_invocation: false\n/);
   assert.doesNotMatch(metadata, /^dependencies:/m);
-  assert.doesNotMatch(metadata, /publish|version|tag|Release|authority/i);
+  assert.doesNotMatch(metadata, /deliver|publish|version|tag|Release|authority/i);
 });
 
-test("kyw-impl has no authoring engine and calls the one shared packaged adapter", async () => {
+test("kyw-impl has no authoring or delivery engine and calls the one shared packaged adapter", async () => {
   const [skill, adapter] = await Promise.all([
     readFile(SKILL_PATH, "utf8"),
     readFile(SHARED_ADAPTER_PATH, "utf8"),
@@ -116,19 +117,18 @@ test("kyw-impl has no authoring engine and calls the one shared packaged adapter
   assert.match(skill, /sole packaged Task adapter in the sibling `kyw-task` Skill/);
   assert.match(skill, /\.\.\/kyw-task\/scripts\/task-artifacts\.mjs dispatch/);
   assert.match(skill, /owns no copied parser, state, dependency, queue, transaction, or delivery engine/);
-  assert.match(
-    skill,
-    /validates prior `STANDARD` continuity[\s\S]{0,100}fixed-bounded checkpoint/,
-  );
-  assert.match(skill, /freshly production-evaluates at most one uncovered GitHub outcome/);
+  assert.match(skill, /fixed-bounded checkpoint/);
+  assert.match(skill, /freshly production-evaluates at most one uncovered GitHub predecessor/);
   assert.match(skill, /no whole-history fallback/);
+  assert.match(skill, /read-only implementation gate/);
+  assert.doesNotMatch(skill, /apply-continuity|exact-path commit|non-force push|non-draft PR/);
   assert.doesNotMatch(skill, /--delivery-(?:ledger|expectations)(?:-json)?/);
   assert.doesNotMatch(skill, /create-batch --tasks-root|inspect-transaction --tasks-root|recover-transaction --tasks-root/);
   assert.match(adapter, /\.\.\/\.\.\/\.\.\/src\/core\/task-artifacts\.mjs/);
   assert.match(adapter, /resolveTaskDispatch/);
 });
 
-test("kyw-impl rejects creation and DRAFT authoring while preserving execution modes", async () => {
+test("kyw-impl rejects creation, DRAFT authoring, and delivery selection", async () => {
   const skill = await readFile(SKILL_PATH, "utf8");
 
   assert.doesNotMatch(skill, /^A goal, missing ID, or new outcome causes zero mutation/m);
@@ -145,13 +145,16 @@ test("kyw-impl rejects creation and DRAFT authoring while preserving execution m
   for (const [state, action] of [
     ["READY/READY", "IMPLEMENT"],
     ["IN_PROGRESS/RUNNING", "RESUME"],
-    ["DONE/PASSED", "DELIVER"],
   ]) {
     assert.match(skill, new RegExp(`\`${state}\`[^\\n]*\`${action}\``));
   }
+  assert.match(skill, /`DONE\/PASSED`[^.\n]*report/i);
+  assert.match(skill, /다음 단계: \$kyw-deliver NNNN/);
+  assert.match(skill, /implementation route never selects or executes delivery/i);
+  assert.doesNotMatch(skill, /resumable `DELIVER`|`DONE\/PASSED`[^\n]*`DELIVER`/);
   assert.match(skill, /`BLOCKED\/BLOCKED`[^.\n]*condition recheck/);
-  assert.match(skill, /Automatic\/continuous forms never allocate/);
-  assert.match(skill, /never in parallel\/background or beyond this host invocation/);
+  assert.match(skill, /Automatic and continuous forms never allocate/);
+  assert.match(skill, /never run in parallel\/background/);
 });
 
 test("kyw-impl applies the activation-scoped warning and bounded-reconfirmation lifecycle", async () => {
@@ -164,9 +167,9 @@ test("kyw-impl applies the activation-scoped warning and bounded-reconfirmation 
   }
   assert.match(skill, /exact route activates only that invocation/i);
   assert.match(skill, /aligned[^.]{0,180}without duplicate confirmation/i);
-  assert.match(skill, /baseline\/Task\/acceptance\/scope\/action\/target\/attempt\/Skill\/mode change[^.]{0,240}zero-mutation wait/i);
+  assert.match(skill, /baseline,[^.]{0,180}Task,[^.]{0,180}acceptance,[^.]{0,240}Skill,[^.]{0,80}mode change[^.]{0,240}zero-mutation wait/i);
   assert.match(skill, /immediate exact reconfirmation (?:on|of) unchanged facts/i);
-  assert.match(skill, /owner\/pair sync (?:then|and) only (?:the )?bounded action/i);
+  assert.match(skill, /owner\/pair sync then only the bounded action/i);
   assert.match(execution, /`INACTIVE`[^.]{0,240}do not warn, block, select\/create\/redirect a Task/i);
   assert.match(execution, /In `ACTIVE_ALIGNED`[^.]{0,220}continues without duplicate confirmation/i);
   assert.match(execution, /enter `CHANGE_PENDING`[^.]{0,180}empty mutation trace/i);
@@ -178,7 +181,7 @@ test("kyw-impl applies the activation-scoped warning and bounded-reconfirmation 
     "delivery",
   ]) assert.ok(execution.includes(impact), `warning must cover ${impact}`);
   assert.match(execution, /action, target, scope, attempt, and facts/i);
-  assert.match(execution, /immediate next applicable turn[^.]{0,200}`RECONFIRMED_BOUNDED`/i);
+  assert.match(execution, /immediate next applicable turn[^.]{0,260}`RECONFIRMED_BOUNDED`/i);
   assert.match(execution, /First synchronize applicable mutable Task\/Test and affected permanent owners/i);
   assert.match(execution, /execute only its (?:bounded )?action, target, scope, and attempt/i);
   assert.match(execution, /combined routed message activates\/routes once/i);
@@ -244,7 +247,7 @@ test("kyw-impl resumes from verified handoff state without repeating completed w
   assert.equal(appended.progressTurn.questions.length, 0);
   assert.match(execution, /Treat `Completed` as a claim to verify, not a command to repeat or trust blindly/);
   assert.match(execution, /start at `Resume Point` or the first still-valid item in Remaining/);
-  assert.match(execution, /redoing only the affected work/);
+  assert.match(execution, /redoing only (?:the )?affected work/);
   assert.match(execution, /Do not rerun a completed destructive or externally visible action/);
   assert.match(execution, /consume settled aligned constraints without re-asking/i);
 });
@@ -268,7 +271,7 @@ test("kyw-impl preserves evidence honesty, final coverage review, and checkpoint
   assert.deepEqual(coverage.missingBeforeReview, ["permission-denied branch"]);
   assert.equal(coverage.requiredAddition.id, "T-02");
   assert.equal(coverage.finalReviewCompleteAfterAddition, true);
-  assert.match(execution, /When a newly introduced branch lacks coverage, append a test row/);
+  assert.match(execution, /when a newly introduced branch lacks coverage, append a test row/i);
   assert.match(execution, /A generic full-suite pass does not close an unmapped branch/);
 
   assert.deepEqual(checkpoint.taskFields, [
@@ -300,61 +303,33 @@ test("kyw-impl preserves evidence honesty, final coverage review, and checkpoint
   assert.match(execution, /If safe reconciliation is impossible, record and block rather than hiding scope drift/);
 });
 
-test("kyw-impl uses bounded durable continuity without weakening uncovered hardened evidence", async () => {
+test("kyw-impl uses prior delivery continuity as a read-only implementation gate", async () => {
   const execution = await readFile(EXECUTION_REFERENCE_PATH, "utf8");
   const skill = await readFile(SKILL_PATH, "utf8");
 
   assert.match(execution, /pass no delivery payload/);
   assert.match(execution, /sole dispatcher call/);
-  assert.match(execution, /invocation-local command cache/);
-  assert.match(execution, /fixed-bounded rolling continuity checkpoint/);
-  assert.match(execution, /exact ordered prefix/);
-  assert.match(execution, /`DURABLE_STANDARD_CONTINUITY`/);
-  assert.match(execution, /At most one prior `STANDARD` outcome may remain uncovered/);
+  assert.match(execution, /fixed-bounded rolling checkpoint/);
+  assert.match(execution, /at most one freshly evaluator-satisfied uncovered predecessor/i);
   assert.match(execution, /without automatic whole-history replay/);
-  assert.match(execution, /Expired covered logs do not invalidate/);
-  assert.match(execution, /apply-continuity/);
-  assert.match(execution, /selected Task cannot cover itself/);
-  assert.match(skill, /opaque continuity transition token/);
-  assert.match(skill, /After establishing (?:the selected Task|its) branch and active pair/);
-  assert.match(execution, /trusted-local expectation uses `schemaVersion: 2`/);
-  assert.match(execution, /HARDENED_EXACT_HEAD/);
-  assert.match(execution, /`PR_ACTUAL_HEAD`/);
-  assert.match(execution, /`PR_MERGE_COMPATIBILITY`/);
-  assert.match(execution, /`POST_MERGE_MAIN`/);
-  assert.match(execution, /`KYWCIEVIDENCE`/);
-  assert.match(execution, /run-level latest attempt/);
-  assert.match(execution, /logical job's actual execution attempt/);
-  assert.match(execution, /`filter=all`/);
-  assert.match(execution, /`filter=latest`/);
-  assert.match(execution, /attempt-specific job collections/);
-  assert.match(execution, /later actual execution supersedes/i);
-  assert.match(execution, /never falls back/);
-  assert.match(execution, /uniquely proven equivalent projection/);
+  assert.match(execution, /read-only prior-delivery gate/i);
+  assert.match(execution, /Pending prior delivery[^.]{0,140}`\$kyw-deliver NNNN`/i);
+  assert.doesNotMatch(execution, /apply-continuity|PR_ACTUAL_HEAD|PR_MERGE_COMPATIBILITY|POST_MERGE_MAIN|KYWCIEVIDENCE/);
   assert.match(execution, /every four-digit ID uses the same generic queue path/);
   assert.match(execution, /separate `bootstrap-continuity` command/);
   assert.match(execution, /(?:requires|with) exact `EXPLICIT_REBASELINE` authority/);
   assert.match(execution, /not a dispatch option, source-repair path, or Task-ID exception/);
-  assert.match(skill, /dispatch reserves none for recovery/);
-  assert.match(skill, /accepts no migration\/bootstrap authority option/);
+  assert.match(skill, /never infer\/allocate IDs/i);
+  assert.match(execution, /none reserved or intercepted for recovery/);
   assert.doesNotMatch(execution, /Task `0070` recovery|frozen allowlist/);
   assert.doesNotMatch(skill, /pre-dispatch repair|continuity-bootstrap-authority/);
-  assert.match(execution, /behavioral\/quality\/packed job-name sets/);
-  assert.match(execution, /job only at `refs\/pull\/<number>\/merge`/);
-  assert.match(execution, /do not rerun CI/i);
-  assert.match(execution, /`LEGACY_PRE_CONTRACT`/);
-  assert.match(execution, /actualHead: "UNVERIFIED"/);
-  assert.match(execution, /forbidden for the selected new outcome/);
-  assert.match(
-    execution,
-    /For contract 3, the first evaluator-satisfied `HARDENED_EXACT_HEAD` graph binds pair paths\/bytes/,
-  );
-  assert.match(execution, /unchanged invocation reports only/);
   assert.match(execution, /contracts 1\/2 are grandfathered/);
   assert.match(
     skill,
     /drift or redelivery stops with Task\/path[\s\S]{0,80}hard-dependent `\$kyw-task "<correction outcome>"` guidance/,
   );
+  assert.match(execution, /다음 단계: \$kyw-deliver NNNN/);
+  assert.match(execution, /Then stop in exact, next, and continuous mode/i);
 });
 
 test("shared adapter dispatches kyw-impl and leaves rejected authoring inputs byte-stable", async (t) => {

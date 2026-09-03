@@ -11,12 +11,12 @@ Always load applicable `AGENTS.md`. During an active kyw workflow load its selec
 <!-- kyw-active-skill-guardrails:v1 -->
 
 - During an active Task workflow, work on one Task; preserve user work and exclude unrelated cleanup. Explanations and small fixes need no Task unless requested.
-- All five `kyw-*` Skills are explicit-only. `$kyw-task "goal"` authors the smallest complete dependency-aware `READY/READY` set, prints one `$kyw-impl NNNN`, and stops. `$kyw-task NNNN` handles only compatible `DRAFT/DRAFT`.
-- `$kyw-impl NNNN` is portable for existing Tasks. Route only exact `task NNNN 실행해줘`, `task 진행해줘`, and `남은 task 계속 실행해줘`; incidental `task` prose never routes.
+- All six `kyw-*` Skills are explicit-only. `$kyw-task "goal"` authors the smallest complete dependency-aware `READY/READY` set, prints one `$kyw-impl NNNN`, and stops. `$kyw-task NNNN` handles only compatible `DRAFT/DRAFT`.
+- `$kyw-impl NNNN` is portable for implementation. Route only exact `task NNNN 실행해줘`, `task 진행해줘`, and `남은 task 계속 실행해줘`; incidental `task` prose never routes. Only exact `$kyw-deliver NNNN` owns current `STANDARD` delivery; it has no bare or managed alias.
 - Exact Skill/alias starts guardrails; terminal/stop/cancel/expiry ends them. Inactive ordinary prompts get no kyw-only block/warning/Task select/create/redirect.
 - Aligned work continues. Material baseline/Task/acceptance/scope/bound change gets the SPEC warning and zero-mutation wait. Immediate exact reconfirmation on unchanged facts permits owner/pair sync then its named bounds. Stale/changed/ambiguous/cancelled clears it; never chain Skills or bypass safety, honest evidence, or immutable delivered pairs.
-- Keep one Task active: exact selection cannot bypass it; otherwise resume active work, resumable `STANDARD` delivery, then the lowest eligible ready Task. Continuous mode is serial and invocation-local.
-- Preserve model/effort unless the current user overrides it. Aligned `IMPLEMENT`, `RESUME`, or `DELIVER` needs no duplicate guardrail confirmation.
+- Keep one Task active: implementation resumes it, otherwise selects the lowest eligible ready Task; pending `STANDARD` delivery blocks with exact `$kyw-deliver NNNN`. Continuous mode is serial, invocation-local, and never crosses into delivery.
+- Preserve model/effort unless the current user overrides it. Aligned route actions need no duplicate guardrail confirmation.
 - Task/Test owns repository outcome; GitHub gates mutable delivery. Gaps need rebaseline; delivered contract-3 pairs are immutable; corrections use hard-dependent Tasks. Publication/registry/version/tag/Release/submission, retry/fallback, force/destructive, bypass/admin/account, deletion, and unrelated mutation are distinct; none implies another and failure grants no retry.
 
 ## Change and documentation discipline
@@ -27,4 +27,4 @@ Inspect first; choose the smallest conforming design and preserve behavior and u
 
 {{VERIFY_COMMANDS}}
 
-Keep Task/Test aligned with scope, risk, acceptance, and evidence. Run proportionate checks and record only executed results, failures, limits, and risks. Before completion, compare diff to scope/matrix, sync truth, and validate the pair. Before compaction, update `Completed`, `Remaining`, `Resume Point`, blockers, and evidence. Complete only when acceptance, checks, diff, documents, and evidence agree; otherwise record `BLOCKED` with recovery.
+Keep Task/Test aligned with scope, risk, acceptance, and evidence. Run proportionate checks and record only executed results, failures, limits, and risks. Before completion, compare diff to scope/matrix, sync truth, and validate the pair. Before compaction, update `Completed`, `Remaining`, `Resume Point`, blockers, and evidence. Complete only when acceptance, checks, diff, documents, and evidence agree; otherwise record `BLOCKED` with recovery. Repository completion never performs or implies delivery.

@@ -6,6 +6,7 @@ import {
   mkdtemp,
   readFile,
   readdir,
+  rename,
   rm,
   writeFile,
 } from "node:fs/promises";
@@ -351,24 +352,24 @@ test("checkpoint-covered hydration evaluator-replays no historical GitHub graph"
   ]));
 });
 
-test("terminal delivery closure uses a checkpoint-covered subset of global continuity", async () => {
+test("terminal delivery hydrates predecessor continuity without selected-Task self-coverage", async () => {
   const { checkpoint } = checkpointFixture();
   const allCoveredTasks = [completedTask("0001"), completedTask("0002")];
   let localDiscoveryCalls = 0;
   const hydrated = await hydratePriorStandardDeliveries({
     tasksRoot: "C:\\fixture\\docs\\tasks",
-    invocation: "$kyw-impl 0002",
+    invocation: "$kyw-deliver 0002",
     queueInspector: async () => ({
       tasks: allCoveredTasks,
       errors: [],
     }),
     continuityLoader: async ({ requiredTasks, coverageTasks }) => {
-      assert.deepEqual(requiredTasks.map((task) => task.id), ["0002"]);
+      assert.deepEqual(requiredTasks.map((task) => task.id), ["0001"]);
       assert.deepEqual(coverageTasks.map((task) => task.id), ["0001", "0002"]);
       return {
         checkpoint,
         partition: {
-          coveredTasks: [allCoveredTasks[1]],
+          coveredTasks: [allCoveredTasks[0]],
           uncoveredTasks: [],
         },
         coveragePartition: partitionStandardDeliveryContinuity({
@@ -391,12 +392,24 @@ test("terminal delivery closure uses a checkpoint-covered subset of global conti
       localDiscoveryCalls += 1;
       throw new Error("checkpoint-covered terminal closure must stay durable");
     },
+    currentDeliveryHydrator: async ({ task }) => ({
+      deliveryLedger: {},
+      deliveryExpectations: {},
+      classifications: { [task.id]: "PENDING" },
+      chronology: [],
+      diagnostics: { taskId: task.id, state: "RESUMABLE" },
+    }),
   });
   assert.equal(localDiscoveryCalls, 0);
-  assert.deepEqual(hydrated.diagnostics.requiredTaskIds, ["0002"]);
+  assert.deepEqual(hydrated.diagnostics.requiredTaskIds, ["0001"]);
   assert.equal(hydrated.diagnostics.continuity.coveredTaskCount, 1);
   assert.equal(hydrated.diagnostics.continuity.checkpointCoveredTaskCount, 2);
-  assert.deepEqual(Object.keys(hydrated.deliveryLedger), ["0002"]);
+  assert.deepEqual(Object.keys(hydrated.deliveryLedger), ["0001", "0002"]);
+  assert.equal(hydrated.diagnostics.currentDelivery, undefined);
+  assert.equal(
+    hydrated.deliveryLedger["0002"].classification,
+    "DURABLE_STANDARD_CONTINUITY",
+  );
 });
 
 test("empty delivery history prepares genesis without GitHub access or mutation", async (t) => {
@@ -669,6 +682,37 @@ test("trusted continuity reads aligned main and rejects pair, predecessor, or Gi
     subsetLoaded.coveragePartition.coveredTasks.map((task) => task.id),
     ["0001", "0002"],
   );
+  const uncoveredPredecessor = {
+    ...completedTask("0003"),
+    taskPath: path.join(tasksRoot, "0003-uncovered", "TASK.md"),
+    testPath: path.join(tasksRoot, "0003-uncovered", "TEST.md"),
+  };
+  const selectedCurrent = {
+    ...completedTask("0004"),
+    taskPath: path.join(tasksRoot, "0004-selected", "TASK.md"),
+    testPath: path.join(tasksRoot, "0004-selected", "TEST.md"),
+  };
+  const causalLagLoaded = await loadTrustedStandardDeliveryContinuity({
+    tasksRoot,
+    requiredTasks: [requiredTask, requiredSecond, uncoveredPredecessor],
+    coverageTasks: [
+      requiredTask,
+      requiredSecond,
+      uncoveredPredecessor,
+      selectedCurrent,
+    ],
+    currentDeliveryTaskId: "0004",
+    commandCache: createInvocationCommandCache({ runner }),
+    githubClient,
+  });
+  assert.deepEqual(
+    causalLagLoaded.partition.uncoveredTasks.map((task) => task.id),
+    ["0003"],
+  );
+  assert.equal(
+    causalLagLoaded.coverageTasks.some((task) => task.id === "0004"),
+    false,
+  );
 
   const mismatchedPrevious = createStandardDeliveryContinuityCheckpoint({
     repository: "owner/repository",
@@ -767,7 +811,168 @@ test("rolling transition token is causal, atomic, and idempotent", async (t) => 
   );
 });
 
-test("prepared advancement applies only inside the selected active Task branch", async (t) => {
+test("checkpoint writer serializes divergent transitions and preserves stale locks", async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), "kyw-continuity-lock-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const genesis = checkpointFixture();
+  await writeStandardDeliveryContinuityCheckpoint({
+    tasksRoot: root,
+    bytes: genesis.bytes,
+  });
+  const rolling = (seed) =>
+    createStandardDeliveryContinuityCheckpoint({
+      repository: "owner/repository",
+      baseRef: "main",
+      sourceMainSha: seed.repeat(40),
+      previousCheckpoint: genesis.checkpoint,
+      coveredRecords: [
+        coveredRecord({
+          taskId: "0003",
+          classification: "HARDENED_EXACT_HEAD",
+          outcomeSha: String(Number(seed) + 1).repeat(40),
+          mergeSha: String(Number(seed) + 2).repeat(40),
+          seed: String(Number(seed) + 3),
+        }),
+      ],
+    });
+  const left = rolling("1");
+  const right = rolling("5");
+  let releaseLeft;
+  let reportLocked;
+  const locked = new Promise((resolve) => {
+    reportLocked = resolve;
+  });
+  const hold = new Promise((resolve) => {
+    releaseLeft = resolve;
+  });
+  const leftWrite = writeStandardDeliveryContinuityCheckpoint({
+    tasksRoot: root,
+    bytes: left.bytes,
+    beforePublish: async () => {
+      reportLocked();
+      await hold;
+    },
+  });
+  await locked;
+  await assert.rejects(
+    writeStandardDeliveryContinuityCheckpoint({
+      tasksRoot: root,
+      bytes: right.bytes,
+    }),
+    (error) => error.code === "DELIVERY_CONTINUITY_LOCKED",
+  );
+  releaseLeft();
+  await leftWrite;
+  assert.equal(
+    await readFile(
+      path.join(root, ".kyw-dev-standard-delivery-continuity.json"),
+      "utf8",
+    ),
+    left.bytes,
+  );
+  await assert.rejects(
+    writeStandardDeliveryContinuityCheckpoint({
+      tasksRoot: root,
+      bytes: right.bytes,
+    }),
+    /does not match previousCheckpointDigest/,
+  );
+
+  const lockPath = path.join(
+    root,
+    ".kyw-dev-standard-delivery-continuity.lock",
+  );
+  await writeFile(lockPath, "manual recovery evidence\n", "utf8");
+  const lockBytes = await readFile(lockPath, "utf8");
+  await assert.rejects(
+    writeStandardDeliveryContinuityCheckpoint({
+      tasksRoot: root,
+      bytes: left.bytes,
+    }),
+    (error) => error.code === "DELIVERY_CONTINUITY_LOCKED",
+  );
+  assert.equal(await readFile(lockPath, "utf8"), lockBytes);
+});
+
+test("checkpoint writer detects target, stage, and lock replacement before publish", async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), "kyw-continuity-cas-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const genesis = checkpointFixture();
+  await writeStandardDeliveryContinuityCheckpoint({
+    tasksRoot: root,
+    bytes: genesis.bytes,
+  });
+  const advanced = createStandardDeliveryContinuityCheckpoint({
+    repository: "owner/repository",
+    baseRef: "main",
+    sourceMainSha: "a".repeat(40),
+    previousCheckpoint: genesis.checkpoint,
+    coveredRecords: [
+      coveredRecord({
+        taskId: "0003",
+        classification: "HARDENED_EXACT_HEAD",
+        outcomeSha: "b".repeat(40),
+        mergeSha: "c".repeat(40),
+        seed: "2",
+      }),
+    ],
+  });
+  const target = path.join(
+    root,
+    ".kyw-dev-standard-delivery-continuity.json",
+  );
+  const displacedTarget = `${target}.displaced`;
+  await assert.rejects(
+    writeStandardDeliveryContinuityCheckpoint({
+      tasksRoot: root,
+      bytes: advanced.bytes,
+      beforePublish: async () => {
+        await rename(target, displacedTarget);
+        await writeFile(target, genesis.bytes, "utf8");
+      },
+    }),
+    (error) => error.code === "DELIVERY_CONTINUITY_WRITE_RECOVERY_REQUIRED",
+  );
+  assert.equal(await readFile(target, "utf8"), genesis.bytes);
+  await rm(displacedTarget);
+
+  let foreignStage;
+  await assert.rejects(
+    writeStandardDeliveryContinuityCheckpoint({
+      tasksRoot: root,
+      bytes: advanced.bytes,
+      beforePublish: async ({ stage }) => {
+        await rename(stage, `${stage}.owned`);
+        await writeFile(stage, "foreign stage bytes\n", "utf8");
+        foreignStage = stage;
+      },
+    }),
+    (error) => error.code === "DELIVERY_CONTINUITY_WRITE_RECOVERY_REQUIRED",
+  );
+  assert.equal(await readFile(target, "utf8"), genesis.bytes);
+  assert.equal(await readFile(foreignStage, "utf8"), "foreign stage bytes\n");
+
+  const lockPath = path.join(
+    root,
+    ".kyw-dev-standard-delivery-continuity.lock",
+  );
+  const displacedLock = `${lockPath}.owned`;
+  await assert.rejects(
+    writeStandardDeliveryContinuityCheckpoint({
+      tasksRoot: root,
+      bytes: advanced.bytes,
+      beforePublish: async () => {
+        await rename(lockPath, displacedLock);
+        await writeFile(lockPath, "foreign lock bytes\n", "utf8");
+      },
+    }),
+    (error) => error.code === "DELIVERY_CONTINUITY_WRITE_RECOVERY_REQUIRED",
+  );
+  assert.equal(await readFile(target, "utf8"), genesis.bytes);
+  assert.equal(await readFile(lockPath, "utf8"), "foreign lock bytes\n");
+});
+
+test("prepared advancement applies only inside the selected terminal delivery branch", async (t) => {
   const root = await mkdtemp(path.join(tmpdir(), "kyw-continuity-apply-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const tasksRoot = path.join(root, "docs", "tasks");
@@ -795,15 +1000,27 @@ test("prepared advancement applies only inside the selected active Task branch",
     mkdir(path.join(tasksRoot, "0001-delivered"), { recursive: true }),
     mkdir(path.join(tasksRoot, "0002-selected"), { recursive: true }),
   ]);
+  const deliveredTaskPath = path.join(
+    tasksRoot,
+    "0001-delivered",
+    "TASK.md",
+  );
+  const deliveredTestPath = path.join(
+    tasksRoot,
+    "0001-delivered",
+    "TEST.md",
+  );
+  const deliveredTaskBytes = "# TASK 0001 — Delivered\n\n## Status\n\nDONE\n";
+  const deliveredTestBytes = "# TEST 0001 — Delivered\n\n## Status\n\nPASSED\n";
   await Promise.all([
     writeFile(
-      path.join(tasksRoot, "0001-delivered", "TASK.md"),
-      "# TASK 0001 — Delivered\n\n## Status\n\nDONE\n",
+      deliveredTaskPath,
+      deliveredTaskBytes,
       "utf8",
     ),
     writeFile(
-      path.join(tasksRoot, "0001-delivered", "TEST.md"),
-      "# TEST 0001 — Delivered\n\n## Status\n\nPASSED\n",
+      deliveredTestPath,
+      deliveredTestBytes,
       "utf8",
     ),
     writeFile(
@@ -829,18 +1046,58 @@ test("prepared advancement applies only inside the selected active Task branch",
   git(root, ["update-ref", "refs/remotes/origin/main", currentMainSha]);
   git(root, ["config", "branch.main.remote", "origin"]);
   git(root, ["config", "branch.main.merge", "refs/heads/main"]);
+  let directMainSha = currentMainSha;
+  let githubMainSha = currentMainSha;
+  const commandRunner = ({ command, args, cwd, timeoutMs, maxBuffer }) => {
+    if (
+      command === "git" &&
+      args.join("\u0000") ===
+        "ls-remote\u0000--heads\u0000origin\u0000refs/heads/main"
+    ) {
+      return {
+        status: 0,
+        stdout: `${directMainSha}\trefs/heads/main\n`,
+        stderr: "",
+      };
+    }
+    const result = spawnSync(command, args, {
+      cwd,
+      encoding: "utf8",
+      windowsHide: true,
+      timeout: timeoutMs,
+      maxBuffer,
+      shell: false,
+    });
+    return {
+      status: result.status,
+      signal: result.signal,
+      stdout: result.stdout ?? "",
+      stderr: result.stderr ?? "",
+      error: result.error,
+    };
+  };
+  const githubClient = {
+    async getMainRef() {
+      return { object: { sha: githubMainSha } };
+    },
+  };
+  const applyRuntime = { commandRunner, githubClient };
   const advanced = createStandardDeliveryContinuityCheckpoint({
     repository: "owner/repository",
     sourceMainSha: currentMainSha,
     previousCheckpoint: genesis.checkpoint,
     coveredRecords: [
-      coveredRecord({
+      {
+        ...coveredRecord({
         taskId: "0001",
         classification: "HARDENED_EXACT_HEAD",
         outcomeSha: currentMainSha,
         mergeSha: currentMainSha,
         seed: "2",
-      }),
+        }),
+        taskSha256: sha256(deliveredTaskBytes),
+        testSha256: sha256(deliveredTestBytes),
+      },
     ],
   });
   const token = createStandardDeliveryContinuityTransitionToken({
@@ -849,17 +1106,23 @@ test("prepared advancement applies only inside the selected active Task branch",
   });
   const queueInspector = async () => ({
     tasks: [
-      completedTask("0001"),
       {
-        ...completedTask("0002"),
-        taskStatus: "IN_PROGRESS",
-        testStatus: "RUNNING",
+        ...completedTask("0001"),
+        taskPath: deliveredTaskPath,
+        testPath: deliveredTestPath,
       },
+      completedTask("0002"),
     ],
     errors: [],
   });
+  const checkpointRelative =
+    "docs/tasks/.kyw-dev-standard-delivery-continuity.json";
+  const checkpointPath = path.join(
+    tasksRoot,
+    ".kyw-dev-standard-delivery-continuity.json",
+  );
   const beforeRejectedApply = await readFile(
-    path.join(tasksRoot, ".kyw-dev-standard-delivery-continuity.json"),
+    checkpointPath,
     "utf8",
   );
   await assert.rejects(
@@ -868,6 +1131,7 @@ test("prepared advancement applies only inside the selected active Task branch",
       selectedTaskId: "0002",
       transitionToken: token,
       queueInspector,
+      ...applyRuntime,
     }),
     /branch does not prove selected-Task ownership/,
   );
@@ -878,20 +1142,296 @@ test("prepared advancement applies only inside the selected active Task branch",
     ),
     beforeRejectedApply,
   );
+  git(root, ["switch", "-c", "evil/task/0002-selected"]);
+  await assert.rejects(
+    applyStandardDeliveryContinuityTransition({
+      tasksRoot,
+      selectedTaskId: "0002",
+      transitionToken: token,
+      queueInspector,
+      ...applyRuntime,
+    }),
+    /branch does not prove selected-Task ownership/,
+  );
+  git(root, ["switch", "main"]);
   git(root, ["switch", "-c", "task/0002-selected"]);
+  let queueReads = 0;
+  await assert.rejects(
+    applyStandardDeliveryContinuityTransition({
+      tasksRoot,
+      selectedTaskId: "0002",
+      transitionToken: token,
+      queueInspector: async () => {
+        queueReads += 1;
+        return queueReads === 1
+          ? queueInspector()
+          : {
+              tasks: [
+                completedTask("0001"),
+                {
+                  ...completedTask("0002"),
+                  taskStatus: "IN_PROGRESS",
+                  testStatus: "RUNNING",
+                },
+              ],
+              errors: [],
+            };
+      },
+      ...applyRuntime,
+    }),
+    /continuity cannot apply while implementation is active/,
+  );
+  assert.equal(
+    await readFile(checkpointPath, "utf8"),
+    genesis.bytes,
+  );
+
+  let pairByteReads = 0;
+  await assert.rejects(
+    applyStandardDeliveryContinuityTransition({
+      tasksRoot,
+      selectedTaskId: "0002",
+      transitionToken: token,
+      queueInspector: async () => {
+        pairByteReads += 1;
+        if (pairByteReads === 2) {
+          await writeFile(
+            deliveredTaskPath,
+            `${deliveredTaskBytes}\nlast-moment drift\n`,
+            "utf8",
+          );
+        }
+        return queueInspector();
+      },
+      ...applyRuntime,
+    }),
+    /bytes changed after preparation/,
+  );
+  assert.equal(pairByteReads, 2);
+  assert.equal(await readFile(checkpointPath, "utf8"), genesis.bytes);
+  await writeFile(deliveredTaskPath, deliveredTaskBytes, "utf8");
+
+  let pairModeReads = 0;
+  await assert.rejects(
+    applyStandardDeliveryContinuityTransition({
+      tasksRoot,
+      selectedTaskId: "0002",
+      transitionToken: token,
+      queueInspector: async () => {
+        pairModeReads += 1;
+        if (pairModeReads === 2) {
+          git(root, [
+            "update-index",
+            "--chmod=+x",
+            "docs/tasks/0001-delivered/TASK.md",
+          ]);
+        }
+        return queueInspector();
+      },
+      ...applyRuntime,
+    }),
+    /tree\/index mode, type, stage, or blob changed after preparation/,
+  );
+  assert.equal(pairModeReads, 2);
+  assert.equal(await readFile(checkpointPath, "utf8"), genesis.bytes);
+  git(root, [
+    "update-index",
+    "--chmod=-x",
+    "docs/tasks/0001-delivered/TASK.md",
+  ]);
+
+  let pairPathReads = 0;
+  await assert.rejects(
+    applyStandardDeliveryContinuityTransition({
+      tasksRoot,
+      selectedTaskId: "0002",
+      transitionToken: token,
+      queueInspector: async () => {
+        pairPathReads += 1;
+        if (pairPathReads === 1) return queueInspector();
+        return {
+          tasks: [
+            {
+              ...completedTask("0001"),
+              taskPath: path.join(tasksRoot, "0001-renamed", "TASK.md"),
+              testPath: path.join(tasksRoot, "0001-renamed", "TEST.md"),
+            },
+            completedTask("0002"),
+          ],
+          errors: [],
+        };
+      },
+      ...applyRuntime,
+    }),
+    /tree\/index mode, type, stage, or blob changed after preparation/,
+  );
+  assert.equal(pairPathReads, 2);
+  assert.equal(await readFile(checkpointPath, "utf8"), genesis.bytes);
+
+  let directReads = 0;
+  const driftingRemoteRunner = (request) => {
+    if (
+      request.command === "git" &&
+      request.args.join("\u0000") ===
+        "ls-remote\u0000--heads\u0000origin\u0000refs/heads/main"
+    ) {
+      directReads += 1;
+      return {
+        status: 0,
+        stdout: `${directReads === 1 ? currentMainSha : checkpointBase}\trefs/heads/main\n`,
+        stderr: "",
+      };
+    }
+    return commandRunner(request);
+  };
+  await assert.rejects(
+    applyStandardDeliveryContinuityTransition({
+      tasksRoot,
+      selectedTaskId: "0002",
+      transitionToken: token,
+      queueInspector,
+      commandRunner: driftingRemoteRunner,
+      githubClient,
+    }),
+    /direct remote main does not equal local main/,
+  );
+  assert.equal(directReads, 2);
+  assert.equal(
+    await readFile(
+      path.join(tasksRoot, ".kyw-dev-standard-delivery-continuity.json"),
+      "utf8",
+    ),
+    genesis.bytes,
+  );
+
+  let githubReads = 0;
+  await assert.rejects(
+    applyStandardDeliveryContinuityTransition({
+      tasksRoot,
+      selectedTaskId: "0002",
+      transitionToken: token,
+      queueInspector,
+      commandRunner,
+      githubClient: {
+        async getMainRef() {
+          githubReads += 1;
+          return {
+            object: {
+              sha: githubReads === 1 ? currentMainSha : checkpointBase,
+            },
+          };
+        },
+      },
+    }),
+    /GitHub main SHA must equal/,
+  );
+  assert.equal(githubReads, 2);
+
+  const checkpointBlob = git(root, [
+    "rev-parse",
+    `HEAD:${checkpointRelative}`,
+  ]);
+  git(root, ["update-index", "--chmod=+x", checkpointRelative]);
+  await assert.rejects(
+    applyStandardDeliveryContinuityTransition({
+      tasksRoot,
+      selectedTaskId: "0002",
+      transitionToken: token,
+      queueInspector,
+      ...applyRuntime,
+    }),
+    /checkpoint index entry must be absent or exactly one stage-0 regular 100644 blob/,
+  );
+  assert.equal(await readFile(checkpointPath, "utf8"), genesis.bytes);
+  git(root, ["restore", "--staged", checkpointRelative]);
+
+  git(root, [
+    "update-index",
+    "--add",
+    "--cacheinfo",
+    `120000,${checkpointBlob},${checkpointRelative}`,
+  ]);
+  await assert.rejects(
+    applyStandardDeliveryContinuityTransition({
+      tasksRoot,
+      selectedTaskId: "0002",
+      transitionToken: token,
+      queueInspector,
+      ...applyRuntime,
+    }),
+    /checkpoint index entry must be absent or exactly one stage-0 regular 100644 blob/,
+  );
+  assert.equal(await readFile(checkpointPath, "utf8"), genesis.bytes);
+  git(root, ["restore", "--staged", checkpointRelative]);
+
+  const unmergedIndexRunner = (request) => {
+    if (
+      request.command === "git" &&
+      request.args.join("\u0000") ===
+        `ls-files\u0000--stage\u0000--\u0000${checkpointRelative}`
+    ) {
+      return {
+        status: 0,
+        stdout:
+          `100644 ${checkpointBlob} 1\t${checkpointRelative}\n` +
+          `100644 ${checkpointBlob} 2\t${checkpointRelative}\n`,
+        stderr: "",
+      };
+    }
+    return commandRunner(request);
+  };
+  await assert.rejects(
+    applyStandardDeliveryContinuityTransition({
+      tasksRoot,
+      selectedTaskId: "0002",
+      transitionToken: token,
+      queueInspector,
+      commandRunner: unmergedIndexRunner,
+      githubClient,
+    }),
+    /checkpoint index entry must be absent or exactly one stage-0 regular 100644 blob/,
+  );
+  assert.equal(await readFile(checkpointPath, "utf8"), genesis.bytes);
+
+  await writeFile(checkpointPath, advanced.bytes, "utf8");
+  git(root, ["add", checkpointRelative]);
+  await writeFile(checkpointPath, genesis.bytes, "utf8");
+  await assert.rejects(
+    applyStandardDeliveryContinuityTransition({
+      tasksRoot,
+      selectedTaskId: "0002",
+      transitionToken: token,
+      queueInspector,
+      ...applyRuntime,
+    }),
+    /checkpoint HEAD\/index\/worktree state is unsafe \(PREVIOUS\/DESIRED\/PREVIOUS\)/,
+  );
+  assert.equal(await readFile(checkpointPath, "utf8"), genesis.bytes);
+  assert.equal(git(root, ["show", `:${checkpointRelative}`]), advanced.bytes.trim());
+  git(root, ["restore", "--staged", checkpointRelative]);
+
+  const unrelatedPath = path.join(root, "unrelated-staged.txt");
+  await writeFile(unrelatedPath, "preserve staged user work\n", "utf8");
+  git(root, ["add", "unrelated-staged.txt"]);
   const first = await applyStandardDeliveryContinuityTransition({
     tasksRoot,
     selectedTaskId: "0002",
     transitionToken: token,
     queueInspector,
+    ...applyRuntime,
   });
   assert.equal(first.write.applied, true);
   assert.equal(first.coveredTaskCount, 1);
+  assert.match(
+    git(root, ["diff", "--cached", "--name-only"]),
+    /unrelated-staged\.txt/,
+  );
   const repeated = await applyStandardDeliveryContinuityTransition({
     tasksRoot,
     selectedTaskId: "0002",
     transitionToken: token,
     queueInspector,
+    ...applyRuntime,
   });
   assert.equal(repeated.write.idempotent, true);
   assert.equal(
@@ -907,6 +1447,7 @@ test("prepared advancement applies only inside the selected active Task branch",
       selectedTaskId: "0003",
       transitionToken: token,
       queueInspector,
+      ...applyRuntime,
     }),
     /different selected Task/,
   );
@@ -921,8 +1462,9 @@ test("prepared advancement applies only inside the selected active Task branch",
       selectedTaskId: "0002",
       transitionToken: token,
       queueInspector,
+      ...applyRuntime,
     }),
-    /no longer align/,
+    /does not equal local main/,
   );
   git(root, ["update-ref", "refs/remotes/origin/main", currentMainSha]);
   await assert.rejects(
@@ -931,15 +1473,23 @@ test("prepared advancement applies only inside the selected active Task branch",
       selectedTaskId: "0002",
       transitionToken: token,
       queueInspector: async () => ({
-        tasks: [completedTask("0001"), completedTask("0002")],
+        tasks: [
+          completedTask("0001"),
+          {
+            ...completedTask("0002"),
+            taskStatus: "IN_PROGRESS",
+            testStatus: "RUNNING",
+          },
+        ],
         errors: [],
       }),
+      ...applyRuntime,
     }),
-    /must own the active IN_PROGRESS\/RUNNING lifecycle/,
+    /continuity cannot apply while implementation is active/,
   );
 });
 
-test("adapter emits an opaque transition only for recognized selected work", async () => {
+test("adapter emits an opaque transition only for exact terminal delivery work", async () => {
   const genesis = checkpointFixture();
   const advanced = createStandardDeliveryContinuityCheckpoint({
     repository: "owner/repository",
@@ -955,7 +1505,7 @@ test("adapter emits an opaque transition only for recognized selected work", asy
       }),
     ],
   }).checkpoint;
-  const args = [
+  const implementationArgs = [
     "dispatch",
     "--tasks-root",
     "C:\\fixture\\docs\\tasks",
@@ -970,12 +1520,30 @@ test("adapter emits an opaque transition only for recognized selected work", asy
     diagnostics: { requiredTaskIds: ["0003"] },
     preparedCheckpoint: advanced,
   });
-  const selected = await runTaskArtifactCommand(args, {
+  const implementation = await runTaskArtifactCommand(implementationArgs, {
     hydratePriorStandardDeliveries: hydrated,
     resolveTaskDispatch: async () => ({
       outcome: "SELECTED",
       action: "IMPLEMENT",
       task: { id: "0004" },
+    }),
+  });
+  assert.equal("continuityTransitionToken" in implementation, false);
+
+  const deliveryArgs = implementationArgs.map((value) =>
+    value === "$kyw-impl 0004" ? "$kyw-deliver 0004" : value,
+  );
+  const selected = await runTaskArtifactCommand(deliveryArgs, {
+    hydratePriorStandardDeliveries: hydrated,
+    resolveTaskDispatch: async () => ({
+      outcome: "SELECTED",
+      action: "DELIVER",
+      task: {
+        id: "0004",
+        taskStatus: "DONE",
+        testStatus: "PASSED",
+        deliveryRequirement: { kind: "STANDARD" },
+      },
     }),
   });
   assert.equal(
@@ -984,7 +1552,7 @@ test("adapter emits an opaque transition only for recognized selected work", asy
     ).selectedTaskId,
     "0004",
   );
-  const terminal = await runTaskArtifactCommand(args, {
+  const terminal = await runTaskArtifactCommand(deliveryArgs, {
     hydratePriorStandardDeliveries: hydrated,
     resolveTaskDispatch: async () => ({ outcome: "ALL_COMPLETE" }),
   });

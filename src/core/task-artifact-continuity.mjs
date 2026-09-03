@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import {
   lstat,
   open,
@@ -30,6 +30,8 @@ const CONTINUITY_CONTRACT_VERSION = 1;
 const CONTINUITY_CLASSIFICATION = "DURABLE_STANDARD_CONTINUITY";
 const CONTINUITY_EVALUATION = "PREVIOUSLY_EVALUATOR_SATISFIED";
 const GENESIS = "GENESIS";
+const CONTINUITY_LOCK_FILE =
+  ".kyw-dev-standard-delivery-continuity.lock";
 const TASK_ID_PATTERN = /^\d{4}$/;
 const SHA_PATTERN = /^[a-f0-9]{40}$/;
 const DIGEST_PATTERN = /^[a-f0-9]{64}$/;
@@ -542,10 +544,20 @@ function orderedTaskSetDigest(tasks) {
 export function partitionStandardDeliveryContinuity({
   checkpoint,
   requiredTasks,
+  maxUncoveredTasks = 1,
 }) {
   validateCheckpointObject(structuredClone(checkpoint));
   if (!Array.isArray(requiredTasks)) {
     throw continuityError("requiredTasks must be an array");
+  }
+  if (
+    !Number.isSafeInteger(maxUncoveredTasks) ||
+    maxUncoveredTasks < 0 ||
+    maxUncoveredTasks > MAX_STANDARD_DELIVERY_CONTINUITY_TASKS
+  ) {
+    throw continuityError(
+      `maxUncoveredTasks must be an integer from 0 to ${MAX_STANDARD_DELIVERY_CONTINUITY_TASKS}`,
+    );
   }
   const coveredCount = checkpoint.coverage.taskCount;
   if (coveredCount > requiredTasks.length) {
@@ -580,7 +592,7 @@ export function partitionStandardDeliveryContinuity({
     );
   }
   const uncoveredTasks = requiredTasks.slice(coveredCount);
-  if (uncoveredTasks.length > 1) {
+  if (uncoveredTasks.length > maxUncoveredTasks) {
     throw continuityError(
       `checkpoint gap ${uncoveredTasks.length} requires explicit migration/rebaseline`,
       "DELIVERY_CONTINUITY_REBASELINE_REQUIRED",
@@ -600,6 +612,7 @@ export function buildStandardDeliveryContinuityState({
   const coveragePartition = partitionStandardDeliveryContinuity({
     checkpoint,
     requiredTasks: coverageTasks,
+    maxUncoveredTasks: MAX_STANDARD_DELIVERY_CONTINUITY_TASKS,
   });
   const coveredTaskIds = new Set(
     coveragePartition.coveredTasks.map((task) => task.id),
@@ -657,97 +670,316 @@ export function digestStandardDeliveryContinuityEvidence({
   return digestText(stableJson({ entry, expectation }));
 }
 
-async function optionalState(target) {
+async function optionalState(target, options) {
   try {
-    return await lstat(target);
+    return await lstat(target, options);
   } catch (error) {
     if (error.code === "ENOENT") return undefined;
     throw error;
   }
 }
 
+function sameFileIdentity(left, right) {
+  return Boolean(
+    left &&
+      right &&
+      left.dev === right.dev &&
+      left.ino === right.ino,
+  );
+}
+
+async function regularFileProof(target, label) {
+  const state = await optionalState(target, { bigint: true });
+  if (!state) return Object.freeze({ exists: false });
+  if (state.isSymbolicLink() || !state.isFile()) {
+    throw continuityError(`${label} must be absent or a regular file`);
+  }
+  return Object.freeze({
+    exists: true,
+    state,
+    bytes: await readFile(target, "utf8"),
+  });
+}
+
+async function requireUnchangedProof(target, baseline, label) {
+  const current = await regularFileProof(target, label);
+  if (baseline.exists !== current.exists) {
+    throw continuityError(
+      `${label} changed during checkpoint publication`,
+      "DELIVERY_CONTINUITY_WRITE_RECOVERY_REQUIRED",
+    );
+  }
+  if (
+    baseline.exists &&
+    (!sameFileIdentity(baseline.state, current.state) ||
+      baseline.bytes !== current.bytes)
+  ) {
+    throw continuityError(
+      `${label} was replaced or modified during checkpoint publication`,
+      "DELIVERY_CONTINUITY_WRITE_RECOVERY_REQUIRED",
+    );
+  }
+  return current;
+}
+
+async function acquireContinuityLock(root) {
+  const token = randomBytes(24).toString("hex");
+  const lockPath = path.join(root, CONTINUITY_LOCK_FILE);
+  let handle;
+  try {
+    handle = await open(lockPath, "wx+", 0o600);
+  } catch (error) {
+    if (error?.code === "EEXIST") {
+      throw continuityError(
+        `checkpoint lock ${CONTINUITY_LOCK_FILE} already exists; preserve it for explicit recovery`,
+        "DELIVERY_CONTINUITY_LOCKED",
+      );
+    }
+    throw continuityError(
+      `checkpoint lock acquisition failed: ${error.message}`,
+      "DELIVERY_CONTINUITY_WRITE_RECOVERY_REQUIRED",
+    );
+  }
+  try {
+    await handle.writeFile(`${token}\n`, "utf8");
+    await handle.sync();
+    const state = await handle.stat({ bigint: true });
+    return { token, lockPath, handle, state };
+  } catch (error) {
+    try {
+      await handle.close();
+    } catch {
+      // The acquisition failure remains authoritative.
+    }
+    throw continuityError(
+      `checkpoint lock initialization failed: ${error.message}`,
+      "DELIVERY_CONTINUITY_WRITE_RECOVERY_REQUIRED",
+    );
+  }
+}
+
+async function releaseContinuityLock(root, lock) {
+  const releasePath = path.join(
+    root,
+    `${CONTINUITY_LOCK_FILE}.release-${lock.token}.tmp`,
+  );
+  try {
+    await lock.handle.close();
+    lock.handle = undefined;
+    const fixedProof = await regularFileProof(lock.lockPath, "checkpoint lock");
+    if (
+      !fixedProof.exists ||
+      !sameFileIdentity(fixedProof.state, lock.state) ||
+      fixedProof.bytes !== `${lock.token}\n`
+    ) {
+      throw new Error("owned checkpoint lock identity changed");
+    }
+    if (await optionalState(releasePath, { bigint: true })) {
+      throw new Error("owned checkpoint lock release path is occupied");
+    }
+    await rename(lock.lockPath, releasePath);
+    const releaseProof = await regularFileProof(
+      releasePath,
+      "checkpoint lock release marker",
+    );
+    if (
+      !releaseProof.exists ||
+      !sameFileIdentity(releaseProof.state, lock.state) ||
+      releaseProof.bytes !== `${lock.token}\n`
+    ) {
+      throw new Error("owned checkpoint lock release identity changed");
+    }
+    if (await optionalState(lock.lockPath, { bigint: true })) {
+      throw new Error("a replacement checkpoint lock appeared during release");
+    }
+    await unlink(releasePath);
+  } catch (error) {
+    try {
+      await lock.handle?.close();
+    } catch {
+      // Recovery remains explicit when ownership cannot be proved.
+    }
+    throw continuityError(
+      `checkpoint lock release requires explicit recovery: ${error.message}`,
+      "DELIVERY_CONTINUITY_WRITE_RECOVERY_REQUIRED",
+    );
+  }
+}
+
 export async function writeStandardDeliveryContinuityCheckpoint({
   tasksRoot,
   bytes,
+  beforePublish,
 }) {
   const checkpoint = parseStandardDeliveryContinuityCheckpoint(bytes);
   const root = path.resolve(tasksRoot);
-  const rootState = await lstat(root);
+  const rootState = await lstat(root, { bigint: true });
   if (rootState.isSymbolicLink() || !rootState.isDirectory()) {
     throw continuityError("tasks root must be a real directory");
   }
   const target = path.join(root, STANDARD_DELIVERY_CONTINUITY_FILE);
-  const targetState = await optionalState(target);
-  if (targetState?.isSymbolicLink() || (targetState && !targetState.isFile())) {
-    throw continuityError("checkpoint target must be absent or a regular file");
-  }
-  if (targetState) {
-    const existingBytes = await readFile(target, "utf8");
-    if (existingBytes === bytes) {
-      return freezeDeep({
+  const lock = await acquireContinuityLock(root);
+  const stage = `${target}.stage-${lock.token}.tmp`;
+  let stageHandle;
+  let stageState;
+  let result;
+  let failure;
+  try {
+    const baseline = await regularFileProof(target, "checkpoint target");
+    let idempotent = false;
+    if (baseline.exists) {
+      if (baseline.bytes === bytes) {
+        idempotent = true;
+      } else {
+        const existing = parseStandardDeliveryContinuityCheckpoint(
+          baseline.bytes,
+        );
+        if (checkpoint.previousCheckpointDigest === GENESIS) {
+          throw continuityError(
+            "genesis checkpoint cannot replace existing continuity",
+          );
+        }
+        if (existing.checkpointDigest !== checkpoint.previousCheckpointDigest) {
+          throw continuityError(
+            "existing checkpoint does not match previousCheckpointDigest",
+          );
+        }
+      }
+    } else if (checkpoint.previousCheckpointDigest !== GENESIS) {
+      throw continuityError(
+        "rolling checkpoint requires its exact previous checkpoint",
+      );
+    }
+
+    if (!idempotent) {
+      stageHandle = await open(stage, "wx", 0o600);
+      stageState = await stageHandle.stat({ bigint: true });
+      await stageHandle.writeFile(bytes, "utf8");
+      await stageHandle.sync();
+      await stageHandle.close();
+      stageHandle = undefined;
+      const stagedProof = await regularFileProof(stage, "checkpoint staging path");
+      if (
+        !stagedProof.exists ||
+        !sameFileIdentity(stagedProof.state, stageState) ||
+        stagedProof.bytes !== bytes
+      ) {
+        throw continuityError(
+          "checkpoint staging ownership or bytes changed after fsync",
+          "DELIVERY_CONTINUITY_WRITE_RECOVERY_REQUIRED",
+        );
+      }
+    }
+
+    if (beforePublish !== undefined) {
+      if (typeof beforePublish !== "function") {
+        throw continuityError("beforePublish must be a function");
+      }
+      await beforePublish(Object.freeze({
+        checkpoint,
+        target,
+        stage: idempotent ? undefined : stage,
+        idempotent,
+      }));
+    }
+    const currentLock = await regularFileProof(
+      lock.lockPath,
+      "checkpoint lock",
+    );
+    if (
+      !currentLock.exists ||
+      !sameFileIdentity(currentLock.state, lock.state) ||
+      currentLock.bytes !== `${lock.token}\n`
+    ) {
+      throw continuityError(
+        "owned checkpoint lock identity changed before publication",
+        "DELIVERY_CONTINUITY_WRITE_RECOVERY_REQUIRED",
+      );
+    }
+    const currentRootState = await lstat(root, { bigint: true });
+    if (
+      currentRootState.isSymbolicLink() ||
+      !currentRootState.isDirectory() ||
+      !sameFileIdentity(rootState, currentRootState)
+    ) {
+      throw continuityError(
+        "tasks root identity changed during checkpoint publication",
+        "DELIVERY_CONTINUITY_WRITE_RECOVERY_REQUIRED",
+      );
+    }
+    await requireUnchangedProof(target, baseline, "checkpoint target");
+    if (idempotent) {
+      result = freezeDeep({
         path: target,
         checkpointDigest: checkpoint.checkpointDigest,
         applied: false,
         idempotent: true,
       });
+    } else {
+      const stagedProof = await regularFileProof(stage, "checkpoint staging path");
+      if (
+        !stagedProof.exists ||
+        !sameFileIdentity(stagedProof.state, stageState) ||
+        stagedProof.bytes !== bytes
+      ) {
+        throw continuityError(
+          "checkpoint staging path was replaced or modified before publication",
+          "DELIVERY_CONTINUITY_WRITE_RECOVERY_REQUIRED",
+        );
+      }
+      await rename(stage, target);
+      const publishedProof = await regularFileProof(target, "checkpoint target");
+      if (
+        !publishedProof.exists ||
+        !sameFileIdentity(publishedProof.state, stageState) ||
+        publishedProof.bytes !== bytes
+      ) {
+        throw continuityError(
+          "published checkpoint identity or bytes cannot be proved",
+          "DELIVERY_CONTINUITY_WRITE_RECOVERY_REQUIRED",
+        );
+      }
+      stageState = undefined;
+      result = freezeDeep({
+        path: target,
+        checkpointDigest: checkpoint.checkpointDigest,
+        applied: true,
+        idempotent: false,
+      });
     }
-    const existing = parseStandardDeliveryContinuityCheckpoint(existingBytes);
-    if (checkpoint.previousCheckpointDigest === GENESIS) {
-      throw continuityError("genesis checkpoint cannot replace existing continuity");
-    }
-    if (existing.checkpointDigest !== checkpoint.previousCheckpointDigest) {
-      throw continuityError(
-        "existing checkpoint does not match previousCheckpointDigest",
-      );
-    }
-  } else if (checkpoint.previousCheckpointDigest !== GENESIS) {
-    throw continuityError(
-      "rolling checkpoint requires its exact previous checkpoint",
-    );
-  }
-
-  const stage = `${target}.stage-${checkpoint.checkpointDigest}.tmp`;
-  if (await optionalState(stage)) {
-    throw continuityError("checkpoint staging path is unexpectedly occupied");
-  }
-  let handle;
-  let stageCreated = false;
-  try {
-    handle = await open(stage, "wx", 0o600);
-    stageCreated = true;
-    await handle.writeFile(bytes, "utf8");
-    await handle.sync();
-    await handle.close();
-    handle = undefined;
-    await rename(stage, target);
-    stageCreated = false;
   } catch (error) {
+    failure = error;
     try {
-      await handle?.close();
+      await stageHandle?.close();
     } catch {
       // The original write failure remains authoritative.
     }
-    if (stageCreated) {
+    if (stageState) {
       try {
-        const stageState = await optionalState(stage);
-        if (stageState?.isFile() && !stageState.isSymbolicLink()) {
+        const currentStage = await optionalState(stage, { bigint: true });
+        if (currentStage && sameFileIdentity(stageState, currentStage)) {
           await unlink(stage);
+        } else if (currentStage) {
+          throw new Error("checkpoint staging path has foreign identity");
         }
-      } catch {
-        throw continuityError(
-          "checkpoint write failed and exact staging cleanup could not be proved",
+      } catch (cleanupError) {
+        failure = continuityError(
+          `checkpoint write failed and exact staging cleanup could not be proved: ${cleanupError.message}`,
           "DELIVERY_CONTINUITY_WRITE_RECOVERY_REQUIRED",
         );
       }
     }
-    throw continuityError(`checkpoint atomic write failed: ${error.message}`);
   }
-  return freezeDeep({
-    path: target,
-    checkpointDigest: checkpoint.checkpointDigest,
-    applied: true,
-    idempotent: false,
-  });
+  try {
+    await releaseContinuityLock(root, lock);
+  } catch (error) {
+    throw error;
+  }
+  if (failure) {
+    if (failure instanceof TaskArtifactError) throw failure;
+    throw continuityError(`checkpoint atomic write failed: ${failure.message}`);
+  }
+  return result;
 }
 
 function transitionTokenBody(value) {

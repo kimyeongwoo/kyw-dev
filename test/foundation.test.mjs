@@ -1081,6 +1081,8 @@ test("activation-scoped guardrails fix their projection manifest, claims, and li
     { path: "skills/kyw-task/SKILL.md", profile: "procedure" },
     { path: "skills/kyw-impl/SKILL.md", profile: "procedure" },
     { path: "skills/kyw-impl/references/execution.md", profile: "procedure" },
+    { path: "skills/kyw-deliver/SKILL.md", profile: "procedure" },
+    { path: "skills/kyw-deliver/references/delivery.md", profile: "procedure" },
     { path: "skills/kyw-audit/SKILL.md", profile: "procedure" },
     { path: "skills/kyw-audit/references/audit.md", profile: "procedure" },
   ];
@@ -1244,11 +1246,11 @@ test("activation-scoped guardrails fix their projection manifest, claims, and li
         "TASK_PAIR_DISPOSITION",
         "DELIVERY_DISPOSITION",
       ],
-      taskIdentityRouteLockedSkills: ["kyw-task", "kyw-impl", "kyw-audit"],
-      implementationActionDispositions: [
+      taskIdentityRouteLockedSkills: ["kyw-task", "kyw-impl", "kyw-deliver", "kyw-audit"],
+      routeActionDispositions: [
         ["IMPLEMENT", "MUTABLE", "NONE", "MUTATING"],
         ["RESUME", "MUTABLE", "NONE", "MUTATING"],
-        ["DELIVER", "MUTABLE", "RESUMABLE", "MUTATING"],
+        ["DELIVER", "IMMUTABLE", "RESUMABLE", "MUTATING"],
         ["REPORT", "IMMUTABLE", "SATISFIED", "READ_ONLY"],
       ],
       stateIds: expectedStates,
@@ -1443,10 +1445,9 @@ test("activation-scoped guardrails fix their projection manifest, claims, and li
   );
   assert.match(
     errorsAfter((mutableFamily) => {
-      mutableFamily.contract.invariants.implementationActionDispositions[2][1] =
-        "IMMUTABLE";
+      mutableFamily.contract.invariants.routeActionDispositions[2][1] = "MUTABLE";
     }),
-    /implementation action must preserve pair and delivery disposition/,
+    /routed action must preserve pair and delivery disposition/,
   );
   assert.match(
     errorsAfter((mutableFamily) => {

@@ -1,7 +1,7 @@
 interface:
   display_name: "kyw Implement"
-  short_description: "Execute and deliver one existing Task"
-  default_prompt: "Use $kyw-impl NNNN to implement, resume, verify, and ordinarily deliver an existing Task."
+  short_description: "Implement one Task through repository completion"
+  default_prompt: "Use $kyw-impl NNNN to implement, resume, and verify an existing Task through repository completion."
 
 policy:
   allow_implicit_invocation: false

@@ -10,6 +10,14 @@ export const MANAGED_SKILL_NAMES = Object.freeze([
   "kyw-init",
   "kyw-task",
   "kyw-impl",
+  "kyw-deliver",
+  "kyw-audit",
+]);
+export const PREVIOUS_MANAGED_SKILL_NAMES = Object.freeze([
+  "kyw-grilling",
+  "kyw-init",
+  "kyw-task",
+  "kyw-impl",
   "kyw-audit",
 ]);
 export const LEGACY_MANAGED_SKILL_NAMES = Object.freeze([
@@ -236,11 +244,15 @@ export function assertManagedManifest(paths, label, errorCode) {
   }
 }
 
-export function isAllowedManagedPath(relativePath) {
+export function isAllowedManagedPathForSkills(relativePath, skillNames) {
   return (
-    MANAGED_SKILL_NAMES.some((name) => relativePath === name || relativePath.startsWith(`${name}/`)) ||
+    skillNames.some((name) => relativePath === name || relativePath.startsWith(`${name}/`)) ||
     relativePath.startsWith(".kyw-dev/runtime/")
   );
+}
+
+export function isAllowedManagedPath(relativePath) {
+  return isAllowedManagedPathForSkills(relativePath, MANAGED_SKILL_NAMES);
 }
 
 export function resolveManagedPath(root, relativePath, pathApi = path) {

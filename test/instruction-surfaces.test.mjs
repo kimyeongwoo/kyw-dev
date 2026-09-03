@@ -28,6 +28,12 @@ const REPRESENTATIVE_INSTRUCTION_PATHS = Object.freeze([
   "skills/kyw-impl/SKILL.md",
   "skills/kyw-impl/references/execution.md",
 ]);
+const DELIVERY_INSTRUCTION_PATHS = Object.freeze([
+  "templates/project/AGENTS.md",
+  "skills/kyw-task/SKILL.md",
+  "skills/kyw-deliver/SKILL.md",
+  "skills/kyw-deliver/references/delivery.md",
+]);
 const PERMANENT_INDEX_PATHS = Object.freeze([
   "README.md",
   "docs/SPEC.md",
@@ -122,6 +128,16 @@ function contractForSkill(skill) {
       target: `${skill} outcome`,
     });
   }
+  if (skill === "kyw-deliver") {
+    return requestedContract({
+      skill,
+      mode: "delivery",
+      routeCapability: "deliver-exact-task",
+      action: "deliver",
+      taskPairDisposition: "IMMUTABLE",
+      deliveryDisposition: "RESUMABLE",
+    });
+  }
   return requestedContract({
     skill,
     mode: skill === "kyw-audit" ? "read-only" : "implementation",
@@ -181,6 +197,8 @@ test("instruction surfaces retain one canonical owner and minimal projections", 
     authoring,
     implementation,
     execution,
+    deliverySkill,
+    delivery,
     prompts,
     plugin,
   ] = await Promise.all([
@@ -192,6 +210,8 @@ test("instruction surfaces retain one canonical owner and minimal projections", 
     read("skills/kyw-task/SKILL.md"),
     read("skills/kyw-impl/SKILL.md"),
     read("skills/kyw-impl/references/execution.md"),
+    read("skills/kyw-deliver/SKILL.md"),
+    read("skills/kyw-deliver/references/delivery.md"),
     read("CODEX_PROMPTS.md"),
     read(".codex-plugin/plugin.json").then(JSON.parse),
   ]);
@@ -205,7 +225,7 @@ test("instruction surfaces retain one canonical owner and minimal projections", 
   );
   assert.match(
     readme,
-    /Product behavior is owned by \[SPEC\][\s\S]*detailed implementation procedure by \[`kyw-impl`\]/,
+    /Product behavior is owned by \[SPEC\][\s\S]*Detailed procedure belongs only to \[`kyw-impl`\][\s\S]*\[`kyw-deliver`\]/,
   );
   for (const projection of [agents, agentsTemplate]) {
     assert.match(
@@ -218,13 +238,14 @@ test("instruction surfaces retain one canonical owner and minimal projections", 
       /Read all four(?: permanent documents)? for `kyw-init`, rebaseline/,
     );
     for (const routingAnchor of [
-      "All five `kyw-*` Skills are explicit-only",
-      "`$kyw-impl NNNN` is portable for existing Tasks",
+      "All six `kyw-*` Skills are explicit-only",
       "Keep one Task active",
       "Task/Test owns repository outcome; GitHub gates mutable delivery",
     ]) {
       assert.ok(projection.includes(routingAnchor), routingAnchor);
     }
+    assert.match(projection, /`\$kyw-impl NNNN` is portable for (?:existing )?implementation/);
+    assert.match(projection, /Only exact `\$kyw-deliver NNNN`/);
   }
 
   assert.match(authoring, /author/i);
@@ -253,35 +274,36 @@ test("instruction surfaces retain one canonical owner and minimal projections", 
     /\b48(?:-|\s)*(?:character|char|자)|INVALID_TASK_BATCH[\s\S]{0,100}(?:short|key)/i,
   );
   assert.match(authoring, /READY\/READY[\s\S]{0,40}(?:pair set and stops|authoring)/i);
-  assert.match(authoring, /(?:needs a new|execution needs a later) `\$kyw-impl NNNN`/);
+  assert.match(authoring, /state-appropriate report-only guidance/);
+  assert.match(authoring, /repository work uses exact `\$kyw-impl NNNN`/);
+  assert.match(authoring, /pending terminal `STANDARD` delivery uses exact `\$kyw-deliver NNNN`/);
   assert.match(implementation, /\[Task Execution and Resume\]\(references\/execution\.md\)/);
   assert.match(implementation, /existing Task/i);
-  assert.match(execution, /canonical detailed execution procedure/);
+  assert.match(execution, /canonical detailed repository implementation procedure/);
+  assert.match(deliverySkill, /\[STANDARD Delivery and Resume\]\(references\/delivery\.md\)/);
+  assert.match(delivery, /canonical detailed Git\/GitHub delivery procedure/);
   assert.doesNotMatch(implementation, /create-batch --tasks-root/);
 
   for (const surface of [readme, spec]) {
     assert.match(surface, /\$kyw-task "<(?:goal|outcome|confirmed outcome)>"/i);
     assert.match(surface, /\$kyw-impl NNNN/);
+    assert.match(surface, /\$kyw-deliver NNNN/);
   }
   assert.match(architecture, /kyw-task/i);
   assert.match(architecture, /kyw-impl/i);
   assert.match(spec, /READY\/READY[\s\S]*stop/i);
   assert.match(spec, /does not (?:invoke|chain)[\s\S]*`?\$kyw-impl/i);
   assert.match(readme, /\$kyw-task "goal"[\s\S]*authors[\s\S]*stops/i);
-  assert.match(readme, /Continuous mode remains serial and lasts only for the current invocation/);
-  assert.match(readme, /automatic selection resumes active work, then resumable `STANDARD` delivery/);
-  assert.match(readme, /one-line `\$kyw-impl NNNN` path validates/);
+  assert.match(readme, /stops, including continuous mode/);
+  assert.match(readme, /Pending delivery blocks with exact `\$kyw-deliver NNNN`/);
+  assert.match(readme, /Only exact `\$kyw-deliver NNNN` owns current `STANDARD` delivery/);
   assert.match(readme, /fixed-bounded checkpoint in exact aligned `main`/);
-  assert.match(readme, /at most one uncovered prior/);
-  assert.match(readme, /Expired Actions logs for covered/);
-  assert.match(readme, /explicit migration\/rebaseline instead of automatic history replay/);
+  assert.match(readme, /at most one freshly reconstructed uncovered predecessor/);
   assert.match(spec, /before (?:its )?one dispatcher call/);
   assert.match(architecture, /bounded local-Git \/ GitHub hydration inputs/);
   assert.match(readme, /surface without the managed contract uses `\$kyw-impl NNNN`/);
-  assert.match(
-    readme,
-    /selected `IMPLEMENT`, `RESUME`, or `DELIVER`(?: result)? establishes the aligned Task and ordinary delivery baseline/,
-  );
+  assert.match(readme, /selected implementation action owns repository mutation through `DONE\/PASSED`/i);
+  assert.match(readme, /selected delivery owns only its separate aligned GitHub lifecycle/i);
   assert.match(
     architecture,
     /no automatic registry publish, version\/tag\/Release creation, public[\s\S]*submission, force push, CI rerun, or branch-protection bypass/,
@@ -291,17 +313,19 @@ test("instruction surfaces retain one canonical owner and minimal projections", 
     assert.match(surface, /merge compatib/i);
     assert.match(surface, /post-merge/i);
   }
-  assert.match(execution, /actualHead/);
-  assert.match(execution, /merge compatib/i);
-  assert.match(execution, /postMerge/);
-  assert.match(execution, /HARDENED_EXACT_HEAD/);
-  assert.match(execution, /LEGACY_PRE_CONTRACT/);
-  assert.match(execution, /DURABLE_STANDARD_CONTINUITY/);
+  assert.doesNotMatch(execution, /PR_ACTUAL_HEAD|PR_MERGE_COMPATIBILITY|POST_MERGE_MAIN/);
+  assert.match(delivery, /PR_ACTUAL_HEAD/);
+  assert.match(delivery, /PR_MERGE_COMPATIBILITY/);
+  assert.match(delivery, /POST_MERGE_MAIN/);
+  assert.match(delivery, /HARDENED_EXACT_HEAD/);
+  assert.match(delivery, /LEGACY_PRE_CONTRACT/);
+  assert.match(delivery, /DURABLE_STANDARD_CONTINUITY/);
   assert.match(execution, /without automatic whole-history replay/);
   assert.match(execution, /separate `bootstrap-continuity` command/);
   assert.match(execution, /not a dispatch option, source-repair path, or Task-ID exception/);
-  assert.match(execution, /apply-continuity/);
-  assert.match(execution, /actualHead: "UNVERIFIED"/);
+  assert.doesNotMatch(execution, /apply-continuity/);
+  assert.match(delivery, /apply-continuity/);
+  assert.match(delivery, /actual head visibly `UNVERIFIED`/);
   assert.match(execution, /contracts 1\/2 are grandfathered/);
   assert.match(authoring, /delivered contract-3 Tasks use new hard-dependent pairs/);
   assert.match(implementation, /unchanged invocation reports only/i);
@@ -313,7 +337,7 @@ test("instruction surfaces retain one canonical owner and minimal projections", 
     assert.match(projection, /hard-dependent Task/);
   }
   assert.match(
-    execution,
+    delivery,
     /(?:successful job at|job) only (?:at )?`refs\/pull\/<number>\/merge`[\s\S]{0,80}(?:cannot prove actual head|is merge compatibility)/,
   );
   assert.match(readme, /actual PR-head jobs, synthetic merge compatibility/);
@@ -332,9 +356,13 @@ test("instruction surfaces retain one canonical owner and minimal projections", 
   assert.doesNotMatch(plugin.interface.defaultPrompt[1], /execute|implement|deliver/i);
   assert.doesNotMatch(plugin.interface.defaultPrompt[1], /taskKey|\b48\b/);
   assert.match(plugin.interface.defaultPrompt[2], /\$kyw-impl 0001/);
+  assert.match(plugin.interface.defaultPrompt[2], /repository completion[\s\S]*stop/i);
+  assert.match(plugin.interface.defaultPrompt[3], /\$kyw-deliver 0001/);
+  assert.match(plugin.interface.defaultPrompt[4], /\$kyw-audit 0001/);
   for (const invocation of [
     '$kyw-task "<outcome>"',
     "$kyw-impl 0001",
+    "$kyw-deliver 0001",
     "task 0001 실행해줘",
     "task 진행해줘",
     "남은 task 계속 실행해줘",
@@ -348,6 +376,9 @@ test("instruction surfaces retain one canonical owner and minimal projections", 
   ]) {
     assert.match(spec, alias);
     assert.match(implementation, alias);
+  }
+  for (const surface of [deliverySkill, delivery, readme, spec]) {
+    assert.match(surface, /\$kyw-deliver NNNN/);
   }
 });
 
@@ -363,6 +394,8 @@ test("activation-scoped guardrails have one canonical contract and every require
     "skills/kyw-task/SKILL.md",
     "skills/kyw-impl/SKILL.md",
     "skills/kyw-impl/references/execution.md",
+    "skills/kyw-deliver/SKILL.md",
+    "skills/kyw-deliver/references/delivery.md",
     "skills/kyw-audit/SKILL.md",
     "skills/kyw-audit/references/audit.md",
   ];
@@ -409,11 +442,12 @@ test("activation-scoped guardrails have one canonical contract and every require
     "skills/kyw-init/SKILL.md",
     "skills/kyw-task/SKILL.md",
     "skills/kyw-impl/SKILL.md",
+    "skills/kyw-deliver/SKILL.md",
     "skills/kyw-audit/SKILL.md",
   ]) {
     assert.match(
       texts[skillPath],
-      /active invocation|exact[^.\n]{0,80}(?:route )?(?:alone )?activates|starts an active kyw workflow/i,
+      /active invocation|activates only its current invocation|exact[^.\n]{0,80}(?:route )?(?:alone )?activates|starts an active kyw workflow/i,
       skillPath,
     );
     assert.match(texts[skillPath], /aligned/i, skillPath);
@@ -1692,11 +1726,7 @@ test("material active changes warn without mutation and exact reconfirmation syn
     "BOUNDED_ACTION",
   ]);
 
-  const resumableDelivery = requestedContract({
-    action: "deliver",
-    taskPairDisposition: "MUTABLE",
-    deliveryDisposition: "RESUMABLE",
-  });
+  const resumableDelivery = contractForSkill("kyw-deliver");
   const changedDelivery = {
     ...resumableDelivery,
     target: "changed delivery target",
@@ -1743,10 +1773,7 @@ test("material active changes warn without mutation and exact reconfirmation syn
     ...resumableDelivery,
     scope: "changed resumable delivery scope",
   };
-  const deliveryPairImpacts = impactsForTask("0083", {
-    includePermanentOwners: false,
-  });
-  const synchronizedDeliveryScope = runSkillInvocationScenario([
+  const immutableDeliveryScope = runSkillInvocationScenario([
     {
       type: "activate",
       recognized: true,
@@ -1756,28 +1783,27 @@ test("material active changes warn without mutation and exact reconfirmation syn
     {
       type: "change",
       requested: changedDeliveryScope,
-      impacts: deliveryPairImpacts,
+      impacts: NO_SYNC_IMPACTS,
       factsRevision: "facts-1",
     },
     {
       ...deliveryReconfirmation,
       accepted: changedDeliveryScope,
       bounds: exactBounds(changedDeliveryScope),
-      taskTestPaths: deliveryPairImpacts.taskTest.paths,
       executionBounds: exactBounds(changedDeliveryScope),
     },
   ]);
-  assert.deepEqual(synchronizedDeliveryScope.mutations.map(({ type }) => type), [
-    "SYNC_TASK",
-    "SYNC_TEST",
-    "BOUNDED_ACTION",
-  ]);
+  assert.equal(immutableDeliveryScope.state, "CANCELLED_OR_EXPIRED");
+  assert.deepEqual(immutableDeliveryScope.mutations, []);
+  assert.ok(
+    immutableDeliveryScope.events.some(({ type }) => type === "EXACT_ROUTE_REQUIRED"),
+  );
 
-  const satisfiedReport = requestedContract({
+  const satisfiedReport = {
+    ...contractForSkill("kyw-deliver"),
     action: "report",
-    taskPairDisposition: "IMMUTABLE",
     deliveryDisposition: "SATISFIED",
-  });
+  };
   const terminalReport = runSkillInvocationScenario([
     {
       type: "activate",
@@ -1865,7 +1891,7 @@ test("material active changes warn without mutation and exact reconfirmation syn
       taskPairDisposition: "IMMUTABLE",
       deliveryDisposition: "RESUMABLE",
     }),
-    requestedContract({ action: "deliver", taskPairDisposition: "MUTABLE" }),
+    { ...contractForSkill("kyw-deliver"), taskPairDisposition: "MUTABLE" },
     requestedContract({ action: "implement", taskPairDisposition: "IMMUTABLE" }),
   ]) {
     assert.throws(
@@ -2582,6 +2608,7 @@ test("README puts installation, explicit Skills, first use, and current status b
     "$kyw-init",
     "$kyw-task",
     "$kyw-impl",
+    "$kyw-deliver",
     "$kyw-audit",
     "$kyw-grilling",
   ]) {
@@ -2593,7 +2620,7 @@ test("README puts installation, explicit Skills, first use, and current status b
   );
   assert.match(
     readme,
-    /Exact historical candidates and results live only in their numbered Task\/Test pairs and GitHub/,
+    /Exact historical results live only in numbered Task\/Test pairs and GitHub/,
   );
   assert.match(
     readme,
@@ -2790,42 +2817,46 @@ test("permanent-document local Markdown references resolve to repository files",
   }
 });
 
-test("the split representative instruction bundle stays concise with one execution reference", async () => {
-  const contents = await Promise.all(
-    REPRESENTATIVE_INSTRUCTION_PATHS.map((relativePath) => read(relativePath)),
+test("route-specific representative instruction bundles stay concise with one procedure reference", async () => {
+  const routeBundles = await Promise.all(
+    [REPRESENTATIVE_INSTRUCTION_PATHS, DELIVERY_INSTRUCTION_PATHS].map(
+      async (paths) => Promise.all(paths.map((relativePath) => read(relativePath))),
+    ),
   );
-  const currentBytes = contents.reduce(
-    (total, content) => total + Buffer.byteLength(content),
-    0,
-  );
-  const currentTokenEstimate = Math.ceil(currentBytes / 4);
-
-  assert.ok(
-    currentBytes < REPRESENTATIVE_BUDGET_BYTES,
-    `expected fewer than ${REPRESENTATIVE_BUDGET_BYTES} bytes, received ${currentBytes}`,
-  );
-  assert.ok(
-    currentTokenEstimate < REPRESENTATIVE_TOKEN_BUDGET,
-    `expected fewer than ${REPRESENTATIVE_TOKEN_BUDGET} estimated tokens, received ${currentTokenEstimate}`,
-  );
-  assert.ok(
-    currentBytes <= REPRESENTATIVE_TARGET_BYTES,
-    `expected at most ${REPRESENTATIVE_TARGET_BYTES} bytes, received ${currentBytes}`,
-  );
-  assert.ok(
-    currentTokenEstimate <= REPRESENTATIVE_TARGET_TOKENS,
-    `expected at most ${REPRESENTATIVE_TARGET_TOKENS} estimated tokens, received ${currentTokenEstimate}`,
-  );
-  assert.ok(
-    REPRESENTATIVE_BUDGET_BYTES - currentBytes >= REQUIRED_BYTE_HEADROOM,
-    "representative instructions must retain at least 4 KiB below the unchanged byte guard",
-  );
-  assert.ok(
-    REPRESENTATIVE_TOKEN_BUDGET - currentTokenEstimate >=
-      REQUIRED_TOKEN_HEADROOM,
-    "representative instructions must retain at least 1,024 estimated tokens below the unchanged token guard",
-  );
+  for (const [index, contents] of routeBundles.entries()) {
+    const label = index === 0 ? "implementation" : "delivery";
+    const currentBytes = contents.reduce(
+      (total, content) => total + Buffer.byteLength(content),
+      0,
+    );
+    const currentTokenEstimate = Math.ceil(currentBytes / 4);
+    assert.ok(
+      currentBytes < REPRESENTATIVE_BUDGET_BYTES,
+      `${label}: expected fewer than ${REPRESENTATIVE_BUDGET_BYTES} bytes, received ${currentBytes}`,
+    );
+    assert.ok(
+      currentTokenEstimate < REPRESENTATIVE_TOKEN_BUDGET,
+      `${label}: expected fewer than ${REPRESENTATIVE_TOKEN_BUDGET} estimated tokens, received ${currentTokenEstimate}`,
+    );
+    assert.ok(
+      currentBytes <= REPRESENTATIVE_TARGET_BYTES,
+      `${label}: expected at most ${REPRESENTATIVE_TARGET_BYTES} bytes, received ${currentBytes}`,
+    );
+    assert.ok(
+      currentTokenEstimate <= REPRESENTATIVE_TARGET_TOKENS,
+      `${label}: expected at most ${REPRESENTATIVE_TARGET_TOKENS} estimated tokens, received ${currentTokenEstimate}`,
+    );
+    assert.ok(
+      REPRESENTATIVE_BUDGET_BYTES - currentBytes >= REQUIRED_BYTE_HEADROOM,
+      `${label}: representative instructions must retain at least 4 KiB below the byte guard`,
+    );
+    assert.ok(
+      REPRESENTATIVE_TOKEN_BUDGET - currentTokenEstimate >= REQUIRED_TOKEN_HEADROOM,
+      `${label}: representative instructions must retain at least 1,024 estimated tokens below the token guard`,
+    );
+  }
   assert.equal(REPRESENTATIVE_INSTRUCTION_PATHS.length, 4);
+  assert.equal(DELIVERY_INSTRUCTION_PATHS.length, 4);
   assert.equal(PERMANENT_INDEX_PATHS.length, 3);
   assert.deepEqual(PERMANENT_INDEX_PATHS, [
     "README.md",
@@ -2834,8 +2865,9 @@ test("the split representative instruction bundle stays concise with one executi
   ]);
   await Promise.all(PERMANENT_INDEX_PATHS.map((relativePath) => read(relativePath)));
 
-  const authoringSkill = contents[1];
-  const implementationSkill = contents[2];
+  const authoringSkill = routeBundles[0][1];
+  const implementationSkill = routeBundles[0][2];
+  const deliverySkill = routeBundles[1][2];
   assert.deepEqual(
     [...authoringSkill.matchAll(/\]\((references\/[^)]+\.md)\)/g)].map((match) => match[1]),
     [],
@@ -2844,6 +2876,10 @@ test("the split representative instruction bundle stays concise with one executi
     ...implementationSkill.matchAll(/\]\((references\/[^)]+\.md)\)/g),
   ].map((match) => match[1]);
   assert.deepEqual([...new Set(referenceLinks)], ["references/execution.md"]);
+  const deliveryReferenceLinks = [
+    ...deliverySkill.matchAll(/\]\((references\/[^)]+\.md)\)/g),
+  ].map((match) => match[1]);
+  assert.deepEqual([...new Set(deliveryReferenceLinks)], ["references/delivery.md"]);
 });
 
 test("routine Task workflows index owners before targeted reads and escalate only when required", async () => {
@@ -2937,8 +2973,8 @@ test("Task runtime has no model or reasoning-effort mutation path", async () => 
 
   const execution = await read("skills/kyw-impl/references/execution.md");
   assert.match(execution, /Inherit the active session's configured model and reasoning effort/);
-  assert.match(execution, /unless the current user explicitly requests that change/);
-  assert.match(execution, /Use `UNAVAILABLE` as both value and observability/);
+  assert.match(execution, /unless the current user explicitly requests it/);
+  assert.match(execution, /use `UNAVAILABLE` for unexposed fields/);
 });
 
 test("installation guidance distinguishes supported surfaces, scopes, aliases, and duplicate resolution", async () => {
@@ -2969,7 +3005,7 @@ test("installation guidance distinguishes supported surfaces, scopes, aliases, a
   assert.match(readme, /`install --scope user`/);
   assert.match(
     readme,
-    /The portable `\$kyw-grilling`, `\$kyw-init`, `\$kyw-task "<outcome>"`, `\$kyw-impl NNNN`, and `\$kyw-audit NNNN` forms/,
+    /The portable `\$kyw-grilling`, `\$kyw-init`, `\$kyw-task "<outcome>"`, `\$kyw-impl NNNN`, `\$kyw-deliver NNNN`, and `\$kyw-audit NNNN` forms/,
   );
   assert.match(
     readme,

@@ -17,8 +17,8 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "kyw-dev",
-    "shortDescription": "Plan, execute, and audit spec-driven work.",
-    "longDescription": "Provides explicit workflows to initialize durable project truth, use kyw-task to atomically author dependency-aware Task sets, use kyw-impl to execute one verified existing Task at a time, and independently audit the resulting evidence.",
+    "shortDescription": "Plan, implement, deliver, and audit spec-driven work.",
+    "longDescription": "Provides six explicit workflows to initialize durable project truth, atomically author dependency-aware Task sets, implement one existing Task through repository completion, deliver its current STANDARD lifecycle separately, and independently audit the result.",
     "developerName": "Kim Yeongwoo",
     "category": "Productivity",
     "capabilities": [
@@ -29,7 +29,8 @@
     "defaultPrompt": [
       "Use $kyw-init to initialize this repository's durable documents.",
       "Use $kyw-task \"goal\" to author the smallest ready Task set and stop.",
-      "Use $kyw-impl 0001 to execute an existing Task through verification and delivery.",
+      "Use $kyw-impl 0001 to implement an existing Task through repository completion, then stop.",
+      "Use $kyw-deliver 0001 to perform or resume that completed Task's current STANDARD delivery.",
       "Use $kyw-audit 0001 to audit Task 0001 without modifying the repository."
     ]
   }

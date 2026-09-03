@@ -341,7 +341,7 @@ function selectionBlockers(task, byId, deliveryState) {
 function terminalGateBlockers(task, byId, deliveryState) {
   return [
     ...selectionBlockers(task, byId, deliveryState),
-    ...deliveryBlockers(task, deliveryState),
+    ...(cancelledTask(task) ? [] : deliveryBlockers(task, deliveryState)),
   ];
 }
 
@@ -368,14 +368,34 @@ function queueSelectionBlockers(task, currentTasks, byId, deliveryState) {
   ];
 }
 
-function selectionBlockedResult(task, blockers) {
+function selectionBlockedResult(task, blockers, parsedInvocation) {
+  const pendingDeliveryTaskId = blockers
+    .map((blocker) => /Task (\d{4}) delivery is resumable/.exec(blocker)?.[1])
+    .find(Boolean);
+  if (pendingDeliveryTaskId) {
+    const deliveryCommand = `$kyw-deliver ${pendingDeliveryTaskId}`;
+    return blockedResult(
+      "STANDARD_DELIVERY_REQUIRED",
+      `다음 단계: ${deliveryCommand}`,
+      {
+        task: taskSummary(task),
+        route: parsedInvocation?.route ?? "IMPLEMENTATION",
+        deliveryTaskId: pendingDeliveryTaskId,
+        deliveryCommand,
+        mutationRequired: false,
+      },
+    );
+  }
   const priorTransitionBlocked = blockers.some((blocker) =>
     blocker.startsWith("Cannot advance past Task "),
   );
   return blockedResult(
     priorTransitionBlocked ? "QUEUE_TRANSITION_BLOCKED" : "UNSATISFIED_DEPENDENCY",
     blockers.join("; "),
-    { task: taskSummary(task) },
+    {
+      task: taskSummary(task),
+      ...(parsedInvocation ? { route: parsedInvocation.route } : {}),
+    },
   );
 }
 
@@ -394,9 +414,13 @@ function selectedResult(
         : "IMPLEMENT");
   const lifecycleSelection = ["IMPLEMENT", "RESUME", "DELIVER"].includes(action);
   const standardDeliveryAuthorized =
-    lifecycleSelection && task.deliveryRequirement.kind === "STANDARD";
+    lifecycleSelection &&
+    parsedInvocation.route === "DELIVERY" &&
+    action === "DELIVER" &&
+    task.deliveryRequirement.kind === "STANDARD";
   return Object.freeze({
     outcome: "SELECTED",
+    route: parsedInvocation.route,
     mode: parsedInvocation.mode,
     action,
     confirmation: readyTask(task),
@@ -406,7 +430,7 @@ function selectedResult(
       ? {
           authoritySource: "RECOGNIZED_TASK_INVOCATION",
           authorityScope: standardDeliveryAuthorized
-            ? "STANDARD_LIFECYCLE"
+            ? "STANDARD_DELIVERY"
             : "REPOSITORY_LIFECYCLE",
           standardDeliveryAuthorized,
           ceremonialConfirmationRequired: false,
@@ -421,7 +445,7 @@ function selectedResult(
           mergeCompatibilityEvidence:
             deliveryEvidence?.mergeCompatibility ?? "UNVERIFIED",
           postMergeEvidence: deliveryEvidence?.postMerge ?? "UNVERIFIED",
-          message: `Task ${task.id} is repository-complete; the recognized invocation authorizes resuming ordinary STANDARD delivery without ceremonial reconfirmation.`,
+          message: `Task ${task.id} is repository-complete; the exact $kyw-deliver route authorizes resuming STANDARD delivery without ceremonial reconfirmation.`,
         }
       : {}),
     ...(blockedTask(task) ? { blocker: task.blocker } : {}),
@@ -430,7 +454,8 @@ function selectedResult(
   });
 }
 
-function deliveryEvidenceBlockedResult(task, classification) {
+function deliveryEvidenceBlockedResult(task, classification, parsedInvocation) {
+  const deliveryCommand = `$kyw-deliver ${task.id}`;
   return blockedResult(
     classification.blockerCode ?? "DELIVERY_EVIDENCE_INVALID",
     classification.issues.map((issue) => `Task ${task.id} delivery: ${issue}`).join("; "),
@@ -442,8 +467,42 @@ function deliveryEvidenceBlockedResult(task, classification) {
       mergeCompatibilityEvidence: classification.mergeCompatibility,
       postMergeEvidence: classification.postMerge,
       issues: classification.issues,
+      ...(parsedInvocation
+        ? {
+            route: parsedInvocation.route,
+            ...(parsedInvocation.route === "IMPLEMENTATION"
+              ? { deliveryCommand }
+              : {}),
+          }
+        : {}),
     },
   );
+}
+
+function implementationDeliveryRequiredResult(
+  task,
+  parsedInvocation,
+  classification,
+  { terminal = false } = {},
+) {
+  const deliveryCommand = `$kyw-deliver ${task.id}`;
+  return Object.freeze({
+    outcome: terminal ? "TERMINAL" : "BLOCKED",
+    code: "STANDARD_DELIVERY_REQUIRED",
+    message: `다음 단계: ${deliveryCommand}`,
+    route: "IMPLEMENTATION",
+    task: taskSummary(task),
+    deliveryTaskId: task.id,
+    deliveryCommand,
+    deliveryDisposition: "RESUMABLE",
+    deliveryClassification: classification.classification,
+    actualHeadEvidence: classification.actualHead,
+    mergeCompatibilityEvidence: classification.mergeCompatibility,
+    postMergeEvidence: classification.postMerge,
+    mutationRequired: false,
+    overrideText: parsedInvocation.overrideText,
+    overrideScope: parsedInvocation.overrideScope,
+  });
 }
 
 function terminalTaskResult(
@@ -464,10 +523,15 @@ function terminalTaskResult(
     }
     const classification = deliveryClassification(task, deliveryState);
     if (classification.disposition === "RESUMABLE") {
-      return selectedResult(task, parsedInvocation, "DELIVER", classification);
+      return implementationDeliveryRequiredResult(
+        task,
+        parsedInvocation,
+        classification,
+        { terminal: true },
+      );
     }
     if (classification.disposition === "BLOCKED") {
-      return deliveryEvidenceBlockedResult(task, classification);
+      return deliveryEvidenceBlockedResult(task, classification, parsedInvocation);
     }
     const immutableTerminal = isImmutableTerminalTaskContractVersion(
       task.contractVersion,
@@ -479,6 +543,7 @@ function terminalTaskResult(
     const correctionRoute = '$kyw-task "<correction outcome>"';
     return Object.freeze({
       outcome: "TERMINAL",
+      route: parsedInvocation.route,
       code: correctionIntent
         ? "TASK_CORRECTION_REQUIRES_NEW_TASK"
         : "TASK_COMPLETE",
@@ -522,16 +587,9 @@ function terminalTaskResult(
         { task: taskSummary(task) },
       );
     }
-    const blockers = deliveryBlockers(task, deliveryState);
-    if (blockers.length > 0) {
-      return blockedResult(
-        "DELIVERY_EVIDENCE_REQUIRED",
-        blockers.join("; "),
-        { task: taskSummary(task) },
-      );
-    }
     return Object.freeze({
       outcome: "TERMINAL",
+      route: parsedInvocation.route,
       code: "TASK_CANCELLED",
       message: `Task ${task.id} is CANCELLED and required delivery is satisfied.`,
       task: taskSummary(task),
@@ -577,10 +635,14 @@ function automaticTerminalResult(currentTasks, byId, deliveryState, parsedInvoca
     }
     const classification = deliveryClassification(task, deliveryState);
     if (classification.disposition === "RESUMABLE") {
-      return selectedResult(task, parsedInvocation, "DELIVER", classification);
+      return implementationDeliveryRequiredResult(
+        task,
+        parsedInvocation,
+        classification,
+      );
     }
     if (classification.disposition === "BLOCKED") {
-      return deliveryEvidenceBlockedResult(task, classification);
+      return deliveryEvidenceBlockedResult(task, classification, parsedInvocation);
     }
   }
 
@@ -594,6 +656,60 @@ function automaticTerminalResult(currentTasks, byId, deliveryState, parsedInvoca
   });
 }
 
+function exactDeliveryResult(
+  task,
+  active,
+  currentTasks,
+  byId,
+  deliveryState,
+  parsedInvocation,
+) {
+  if (active.length === 1 && active[0].id !== task.id) {
+    return blockedResult(
+      "ANOTHER_TASK_ACTIVE",
+      `Task ${active[0].id} is active; Task ${task.id} cannot be delivered while implementation is active.`,
+      { route: "DELIVERY", task: taskSummary(active[0]) },
+    );
+  }
+  if (!completeTask(task)) {
+    return blockedResult(
+      "TASK_NOT_DELIVERABLE",
+      `Task ${task.id} is not repository-complete (${task.taskStatus}/${task.testStatus}); $kyw-deliver accepts only DONE/PASSED Tasks.`,
+      { route: "DELIVERY", task: taskSummary(task), mutationRequired: false },
+    );
+  }
+  if (task.deliveryRequirement.kind !== "STANDARD") {
+    return blockedResult(
+      "DELIVERY_NOT_REQUIRED",
+      `Task ${task.id} declares reasoned NONE delivery; $kyw-deliver applies only to STANDARD delivery.`,
+      { route: "DELIVERY", task: taskSummary(task), mutationRequired: false },
+    );
+  }
+  const blockers = queueSelectionBlockers(
+    task,
+    currentTasks,
+    byId,
+    deliveryState,
+  );
+  if (blockers.length > 0) {
+    return selectionBlockedResult(task, blockers, parsedInvocation);
+  }
+  const classification = deliveryClassification(task, deliveryState);
+  if (classification.disposition === "RESUMABLE") {
+    return selectedResult(task, parsedInvocation, "DELIVER", classification);
+  }
+  if (classification.disposition === "BLOCKED") {
+    return deliveryEvidenceBlockedResult(task, classification, parsedInvocation);
+  }
+  return terminalTaskResult(
+    task,
+    byId,
+    deliveryState,
+    parsedInvocation,
+    "NO_TASK_OVERRIDE",
+  );
+}
+
 export async function resolveTaskDispatch({
   tasksRoot,
   invocation,
@@ -601,9 +717,21 @@ export async function resolveTaskDispatch({
   deliveryLedger = {},
   deliveryExpectations = {},
   executionPreflight = {},
+  parsedInvocation: suppliedParsedInvocation,
 }) {
-  const parsedInvocation = parseTaskInvocation(invocation, { managedRoutingAvailable });
+  const parsedInvocation =
+    suppliedParsedInvocation ??
+    parseTaskInvocation(invocation, { managedRoutingAvailable });
   if (!parsedInvocation.recognized) {
+    if (parsedInvocation.route === "DELIVERY") {
+      return Object.freeze({
+        outcome: "NOT_TASK_INVOCATION",
+        code: "NO_ANCHORED_DELIVERY_COMMAND",
+        message: "$kyw-deliver accepts only the exact form $kyw-deliver NNNN.",
+        route: "DELIVERY",
+        mutationRequired: false,
+      });
+    }
     return Object.freeze({
       outcome: "NOT_TASK_INVOCATION",
       code: "NO_ANCHORED_IMPLEMENTATION_COMMAND",
@@ -659,6 +787,16 @@ export async function resolveTaskDispatch({
         `No Task directory exists for ${parsedInvocation.taskId}. Use $kyw-task "<outcome>" to author a new Task/Test pair set; kyw-impl never allocates one.`,
       );
     }
+    if (parsedInvocation.route === "DELIVERY") {
+      return exactDeliveryResult(
+        task,
+        active,
+        queue.currentTasks,
+        byId,
+        deliveryState,
+        parsedInvocation,
+      );
+    }
     if (active.length === 1 && active[0].id !== task.id) {
       return blockedResult(
         "ANOTHER_TASK_ACTIVE",
@@ -675,7 +813,7 @@ export async function resolveTaskDispatch({
       );
       return blockers.length === 0
         ? selectedResult(task, parsedInvocation)
-        : selectionBlockedResult(task, blockers);
+        : selectionBlockedResult(task, blockers, parsedInvocation);
     }
     if (readyTask(task)) {
       const blockers = queueSelectionBlockers(
@@ -686,7 +824,7 @@ export async function resolveTaskDispatch({
       );
       return blockers.length === 0
         ? selectedResult(task, parsedInvocation)
-        : selectionBlockedResult(task, blockers);
+        : selectionBlockedResult(task, blockers, parsedInvocation);
     }
     if (draftTask(task)) {
       return blockedResult(
@@ -704,7 +842,18 @@ export async function resolveTaskDispatch({
       );
       return blockers.length === 0
         ? selectedResult(task, parsedInvocation)
-        : selectionBlockedResult(task, blockers);
+        : selectionBlockedResult(task, blockers, parsedInvocation);
+    }
+    if (completeTask(task)) {
+      const blockers = queueSelectionBlockers(
+        task,
+        queue.currentTasks,
+        byId,
+        deliveryState,
+      );
+      if (blockers.length > 0) {
+        return selectionBlockedResult(task, blockers, parsedInvocation);
+      }
     }
     return terminalTaskResult(
       task,
@@ -725,7 +874,7 @@ export async function resolveTaskDispatch({
     );
     return blockers.length === 0
       ? selectedResult(task, parsedInvocation)
-      : selectionBlockedResult(task, blockers);
+      : selectionBlockedResult(task, blockers, parsedInvocation);
   }
 
   if (queue.currentTasks.length === 0) {
@@ -747,7 +896,7 @@ export async function resolveTaskDispatch({
       continue;
     }
     if (classification.disposition === "BLOCKED") {
-      return deliveryEvidenceBlockedResult(task, classification);
+      return deliveryEvidenceBlockedResult(task, classification, parsedInvocation);
     }
     const blockers = queueSelectionBlockers(
       task,
@@ -756,7 +905,11 @@ export async function resolveTaskDispatch({
       deliveryState,
     );
     if (blockers.length === 0) {
-      return selectedResult(task, parsedInvocation, "DELIVER", classification);
+      return implementationDeliveryRequiredResult(
+        task,
+        parsedInvocation,
+        classification,
+      );
     }
     unavailableDelivery.push(`Task ${task.id}: ${blockers.join("; ")}`);
   }
