@@ -122,6 +122,7 @@ test("task artifact modules keep the intended acyclic dependency graph", async (
       "task-artifact-hydration.mjs",
       [
         "task-artifact-continuity.mjs",
+        "task-artifact-contract.mjs",
         "task-artifact-delivery.mjs",
         "task-artifact-public-release.mjs",
         "task-artifact-queue.mjs",
@@ -196,7 +197,7 @@ function fixtureTasks(name) {
 function readyBatchTaskMarkdown() {
   return `# TASK {{TASK_ID}} — {{TASK_TITLE}}
 
-<!-- kyw-task-contract: 3 -->
+<!-- kyw-task-contract: 4 -->
 
 ## Status
 
@@ -248,6 +249,7 @@ Deliver one independently verifiable batch-authored outcome.
 ## Delivery
 
 - Requirement: STANDARD
+- Release version: {{TASK_RELEASE_VERSION}}
 - Canonical ledger: GitHub PR/Actions exact-SHA state.
 
 ## Completed
@@ -271,7 +273,7 @@ Deliver one independently verifiable batch-authored outcome.
 function readyBatchTestMarkdown() {
   return `# TEST {{TASK_ID}} — {{TASK_TITLE}}
 
-<!-- kyw-task-contract: 3 -->
+<!-- kyw-task-contract: 4 -->
 
 ## Status
 
@@ -323,13 +325,21 @@ READY
 `;
 }
 
-function batchDefinition(key, title, dependencies = []) {
+let nextBatchReleaseVersion = 1;
+
+function batchDefinition(
+  key,
+  title,
+  dependencies = [],
+  releaseVersion = `0.0.${nextBatchReleaseVersion++}`,
+) {
   return {
     key,
     title,
     taskMarkdown: readyBatchTaskMarkdown(),
     testMarkdown: readyBatchTestMarkdown(),
     dependencies,
+    releaseVersion,
   };
 }
 
@@ -415,8 +425,8 @@ test("atomic task creation publishes TASK.md and TEST.md together", async (t) =>
   const testMarkdown = await readFile(created.testPath, "utf8");
   assert.match(taskMarkdown, /^# TASK 0001 — 템플릿 계약/m);
   assert.match(testMarkdown, /^# TEST 0001 — 템플릿 계약/m);
-  assert.match(taskMarkdown, /<!-- kyw-task-contract: 3 -->/);
-  assert.match(testMarkdown, /<!-- kyw-task-contract: 3 -->/);
+  assert.match(taskMarkdown, /<!-- kyw-task-contract: 4 -->/);
+  assert.match(testMarkdown, /<!-- kyw-task-contract: 4 -->/);
   assert.match(taskMarkdown, /^## Delivery$/m);
   assert.deepEqual(await validateTaskDirectory(created.directory), []);
 
@@ -546,6 +556,35 @@ test("atomic batch creation preallocates and publishes complete READY dependency
   assert.match(await readFile(created.tasks[1].taskPath, "utf8"), /- Task 0001\./);
 });
 
+test("queue inspection rejects duplicate contract-4 release-version claims", async (t) => {
+  const tasksRoot = path.join(await temporaryDirectory(t), "docs", "tasks");
+  const created = await createTaskArtifactBatch({
+    tasksRoot,
+    tasks: [
+      batchDefinition("first-release", "First release", [], "4.5.6"),
+      batchDefinition("second-release", "Second release", [], "4.5.7"),
+    ],
+  });
+  assert.deepEqual(
+    created.tasks.map((task) => task.releaseVersion),
+    ["4.5.6", "4.5.7"],
+  );
+  const secondTask = created.tasks[1];
+  await writeFile(
+    secondTask.taskPath,
+    (await readFile(secondTask.taskPath, "utf8")).replace(
+      "- Release version: 4.5.7",
+      "- Release version: 4.5.6",
+    ),
+    "utf8",
+  );
+
+  const queue = await inspectTaskQueue(tasksRoot);
+  assert.deepEqual(queue.errors, [
+    "Release version 4.5.6 is claimed by both Task 0001 and Task 0002",
+  ]);
+});
+
 test("atomic batch creation accepts existing dependencies and keeps the legacy scaffold helper", async (t) => {
   const tasksRoot = path.join(await temporaryDirectory(t), "docs", "tasks");
   const legacy = await createTaskArtifacts({ tasksRoot, title: "Existing scaffold" });
@@ -635,6 +674,7 @@ test("atomic batch creation rejects invalid pairs, missing dependencies, cycles,
   const exhaustedValues = [
     ["{{TASK_ID}}", "9999"],
     ["{{TASK_TITLE}}", "Last"],
+    ["{{TASK_RELEASE_VERSION}}", "99.99.99"],
     [
       "{{TASK_DEPENDENCIES}}",
       "- Not applicable — no hard dependency is required for this outcome.",

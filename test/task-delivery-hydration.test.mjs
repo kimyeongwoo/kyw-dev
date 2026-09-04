@@ -720,6 +720,7 @@ function task({
   delivery = "STANDARD",
   dependencies = [],
   contractVersion = 2,
+  releaseVersion,
 }) {
   return {
     id,
@@ -730,8 +731,231 @@ function task({
     dependencies,
     deliveryRequirement:
       delivery === "STANDARD"
-        ? { kind: "STANDARD" }
+        ? {
+            kind: "STANDARD",
+            ...(releaseVersion ? { releaseVersion } : {}),
+          }
         : { kind: "NONE", reason: "fixture has no external delivery" },
+  };
+}
+
+function publicReleaseTaskPair(id, releaseVersion) {
+  const title = "Public release fixture";
+  return Object.freeze({
+    task: `# TASK ${id} — ${title}
+
+<!-- kyw-task-contract: 4 -->
+
+## Status
+
+DONE
+
+## Goal
+
+Exercise immutable public-release hydration.
+
+## Dependencies
+
+- Not applicable — no hard dependency is required for this outcome.
+
+## In Scope
+
+- Hydrate one release tuple.
+
+## Out of Scope
+
+- Live external mutation.
+
+## Acceptance Criteria
+
+- [x] AC-01: Public-release hydration remains immutable.
+
+## Plan
+
+- [x] Hydrate the fixture.
+
+## Decisions
+
+- Keep the fixture deterministic.
+
+## Risks
+
+- Not applicable — the fixture uses injected clients.
+
+## Discoveries and Changes
+
+- Not applicable — no discovery changed the fixture.
+
+## Documentation Impact
+
+- SPEC: Unaffected.
+- ARCHITECTURE: Unaffected.
+- README: Unaffected.
+- AGENTS: Unaffected.
+
+## Delivery
+
+- Requirement: STANDARD
+- Release version: ${releaseVersion}
+- Canonical ledger: GitHub PR/Actions exact-SHA state.
+
+## Completed
+
+- Repository outcome verified.
+
+## Remaining
+
+- None — repository outcome complete.
+
+## Resume Point
+
+- None — repository outcome complete.
+
+## Blockers
+
+- Not applicable — no blocker is known.
+`,
+    test: `# TEST ${id} — ${title}
+
+<!-- kyw-task-contract: 4 -->
+
+## Status
+
+PASSED
+
+## Test Basis
+
+- Task: \`./TASK.md\`
+
+## Intent-to-Test Matrix
+
+| ID | Intent / acceptance criterion | Method | Level | Status | Evidence |
+|---|---|---|---|---|---|
+| T-01 | AC-01 hydration | Run the fixture | Integration | PASS | Fixture passed. |
+
+## Regression Coverage
+
+- Terminal pair immutability.
+
+## Commands
+
+- Focused fixture.
+
+## Results
+
+- Fixture passed.
+
+## Unverified
+
+- Not applicable — no residual risk remains.
+
+## Final Coverage Review
+
+- [x] Compare the final diff to the matrix.
+- [x] Map every acceptance criterion to one or more test rows.
+- [x] Add coverage for introduced branches, failures, and compatibility behavior.
+- [x] Confirm PASS evidence is reproducible.
+- [x] Confirm required regressions ran.
+`,
+  });
+}
+
+function rejectingPublicClients(calls) {
+  const reject = (method) => async () => {
+    calls.push(method);
+    throw new Error(`${method} must not run before Task-owned release identity is proven`);
+  };
+  return Object.fromEntries(
+    [
+      "readPublishWorkflowIdentity",
+      "readPackageIndex",
+      "readSigningKeys",
+      "readWorkflowRuns",
+      "readNpmVersion",
+      "readTag",
+      "readRelease",
+      "dispatchPublishWorkflow",
+      "createTag",
+      "createRelease",
+    ].map((method) => [method, reject(method)]),
+  );
+}
+
+async function publicReleaseHydrationGuardFixture(
+  t,
+  {
+    taskVersion = "2.0.0",
+    packageVersion = taskVersion,
+    pluginVersion = packageVersion,
+  } = {},
+) {
+  const repositoryRoot = await mkdtemp(
+    path.join(tmpdir(), "kyw-public-task-guard-"),
+  );
+  t.after(() => rm(repositoryRoot, { recursive: true, force: true }));
+  const tasksRoot = path.join(repositoryRoot, "docs", "tasks");
+  const fixture = hardenedFixture();
+  const taskId = fixture.outcome.taskId;
+  const pair = publicReleaseTaskPair(taskId, taskVersion);
+  const pairRoot = path.join(tasksRoot, `${taskId}-fixture`);
+  const taskPath = path.join(pairRoot, "TASK.md");
+  const repository = "owner/repository";
+  const packageJson = {
+    name: "kyw-dev",
+    version: packageVersion,
+    private: false,
+    repository: {
+      type: "git",
+      url: `git+https://github.com/${repository}.git`,
+    },
+    type: "module",
+    files: [".codex-plugin/", "src/"],
+    publishConfig: {
+      access: "public",
+      registry: "https://registry.npmjs.org/",
+    },
+  };
+  const workflowText = (await readFile(
+    path.join(REPOSITORY_ROOT, ".github", "workflows", "publish.yml"),
+    "utf8",
+  )).replaceAll("kimyeongwoo/kyw-dev", repository);
+  await Promise.all([
+    mkdir(pairRoot, { recursive: true }),
+    mkdir(path.join(repositoryRoot, ".github", "workflows"), {
+      recursive: true,
+    }),
+    mkdir(path.join(repositoryRoot, ".codex-plugin"), { recursive: true }),
+    mkdir(path.join(repositoryRoot, "src"), { recursive: true }),
+  ]);
+  await Promise.all([
+    writeFile(path.join(repositoryRoot, "package.json"), `${JSON.stringify(packageJson, null, 2)}\n`),
+    writeFile(
+      path.join(repositoryRoot, ".codex-plugin", "plugin.json"),
+      `${JSON.stringify({ name: "kyw-dev", version: pluginVersion }, null, 2)}\n`,
+    ),
+    writeFile(
+      path.join(repositoryRoot, ".github", "workflows", "publish.yml"),
+      workflowText,
+    ),
+    writeFile(path.join(repositoryRoot, "src", "index.mjs"), "export const ok = true;\n"),
+    writeFile(taskPath, pair.task),
+    writeFile(path.join(pairRoot, "TEST.md"), pair.test),
+  ]);
+  git(repositoryRoot, ["init", "-b", "main"]);
+  git(repositoryRoot, ["config", "user.email", "fixture@example.invalid"]);
+  git(repositoryRoot, ["config", "user.name", "Fixture"]);
+  git(repositoryRoot, ["add", "."]);
+  git(repositoryRoot, ["commit", "-m", "freeze public-release guard fixture"]);
+  const mergeSha = git(repositoryRoot, ["rev-parse", "HEAD"]);
+  retargetHardenedFixtureMerge(fixture, mergeSha);
+  const normalized = normalizeFixture(fixture);
+  return {
+    tasksRoot,
+    taskId,
+    taskPath,
+    pair,
+    normalized,
+    commandRunner: publicReleaseLocalRunner([]),
   };
 }
 
@@ -756,6 +980,8 @@ async function futureTerminalFixture(
     taskId = "0001",
     canonicalLineEndings = "LF",
     canonicalExecutable = false,
+    contractVersion = 3,
+    releaseVersion = contractVersion === 4 ? "2.0.0" : undefined,
   } = {},
 ) {
   const root = await mkdtemp(path.join(tmpdir(), "kyw-future-terminal-"));
@@ -768,7 +994,7 @@ async function futureTerminalFixture(
   const workflowPath = path.join(root, ".github", "workflows", "ci.yml");
   const taskLfBytes = `# TASK ${taskId} — Immutable
 
-<!-- kyw-task-contract: 3 -->
+<!-- kyw-task-contract: ${contractVersion} -->
 
 ## Status
 
@@ -821,7 +1047,7 @@ Prove immutable terminal delivery behavior.
 ## Delivery
 
 - Requirement: STANDARD
-- Canonical ledger: GitHub PR/Actions exact-SHA state.
+${contractVersion === 4 ? `- Release version: ${releaseVersion}\n` : ""}- Canonical ledger: GitHub PR/Actions exact-SHA state.
 
 ## Completed
 
@@ -841,7 +1067,7 @@ Prove immutable terminal delivery behavior.
 `;
   const testLfBytes = `# TEST ${taskId} — Immutable
 
-<!-- kyw-task-contract: 3 -->
+<!-- kyw-task-contract: ${contractVersion} -->
 
 ## Status
 
@@ -947,7 +1173,7 @@ PASSED
   git(root, ["config", "branch.main.merge", "refs/heads/main"]);
   let worktreeStatusOverride;
   const queueTask = {
-    ...task({ id: taskId, contractVersion: 3 }),
+    ...task({ id: taskId, contractVersion, releaseVersion }),
     name: directoryName,
     directory,
     taskPath,
@@ -2799,6 +3025,36 @@ test("future terminal history rejects committed mutation even after byte reversi
   );
 });
 
+test("contract-4 terminal history is discovered and remains immutable", async (t) => {
+  const fixture = await futureTerminalFixture(t, { contractVersion: 4 });
+  const local = await fixture.discover();
+  assert.equal(local.outcomes.length, 1);
+  assert.equal(local.outcomes[0].taskId, "0001");
+  assert.equal(
+    local.outcomes[0].terminalPair.taskPath,
+    "docs/tasks/0001-immutable/TASK.md",
+  );
+
+  const hydrated = await fixture.hydrate();
+  assert.equal(
+    evaluateDeliveryEvidence(
+      "0001",
+      hydrated.deliveryLedger["0001"],
+      hydrated.deliveryExpectations["0001"],
+    ).satisfied,
+    true,
+  );
+
+  await writeFile(fixture.taskPath, `${fixture.taskBytes}\nchanged\n`, "utf8");
+  fixture.setWorktreeStatusOverride(" M docs/tasks/0001-immutable/TASK.md\n");
+  await assert.rejects(
+    fixture.hydrate(),
+    (error) =>
+      error.code === "FUTURE_TERMINAL_PAIR_IMMUTABLE" &&
+      /docs\/tasks\/0001-immutable\/TASK\.md/.test(error.message),
+  );
+});
+
 test("expected-head PR merge source branch has one leading Task identity", () => {
   const parents = ["a".repeat(40), "b".repeat(40)];
   for (const [subject, expected] of [
@@ -2972,6 +3228,10 @@ test("current tracked-main redelivery identity scan is read-only", async (t) => 
     ...trackedMainResults.map(({ stdout }) => stdout.trim()),
   ];
   const mainSha = refsBefore[1];
+  if (refsBefore[1] !== refsBefore[2] || refsBefore[1] !== refsBefore[3]) {
+    t.skip("tracked main refs are available but not aligned in this checkout");
+    return;
+  }
   assert.equal(refsBefore[1], refsBefore[2]);
   assert.equal(refsBefore[1], refsBefore[3]);
   const checkpointPath = path.join(
@@ -3118,6 +3378,23 @@ test("real Task 0059 multi-merge history remains grandfathered under contract 2"
     return;
   }
   const mainSha = mainResult.stdout.trim();
+  const trackedMainResults = ["main@{upstream}", "refs/remotes/origin/main"].map(
+    (ref) =>
+      spawnSync("git", ["rev-parse", "--verify", `${ref}^{commit}`], {
+        cwd: REPOSITORY_ROOT,
+        encoding: "utf8",
+        windowsHide: true,
+        shell: false,
+      }),
+  );
+  if (
+    trackedMainResults.some(
+      ({ status, stdout }) => status !== 0 || stdout.trim() !== mainSha,
+    )
+  ) {
+    t.skip("tracked main refs are not aligned for the real-history fixture");
+    return;
+  }
   const queueTask = {
     ...task({ id: "0059", contractVersion: 2 }),
     name,
@@ -4900,7 +5177,8 @@ test("public-release hydration freshly revalidates a checkpoint-covered selected
   const selected = task({
     id: "0100",
     dependencies: ["0099"],
-    contractVersion: 3,
+    contractVersion: 4,
+    releaseVersion: "1.2.3",
   });
   const record = (taskId, digit) => ({
     taskId,
@@ -4931,7 +5209,7 @@ test("public-release hydration freshly revalidates a checkpoint-covered selected
   let currentCalls = 0;
   const hydrated = await hydratePriorStandardDeliveries({
     tasksRoot: "C:\\fixture\\docs\\tasks",
-    invocation: "$kyw-deliver 0100 --public-release",
+    invocation: "$kyw-deliver 0100",
     queueInspector: async () => ({ tasks: [prerequisite, selected], errors: [] }),
     continuityLoader: async () => ({
       checkpoint,
@@ -6455,12 +6733,124 @@ test(
   },
 );
 
+test("public-release hydration rejects local-to-delivered Task release-version drift before public clients", async (t) => {
+  const fixture = await publicReleaseHydrationGuardFixture(t);
+  await writeFile(
+    fixture.taskPath,
+    fixture.pair.task.replace(
+      "- Release version: 2.0.0",
+      "- Release version: 2.0.1",
+    ),
+  );
+  const publicCalls = [];
+  await assert.rejects(
+    hydratePublicReleaseContext({
+      tasksRoot: fixture.tasksRoot,
+      taskId: fixture.taskId,
+      deliveryLedger: { [fixture.taskId]: fixture.normalized.entry },
+      deliveryExpectations: {
+        [fixture.taskId]: fixture.normalized.expectation,
+      },
+      commandRunner: fixture.commandRunner,
+      clients: rejectingPublicClients(publicCalls),
+    }),
+    (error) =>
+      error.code === "PUBLIC_RELEASE_TASK_VERSION_MISMATCH" &&
+      /delivered Task tree does not carry the same contract-4 Release version/u.test(
+        error.message,
+      ),
+  );
+  assert.deepEqual(publicCalls, []);
+});
+
+test("public-release hydration rejects Task-to-delivered package and plugin version drift before public clients", async (t) => {
+  const fixture = await publicReleaseHydrationGuardFixture(t, {
+    packageVersion: "2.0.1",
+    pluginVersion: "2.0.1",
+  });
+  const publicCalls = [];
+  await assert.rejects(
+    hydratePublicReleaseContext({
+      tasksRoot: fixture.tasksRoot,
+      taskId: fixture.taskId,
+      deliveryLedger: { [fixture.taskId]: fixture.normalized.entry },
+      deliveryExpectations: {
+        [fixture.taskId]: fixture.normalized.expectation,
+      },
+      commandRunner: fixture.commandRunner,
+      clients: rejectingPublicClients(publicCalls),
+    }),
+    (error) =>
+      error.code === "PUBLIC_RELEASE_TASK_VERSION_MISMATCH" &&
+      /delivered package and plugin versions must equal the Task-owned Release version/u.test(
+        error.message,
+      ),
+  );
+  assert.deepEqual(publicCalls, []);
+});
+
+test("public-release hydration rejects an ineligible contract-4 NONE Task before public clients", async (t) => {
+  const fixture = await publicReleaseHydrationGuardFixture(t);
+  await writeFile(
+    fixture.taskPath,
+    fixture.pair.task.replace(
+      "- Requirement: STANDARD\n- Release version: 2.0.0\n- Canonical ledger: GitHub PR/Actions exact-SHA state.",
+      "- Requirement: NONE — this fixture has no external delivery.",
+    ),
+  );
+  const publicCalls = [];
+  await assert.rejects(
+    hydratePublicReleaseContext({
+      tasksRoot: fixture.tasksRoot,
+      taskId: fixture.taskId,
+      deliveryLedger: { [fixture.taskId]: fixture.normalized.entry },
+      deliveryExpectations: {
+        [fixture.taskId]: fixture.normalized.expectation,
+      },
+      commandRunner: fixture.commandRunner,
+      clients: rejectingPublicClients(publicCalls),
+    }),
+    (error) =>
+      error.code === "PUBLIC_RELEASE_TASK_INELIGIBLE" &&
+      /terminal contract-4 STANDARD Task/u.test(error.message),
+  );
+  assert.deepEqual(publicCalls, []);
+});
+
+test("public-release hydration rejects a malformed contract-4 STANDARD Task before public clients", async (t) => {
+  const fixture = await publicReleaseHydrationGuardFixture(t);
+  await writeFile(
+    fixture.taskPath,
+    fixture.pair.task.replace("- Release version: 2.0.0\n", ""),
+  );
+  const publicCalls = [];
+  await assert.rejects(
+    hydratePublicReleaseContext({
+      tasksRoot: fixture.tasksRoot,
+      taskId: fixture.taskId,
+      deliveryLedger: { [fixture.taskId]: fixture.normalized.entry },
+      deliveryExpectations: {
+        [fixture.taskId]: fixture.normalized.expectation,
+      },
+      commandRunner: fixture.commandRunner,
+      clients: rejectingPublicClients(publicCalls),
+    }),
+    (error) =>
+      error.code === "PUBLIC_RELEASE_TASK_INVALID" &&
+      /Task queue validation failed/u.test(error.message),
+  );
+  assert.deepEqual(publicCalls, []);
+});
+
 test("public-release tuple hydration packs only the immutable delivered tree", async (t) => {
   const repositoryRoot = await mkdtemp(path.join(tmpdir(), "kyw-public-tuple-"));
   t.after(() => rm(repositoryRoot, { recursive: true, force: true }));
   const tasksRoot = path.join(repositoryRoot, "docs", "tasks");
+  const fixture = hardenedFixture();
+  const pair = publicReleaseTaskPair(fixture.outcome.taskId, "2.0.0");
+  const pairRoot = path.join(tasksRoot, `${fixture.outcome.taskId}-fixture`);
   await Promise.all([
-    mkdir(tasksRoot, { recursive: true }),
+    mkdir(pairRoot, { recursive: true }),
     mkdir(path.join(repositoryRoot, ".github", "workflows"), { recursive: true }),
     mkdir(path.join(repositoryRoot, ".codex-plugin"), { recursive: true }),
     mkdir(path.join(repositoryRoot, "src"), { recursive: true }),
@@ -6500,6 +6890,8 @@ test("public-release tuple hydration packs only the immutable delivered tree", a
       workflowText,
     ),
     writeFile(path.join(repositoryRoot, "src", "index.mjs"), "export const ok = true;\n"),
+    writeFile(path.join(pairRoot, "TASK.md"), pair.task),
+    writeFile(path.join(pairRoot, "TEST.md"), pair.test),
   ]);
   git(repositoryRoot, ["init", "-b", "main"]);
   git(repositoryRoot, ["config", "user.email", "fixture@example.invalid"]);
@@ -6507,7 +6899,7 @@ test("public-release tuple hydration packs only the immutable delivered tree", a
   git(repositoryRoot, ["add", "."]);
   git(repositoryRoot, ["commit", "-m", "fixture"]);
   const mergeSha = git(repositoryRoot, ["rev-parse", "HEAD"]);
-  const fixture = retargetHardenedFixtureMerge(hardenedFixture(), mergeSha);
+  retargetHardenedFixtureMerge(fixture, mergeSha);
   const normalized = normalizeFixture(fixture);
   assert.equal(
     evaluateDeliveryEvidence(
@@ -6740,18 +7132,15 @@ test("production public reads freeze terminal pair and continuity bytes, blobs, 
   const taskPath = "docs/tasks/0058-fixture/TASK.md";
   const testPath = "docs/tasks/0058-fixture/TEST.md";
   const continuityPath = `docs/tasks/${STANDARD_DELIVERY_CONTINUITY_FILE}`;
+  const pair = publicReleaseTaskPair("0058", "2.0.0");
   const guardedBytes = new Map([
     [
       taskPath,
-      Buffer.from(
-        "# TASK 0058 — Fixture\n\n<!-- kyw-task-contract: 3 -->\n\n## Status\n\nDONE\n",
-      ),
+      Buffer.from(pair.task),
     ],
     [
       testPath,
-      Buffer.from(
-        "# TEST 0058 — Fixture\n\n<!-- kyw-task-contract: 3 -->\n\n## Status\n\nPASSED\n",
-      ),
+      Buffer.from(pair.test),
     ],
     [continuityPath, Buffer.from('{"schemaVersion":1,"fixture":true}\n')],
   ]);

@@ -10,7 +10,6 @@ import {
   STANDARD_DELIVERY_CONTINUITY_RELATIVE_PATH,
   buildStandardDeliveryContinuityState,
   createStandardDeliveryContinuityCheckpoint,
-  createStandardDeliveryContinuityTransitionToken,
   digestStandardDeliveryContinuityEvidence,
   digestStandardDeliveryContinuityTerminalPairs,
   parseStandardDeliveryContinuityCheckpoint,
@@ -18,7 +17,11 @@ import {
   partitionStandardDeliveryContinuity,
   writeStandardDeliveryContinuityCheckpoint,
 } from "./task-artifact-continuity.mjs";
-import { evaluateDeliveryEvidence, parseTaskInvocation } from "./task-artifact-delivery.mjs";
+import {
+  evaluateDeliveryEvidence,
+  parseTaskInvocation,
+} from "./task-artifact-delivery.mjs";
+import { parseDeliveryRequirement } from "./task-artifact-contract.mjs";
 import {
   classifyPublicReleaseState,
   derivePublicReleaseWorkflowInputs,
@@ -31,9 +34,11 @@ import {
 import { TaskArtifactError } from "./task-artifact-shared.mjs";
 import {
   getTaskContractVersion,
-  IMMUTABLE_TERMINAL_TASK_CONTRACT_VERSION,
+  IMMUTABLE_TERMINAL_TASK_CONTRACT_VERSIONS,
   isImmutableTerminalTaskContractVersion,
   isQueueAwareTaskContractVersion,
+  isStableReleaseVersion,
+  RELEASE_BEARING_TASK_CONTRACT_VERSION,
 } from "./template-contracts.mjs";
 
 const SHA_PATTERN = /^[a-f0-9]{40}$/;
@@ -78,6 +83,14 @@ async function tasksRootMatchesRepository(requestedRoot, repositoryRoot) {
 
 function completeTask(task) {
   return task.taskStatus === "DONE" && task.testStatus === "PASSED";
+}
+
+function releaseBearingStandardTask(task) {
+  return (
+    task?.contractVersion === RELEASE_BEARING_TASK_CONTRACT_VERSION &&
+    task?.deliveryRequirement?.kind === "STANDARD" &&
+    isStableReleaseVersion(task.deliveryRequirement.releaseVersion)
+  );
 }
 
 function cancelledTask(task) {
@@ -688,7 +701,7 @@ async function discoverHistoricalImmutableTerminalTasks({
   currentMainSha,
   tasksRoot,
 }) {
-  const contractMarker = `<!-- kyw-task-contract: ${IMMUTABLE_TERMINAL_TASK_CONTRACT_VERSION} -->`;
+  const contractMarkerPattern = `<!-- kyw-task-contract: (${IMMUTABLE_TERMINAL_TASK_CONTRACT_VERSIONS.join("|")}) -->`;
   const [treeResult, historyPaths] = await Promise.all([
     git(
       commandCache,
@@ -696,8 +709,8 @@ async function discoverHistoricalImmutableTerminalTasks({
       [
         "grep",
         "-l",
-        "-F",
-        contractMarker,
+        "-E",
+        contractMarkerPattern,
         currentMainSha,
         "--",
         ":(glob)docs/tasks/*/TASK.md",
@@ -715,7 +728,7 @@ async function discoverHistoricalImmutableTerminalTasks({
         `--max-count=${MAX_FIRST_PARENT_COMMITS + 1}`,
         "--format=",
         "--name-only",
-        `-S${contractMarker}`,
+        `-G${contractMarkerPattern}`,
         currentMainSha,
         "--",
         ":(glob)docs/tasks/*/TASK.md",
@@ -5579,6 +5592,7 @@ export async function bootstrapStandardDeliveryContinuity({
 export async function applyStandardDeliveryContinuityTransition({
   tasksRoot,
   selectedTaskId,
+  preparedCheckpoint,
   transitionToken,
   commandRunner,
   queueInspector = inspectTaskQueue,
@@ -5586,7 +5600,28 @@ export async function applyStandardDeliveryContinuityTransition({
 } = {}) {
   let prepared;
   try {
-    prepared = parseStandardDeliveryContinuityTransitionToken(transitionToken);
+    const hasPreparedCheckpoint = preparedCheckpoint !== undefined;
+    const hasTransitionToken = transitionToken !== undefined;
+    if (hasPreparedCheckpoint === hasTransitionToken) {
+      throw new TaskArtifactError(
+        "DELIVERY_CONTINUITY_INVALID",
+        "exactly one internal continuity transition input is required",
+      );
+    }
+    if (hasPreparedCheckpoint) {
+      const checkpoint = parseStandardDeliveryContinuityCheckpoint(
+        `${JSON.stringify(preparedCheckpoint, null, 2)}\n`,
+      );
+      if (checkpoint.transition?.taskId === selectedTaskId) {
+        throw new TaskArtifactError(
+          "DELIVERY_CONTINUITY_INVALID",
+          "selected Task cannot attest to its own delivery",
+        );
+      }
+      prepared = Object.freeze({ selectedTaskId, checkpoint });
+    } else {
+      prepared = parseStandardDeliveryContinuityTransitionToken(transitionToken);
+    }
   } catch (error) {
     throw hydrationError(
       selectedTaskId,
@@ -6206,7 +6241,8 @@ export async function hydratePriorStandardDeliveries({
       currentDeliveryProbe,
       allowCurrentDeliveryProbe: parsedInvocation.route === "DELIVERY",
       forceCurrentDeliveryRevalidation:
-        parsedInvocation.deliveryMode === "PUBLIC_RELEASE",
+        parsedInvocation.route === "DELIVERY" &&
+        releaseBearingStandardTask(selectedCurrentDeliveryTask),
     });
   if (requiredTasks.length === 0) {
     await rethrowProvenImmutableTerminalDrift();
@@ -9071,6 +9107,32 @@ export async function hydratePublicReleaseContext({
       "selected Task ID must be an exact four-digit value",
     );
   }
+  const resolvedTasksRoot = path.resolve(tasksRoot);
+  const queue = await inspectTaskQueue(resolvedTasksRoot);
+  if (queue.errors.length > 0) {
+    throw publicReleaseHydrationError(
+      "TASK_CONTRACT",
+      `Task queue validation failed: ${queue.errors.join("; ")}`,
+      "PUBLIC_RELEASE_TASK_INVALID",
+    );
+  }
+  const selectedTasks = queue.tasks.filter((task) => task.id === taskId);
+  if (selectedTasks.length !== 1) {
+    throw publicReleaseHydrationError(
+      "TASK_CONTRACT",
+      `expected one canonical Task ${taskId}, found ${selectedTasks.length}`,
+      "PUBLIC_RELEASE_TASK_INVALID",
+    );
+  }
+  const [selectedTask] = selectedTasks;
+  if (!completeTask(selectedTask) || !releaseBearingStandardTask(selectedTask)) {
+    throw publicReleaseHydrationError(
+      "TASK_CONTRACT",
+      "public stages require a terminal contract-4 STANDARD Task with one stable Release version",
+      "PUBLIC_RELEASE_TASK_INELIGIBLE",
+    );
+  }
+  const releaseVersion = selectedTask.deliveryRequirement.releaseVersion;
   const entry = deliveryLedger?.[taskId];
   const expectation = deliveryExpectations?.[taskId];
   const evaluation = evaluateDeliveryEvidence(taskId, entry, expectation);
@@ -9088,7 +9150,6 @@ export async function hydratePublicReleaseContext({
     );
   }
 
-  const resolvedTasksRoot = path.resolve(tasksRoot);
   const commandCache = createInvocationCommandCache({ runner: commandRunner });
   const repositoryRoot = await gitText(
     commandCache,
@@ -9111,7 +9172,26 @@ export async function hydratePublicReleaseContext({
     );
   }
   requireSha(mergeSha, taskId, "PUBLIC_RELEASE_STANDARD", "merge SHA");
-  const [mainSha, treeSha, packageText, pluginText, workflowText] = await Promise.all([
+  const taskPathWithinTasksRoot = path.relative(
+    resolvedTasksRoot,
+    selectedTask.taskPath,
+  );
+  if (
+    path.isAbsolute(taskPathWithinTasksRoot) ||
+    taskPathWithinTasksRoot === ".." ||
+    taskPathWithinTasksRoot.startsWith(`..${path.sep}`)
+  ) {
+    throw publicReleaseHydrationError(
+      "TASK_CONTRACT",
+      "selected Task path escapes the canonical tasks root",
+      "PUBLIC_RELEASE_TASK_INVALID",
+    );
+  }
+  const taskRelativePath = path.posix.join(
+    "docs/tasks",
+    ...taskPathWithinTasksRoot.split(path.sep),
+  );
+  const [mainSha, treeSha, taskText, packageText, pluginText, workflowText] = await Promise.all([
     gitText(commandCache, repositoryRoot, ["rev-parse", "refs/heads/main"], {
       taskId,
       role: "PUBLIC_RELEASE_MAIN",
@@ -9120,6 +9200,13 @@ export async function hydratePublicReleaseContext({
       taskId,
       role: "PUBLIC_RELEASE_TREE",
     }),
+    readCommitFile(
+      commandCache,
+      repositoryRoot,
+      mergeSha,
+      taskRelativePath,
+      "PUBLIC_RELEASE_TASK",
+    ),
     readCommitFile(
       commandCache,
       repositoryRoot,
@@ -9159,6 +9246,22 @@ export async function hydratePublicReleaseContext({
     }
   }
   requireSha(treeSha, taskId, "PUBLIC_RELEASE_TREE", "merge tree SHA");
+  const deliveredTaskContractVersion = getTaskContractVersion(taskText);
+  const deliveredTaskRequirement = parseDeliveryRequirement(
+    taskText,
+    deliveredTaskContractVersion,
+  );
+  if (
+    deliveredTaskContractVersion !== RELEASE_BEARING_TASK_CONTRACT_VERSION ||
+    deliveredTaskRequirement.kind !== "STANDARD" ||
+    deliveredTaskRequirement.releaseVersion !== releaseVersion
+  ) {
+    throw publicReleaseHydrationError(
+      "TASK_CONTRACT",
+      "the exact delivered Task tree does not carry the same contract-4 Release version",
+      "PUBLIC_RELEASE_TASK_VERSION_MISMATCH",
+    );
+  }
   const packageJson = parseJsonBlob(packageText, "SOURCE_PACKAGE");
   const pluginJson = parseJsonBlob(pluginText, "SOURCE_PLUGIN");
   assertPublicReleaseSourceContract({
@@ -9167,6 +9270,16 @@ export async function hydratePublicReleaseContext({
     workflowText,
     repository,
   });
+  if (
+    packageJson.version !== releaseVersion ||
+    pluginJson.version !== releaseVersion
+  ) {
+    throw publicReleaseHydrationError(
+      "SOURCE_IDENTITY",
+      "the exact delivered package and plugin versions must equal the Task-owned Release version",
+      "PUBLIC_RELEASE_TASK_VERSION_MISMATCH",
+    );
+  }
   const guardedRepositoryState = suppliedClients
     ? undefined
     : await freezePublicReleaseRepositoryState({
@@ -9198,7 +9311,7 @@ export async function hydratePublicReleaseContext({
   }
   const packageIdentity = Object.freeze({
     name: packageJson.name,
-    version: packageJson.version,
+    version: releaseVersion,
     repository: normalizedPackageRepository(packageJson.repository),
     access: "public",
     registry: PUBLIC_REGISTRY,
@@ -9257,12 +9370,12 @@ export async function hydratePublicReleaseContext({
     );
   }
   const priorVersions = stableVersions
-    .filter((version) => version !== packageJson.version)
+    .filter((version) => version !== releaseVersion)
     .sort(compareStableVersions);
   const priorLatest = priorVersions.at(-1) ?? null;
   if (
     priorVersions.some(
-      (version) => compareStableVersions(packageJson.version, version) <= 0,
+      (version) => compareStableVersions(releaseVersion, version) <= 0,
     )
   ) {
     throw publicReleaseHydrationError(
@@ -9270,7 +9383,7 @@ export async function hydratePublicReleaseContext({
       "target version is not newer than every stable prior version",
     );
   }
-  const targetRegistryMetadata = packageIndex?.versions?.[packageJson.version];
+  const targetRegistryMetadata = packageIndex?.versions?.[releaseVersion];
   let tupleSigningKey;
   if (targetRegistryMetadata !== undefined) {
     const targetSignatures = targetRegistryMetadata?.dist?.signatures;
@@ -9284,7 +9397,7 @@ export async function hydratePublicReleaseContext({
         "existing target metadata does not expose one exact registry signature identity",
       );
     }
-    const publishedAt = Date.parse(packageIndex?.time?.[packageJson.version]);
+    const publishedAt = Date.parse(packageIndex?.time?.[releaseVersion]);
     tupleSigningKey = selectCurrentRegistrySigningKey(
       registryKeys,
       targetSignatures[0].keyid,
@@ -9299,7 +9412,7 @@ export async function hydratePublicReleaseContext({
       );
     }
   }
-  const tagName = `v${packageJson.version}`;
+  const tagName = `v${releaseVersion}`;
   const workflowRef = `refs/heads/${entry.merge.branch}`;
   const tuple = freezePublicReleaseTuple({
     schemaVersion: 1,
@@ -9339,7 +9452,7 @@ export async function hydratePublicReleaseContext({
       priorVersions,
       priorLatest,
     },
-    plugin: { name: pluginJson.name, version: pluginJson.version },
+    plugin: { name: pluginJson.name, version: releaseVersion },
     tag: { name: tagName, ref: `refs/tags/${tagName}` },
     release: {
       tagName,
@@ -9374,7 +9487,8 @@ export async function hydratePublicReleaseContext({
       repository,
       mergeSha,
       mergeTreeSha: treeSha,
-      package: `${packageJson.name}@${packageJson.version}`,
+      package: `${packageJson.name}@${releaseVersion}`,
+      releaseVersion,
       workflowId: workflow.id,
       priorVersionCount: priorVersions.length,
       packedEntryCount: tarball.entries.length,

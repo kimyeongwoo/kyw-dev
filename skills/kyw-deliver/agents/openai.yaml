@@ -1,7 +1,7 @@
 interface:
   display_name: "kyw Deliver"
-  short_description: "Deliver STANDARD or exact opt-in public release"
-  default_prompt: "Use $kyw-deliver NNNN for STANDARD; $kyw-deliver NNNN --public-release is exact npm→tag→Release resume."
+  short_description: "Deliver STANDARD through its release"
+  default_prompt: "Use exact $kyw-deliver NNNN to resume STANDARD and its eligible npm→tag→Release sequence."
 
 policy:
   allow_implicit_invocation: false

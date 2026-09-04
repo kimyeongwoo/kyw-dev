@@ -11,6 +11,11 @@ import { HELP_TEXT, VERSION, runCli } from "../src/cli/run.mjs";
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 const executable = join(repositoryRoot, "bin", "kyw-dev.mjs");
 
+test("CLI projects the selected repository version", () => {
+  assert.equal(VERSION, "0.2.0");
+  assert.match(HELP_TEXT, /^kyw-dev 0\.2\.0\n/);
+});
+
 function runInCleanDirectory(args) {
   const directory = mkdtempSync(join(tmpdir(), "kyw-dev-cli-"));
   const before = readdirSync(directory, { recursive: true }).sort();

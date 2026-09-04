@@ -108,6 +108,7 @@ Required behavior:
 - keep one pair for one independently verifiable outcome and create the smallest dependency-aware set only when acceptance boundaries, hard dependencies, or safe session scope require it;
 - honor a valid user-specified Task count, boundary, ordering, title, and dependency;
 - derive each portable internal authoring key deterministically from the outcome title, without requiring callers to know or shorten that key;
+- for every prospective `STANDARD` pair, require one user-selected stable SemVer release version and freshly prove it non-conflicting against canonical npm history, bounded matching publication attempts, tag/Release state, package/plugin truth, and current-queue claims; missing, occupied, duplicate, unreadable, or ambiguous state blocks instead of selecting or incrementing a version;
 - allocate unique final IDs and paths, author both files with mapped acceptance, validate every pair and the full dependency graph, and publish the set atomically as `READY/READY`;
 - when the requested outcome corrects an already canonically delivered future-contract Task, preserve that pair and make the new correction pair hard-depend on it;
 - leave application files and permanent documents unchanged while recording expected documentation impact for execution;
@@ -146,6 +147,7 @@ Required behavior:
 - run acceptance-specific and risk-proportionate verification, record failures as well as later passes, and block when required evidence cannot run;
 - synchronize only permanent owners whose durable meaning changed;
 - compare the complete final diff with scope and the intent-to-test matrix before terminal success;
+- for contract-4 `STANDARD`, revalidate the immutable Task-owned release version against fresh npm/run/tag/Release, package/plugin, and queue evidence before terminal success without performing a public write;
 - checkpoint verified completed work, ordered remaining work, an executable resume point, blockers, repository state, and test evidence before interruption or compaction;
 - set repository success only when acceptance, verification, final coverage, documentation, scope, and pair validation all agree.
 
@@ -155,13 +157,13 @@ A selected `IMPLEMENT` or `RESUME` continues its aligned repository lifecycle wi
 
 ### 4.5 `$kyw-deliver`
 
-Only two exact routes exist. `$kyw-deliver NNNN` keeps its `STANDARD`-only meaning. `$kyw-deliver NNNN --public-release` adds one fixed public-release attempt after `STANDARD FINAL`. Neither has a bare, Korean/managed, implicit, automatic, continuous, chained, or background form; every other suffix or prose grants no authority.
+Only exact plain `$kyw-deliver NNNN` routes. For contract-4 `STANDARD`, one invocation resumes GitHub delivery and, after exact `FINAL`, continues without prompting through public release. `--public-release`, other suffixes, and bare, alias, prose, implicit, chained, continuous, or background forms grant no authority.
 
-Both routes select only a repository-complete `DONE/PASSED` Task with `STANDARD`. Plain delivery resumes the existing exact-path commit → non-force push → non-draft PR → actual-head/synthetic CI → review/mergeability → expected-head merge → post-main CI graph without repeats, retry, force, bypass, or unrelated mutation, and a satisfied contract-3 result stays report-only. The public route first completes or revalidates that unchanged graph and permits no npm/tag/Release write until the production evaluator proves the exact merge SHA/tree and post-main `FINAL`.
+The route selects only `DONE/PASSED` `STANDARD`. It resumes exact-path commit → non-force push → non-draft PR → head/synthetic CI → review/mergeability → expected-head merge → post-main CI without repeats or bypass. Versionless contract 1–3 stays GitHub-only/report-only. Contract 4 carries one stable SemVer Release version; delivery cross-checks this immutable value with the delivered package/plugin tree and gates every public write on evaluator-proven `FINAL`.
 
-After that gate, one frozen Task/repository/base/workflow/package/plugin/registry/tarball/merge/tag/Release tuple controls the ordered npm publication → exact-SHA GitHub tag → GitHub Release stages. Fresh cache-bypassed npm/run/tag/Release reads classify each and aggregate state as `ABSENT`, `EXACT_ALREADY_COMPLETE`, `PENDING_PROOF`, `CONFLICT`, or `UNKNOWN`. Only absent admits its one create; exact is skipped, pending is observed, and conflict/unknown blocks. Resume starts at the first absent safe stage and never repeats workflow dispatch/publication, tag, Release, or completed `STANDARD` work. Failure, timeout, ambiguity, or a lost response permits bounded read-only reconciliation, not retry, rerun, fallback, replacement, repair, or later-stage mutation.
+After that gate, one frozen Task/repository/base/workflow/package/plugin/registry/tarball/merge/tag/Release tuple orders npm → exact-SHA tag → GitHub Release. Fresh whole-state reads classify `ABSENT`, `EXACT_ALREADY_COMPLETE`, `PENDING_PROOF`, `CONFLICT`, or `UNKNOWN`: only absent creates once, exact skips, pending observes, and conflict/unknown blocks. Resume starts at the first safe absent stage; failure or ambiguity permits bounded reads, never retry, fallback, repair, or later writes.
 
-Final public success requires fresh canonical registry tarball/metadata/signature/provenance plus exact GitHub workflow attempt, tag target, and Release-by-tag proof bound to the merge SHA. Secrets and raw logs are redacted before bounded diagnostics. Public state never changes terminal Task/Test bytes or `STANDARD` continuity. Corrections use a new hard-dependent `$kyw-task "<correction outcome>"`. Canonical details belong to `skills/kyw-deliver/references/delivery.md` and, only for exact opt-in, `skills/kyw-deliver/references/public-release.md`.
+Success requires fresh canonical npm tarball/metadata/signature/provenance plus exact workflow attempt, merge-SHA tag, and Release proof. Diagnostics are bounded/redacted; public state never changes the pair or continuity. Corrections use a hard-dependent Task. The delivery reference owns GitHub procedure; its internal public reference loads only after contract-4 `FINAL` in the same invocation.
 
 ### 4.6 `$kyw-audit`
 
@@ -205,7 +207,7 @@ docs/tasks/NNNN-kebab-slug/
 
 IDs are four-digit, ascending, and never reused, including after cancellation. Directory names, not timestamps, determine allocation. Completed paths are stable unless the user explicitly authorizes a rename.
 
-New queue-aware pairs carry the marker `<!-- kyw-task-contract: 3 -->`. Contract 2 remains a readable queue-aware compatibility contract, and unmarked contract 1 remains legacy history. The supported Task/Test status pairs are:
+New pairs use marker `<!-- kyw-task-contract: 4 -->`; contract 3 remains queue-aware/immutable-terminal, contract 2 queue-aware compatibility, and unmarked contract 1 legacy. Supported status pairs are:
 
 - `DRAFT/DRAFT` — compatible authoring is incomplete;
 - `READY/READY` — complete authoring is selectable;
@@ -214,9 +216,9 @@ New queue-aware pairs carry the marker `<!-- kyw-task-contract: 3 -->`. Contract
 - `BLOCKED/BLOCKED` — a required condition remains unmet and may be rechecked;
 - `CANCELLED/BLOCKED` — explicit cancellation is terminal.
 
-Every other combination fails closed. Existing unmarked legacy and contract-2 pairs retain their recorded meaning and readers without migration or retroactive immutability checks; new pairs use contract 3. This repository's still-nonterminal cutover pair may migrate from contract 2 to 3 before delivery, but terminal history is never rewritten.
+Other combinations fail closed. Contracts 1–3 keep their readers and meaning; only nonterminal pairs may migrate to 4. Terminal history is never rewritten.
 
-For contract 3, the first complete production-evaluator-satisfied `HARDENED_EXACT_HEAD` `STANDARD` delivery is canonical. Its exact outcome, expected-head PR merge, post-main roles, canonical pair paths, regular-file Git modes, and terminal `TASK.md`/`TEST.md` bytes become immutable. An unchanged later invocation is report-only. Any product, code, test, documentation, or evidence correction is a new explicit Task/Test pair with a hard dependency on the delivered Task; the original pair is not reopened, demoted, edited, renamed, deleted, replaced, or delivered again.
+For contracts 3/4, the first evaluator-satisfied `HARDENED_EXACT_HEAD` graph canonically freezes outcome, merge/post-main roles, pair paths/modes, and terminal bytes. Later contract 3 is report-only; contract 4 reconstructs public stages externally without pair/continuity edits. Corrections require a new hard-dependent pair; the original is never reopened, edited, moved, replaced, or redelivered.
 
 A selectable or active pair contains canonical sections with meaningful scope, acceptance, risk, handoff, mapped tests, executed evidence, unverified work, and final coverage. Templates own exact shape. `Not applicable — <reason>` is allowed only for an empty operational section; acceptance and its mapping remain substantive.
 
@@ -228,7 +230,7 @@ For each non-complete current pair, `Dependencies` is either the canonical no-de
 
 A hard dependency is satisfied only when its repository outcome is `DONE/PASSED` and any required external delivery is satisfied. Draft, ready, active, blocked, cancelled, missing, or delivery-incomplete dependencies do not satisfy it.
 
-A correction of a canonically delivered contract-3 Task must name that Task as a canonical hard dependency. Normal repository and external delivery satisfaction therefore gates correction selection without inventing a second delivery under the original Task.
+A correction of a canonically delivered contract-3/4 Task must name it as a hard dependency. Repository and delivery satisfaction gate correction selection without inventing a second delivery under the original Task.
 
 At most one pair may be `IN_PROGRESS/RUNNING`. Exact selection cannot bypass another active Task. Automatic selection prefers:
 
@@ -287,7 +289,7 @@ The pending warning binds a fresh identity to the controlling old criterion, req
 
 Fresh reconfirmation must be the immediately following trusted-current-user response and exactly accept the warning identity, unchanged baseline, Task, acceptance, facts, and bounds without another action or choice. Before implementation or external mutation, synchronize affected permanent owners and every applicable mutable Task/Test contract; then execute only that action, target, scope, and attempt. A mutable kyw project criterion cannot remain a veto afterward.
 
-Non-route changes rewarn; route-locked replacement expires to its exact route; prior confirmation never revives. Outside exact public release, publication/registry/version/tag/Release/submission remain distinct bounds. Its compound route freezes those fixed stages only after `STANDARD FINAL`. Retry/fallback, force/destructive, bypass/admin/account, deletion, and unrelated mutation stay separate; failure grants no retry.
+Non-route changes rewarn; route-locked replacement expires to its exact route; prior confirmation never revives. Publication/registry/version/tag/Release/submission remain distinct bounds except that an exact plain contract-4 delivery freezes its already selected version and fixed public stages only after `STANDARD FINAL`. Retry/fallback, force/destructive, bypass/admin/account, deletion, and unrelated mutation stay separate; failure grants no retry.
 
 A combined message activates/routes once: classify clauses independently, continue aligned ones, warn before change, and await later exact reconfirmation. Never redispatch, chain Skills, broaden bounds, or waive system/platform safety, secrets, user-work preservation, honest evidence, delivered-pair immutability, or exact Skill/mode/dispatcher routing.
 
@@ -297,14 +299,15 @@ Outside an active lifecycle, handle prompts ordinarily: inspect facts, preserve 
 
 A current Task declares one static delivery policy:
 
-- `STANDARD` — GitHub PR/Actions exact-SHA state is the canonical mutable ledger;
+- contract-4 `STANDARD` — exactly one stable SemVer `Release version` selected before `READY`, with GitHub PR/Actions exact-SHA state as the canonical mutable delivery ledger;
+- contract 1–3 `STANDARD` — historical versionless GitHub-only delivery/report semantics;
 - `NONE — <reason>` — no external delivery gate applies.
 
-Task/Test owns repository outcome/local evidence; GitHub owns mutable PR, review, run, merge, and post-merge state. Exact `$kyw-deliver NNNN` establishes only the selected Task's `STANDARD` lifecycle. Changed bounds use Section 6.3; static policy and post-terminal prose execute nothing.
+Task/Test owns repository outcome, local evidence, and for contract 4 the immutable release version. GitHub owns mutable PR, review, run, merge, and post-merge state; npm and GitHub own public package/tag/Release state. Exact plain `$kyw-deliver NNNN` establishes the selected Task's complete authorized lifecycle, with public stages gated after `STANDARD FINAL` only for contract 4. Changed bounds use Section 6.3; static policy and post-terminal prose execute nothing.
 
 Normal dispatch accepts only the invocation. Implementation read-only derives required prior delivery; delivery separately hydrates the current graph. Both validate one fixed-bounded checkpoint from exact aligned `main`, binding repository/base ancestry, ordered covered set, terminal-pair/contract/cumulative evidence digests, prior checkpoint/genesis, and one sanitized transition receipt—never raw logs, credentials, API responses, or a mutable GitHub graph.
 
-At most one prior `STANDARD` outcome may be uncovered and freshly production-evaluated. Only selected `DELIVER` applies its opaque transition atomically/idempotently on the exact terminal branch for delivered predecessors; the selected Task cannot cover itself. Invalid history/checkpoint, over-one gap, drift, evaluator failure, or self-coverage blocks without replay. Separate `bootstrap-continuity` requires exact `EXPLICIT_REBASELINE`; it is no dispatch option, ID exception, or source-repair path.
+At most one prior `STANDARD` outcome may be uncovered and freshly production-evaluated. For selected `DELIVER`, the sole adapter call invokes the dispatcher exactly once, then passes any prepared predecessor state in memory through the existing validated atomic/idempotent apply path at most once before returning. The selected Task cannot cover itself. Apply failure or uncertainty exposes no successful delivery selection and blocks commit, push, PR, merge, npm, tag, and Release mutation; no continuity payload or manual apply command is returned to the caller. Invalid history/checkpoint, over-one gap, drift, evaluator failure, or self-coverage blocks without replay. Separate `bootstrap-continuity` requires exact `EXPLICIT_REBASELINE`; it is no dispatch option, ID exception, or source-repair path.
 
 The current hardened contract is `HARDENED_EXACT_HEAD`. Trusted local expectations bind repository, base ref and SHA, outcome SHA, workflow identity, and required job-name sets. GitHub evidence keeps these roles distinct:
 
@@ -319,7 +322,7 @@ Base protection is optional, not hardened evidence. Delivery combines the exact 
 
 Trusted pre-contract continuity may preserve historical delivery with actual head visibly `UNVERIFIED`; it cannot serve a new outcome or become exact-head success. Checkpoint coverage preserves a prior complete evaluator result without relabeling it; expired covered logs remain durable, but uncovered/current evidence still fails closed. Repository `DONE/PASSED` and pair integrity remain prerequisites, so CI/continuity never substitutes for behavioral acceptance.
 
-For contract 3, the first satisfied graph is the sole delivery. Its expected-head merge tree owns exact pair paths, regular-file Git modes, and canonical blobs; aligned-main history, continuity, and worktree checks reject edit/delete/rename/replace/type/mode/identity drift or another Task delivery before mutation. A standard two-parent PR merge is Task-scoped only when its source begins with supported `task/NNNN`, `task-NNNN`, `agent/task/NNNN`, or `agent/task-NNNN` at the exact ID boundary; owner or later branch/slug/description text proves nothing.
+For contracts 3 and 4, the first satisfied graph is the sole delivery. Its expected-head merge tree owns exact pair paths, regular-file Git modes, and canonical blobs; aligned-main history, continuity, and worktree checks reject edit/delete/rename/replace/type/mode/identity drift or another Task delivery before mutation. A standard two-parent PR merge is Task-scoped only when its source begins with supported `task/NNNN`, `task-NNNN`, `agent/task/NNNN`, or `agent/task-NNNN` at the exact ID boundary; owner or later branch/slug/description text proves nothing.
 
 A pair path without porcelain state is equivalent only when index mode, host-observable executable class, and raw bytes equal the canonical regular-file tree entry. The sole modified exception requires exact ` M`, bound path/type, unchanged tree/index/worktree mode class, and different worktree bytes whose one-way CRLF-pair-to-LF conversion exactly yields the untouched canonical blob. Canonical CRLF→worktree LF, bare CR, newline/whitespace/Unicode/content drift, staged/metadata state, link/type/mode/path differences never qualify. Diagnostics name Task/path and direct `$kyw-task "<correction outcome>"`. No PR chain, correction receipts, second checkpoint, or alternate ledger exists; contract-1/2 history keeps its meaning.
 
@@ -386,11 +389,11 @@ Stable exit categories are:
 - The plugin root contains `.codex-plugin/plugin.json` and uses plugin-relative Skill paths.
 - The runtime floor is Node.js 22 or newer. Required stable evidence covers Node.js 22 and 24 on Linux, macOS, and Windows, with a bounded Linux compatibility lane for the current next major runtime.
 - Native path, permission, link, and junction behavior is verified on supported operating systems. An unavailable required capability is blocked evidence, not a passing skip.
-- Contract-3, contract-2 compatibility, and unmarked legacy Task readers remain compatible without rewriting historical artifacts.
+- Contract-4, contract-3 immutable compatibility, contract-2 queue compatibility, and unmarked legacy Task readers remain compatible without rewriting historical artifacts.
 
 ### 9.2 Package boundary
 
-The source package, plugin metadata, and public npm `latest` remain `0.1.4`. The tarball includes plugin metadata, six Skills, templates/support, CLI/runtime, README, and legal/attribution bytes.
+The source package and plugin metadata identify the repository-selected version `0.2.0`; public npm `latest` is mutable canonical registry state and is never inferred from repository prose. The last verified historical public release is `0.1.4`. The tarball includes plugin metadata, six Skills, templates/support, CLI/runtime, README, and legal/attribution bytes.
 
 Semantic versioning applies; `0.x` unfinished interfaces may change only with documented migration impact.
 
@@ -449,7 +452,7 @@ The product is accepted when the following observable results are demonstrated:
 - **AC-02:** User-scope direct installation exposes six Skills without modifying project documents or unrelated Skills.
 - **AC-03:** Project-scope direct installation confines six Skills to the repository and preserves product files.
 - **AC-04:** `$kyw-init` initializes an empty project and adopts an existing project only after shared understanding, producing exactly the four permanent documents without destructive replacement.
-- **AC-05:** `$kyw-task` authors complete pairs; `$kyw-impl` selects implementation only; exact `$kyw-deliver NNNN` remains `STANDARD`-only, while exact `$kyw-deliver NNNN --public-release` adds only its gated fixed public sequence.
+- **AC-05:** `$kyw-task` authors complete version-settled contract-4 pairs; `$kyw-impl` selects implementation only; exact plain `$kyw-deliver NNNN` is the sole delivery route and carries eligible contract-4 `STANDARD` work through GitHub delivery and its gated fixed public sequence in one invocation, while suffixes are unsupported.
 - **AC-06:** Authoring publishes canonically valid `READY/READY` pairs, reports exactly one next `$kyw-impl NNNN`, and stops without implementation or automatic chaining.
 - **AC-07:** Verification detects an intentionally uncovered implementation branch despite a passing generic suite, retains failed or blocked evidence honestly, and closes final-diff coverage before repository success.
 - **AC-08:** An ordinary bounded change updates only affected code, tests, and durable owner documents without creating a numbered Task by default.
@@ -462,17 +465,17 @@ The product is accepted when the following observable results are demonstrated:
 - **AC-15:** Permanent-document validation enforces the exact four-path inventory, ownership, growth evidence, budgets, chronology separation, and command validity through ordinary CI.
 - **AC-16:** The published package version and third-party licensing are truthful, while publication remains separately authorized.
 - **AC-17:** The manual trusted npm workflow projects one OIDC expectation, binds exact SHA/version/pack/prior-registry inputs, freshly excludes another run/tag/Release, publishes the clean checkout once, and cannot publish from merge/CI; Stable/candidate/exact-SHA evidence stays outside it.
-- **AC-18:** Exact public release requires `STANDARD FINAL`, a frozen tuple, five-state whole-surface preflight, monotonic one-attempt npm→tag→Release resume, fresh canonical final proof, secret redaction, and unchanged terminal pair/continuity; implementation/tests perform zero live writes.
+- **AC-18:** Exact plain contract-4 delivery requires `STANDARD FINAL` before public writes, a Task-owned release version, frozen tuple, five-state whole-surface preflight, monotonic one-attempt npm→tag→Release resume, fresh canonical final proof, secret redaction, and unchanged terminal pair/continuity; implementation/tests perform zero live writes and versionless contract 1–3 remain GitHub-only.
 
 ## 13. Publication state and authority
 
-Repository package/plugin metadata identifies published version `0.1.4`, name `kyw-dev`, MIT, author `Kim Yeongwoo`, `Copyright (c) 2026 Kim Yeongwoo`, source `https://github.com/kimyeongwoo/kyw-dev`, and its issue tracker. Optional contact/privacy/terms/branding remain omitted; no public plugin-directory submission has occurred.
+Package/plugin metadata selects `kyw-dev@0.2.0`, MIT, author `Kim Yeongwoo`, `Copyright (c) 2026 Kim Yeongwoo`, source `https://github.com/kimyeongwoo/kyw-dev`, and its issue tracker. Optional contact/privacy/terms/branding and public plugin submission remain absent.
 
-The public npm registry serves `kyw-dev@0.1.4` under `latest` and retains `0.1.0`–`0.1.3`. Its one trusted GitHub Actions publication used the exact checkout: canonical metadata exposes matching `gitHead`, and signatures/SLSA provenance bind the digest to `.github/workflows/publish.yml`, `refs/heads/main`, and that commit. Tag `v0.1.4` and its GitHub Release identify it. Historical `0.1.2` retains signature/provenance but lacks `gitHead` because it used a prebuilt tarball. This public state remains unchanged.
+At this baseline, npm served historical `0.1.4` under `latest` and retained `0.1.0`–`0.1.3`; mutable registry state must be queried. Its trusted exact-checkout publication has matching `gitHead`, signatures, SLSA provenance, `v0.1.4` tag, and Release. Historical `0.1.2` retains signature/provenance but lacks `gitHead` because it used a prebuilt tarball.
 
-Non-publishing evidence is `npm run check`, one `npm run release:candidate`, composite `npm run release:ci`, and credential-free exact-SHA CI; optional `npm run release:check` is no substitute. Implementation/tests/metadata/merge/CI perform no live release or inferred approval. Only exact `$kyw-deliver NNNN --public-release` adds fixed compound authority after `STANDARD FINAL`; plain/other routes do not. Delivered truth owns a version newer than every frozen prior version. Routine release preflight does not require npm account/settings inspection, `npm login`, OTP, security-key authentication, or `npm trust list`; account auth is limited to setup, an explicit security/configuration audit/change, or actual OIDC failure investigation.
+Non-publishing proof is `npm run check`, one candidate, `release:ci`, and credential-free exact-SHA CI; implementation/tests/merge/CI make no live release. Only exact plain `$kyw-deliver NNNN` carries contract 4 beyond `FINAL`; all suffixes are unsupported. It consumes, never changes, the Task version. Routine preflight avoids npm account inspection/login/OTP/security keys; account auth is only for setup, explicit configuration work, or actual OIDC failure.
 
-One owned expectation defines `GitHub Actions`, `kimyeongwoo/kyw-dev`, `.github/workflows/publish.yml`, `npm-production`, and `npm publish`. Its manual-only workflow requires current `main`, exact SHA, and package/plugin version through ten inputs binding SHA/version, pack identity, prior versions/`latest`, and the sole current signing key; only the job gets `actions: read`/`contents: read`/`id-token: write`. Repository/event/ref/input/checkout/runtime/registry/version-absence/clean-tree mismatch blocks before it regenerates the bounded pack, freshly requires the frozen registry state, one first target run, and absent target tag/Release, then runs one real-checkout `npm publish . --ignore-scripts` once. It operates without automatic trigger or token/interactive/account inspection and has no retry/second dispatch/fallback, dist-tag, tag, or Release mutation. Success proves npm accepted the OIDC identity; rejection blocks public release without demoting the Task or reauthenticating.
+One expectation binds GitHub Actions, this repository, `publish.yml`, `npm-production`, and `npm publish`. Its manual OIDC job receives only required permissions; ten inputs bind main SHA/version, pack identity, prior registry state, and signing key. Any identity/state drift blocks before one real-checkout `npm publish . --ignore-scripts`. It has no automatic/token/interactive, retry, fallback, dist-tag, tag, or Release path. Success proves OIDC acceptance; rejection blocks without Task demotion or reauthentication.
 
 After evaluator `FINAL`, freeze the Task/repository/base/workflow/package/plugin/registry/tarball/merge/tag/Release tuple. Before every write, read npm version/runs, tag/ref, and Release-by-tag together as `ABSENT`, `EXACT_ALREADY_COMPLETE`, `PENDING_PROOF`, `CONFLICT`, or `UNKNOWN`. Only absent creates once; exact skips; pending observes; conflict/unknown/out-of-order state blocks. Exact npm proves target `gitHead`, tarball bytes/digests, signature/provenance, public access, `latest`, and prior history. Then create at most one lightweight `v<version>` at the merge SHA and one asset-free Release titled `v<version>`, non-draft/non-prerelease.
 

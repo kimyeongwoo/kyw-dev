@@ -1,6 +1,6 @@
 # TASK {{TASK_ID}} — {{TASK_TITLE}}
 
-<!-- kyw-task-contract: 3 -->
+<!-- kyw-task-contract: 4 -->
 
 ## Status
 
@@ -51,10 +51,9 @@ DRAFT
 
 ## Delivery
 
-- Requirement: STANDARD
-- Canonical ledger: GitHub PR/Actions exact-SHA state.
+- Requirement: NONE — release-bearing STANDARD delivery has not been selected for this draft.
 
-<!-- Use `STANDARD` with the canonical ledger below, or `NONE — <reason>`. Record policy only, never future delivery state. -->
+<!-- Before READY, use either `- Requirement: STANDARD`, exactly one `- Release version: x.y.z`, and `- Canonical ledger: GitHub PR/Actions exact-SHA state.`; or reasoned `NONE` with no release-version/ledger field. Record policy only, never future delivery state. -->
 
 ## Completed
 

@@ -1,52 +1,52 @@
 ---
 name: kyw-deliver
-description: Deliver an existing Task's current STANDARD lifecycle or public release only when the user explicitly invokes exact $kyw-deliver NNNN or $kyw-deliver NNNN --public-release; not for implementation, authoring, ordinary prompts, or audits.
+description: Deliver an existing Task's current STANDARD lifecycle and its eligible public release only when the user explicitly invokes exact $kyw-deliver NNNN; not for implementation, authoring, ordinary prompts, suffixes, or audits.
 ---
 
 <!-- kyw-active-skill-guardrails:v1 -->
 
 # kyw Delivery
 
-## Input and exact routes
+## Input and exact route
 
-Only exact `$kyw-deliver NNNN` selects unchanged `STANDARD`-only delivery. Only exact `$kyw-deliver NNNN --public-release` adds one ordered npm publication → exact-SHA GitHub tag → GitHub Release attempt after `STANDARD FINAL`. No other suffix, bare form, Korean/managed alias, implicit request, next/continuous mode, chain, or background run has authority.
+Only exact `$kyw-deliver NNNN` selects delivery. For a release-bearing contract-4 `STANDARD` Task, it completes/resumes Git/GitHub and continues in the same invocation through one ordered npm publication → exact-SHA GitHub tag → GitHub Release attempt after `STANDARD FINAL`. Versionless contract 1–3 Tasks retain historical GitHub-only delivery/report behavior. Every suffix, including `--public-release`, is unsupported. Every bare form, Korean/managed alias, implicit request, next/continuous mode, chain, or background run is non-authoritative.
 
-Keep `allow_implicit_invocation: false`. Other input mutates nothing, reports both forms; it invokes no Skill. Either exact route activates only its current invocation; terminal, cancel, stop, or expiry ends it. Neither implements, authors, audits, selects a version, submits a plugin, retries, forces, deletes, bypasses, changes an account, or mutates unrelated state.
+Keep `allow_implicit_invocation: false`. Other input mutates nothing, reports only `$kyw-deliver NNNN`, and invokes no Skill. This exact route activates only its current invocation; it grants no implementation, authoring, audit, version edit, submission, retry, force, deletion, bypass/account, or unrelated mutation.
 
 ## Progressive shared entry
 
-Read [STANDARD Delivery and Resume](references/delivery.md) completely before inspection or action. It remains the canonical detailed Git/GitHub delivery procedure. If and only if the invocation is exact `--public-release`, also read [Public Release and Resume](references/public-release.md) completely; plain delivery never loads or executes that procedure.
+Read [STANDARD Delivery and Resume](references/delivery.md) completely first. Load [Public Release and Resume](references/public-release.md) only after the dispatcher identifies an eligible release-bearing contract-4 Task at exact `FINAL`, before any public read/write. Historical contract 1–3 delivery never loads or executes that procedure.
 
-Use the sole packaged Task adapter in sibling `kyw-task`; this Skill owns no copied parser, queue, evaluator, hydration, continuity, public classifier, or engine. Plain delivery calls:
+Use the sole packaged Task adapter in sibling `kyw-task`; this Skill owns no copied parser, queue, evaluator, hydration, continuity, public classifier, or engine. Call its dispatcher exactly once:
 
 ```text
 node <kyw-deliver-skill-directory>/../kyw-task/scripts/task-artifacts.mjs dispatch --tasks-root <repository>/docs/tasks --invocation '$kyw-deliver NNNN' --managed-routing false
 ```
 
-Exact public release calls this command before STANDARD and, only after an initial `DELIVER` result completes, once more in the same invocation:
+On `DELIVER`, follow STANDARD to `FINAL`; for eligible contract 4, retain the same invocation, load the public reference, and call the internal adapter once. An initial `PUBLIC_RELEASE` loads that reference first. This is not another user route:
 
 ```text
-node <kyw-deliver-skill-directory>/../kyw-task/scripts/task-artifacts.mjs public-release --tasks-root <repository>/docs/tasks --invocation '$kyw-deliver NNNN --public-release' --managed-routing false
+node <kyw-deliver-skill-directory>/../kyw-task/scripts/task-artifacts.mjs public-release --tasks-root <repository>/docs/tasks --invocation '$kyw-deliver NNNN' --managed-routing false
 ```
 
-After a terminal public result, do not call again. Preflight conflict/work/drift/decisions; ask for no state/client JSON, checkpoint, token, tuple, credential, or ledger. Neither accepts ID reservation or bootstrap/migration authority.
+It requires fresh `PUBLIC_RELEASE`, returns `COMPLETE` or `BLOCKED`, and is never called again. Preflight conflict/work/drift/decisions; accept no user state, checkpoint, token, tuple, credential, ledger, ID reservation, or migration authority.
 
 ## Eligibility and handoff
 
-Only a repository-complete `DONE/PASSED` Task with static `STANDARD` may be selected. Missing, duplicate, `DRAFT`, `READY`, `IN_PROGRESS`, `BLOCKED`, `CANCELLED`, reasoned `NONE`, dependency-blocked, multi-active, drifted, unsafe, malformed, or unsupported state stops with the adapter result and no implementation or pair mutation.
+Only repository-complete `DONE/PASSED` with static `STANDARD` is selectable. Missing, duplicate, `DRAFT`, `READY`, `IN_PROGRESS`, `BLOCKED`, `CANCELLED`, reasoned `NONE`, dependency-blocked, multi-active, drifted, unsafe, malformed, or unsupported state stops without implementation/pair mutation.
 
-Plain `DELIVER` follows STANDARD from its first unfinished safe action; complete is report-only. An unchanged satisfied contract-3 Task stays immutable/report-only. Drift, redelivery, or correction stops with Task/path and exact `$kyw-task "<correction outcome>"` for a hard-dependent pair.
+`DELIVER` follows STANDARD from its first unfinished safe action. An unchanged satisfied contract-3/4 Task stays immutable; contract 1–3 is report-only, while eligible contract 4 proceeds to the public stage without another user command. Drift, redelivery, or correction stops with Task/path and exact `$kyw-task "<correction outcome>"` for a hard-dependent pair.
 
-The public route reconstructs or resumes STANDARD first without repeats. No npm/tag/Release write precedes production-evaluator `FINAL` at the exact expected-head merge with post-main CI. It then freezes one tuple and applies the public reference's five-state preflight, create-once order, canonical proof, redaction, and resume. Only this route may take a satisfied Task into public preflight; pair and continuity stay unchanged.
+For contract 4, cross-check the immutable Task version against delivered package/plugin bytes; never choose or edit it. Actionable public reads and writes wait for evaluator `FINAL`; the public reference then owns tuple freeze, five-state create-once resume, proof, and redaction. Pair/continuity stays unchanged.
 
-If a pending result carries an opaque predecessor continuity transition token, apply it once only at the STANDARD terminal boundary as that reference directs. Never construct, decode, edit, retain, or replay it after terminal.
+Before `DELIVER`, that adapter applies prepared predecessor continuity through the validated atomic path at most once. Failure or uncertainty returns no successful selection and blocks later mutation. Never request or relay continuity state or a manual subcommand.
 
 ## Activation-scoped guardrails
 
-Either route supplies aligned bounds without duplicate confirmation. A changed baseline, Task, acceptance, scope, action, target, attempt, Skill, mode, route, or tuple gets the SPEC warning covering implementation, Task/Test, permanent-document, verification, and delivery impacts, then a zero-mutation wait. Only immediate exact reconfirmation on unchanged facts permits affected-owner synchronization and the bounded action; origin cannot self-confirm, redispatch, or chain Skills.
+The exact route supplies aligned STANDARD and eligible fixed public bounds without duplicate confirmation. A changed baseline, Task, acceptance, scope, action, target, attempt, Skill, mode, route, release version, or tuple gets the SPEC warning covering implementation, Task/Test, permanent-document, verification, and delivery impacts, then a zero-mutation wait. Only immediate exact reconfirmation on unchanged facts permits affected-owner synchronization and the bounded action; origin cannot self-confirm, redispatch, or chain Skills.
 
 Cancellation, ambiguity, intervention, staleness, drift, or added bounds clears it; a Skill/mode/route change needs its own exact route. Safety, secrets, evidence, user work, immutable pairs, exact routing, and separate authorities remain non-waivable. Failure grants reads only, never retry, fallback, later write, or a new attempt.
 
 ## Stop and report
 
-Report Task, route, disposition, stage, bounded redacted evidence/limits, preservation, and risk. STANDARD includes protection disposition/limit; public release includes classification, recovery, resume point, and unchanged pair/continuity proof. Never persist external chronology. Stop after the report; do not invoke another Skill or continue in background.
+Report Task, route, stage, redacted evidence/limits, preservation, risk, STANDARD protection, and public classification/recovery/resume. Never persist chronology. Stop after the report without chaining or background work.

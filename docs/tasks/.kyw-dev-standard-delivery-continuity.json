@@ -3,26 +3,26 @@
   "kind": "KYW_STANDARD_DELIVERY_CONTINUITY",
   "repository": "kimyeongwoo/kyw-dev",
   "baseRef": "main",
-  "sourceMainSha": "dc0f9ffcc69aa143755b69b01ae05b452ac0e4c6",
-  "coveredMainSha": "dc0f9ffcc69aa143755b69b01ae05b452ac0e4c6",
+  "sourceMainSha": "6c39771dac3712b9be3af9dead31704f329a4edb",
+  "coveredMainSha": "6c39771dac3712b9be3af9dead31704f329a4edb",
   "deliveryContract": {
     "kind": "HARDENED_EXACT_HEAD",
     "version": 2
   },
   "coverage": {
-    "taskCount": 50,
-    "lastTaskId": "0084",
-    "orderedTaskSetSha256": "9fe25b57650d4e4b86b2f0c6804906492e396abeb8db8142d5e2c21bd500cd76",
-    "terminalPairStateSha256": "3d120f00668a1f3e37ec63f71ffe05b02217180430f303caf52ed53d01e92690",
-    "cumulativeEvidenceSha256": "e632848fb45c49b5284013424b06e99cf65ef1d4822080a1596bf643f2d657cc"
+    "taskCount": 51,
+    "lastTaskId": "0085",
+    "orderedTaskSetSha256": "df1a3df04c56eb5b2fb67077d5b74201dd354b2a8fa240468488cbd7560d6be9",
+    "terminalPairStateSha256": "2b800d18c9324c2d7c24b00115f0fb3d7ea4393605cc3fbe4085a2f444fc4c15",
+    "cumulativeEvidenceSha256": "a841f8eb5da205d879017cef4c03f143d1d5894491d4df49e4e8c0e8d1896f42"
   },
-  "previousCheckpointDigest": "7d5767e9e21c9b09c8126cb54f1882c89d6c0a14cc099a1ea661481a50f42f7a",
+  "previousCheckpointDigest": "e551ddcdf32d8face02ea451eaec4bc222c5c2f2d0e9fbe2f421e9d77245f823",
   "transition": {
-    "taskId": "0084",
+    "taskId": "0085",
     "classification": "HARDENED_EXACT_HEAD",
-    "outcomeSha": "df82ebef08aca064bfdcf148a1e73b88d8e21456",
-    "mergeSha": "dc0f9ffcc69aa143755b69b01ae05b452ac0e4c6",
-    "evidenceSha256": "d1480fd8384c1fff0842048bee993975c3c39911f7c46d72f52c87f1ac6b8a4e"
+    "outcomeSha": "beb6d3be40c0e7ffd20a5b0de830d97169af8869",
+    "mergeSha": "6c39771dac3712b9be3af9dead31704f329a4edb",
+    "evidenceSha256": "02001c8fae3b416da0b07d2854d5682e7e130cd4d6940f1b2838ea0a83f99da7"
   },
-  "checkpointDigest": "e551ddcdf32d8face02ea451eaec4bc222c5c2f2d0e9fbe2f421e9d77245f823"
+  "checkpointDigest": "b8ec43079698c87730c48a87d2c96347b63bad17f7977c337fbf564754da02b0"
 }

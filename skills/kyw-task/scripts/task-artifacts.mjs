@@ -25,7 +25,6 @@ const {
   bootstrapStandardDeliveryContinuity,
   createTaskArtifactBatch,
   createTaskArtifacts,
-  createStandardDeliveryContinuityTransitionToken,
   derivePublicReleasePlan,
   hydratePriorStandardDeliveries,
   hydratePublicReleaseContext,
@@ -48,13 +47,11 @@ const usage =
   "   or: task-artifacts.mjs bootstrap-continuity --tasks-root <path> " +
   "--invocation <text> --managed-routing <true|false> " +
   "--migration-authority EXPLICIT_REBASELINE\n" +
-  "   or: task-artifacts.mjs apply-continuity --tasks-root <path> " +
-  "--selected-task <NNNN> --transition-token <opaque-token>\n" +
   "   or: task-artifacts.mjs dispatch --tasks-root <path> --invocation <text> " +
   "--managed-routing <true|false> " +
   "[--execution-preflight <json-path> | --execution-preflight-json <json>]\n" +
   "   or: task-artifacts.mjs public-release --tasks-root <path> " +
-  "--invocation '$kyw-deliver NNNN --public-release' " +
+  "--invocation '$kyw-deliver NNNN' " +
   "--managed-routing <true|false>";
 
 function parseOptions(args, requiredNames, optionalNames = []) {
@@ -289,6 +286,9 @@ export async function runTaskArtifactCommand(argv, runtime = {}) {
   const bootstrapContinuity =
     runtime.bootstrapStandardDeliveryContinuity ??
     bootstrapStandardDeliveryContinuity;
+  const applyContinuity =
+    runtime.applyStandardDeliveryContinuityTransition ??
+    applyStandardDeliveryContinuityTransition;
   const hydratePublicContext =
     runtime.hydratePublicReleaseContext ?? hydratePublicReleaseContext;
   const derivePublicPlan =
@@ -400,26 +400,6 @@ export async function runTaskArtifactCommand(argv, runtime = {}) {
     };
   }
 
-  if (command === "apply-continuity") {
-    const options = parseOptions(args, [
-      "--tasks-root",
-      "--selected-task",
-      "--transition-token",
-    ]);
-    if (!/^\d{4}$/.test(options.get("--selected-task"))) {
-      throw new TaskArtifactError(
-        "INVALID_TASK_ADAPTER_ARGUMENTS",
-        "--selected-task must be a four-digit Task ID",
-      );
-    }
-    const applied = await applyStandardDeliveryContinuityTransition({
-      tasksRoot: resolve(options.get("--tasks-root")),
-      selectedTaskId: options.get("--selected-task"),
-      transitionToken: options.get("--transition-token"),
-    });
-    return { command, ...applied };
-  }
-
   if (command === "dispatch" || command === "public-release") {
     const options = parseOptions(
       args,
@@ -458,11 +438,14 @@ export async function runTaskArtifactCommand(argv, runtime = {}) {
     });
     if (
       command === "public-release" &&
-      parsedInvocation?.deliveryMode !== "PUBLIC_RELEASE"
+      (!parsedInvocation?.recognized ||
+        parsedInvocation.route !== "DELIVERY" ||
+        parsedInvocation.mode !== "EXACT" ||
+        parsedInvocation.source !== "PORTABLE_SKILL")
     ) {
       throw new TaskArtifactError(
         "PUBLIC_RELEASE_EXACT_INVOCATION_REQUIRED",
-        "public-release requires exactly $kyw-deliver NNNN --public-release",
+        "public-release requires exactly $kyw-deliver NNNN",
       );
     }
     const manualDeliveryInput = [
@@ -471,15 +454,6 @@ export async function runTaskArtifactCommand(argv, runtime = {}) {
       "--delivery-expectations",
       "--delivery-expectations-json",
     ].some((name) => options.has(name));
-    if (
-      parsedInvocation?.deliveryMode === "PUBLIC_RELEASE" &&
-      manualDeliveryInput
-    ) {
-      throw new TaskArtifactError(
-        "PUBLIC_RELEASE_CANONICAL_HYDRATION_REQUIRED",
-        "public-release does not accept caller-supplied STANDARD ledger or expectation JSON",
-      );
-    }
     let deliveryLedger;
     let deliveryExpectations;
     let hydrationDiagnostics;
@@ -519,28 +493,58 @@ export async function runTaskArtifactCommand(argv, runtime = {}) {
       executionPreflight,
       parsedInvocation,
     });
-    const continuityTransitionToken =
-      preparedCheckpoint &&
+    if (
+      manualDeliveryInput &&
+      (result.deliveryMode === "PUBLIC_RELEASE" ||
+        result.action === "PUBLIC_RELEASE")
+    ) {
+      throw new TaskArtifactError(
+        "PUBLIC_RELEASE_CANONICAL_HYDRATION_REQUIRED",
+        "public-release does not accept caller-supplied STANDARD ledger or expectation JSON",
+      );
+    }
+    if (
+      command === "public-release" &&
+      (result.outcome !== "SELECTED" || result.action !== "PUBLIC_RELEASE")
+    ) {
+      throw new TaskArtifactError(
+        "PUBLIC_RELEASE_STANDARD_FINAL_REQUIRED",
+        "public-release requires a fresh contract-4 STANDARD FINAL result from exact $kyw-deliver NNNN dispatch",
+      );
+    }
+    const selectedDelivery =
       parsedInvocation.route === "DELIVERY" &&
       result.outcome === "SELECTED" &&
-      result.action === "DELIVER" &&
-      result.task?.taskStatus === "DONE" &&
-      result.task?.testStatus === "PASSED" &&
-      result.task?.deliveryRequirement?.kind === "STANDARD" &&
-      result.task?.id
-        ? createStandardDeliveryContinuityTransitionToken({
-            selectedTaskId: result.task.id,
-            checkpoint: preparedCheckpoint,
-          })
-        : undefined;
+      result.action === "DELIVER";
+    if (
+      selectedDelivery &&
+      (!/^\d{4}$/u.test(result.task?.id ?? "") ||
+        result.task.id !== parsedInvocation.taskId ||
+        result.task.taskStatus !== "DONE" ||
+        result.task.testStatus !== "PASSED" ||
+        result.task.deliveryRequirement?.kind !== "STANDARD")
+    ) {
+      throw new TaskArtifactError(
+        "INVALID_DELIVERY_SELECTION",
+        "selected delivery result is missing its exact terminal STANDARD identity",
+      );
+    }
+    if (selectedDelivery && preparedCheckpoint !== undefined) {
+      await applyContinuity({
+        tasksRoot,
+        selectedTaskId: result.task.id,
+        preparedCheckpoint,
+        commandRunner: runtime.commandRunner,
+        queueInspector: runtime.queueInspector,
+        githubClient: runtime.githubClient,
+      });
+    }
     const baseResult = {
       command,
       ...result,
-      ...(continuityTransitionToken ? { continuityTransitionToken } : {}),
       ...(hydrationDiagnostics ? { hydration: hydrationDiagnostics } : {}),
     };
     if (
-      parsedInvocation?.deliveryMode !== "PUBLIC_RELEASE" ||
       result.outcome !== "SELECTED" ||
       result.action !== "PUBLIC_RELEASE"
     ) {
@@ -635,7 +639,7 @@ export async function runTaskArtifactCommand(argv, runtime = {}) {
 
   throw new TaskArtifactError(
     "INVALID_TASK_ADAPTER_ARGUMENTS",
-    `Expected create, create-batch, inspect-transaction, recover-transaction, validate, bootstrap-continuity, apply-continuity, dispatch, or public-release, received ${command ?? "<missing>"}\n${usage}`,
+    `Expected create, create-batch, inspect-transaction, recover-transaction, validate, bootstrap-continuity, dispatch, or public-release, received ${command ?? "<missing>"}\n${usage}`,
   );
 }
 

@@ -1,7 +1,6 @@
 import { parsePublicReleaseInvocation } from "./task-artifact-public-release.mjs";
 
 const exactInvocationPattern = /^\$kyw-impl\s+(\d{4})(?:\s+([\s\S]*\S))?\s*$/u;
-const exactDeliveryInvocationPattern = /^\$kyw-deliver\s+(\d{4})\s*$/u;
 const managedExactAliasPattern = /^task\s+(\d{4})\s+실행해줘(?:\s+([\s\S]*\S))?\s*$/iu;
 const managedNextAliasPattern = /^task\s+진행해줘(?:\s+([\s\S]*\S))?\s*$/iu;
 const managedContinuousAliasPattern =
@@ -31,8 +30,8 @@ export function parseTaskInvocation(invocation, { managedRoutingAvailable = fals
   if (typeof invocation !== "string") {
     throw new TypeError("Task invocation must be a string");
   }
-  const publicRelease = parsePublicReleaseInvocation(invocation);
-  if (publicRelease) return publicRelease;
+  const exactDelivery = parsePublicReleaseInvocation(invocation);
+  if (exactDelivery) return exactDelivery;
 
   const exact = exactInvocationPattern.exec(invocation);
   if (exact) {
@@ -44,19 +43,6 @@ export function parseTaskInvocation(invocation, { managedRoutingAvailable = fals
       taskId: exact[1],
       overrideText: exact[2] ?? "",
       overrideScope: "FIRST_SELECTED_TASK",
-    });
-  }
-
-  const exactDelivery = exactDeliveryInvocationPattern.exec(invocation);
-  if (exactDelivery) {
-    return Object.freeze({
-      recognized: true,
-      route: "DELIVERY",
-      mode: "EXACT",
-      source: "PORTABLE_SKILL",
-      taskId: exactDelivery[1],
-      overrideText: "",
-      overrideScope: "NONE",
     });
   }
 

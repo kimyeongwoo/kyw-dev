@@ -1,6 +1,6 @@
 # TEST {{TASK_ID}} — {{TASK_TITLE}}
 
-<!-- kyw-task-contract: 3 -->
+<!-- kyw-task-contract: 4 -->
 
 ## Status
 

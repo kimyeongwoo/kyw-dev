@@ -12,6 +12,7 @@ import {
   PERMANENT_DOCUMENT_POLICY,
   PERMANENT_RULE_FAMILIES,
   REPOSITORY_ROOT,
+  RELEASE_METADATA,
   REQUIRED_ACTIVATION_SCOPED_SKILL_GUARDRAIL_MANIFEST,
   REQUIRED_INSTRUCTION_RULE_FAMILY_IDS,
   TRUSTED_PUBLISHER_EXPECTATION,
@@ -35,6 +36,7 @@ import {
 import { assertSupportedRuntime } from "../src/core/skill-installation.mjs";
 
 test("package, plugin, Skills, and legal metadata satisfy the foundation contract", () => {
+  assert.equal(RELEASE_METADATA.version, "0.2.0");
   assert.deepEqual(validateFoundation(), []);
   assert.deepEqual(TRUSTED_PUBLISHER_EXPECTATION, {
     provider: "GitHub Actions",

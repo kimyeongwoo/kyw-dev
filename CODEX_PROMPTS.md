@@ -58,21 +58,15 @@ task 진행해줘
 
 ## STANDARD delivery 실행과 재개
 
-Repository-complete Task의 현재 `STANDARD` delivery만 다음 exact form으로 수행하거나 재개한다.
+Repository-complete Task의 현재 `STANDARD` delivery는 다음 하나의 exact form으로 수행하거나 재개한다.
 
 ```text
 $kyw-deliver 0001
 ```
 
-이 plain form은 `STANDARD` 전용이며 bare/Korean/implicit/chained/background 호출은 지원하지 않는다. 이미 satisfied인 contract-3 Task는 immutable report-only이고 correction은 새 hard-dependent `$kyw-task "<correction outcome>"`로 작성한다.
+이 plain form만 지원한다. Release version을 가진 contract 4 `STANDARD` Task는 같은 invocation에서 GitHub delivery를 `FINAL`까지 완료한 뒤 추가 명령이나 확인 없이 npm→exact-SHA tag→GitHub Release를 수행하거나 재개한다. Versionless contract 1–3은 기존 GitHub-only delivery/report 의미를 유지한다.
 
-같은 Task의 `STANDARD FINAL` 뒤 npm→exact-SHA tag→GitHub Release를 한 번만 수행/재개하려면 다음 exact opt-in만 사용한다.
-
-```text
-$kyw-deliver 0001 --public-release
-```
-
-다른 suffix는 권한이 없다. 이 form은 canonical state를 다시 읽어 exact stage를 건너뛰고 conflict/unknown/failure에서 retry 없이 멈춘다. 상세 STANDARD/public 절차는 각각 설치된 `$kyw-deliver` reference가 소유하며 여기서는 복제하지 않는다.
+`--public-release`를 포함한 모든 suffix와 bare/Korean/implicit/chained/background 호출은 권한이 없다. 매번 canonical state를 다시 읽어 exact stage를 건너뛰고 conflict/unknown/failure에서 retry 없이 멈춘다. 이미 delivered인 contract-3/4 pair는 immutable이며 correction은 새 hard-dependent `$kyw-task "<correction outcome>"`로 작성한다. 상세 STANDARD/public 절차는 설치된 `$kyw-deliver` references가 소유하며 여기서는 복제하지 않는다.
 
 ## Task 없이 수행할 소규모 변경 프롬프트
 

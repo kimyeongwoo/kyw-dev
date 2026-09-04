@@ -30,8 +30,9 @@ GitHub source repository
 
 There is no server, database, daemon, watcher, or telemetry component. After
 package acquisition, normal use requires no kyw-dev service. GitHub backs a
-selected Task's `STANDARD` delivery; only exact public-release opt-in also
-reads npm and permits the fixed npm/GitHub public mutation sequence.
+selected Task's `STANDARD` delivery. For release-bearing contract 4, the same
+exact plain invocation subsequently reads npm and permits the fixed npm/GitHub
+public mutation sequence after `STANDARD FINAL`.
 
 ## 2. Architectural principles
 
@@ -39,9 +40,9 @@ reads npm and permits the fixed npm/GitHub public mutation sequence.
 
 Skills own interviews, decisions, scoped inspection, document reasoning,
 evidence interpretation, and stop conditions. Dependency-free Node modules own
-operations that require exact and repeatable behavior: template validation,
-Task identity and dependency parsing, queue selection, transaction ownership,
-delivery/public-state classification, install containment, hashing, and CLI dispatch.
+exactly repeatable operations: template validation and Task identity,
+dependency parsing, queue selection, transaction ownership,
+delivery/public-state classification, installation, hashing, and CLI dispatch.
 
 Permanent documents do not copy those algorithms. They state only stable
 product or architecture meaning and link to the canonical procedural owner.
@@ -55,8 +56,8 @@ digests, trust, coverage, and atomic replacement for both boundaries.
 The six user-visible Skills—`kyw-grilling`, `kyw-init`, `kyw-task`,
 `kyw-impl`, `kyw-deliver`, and `kyw-audit`—disable implicit invocation. Exact
 forms or three implementation aliases activate guardrails. Delivery recognizes
-only plain exact STANDARD and exact `--public-release`; other suffixes do not
-route. Inactive prose never selects a Task by resemblance; aligned work
+only exact plain `$kyw-deliver NNNN`; `--public-release` and every other suffix
+do not route. Inactive prose never selects a Task by resemblance; aligned work
 continues and material change uses SPEC Section 6.3.
 
 ### A-03 — Progressive, fail-closed context loading
@@ -132,7 +133,7 @@ minimal projection needed before that owner can be loaded.
 | New Task/Test authoring | `skills/kyw-task/SKILL.md` | Invocation and outcome summaries only |
 | Existing-Task implementation through `DONE/PASSED` | `skills/kyw-impl/references/execution.md` | `kyw-impl/SKILL.md` handoff and concise projections |
 | Current `STANDARD` delivery and resume | `skills/kyw-deliver/references/delivery.md` | `kyw-deliver/SKILL.md` handoff and concise projections |
-| Exact opt-in public release and resume | `skills/kyw-deliver/references/public-release.md` | Conditional `kyw-deliver/SKILL.md` handoff and concise projections |
+| Post-`FINAL` public release and resume | `skills/kyw-deliver/references/public-release.md` | Progressively loaded internal continuation of the same plain `kyw-deliver` invocation |
 | Independent audit and bounded repair | `skills/kyw-audit/references/audit.md` | Audit Skill handoff plus invocation summaries |
 | Exact Task/Test shape | Canonical Task and Test templates | Deterministic template validator and minimal state semantics |
 | Deterministic algorithms and exhaustive edge cases | Source and focused tests | Stable component/invariant descriptions here |
@@ -162,7 +163,7 @@ development validation
   └─ is never imported by runtime, CLI, or packaged Skills
 ```
 
-`kyw-task`, `kyw-impl`, and both `kyw-deliver` modes share one adapter/core graph.
+`kyw-task`, `kyw-impl`, and the sole plain `kyw-deliver` route share one adapter/core graph.
 There is one deterministic Task/runtime/delivery engine; no Skill owns a copied
 parser, allocator, queue, transaction, evaluator, or public classifier. Facades keep
 public imports stable while cohesive internals remain acyclic.
@@ -179,9 +180,11 @@ public imports stable while cohesive internals remain acyclic.
   completion. It does not implement or deliver an existing Task.
 - `kyw-impl` owns existing-Task implementation through repository
   `DONE/PASSED`; it never allocates, authors, selects, or performs delivery.
-- `kyw-deliver` owns exact-ID `STANDARD` delivery and the sole exact
-  `--public-release` extension after `STANDARD FINAL`. Other suffixes and bare,
-  managed, implicit, continuous, chained, or background routes are absent.
+- `kyw-deliver` owns one exact plain route. It delivers versionless contract
+  1–3 Tasks only through their historical GitHub lifecycle and carries
+  release-bearing contract 4 through the same lifecycle and, after `STANDARD
+  FINAL`, the public npm→tag→Release continuation. Suffixes and bare, managed,
+  implicit, continuous, chained, or background routes are absent.
 - `kyw-audit` independently compares one Task with established truth and
   evidence. Its bare mode has no mutation authority; exact repair mode remains
   bounded to demonstrated in-scope findings.
@@ -205,16 +208,18 @@ The Task runtime is grouped by responsibility:
 - queue logic validates the dependency graph and deterministic selection;
 - creation logic publishes complete authored sets under ownership proof;
 - delivery logic parses route/mode, preflight, and exact-SHA evidence roles;
-- hydration binds a future terminal pair's canonical path, regular-file Git
-  mode, and bytes to its first evaluator-satisfied hardened merge and rejects
-  later history/worktree drift before dispatch;
+- hydration binds a contract-3/4 terminal pair's canonical path, regular-file
+  Git mode, and bytes to its first evaluator-satisfied hardened merge and
+  rejects later history/worktree drift before dispatch;
 - continuity logic owns the canonical rolling checkpoint, ordered coverage and
-  terminal-state digests, aligned-main trust, opaque transition, and atomic
-  idempotent replacement;
+  terminal-state digests, aligned-main trust, in-memory prepared transition,
+  and atomic idempotent replacement;
 - public-release logic freezes canonical identity, classifies npm/workflow/tag/Release
   state, derives a monotonic plan, limits writes, and redacts bounded results;
-- one facade and process adapter expose shared route-aware dispatch and a
-  separate bootstrap entry without an ID-specific intercept.
+- one facade and process adapter expose shared route-aware dispatch, directly
+  apply prepared predecessor continuity at most once before returning
+  `DELIVER`, and retain a separate bootstrap entry without an ID-specific
+  intercept.
 
 The process adapter accepts explicit validated arguments and delegates all
 meaningful mechanics. In an npm/plugin tree it imports the package core. A
@@ -371,8 +376,8 @@ exact existing-Task invocation
    → one route + clause classification + closed terminal override flag
    → one generic dispatcher call with no Task-ID or migration intercept
    → IMPLEMENT | RESUME | repository-complete handoff/report
-   ├─ aligned baseline → one current mutation boundary
-   └─ changed baseline/Task/acceptance/scope → warning + wait
+   ├─ aligned baseline → one mutation boundary
+   └─ changed baseline/scope → warning + wait
           → fresh exact reconfirmation → truth sync → bounded mutation
    → acceptance-specific verification + durable-owner synchronization
    → final diff and coverage review
@@ -393,8 +398,10 @@ origin cannot self-confirm, redispatch, or chain Skills.
 
 Plain exact `$kyw-deliver NNNN` enters after shared dispatch proves the selected
 pair is `DONE/PASSED` with `STANDARD`. It revalidates state and resumes the first
-unfinished safe stage without repeats; satisfied contract-3 results are
-immutable report-only. Detailed ordering lives only in its delivery reference.
+unfinished safe stage without repeats. Satisfied contract-3 results are
+immutable report-only; contract 4 continues through its public stages only
+after the same GitHub graph reaches `FINAL`. Detailed ordering lives only in its
+delivery references.
 
 `HARDENED_EXACT_HEAD` keeps four identities distinct:
 
@@ -443,16 +450,21 @@ After one complete evaluator result is no longer current, a later selected
 Task may roll it into durable continuity. The checkpoint carries only an exact
 ordered-set digest, terminal-pair digest, cumulative evidence digest, ancestry
 identities, previous digest/genesis, and one sanitized receipt. Preparation is
-read-only before dispatch. Application belongs only to selected delivery on the
-exact terminal Task branch and covers already delivered predecessors,
-preserving causal lag and forbidding self-coverage. Missing/corrupt checkpoints
-or gaps larger than one stop ordinary dispatch rather than replaying history. The separate
+read-only before dispatch. For selected delivery, the sole adapter invocation
+calls the dispatcher once and then sends any prepared state directly through
+the existing validation and atomic replacement path at most once before it can
+return `DELIVER`. Application covers already delivered predecessors only on the
+exact terminal Task branch, preserving causal lag and forbidding self-coverage.
+Failure or uncertainty returns no successful selection and blocks all later
+delivery/public mutations; no prepared state or manual apply command crosses
+the adapter boundary. Missing/corrupt checkpoints or gaps larger than one stop
+ordinary dispatch rather than replaying history. The separate
 `bootstrap-continuity` entry requires exact `EXPLICIT_REBASELINE` authority and
 applies general fail-closed checkpoint/history, gap, drift, evaluator, and
 self-coverage guards. It is not a dispatch option, source-repair path, or
 Task-ID exception.
 
-For artifact contract 3, the first evaluator-satisfied hardened graph is the
+For artifact contracts 3 and 4, the first evaluator-satisfied hardened graph is the
 only delivery graph for its Task. The expected-head merge tree binds the exact
 terminal Task/Test paths, regular-file Git modes, and canonical blob bytes.
 Fresh uncovered evaluation and checkpoint-covered closure apply the same rule
@@ -467,13 +479,15 @@ standard two-parent PR-merge source branch. Terminal worktree validation compare
 canonical path, type, mode, index, status, and raw bytes; its sole line-ending
 exception is narrowly product-defined. Ambiguous or other drift blocks.
 
-### 5.5 Exact opt-in public release
+### 5.5 Same-invocation contract-4 public release
 
 ```text
-exact `$kyw-deliver NNNN --public-release`
+exact plain `$kyw-deliver NNNN`
    → shared dispatch + unchanged STANDARD hydration/evaluator
-   ├─ pending STANDARD → existing delivery flow, without repeats
-   └─ exact expected-head/post-main FINAL
+   ├─ versionless contract 1–3 → historical GitHub-only result
+   └─ contract 4 + exact expected-head/post-main FINAL
+        → read immutable Task Release version
+        → cross-check exact delivered package/plugin tree
         → freeze repository-owned public tuple
         → fresh whole-state npm run/version + tag/ref + Release preflight
         → STANDARD_FINAL → NPM → TAG → RELEASE → FINAL_PROOF
@@ -481,12 +495,15 @@ exact `$kyw-deliver NNNN --public-release`
 ```
 
 The Skill loads its STANDARD reference first and the public-release reference
-only for this exact mode. The same adapter, evaluator, hydration, command cache,
-and continuity input feed one dependency-free public-release core; there is no
-seventh Skill, second dispatcher/evaluator, alternate checkpoint, or receipt
-ledger. Public orchestration depends on a frozen tuple and injected npm/GitHub
-clients, never the reverse. Development tests supply mocks or owned loopback
-clients, so implementation and verification issue zero live public writes.
+only after eligible contract 4 reaches `FINAL` in that same invocation. The
+internal reference and adapter are not user routes; the retired suffix is
+rejected before mutation. The same adapter, evaluator, hydration, command
+cache, and continuity input feed one dependency-free public-release core; there
+is no seventh Skill, second dispatcher/evaluator, alternate checkpoint, or
+receipt ledger. Public orchestration depends on the Task-owned stable SemVer, a
+frozen tuple, and injected npm/GitHub clients, never the reverse. Development
+tests supply mocks or owned loopback clients, so implementation and verification
+issue zero live public writes.
 
 Before the first write and immediately before each eligible stage, all public
 surfaces are freshly read together. Exact state is skipped, absent state may
@@ -532,8 +549,9 @@ that was not loaded cannot be silently contradicted.
 
 ### 6.1 Pair states and queue
 
-New pairs use machine-readable artifact contract 3; contract 2 remains
-queue-aware compatibility and unmarked contract 1 remains legacy. Queue-aware
+New pairs use machine-readable artifact contract 4; contract 3 remains
+queue-aware and immutable-terminal, contract 2 remains queue-aware
+compatibility, and unmarked contract 1 remains legacy. Queue-aware
 pairs use one of six closed state pairs:
 
 ```text
@@ -553,10 +571,12 @@ Task; pending delivery blocks with its exact deliver command. Exact delivery
 selects only its named terminal Task. Historical blockers that are
 neither active nor hard dependencies do not freeze unrelated work.
 
-Contract-2 and unmarked legacy pairs retain their historical readers and
-delivery meaning, including pre-cutover multi-merge history. Only contract 3
-acquires the post-delivery path/mode/byte invariant. No reader rewrites history
-into the current schema.
+Contract 1–3 pairs retain their historical readers and delivery meaning,
+including pre-cutover multi-merge history. Contracts 3 and 4 acquire the
+post-delivery path/mode/byte invariant. Contract 4 additionally requires exactly
+one stable SemVer Release version for `STANDARD`, while reasoned `NONE` remains
+version-free. No reader rewrites history into the current schema or infers a
+public version for older pairs.
 
 ### 6.2 Artifact shape and traceability
 
@@ -564,6 +584,14 @@ Canonical Task/Test templates own exact sections and default evidence fields.
 The template contract validates meaningful content, reasoned inapplicability,
 status pairs, acceptance-to-test mapping, and terminal evidence. It does not
 create short and long artifact types or impose a universal Task size.
+
+Contract-4 authoring transports its user-selected release version as an explicit
+batch field into the single canonical Delivery value and rejects missing,
+malformed, mismatched, or duplicate claims before atomic publication. Authoring
+and implementation combine that local queue/package/plugin validation with fresh
+read-only npm, publication-attempt, tag, and Release checks. Delivery receives
+the same Task value only after terminal pair validation and cross-checks it
+against exact delivered-tree metadata before constructing the public tuple.
 
 Stable acceptance IDs and matrix IDs form a traceability graph. A terminal
 repository outcome requires mapped criteria, executed required checks,
@@ -575,9 +603,9 @@ an unmapped behavior or branch.
 
 - The active pair owns current scope, decisions, risks, handoff, commands, and
   reproducible results.
-- Contract-3 completed pairs own byte-immutable canonical repository evidence
-  after first complete hardened delivery; prior completed contracts retain
-  grandfathered historical evidence.
+- Contract-3 and contract-4 completed pairs own byte-immutable canonical
+  repository evidence after first complete hardened delivery; prior completed
+  contracts retain grandfathered historical evidence.
 - Permanent documents own only current durable meaning.
 - Source/tests own deterministic mechanics and exhaustive compatibility cases.
 - GitHub owns mutable PR, review, run, job, checkout, and merge identities.
@@ -605,11 +633,12 @@ Exact lock formats, hash chains, stage names, mutation ordering, rollback cases,
 and diagnostics belong in source and focused tests.
 
 Checkpoint replacement is a third narrow single-file boundary, not a shared
-transaction framework. A canonical opaque transition is prepared without
-writes, validated against selected terminal Task ownership and unchanged `main`,
-then atomically replaces only the checkpoint. Exact repeat is idempotent;
-staging occupation, prior-digest mismatch, branch drift, or write uncertainty
-stops with bounded recovery evidence.
+transaction framework. Canonical predecessor state is prepared without writes,
+passed in memory by the sole adapter invocation, validated against selected
+terminal Task ownership and unchanged `main`, then atomically replaces only the
+checkpoint. Exact repeat is idempotent; staging occupation, prior-digest
+mismatch, branch drift, or write uncertainty stops before a successful
+delivery selection with bounded recovery evidence.
 
 ## 7. CLI and installation boundaries
 
@@ -716,14 +745,16 @@ and no installation or publication lifecycle script.
 Package metadata may be publishable while publication remains unauthorized.
 Stable checking, one real candidate, composite Release verification, and
 credential-free exact-SHA CI are the required non-publishing evidence
-boundaries. The standard npm dry run is optional. Publication, tag, and GitHub
-Release have one compound exception: exact `$kyw-deliver NNNN --public-release`
-after selected `STANDARD FINAL`. It fixes one action/target/scope/attempt;
-version change, public plugin submission, retry/fallback, and recovery mutations
-stay separate. Fresh registry, publisher/workflow, ref, and Release facts gate
-every stage. Changed active bounds use the warning transition. Routine preflight
-does not authenticate to npm account/settings; that occurs only for setup, an
-explicit security/configuration audit/change, or actual OIDC failure inquiry.
+boundaries. The standard npm dry run is optional. Exact plain `$kyw-deliver
+NNNN` is the sole compound exception for a release-bearing contract-4 Task, and
+only after selected `STANDARD FINAL`. The Task fixes the stable version before
+implementation; delivery validates and consumes it but cannot select, increment,
+edit, or commit it. Public plugin submission, retry/fallback, and recovery
+mutations stay separate. Fresh registry, publisher/workflow, ref, and Release
+facts gate every stage. Changed active bounds use the warning transition.
+Routine preflight does not authenticate to npm account/settings; that occurs
+only for setup, an explicit security/configuration audit/change, or actual OIDC
+failure inquiry.
 
 ### 8.5 Trusted publication workflow
 

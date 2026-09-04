@@ -6,10 +6,16 @@ import { fileURLToPath } from "node:url";
 
 import { validateTaskDirectory } from "../src/core/task-artifacts.mjs";
 import {
+  parseDeliveryRequirement,
+  stripMarkdownComments,
+} from "../src/core/task-artifact-contract.mjs";
+import {
+  CURRENT_TASK_CONTRACT_VERSION,
   DOCUMENT_CONTRACTS,
   MODEL_PROVENANCE_FIELDS,
   TASK_CONTRACT_MARKER,
   TASK_TEST_STATUS_PAIRS,
+  isImmutableTerminalTaskContractVersion,
   readCanonicalTemplate,
   renderTemplate,
   validateCanonicalTemplate,
@@ -49,6 +55,13 @@ test("rendered Task templates form a valid DRAFT pair without unresolved tokens"
   assert.doesNotMatch(taskMarkdown, /\{\{[A-Z_]+\}\}/);
   assert.doesNotMatch(testMarkdown, /\{\{[A-Z_]+\}\}/);
   assert.deepEqual(validateTaskTestContract({ taskMarkdown, testMarkdown }), []);
+  assert.equal(CURRENT_TASK_CONTRACT_VERSION, 4);
+  assert.match(taskMarkdown, /<!-- kyw-task-contract: 4 -->/);
+  assert.match(taskMarkdown, /- Requirement: NONE —/);
+  assert.doesNotMatch(
+    stripMarkdownComments(taskMarkdown),
+    /- Release version:|- Canonical ledger:/,
+  );
   assert.throws(
     () => renderTemplate("{{KNOWN}} {{MISSING}}", { KNOWN: "value" }),
     /Missing template values: MISSING/,
@@ -365,7 +378,7 @@ test("validator enforces exact lifecycle pairs while retaining legacy completed 
     .replace(/^# TASK 0001 — Complete Task$/m, `$&\n\n${TASK_CONTRACT_MARKER}`)
     .replace(
       /^## Completed$/m,
-      "## Delivery\n\n- Requirement: STANDARD\n- Canonical ledger: GitHub PR/Actions exact-SHA state.\n\nRepository outcome only.\n\n## Completed",
+      "## Delivery\n\n- Requirement: STANDARD\n- Release version: 1.2.3\n- Canonical ledger: GitHub PR/Actions exact-SHA state.\n\nRepository outcome only.\n\n## Completed",
     )
     .replace(
       /^## Discoveries and Changes$/m,
@@ -466,7 +479,7 @@ test("current contract validates static delivery policy and repository-only term
     .replace(/^# TASK 0001 — Complete Task$/m, `$&\n\n${TASK_CONTRACT_MARKER}`)
     .replace(
       /^## Completed$/m,
-      "## Delivery\n\n- Requirement: STANDARD\n- Canonical ledger: GitHub PR/Actions exact-SHA state.\n\nRepository outcome only.\n\n## Completed",
+      "## Delivery\n\n- Requirement: STANDARD\n- Release version: 1.2.3\n- Canonical ledger: GitHub PR/Actions exact-SHA state.\n\nRepository outcome only.\n\n## Completed",
     )
     .replace(
       /^## Discoveries and Changes$/m,
@@ -500,32 +513,126 @@ test("current contract validates static delivery policy and repository-only term
     validateTaskTestContract({ taskMarkdown: currentTask, testMarkdown: currentTest }),
     [],
   );
-  assert.deepEqual(
+  for (const contractVersion of [2, 3]) {
+    assert.deepEqual(
+      validateTaskTestContract({
+        taskMarkdown: currentTask
+          .replace(
+            TASK_CONTRACT_MARKER,
+            `<!-- kyw-task-contract: ${contractVersion} -->`,
+          )
+          .replace("- Release version: 1.2.3\n", ""),
+        testMarkdown: currentTest.replace(
+          TASK_CONTRACT_MARKER,
+          `<!-- kyw-task-contract: ${contractVersion} -->`,
+        ),
+      }),
+      [],
+      `pre-cutover contract ${contractVersion} remains readable without migration`,
+    );
+  }
+  assert.match(
     validateTaskTestContract({
       taskMarkdown: currentTask.replace(
         TASK_CONTRACT_MARKER,
-        "<!-- kyw-task-contract: 2 -->",
+        "<!-- kyw-task-contract: 5 -->",
       ),
       testMarkdown: currentTest.replace(
         TASK_CONTRACT_MARKER,
-        "<!-- kyw-task-contract: 2 -->",
+        "<!-- kyw-task-contract: 5 -->",
       ),
-    }),
+    }).join("\n"),
+    /unsupported Task contract version 5/,
+  );
+
+  assert.deepEqual(parseDeliveryRequirement(currentTask, 4), {
+    kind: "STANDARD",
+    releaseVersion: "1.2.3",
+  });
+  assert.deepEqual(
+    parseDeliveryRequirement(
+      currentTask
+        .replace(TASK_CONTRACT_MARKER, "<!-- kyw-task-contract: 3 -->")
+        .replace("- Release version: 1.2.3\n", ""),
+      3,
+    ),
+    { kind: "STANDARD" },
+  );
+  assert.equal(isImmutableTerminalTaskContractVersion(3), true);
+  assert.equal(isImmutableTerminalTaskContractVersion(4), true);
+  assert.equal(isImmutableTerminalTaskContractVersion(2), false);
+
+  for (const malformedReleaseVersion of [
+    "1.2",
+    "01.2.3",
+    "1.02.3",
+    "1.2.03",
+    "1.2.3-rc.1",
+    "1.2.3+build",
+  ]) {
+    assert.match(
+      validateTaskTestContract({
+        taskMarkdown: currentTask.replace(
+          "- Release version: 1.2.3",
+          `- Release version: ${malformedReleaseVersion}`,
+        ),
+        testMarkdown: currentTest,
+      }).join("\n"),
+      /Release version must be an exact stable SemVer/,
+      malformedReleaseVersion,
+    );
+  }
+  assert.match(
+    validateTaskTestContract({
+      taskMarkdown: currentTask.replace("- Release version: 1.2.3\n", ""),
+      testMarkdown: currentTest,
+    }).join("\n"),
+    /requires exactly one Release version/,
+  );
+  assert.match(
+    validateTaskTestContract({
+      taskMarkdown: currentTask.replace(
+        "- Release version: 1.2.3",
+        "- Release version: 1.2.3\n- Release version: 1.2.4",
+      ),
+      testMarkdown: currentTest,
+    }).join("\n"),
+    /requires exactly one Release version/,
+  );
+  const noneTask = currentTask.replace(
+    "- Requirement: STANDARD\n- Release version: 1.2.3\n- Canonical ledger: GitHub PR/Actions exact-SHA state.",
+    "- Requirement: NONE — this fixture has no external delivery.",
+  );
+  assert.deepEqual(
+    validateTaskTestContract({ taskMarkdown: noneTask, testMarkdown: currentTest }),
     [],
-    "pre-cutover contract 2 remains readable without migration",
+  );
+  assert.deepEqual(parseDeliveryRequirement(noneTask, 4), {
+    kind: "NONE",
+    reason: "this fixture has no external delivery.",
+  });
+  assert.match(
+    validateTaskTestContract({
+      taskMarkdown: noneTask.replace(
+        "- Requirement: NONE — this fixture has no external delivery.",
+        "- Requirement: NONE — this fixture has no external delivery.\n- Release version: 1.2.3",
+      ),
+      testMarkdown: currentTest,
+    }).join("\n"),
+    /NONE delivery must not declare a Release version/,
   );
   assert.match(
     validateTaskTestContract({
       taskMarkdown: currentTask.replace(
         TASK_CONTRACT_MARKER,
-        "<!-- kyw-task-contract: 4 -->",
+        "<!-- kyw-task-contract: 3 -->",
       ),
       testMarkdown: currentTest.replace(
         TASK_CONTRACT_MARKER,
-        "<!-- kyw-task-contract: 4 -->",
+        "<!-- kyw-task-contract: 3 -->",
       ),
     }).join("\n"),
-    /unsupported Task contract version 4/,
+    /contracts before 4 must not declare a Release version/,
   );
 
   assert.match(

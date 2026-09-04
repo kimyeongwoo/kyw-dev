@@ -33,7 +33,7 @@ function frontmatterFields(skill) {
   );
 }
 
-test("kyw-deliver exposes only exact-ID STANDARD and public-release routes", async () => {
+test("kyw-deliver exposes one exact-ID STANDARD and eligible public-release route", async () => {
   const [skill, metadata, delivery, publicRelease] = await Promise.all([
     readFile(SKILL_PATH, "utf8"),
     readFile(METADATA_PATH, "utf8"),
@@ -46,20 +46,22 @@ test("kyw-deliver exposes only exact-ID STANDARD and public-release routes", asy
   assert.equal(frontmatter.name, "kyw-deliver");
   assert.match(frontmatter.description, /explicitly invokes exact \$kyw-deliver/);
   assert.match(frontmatter.description, /current STANDARD lifecycle/);
-  assert.match(frontmatter.description, /--public-release/);
-  assert.match(skill, /Only exact `\$kyw-deliver NNNN`[^.]*`STANDARD`-only/);
-  assert.match(skill, /Only exact `\$kyw-deliver NNNN --public-release`/);
-  assert.match(skill, /No other suffix, bare form, Korean\/managed alias, implicit/);
+  assert.match(frontmatter.description, /eligible public release/);
+  assert.match(frontmatter.description, /suffixes/);
+  assert.match(skill, /Only exact `\$kyw-deliver NNNN` selects delivery/);
+  assert.match(skill, /release-bearing contract-4 `STANDARD` Task[^.]*same invocation/i);
+  assert.match(skill, /Every suffix, including `--public-release`[^.]*unsupported/i);
+  assert.match(skill, /bare form, Korean\/managed alias, implicit/);
   assert.match(skill, /\[STANDARD Delivery and Resume\]\(references\/delivery\.md\)/);
   assert.match(
     skill,
-    /if and only if[^.]*exact `--public-release`[^.]*\[Public Release and Resume\]\(references\/public-release\.md\)/i,
+    /Load \[Public Release and Resume\]\(references\/public-release\.md\)[^.]*only after[^.]*release-bearing contract-4 Task[^.]*`FINAL`/i,
   );
-  assert.match(skill, /plain delivery never loads or executes that procedure/i);
-  assert.match(delivery, /canonical detailed Git\/GitHub delivery procedure/);
-  assert.match(publicRelease, /canonical detailed public-release procedure/);
-  assert.match(metadata, /default_prompt: "Use \$kyw-deliver NNNN/);
-  assert.match(metadata, /\$kyw-deliver NNNN --public-release/);
+  assert.match(skill, /Historical contract 1–3 delivery never loads or executes that procedure/i);
+  assert.match(delivery, /canonical detailed Git\/GitHub procedure/);
+  assert.match(publicRelease, /canonical internal public-release procedure/);
+  assert.match(metadata, /default_prompt: "Use exact \$kyw-deliver NNNN/);
+  assert.doesNotMatch(metadata, /--public-release/);
   assert.match(metadata, /policy:\n  allow_implicit_invocation: false\n/);
   assert.doesNotMatch(skill, /task \d{4} 실행해줘|task 진행해줘|남은 task 계속 실행해줘/);
   assert.doesNotMatch(metadata, /^dependencies:/m);
@@ -76,7 +78,8 @@ test("kyw-deliver reuses the sole packaged adapter and owns no duplicate engine"
   );
   assert.match(skill, /\.\.\/kyw-task\/scripts\/task-artifacts\.mjs/);
   assert.match(skill, /task-artifacts\.mjs public-release/);
-  assert.match(skill, /--invocation '\$kyw-deliver NNNN --public-release'/);
+  assert.match(skill, /--invocation '\$kyw-deliver NNNN'/);
+  assert.doesNotMatch(skill, /--invocation '\$kyw-deliver NNNN --public-release'/);
   assert.doesNotMatch(skill, /--delivery-(?:ledger|expectations)(?:-json)?/);
 });
 
@@ -99,7 +102,8 @@ test("kyw-deliver accepts only terminal STANDARD Tasks and keeps immutable resul
     assert.match(skill, new RegExp(state, "i"));
   }
   assert.match(skill, /reasoned `NONE`/);
-  assert.match(skill, /unchanged satisfied contract-3 Task[^.]*immutable\/report-only/i);
+  assert.match(skill, /unchanged satisfied contract-3\/4 Task stays immutable/i);
+  assert.match(skill, /contract 1–3 is report-only[^.]*contract 4 proceeds/i);
   assert.match(delivery, /terminal Task\/Test bytes remain unchanged/);
   assert.match(delivery, /\$kyw-task "<correction outcome>"/);
   assert.match(delivery, /hard-depend on Task NNNN/);
@@ -111,29 +115,26 @@ test("public release is progressively loaded and strictly gated by STANDARD FINA
     readFile(PUBLIC_RELEASE_REFERENCE_PATH, "utf8"),
   ]);
 
-  assert.match(publicRelease, /exact `\$kyw-deliver NNNN --public-release`/);
+  assert.match(publicRelease, /exact `\$kyw-deliver NNNN`/);
+  assert.match(publicRelease, /Every suffix[^.]*`--public-release`[^.]*no public authority/i);
   assert.match(
     publicRelease,
     /npm publication → exact-SHA GitHub tag → GitHub Release/,
   );
   assert.match(
     publicRelease,
-    /Follow \[STANDARD Delivery and Resume\]\(delivery\.md\)[\s\S]*No npm, tag, or Release mutation is eligible until[^.]*production evaluator returns `FINAL`/,
+    /belongs to \[STANDARD Delivery and Resume\]\(delivery\.md\)[\s\S]*No npm, tag, or Release mutation is eligible until[^.]*production evaluator returns `FINAL`/,
   );
   assert.match(publicRelease, /expected-head PR merge[^.]*exact merge SHA and tree/);
   assert.match(publicRelease, /successful post-main evidence[^.]*that SHA/);
   assert.match(
     publicRelease,
-    /Call the sole adapter path[^.]*before STANDARD work:[\s\S]*task-artifacts\.mjs public-release/,
+    /After `STANDARD FINAL`, call the sole internal adapter path once[\s\S]*task-artifacts\.mjs public-release/,
   );
-  assert.match(
-    publicRelease,
-    /fresh result is `DELIVER`[\s\S]{0,240}call this same exact command once more in the same user invocation/,
-  );
-  assert.match(publicRelease, /first result is already `PUBLIC_RELEASE`, do not repeat/);
-  assert.match(publicRelease, /without a second adapter call/);
+  assert.match(publicRelease, /Only a fresh `PUBLIC_RELEASE` selection may enter the public stages/);
+  assert.match(publicRelease, /`DELIVER`, historical\/report-only, or any other result stops/);
   assert.doesNotMatch(publicRelease, /--execution-preflight(?:-json)?/);
-  assert.match(skill, /plain delivery never loads or executes that procedure/i);
+  assert.match(skill, /Historical contract 1–3 delivery never loads or executes that procedure/i);
   assert.doesNotMatch(
     await readFile(DELIVERY_REFERENCE_PATH, "utf8"),
     /^## Perform the ordered public release$/m,
@@ -251,7 +252,7 @@ test("the canonical delivery procedure fixes safe ordering and exact identities"
     "### 6. review and mergeability",
     "### 7. expected-head PR merge",
     "### 8. post-main exact-SHA CI observation",
-    "### 9. final report",
+    "### 9. final STANDARD result",
   ];
   let previous = -1;
   for (const marker of ordered) {
@@ -382,10 +383,7 @@ test("post-merge resume aligns only one proven main fast-forward before the sole
   assert.match(delivery, /old SHA `O` at local `main`, its upstream, and cached `origin\/main`/);
   assert.match(delivery, /newer SHA `N` at both direct-remote and GitHub `main`/);
   assert.match(delivery, /git worktree list --porcelain/);
-  assert.match(
-    delivery,
-    /git fetch --no-tags --no-recurse-submodules --refmap= origin refs\/heads\/main/,
-  );
+  assert.match(delivery, /git fetch --no-tags --no-recurse-submodules --refmap= origin refs\/heads\/main/);
   assert.match(delivery, /`FETCH_HEAD`[^.]*equal `N`/);
   assert.match(delivery, /one `git update-ref --stdin` transaction/);
   assert.match(delivery, /transaction: `start`/);
@@ -393,8 +391,8 @@ test("post-merge resume aligns only one proven main fast-forward before the sole
   assert.match(delivery, /immediate direct-remote and GitHub `N` re-read, `prepare`, and `commit`/);
   assert.match(delivery, /unchanged except that both local refs now equal `N`/);
   assert.match(delivery, /Any other main mismatch remains blocked/);
-  assert.match(delivery, /Call the sole adapter once/);
-  assert.match(delivery, /Never redispatch/);
+  assert.match(delivery, /Call the sole adapter dispatcher exactly once/);
+  assert.match(delivery, /Do not redispatch/);
 });
 
 test("kyw-deliver preserves unrelated work and applies predecessor-only continuity", async () => {
@@ -403,7 +401,11 @@ test("kyw-deliver preserves unrelated work and applies predecessor-only continui
   assert.match(delivery, /stage only the selected Task's exact verified path set/i);
   assert.match(delivery, /unrelated tracked, untracked, staged, and generated work/i);
   assert.match(delivery, /broad staging, cleanup, reset, or destructive recovery/i);
-  assert.match(delivery, /apply-continuity/);
+  assert.doesNotMatch(delivery, /apply-continuity|transition token/i);
+  assert.match(delivery, /dispatcher runs exactly once/i);
+  assert.match(delivery, /apply runs zero or one time/i);
+  assert.match(delivery, /returns no successful delivery selection/i);
+  assert.match(delivery, /blocks commit, push, PR, merge, npm, tag, and Release mutation/i);
   assert.match(delivery, /already delivered predecessors only/i);
   assert.match(delivery, /selected Task cannot cover itself/i);
   assert.match(delivery, /exact replay is idempotent/i);

@@ -66,7 +66,7 @@ function runAdapter(args) {
 function batchTaskMarkdown() {
   return `# TASK {{TASK_ID}} — {{TASK_TITLE}}
 
-<!-- kyw-task-contract: 3 -->
+<!-- kyw-task-contract: 4 -->
 
 ## Status
 
@@ -118,6 +118,7 @@ Deliver one independently verifiable outcome.
 ## Delivery
 
 - Requirement: STANDARD
+- Release version: {{TASK_RELEASE_VERSION}}
 - Canonical ledger: GitHub PR/Actions exact-SHA state.
 
 ## Completed
@@ -141,7 +142,7 @@ Deliver one independently verifiable outcome.
 function batchTestMarkdown() {
   return `# TEST {{TASK_ID}} — {{TASK_TITLE}}
 
-<!-- kyw-task-contract: 3 -->
+<!-- kyw-task-contract: 4 -->
 
 ## Status
 
@@ -193,15 +194,18 @@ READY
 `;
 }
 
+let nextFixtureReleaseVersion = 1;
+
 function batchSpec(tasks) {
   return {
     schemaVersion: 1,
-    tasks: tasks.map(({ key, title, dependencies = [] }) => ({
+    tasks: tasks.map(({ key, title, dependencies = [], releaseVersion }) => ({
       ...(key === undefined ? {} : { key }),
       title,
       taskMarkdown: batchTaskMarkdown(),
       testMarkdown: batchTestMarkdown(),
       dependencies,
+      releaseVersion: releaseVersion ?? `0.0.${nextFixtureReleaseVersion++}`,
     })),
   };
 }
@@ -297,7 +301,7 @@ test("kyw-task keeps one concise authoring artifact contract", async () => {
 
   assert.match(skill, /reasoned N\/A entries only/);
   assert.match(skill, /never leave empty required content, bare None, comments, or template guidance/);
-  assert.match(skill, /contract marker exactly once per artifact/);
+  assert.match(skill, /contract-4 marker exactly once per artifact/);
   assert.match(skill, /do not repeat the contract identity/);
 });
 
@@ -330,7 +334,7 @@ test("kyw-task adaptive authoring materializes the smallest dependency-aware set
   assert.match(skill, /Preserve explicit count, boundaries, order, titles, and dependencies/);
   assert.match(
     skill,
-    /Corrections to delivered contract-3 Tasks use new hard-dependent pairs/,
+    /Corrections to delivered contract-3 or contract-4 Tasks use new hard-dependent pairs/,
   );
   assert.match(
     skill,
@@ -503,8 +507,8 @@ test("kyw-task authoring adapter scaffolds and validates one DRAFT-to-READY pair
   const readyTestMarkdown = await readFile(created.testPath, "utf8");
   assert.match(readyTaskMarkdown, /## Status\n\nREADY/);
   assert.match(readyTestMarkdown, /## Status\n\nREADY/);
-  assert.equal(readyTaskMarkdown.match(/<!-- kyw-task-contract: 3 -->/g)?.length, 1);
-  assert.equal(readyTestMarkdown.match(/<!-- kyw-task-contract: 3 -->/g)?.length, 1);
+  assert.equal(readyTaskMarkdown.match(/<!-- kyw-task-contract: 4 -->/g)?.length, 1);
+  assert.equal(readyTestMarkdown.match(/<!-- kyw-task-contract: 4 -->/g)?.length, 1);
   assert.equal(await readFile(existingMarker, "utf8"), "preserve me\n");
 });
 
