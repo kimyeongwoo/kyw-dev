@@ -1,7 +1,9 @@
-import { createHash } from "node:crypto";
+import { createHash, createPublicKey, verify as verifySignature } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { lstat, readFile, realpath } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, realpath, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
+import { createRequire } from "node:module";
 
 import {
   STANDARD_DELIVERY_CONTINUITY_FILE,
@@ -17,6 +19,11 @@ import {
   writeStandardDeliveryContinuityCheckpoint,
 } from "./task-artifact-continuity.mjs";
 import { evaluateDeliveryEvidence, parseTaskInvocation } from "./task-artifact-delivery.mjs";
+import {
+  classifyPublicReleaseState,
+  derivePublicReleaseWorkflowInputs,
+  freezePublicReleaseTuple,
+} from "./task-artifact-public-release.mjs";
 import {
   inspectTaskQueue,
   parseTaskQueueMarkdownPair,
@@ -43,6 +50,7 @@ const MAX_LOG_BYTES = 8 * 1024 * 1024;
 const COMMAND_TIMEOUT_MS = 30_000;
 const WORKFLOW_PATH = ".github/workflows/ci.yml";
 const FUTURE_TERMINAL_CORRECTION_ROUTE = '$kyw-task "<correction outcome>"';
+const requireFromRuntime = createRequire(import.meta.url);
 
 function hydrationError(taskId, role, message, code = "DELIVERY_HYDRATION_FAILED") {
   const taskLabel = taskId ? `Task ${taskId}` : "delivery hydration";
@@ -2743,7 +2751,14 @@ export function createGitHubEvidenceClient({
   async function api(endpoint, { taskId, role }) {
     const result = await commandCache.run({
       command: "gh",
-      args: ["api", "--method", "GET", endpoint],
+      args: [
+        "api",
+        "--hostname",
+        "github.com",
+        "--method",
+        "GET",
+        endpoint,
+      ],
       cwd: repositoryRoot,
       taskId,
       role,
@@ -2888,7 +2903,7 @@ export function createGitHubEvidenceClient({
           "view",
           String(runId),
           "--repo",
-          repository,
+          `github.com/${repository}`,
           "--attempt",
           String(attempt),
           "--job",
@@ -5079,9 +5094,14 @@ async function mergeSelectedStandardDeliverySnapshot({
   currentDeliveryHydrator,
   currentDeliveryProbe,
   allowCurrentDeliveryProbe = false,
+  forceCurrentDeliveryRevalidation = false,
 }) {
   const selectedTask = currentDeliveryTask;
-  if (!selectedTask || hydrated.deliveryLedger[selectedTask.id] !== undefined) {
+  if (
+    !selectedTask ||
+    (!forceCurrentDeliveryRevalidation &&
+      hydrated.deliveryLedger[selectedTask.id] !== undefined)
+  ) {
     return hydrated;
   }
   const contractTasks = Object.freeze(
@@ -5100,8 +5120,18 @@ async function mergeSelectedStandardDeliverySnapshot({
     currentDeliveryProbe,
     allowCurrentDeliveryProbe,
   });
+  const priorDeliveryLedger = Object.fromEntries(
+    Object.entries(hydrated.deliveryLedger).filter(
+      ([taskId]) => taskId !== selectedTask.id,
+    ),
+  );
+  const priorDeliveryExpectations = Object.fromEntries(
+    Object.entries(hydrated.deliveryExpectations).filter(
+      ([taskId]) => taskId !== selectedTask.id,
+    ),
+  );
   const acceptedIds = new Set(
-    Object.values(hydrated.deliveryLedger).flatMap(evidenceJobIds),
+    Object.values(priorDeliveryLedger).flatMap(evidenceJobIds),
   );
   for (const entry of Object.values(current.deliveryLedger)) {
     for (const jobId of evidenceJobIds(entry)) {
@@ -5117,11 +5147,11 @@ async function mergeSelectedStandardDeliverySnapshot({
   }
   return freezeHydrationResult({
     deliveryLedger: {
-      ...hydrated.deliveryLedger,
+      ...priorDeliveryLedger,
       ...current.deliveryLedger,
     },
     deliveryExpectations: {
-      ...hydrated.deliveryExpectations,
+      ...priorDeliveryExpectations,
       ...current.deliveryExpectations,
     },
     preparedCheckpoint: hydrated.preparedCheckpoint,
@@ -5136,6 +5166,9 @@ async function mergeSelectedStandardDeliverySnapshot({
         ...current.chronology,
       ]),
       currentDelivery: current.diagnostics,
+      ...(forceCurrentDeliveryRevalidation
+        ? { publicReleaseStandardRevalidation: true }
+        : {}),
     },
   });
 }
@@ -6172,6 +6205,8 @@ export async function hydratePriorStandardDeliveries({
       currentDeliveryHydrator,
       currentDeliveryProbe,
       allowCurrentDeliveryProbe: parsedInvocation.route === "DELIVERY",
+      forceCurrentDeliveryRevalidation:
+        parsedInvocation.deliveryMode === "PUBLIC_RELEASE",
     });
   if (requiredTasks.length === 0) {
     await rethrowProvenImmutableTerminalDrift();
@@ -6670,4 +6705,2684 @@ export async function hydratePriorStandardDeliveries({
       }),
     },
   }));
+}
+
+const PUBLIC_RELEASE_WORKFLOW_PATH = ".github/workflows/publish.yml";
+const PUBLIC_RELEASE_WORKFLOW_NAME = "Publish npm package through OIDC";
+const PUBLIC_RELEASE_WORKFLOW_CONTRACT_SHA256 =
+  "0342dd6ce165b80f4dffa343b2e014d10adece67db23c94fbc7be44f507600ee";
+const PUBLIC_REGISTRY = "https://registry.npmjs.org/";
+const PUBLIC_RELEASE_MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
+const PUBLIC_RELEASE_MAX_TARBALL_BYTES = PUBLIC_RELEASE_MAX_RESPONSE_BYTES;
+const PUBLIC_RELEASE_MAX_PACK_ENTRIES = 256;
+const PUBLIC_RELEASE_MAX_PACK_PATH_BYTES = 512;
+const PUBLIC_RELEASE_COMMAND =
+  "npm publish . --access public --ignore-scripts --registry=https://registry.npmjs.org/";
+const PUBLIC_RELEASE_LIFECYCLE_SCRIPTS = Object.freeze([
+  "preinstall",
+  "install",
+  "postinstall",
+  "prepare",
+  "prepack",
+  "postpack",
+  "prepublish",
+  "prepublishOnly",
+  "publish",
+  "postpublish",
+]);
+
+function publicReleaseHydrationError(role, message, code = "PUBLIC_RELEASE_HYDRATION_FAILED") {
+  return new TaskArtifactError(code, `public release ${role}: ${message}`);
+}
+
+function boundedText(value, role) {
+  const text = String(value ?? "");
+  if (Buffer.byteLength(text, "utf8") > PUBLIC_RELEASE_MAX_RESPONSE_BYTES) {
+    throw publicReleaseHydrationError(
+      role,
+      `response exceeds ${PUBLIC_RELEASE_MAX_RESPONSE_BYTES} bytes`,
+      "PUBLIC_RELEASE_RESPONSE_BOUND_EXCEEDED",
+    );
+  }
+  return text;
+}
+
+async function runPublicReleaseCommand({
+  runner = defaultCommandRunner,
+  command,
+  args,
+  cwd,
+  role,
+  allowFailure = false,
+}) {
+  let result;
+  try {
+    result = await runner({
+      command,
+      args: [...args],
+      cwd: path.resolve(cwd),
+      timeoutMs: COMMAND_TIMEOUT_MS,
+      maxBuffer: PUBLIC_RELEASE_MAX_RESPONSE_BYTES,
+    });
+  } catch {
+    throw publicReleaseHydrationError(
+      role,
+      "command runner failed; canonical evidence is unavailable",
+      "PUBLIC_RELEASE_EXTERNAL_FAILURE",
+    );
+  }
+  const normalized = {
+    status: result?.status,
+    signal: result?.signal,
+    stdout: boundedText(result?.stdout, role),
+    stderr: boundedText(result?.stderr, role),
+    error: result?.error,
+  };
+  if (normalized.status !== 0 && !allowFailure) {
+    throw publicReleaseHydrationError(
+      role,
+      `${failureKind(normalized)}; canonical evidence is unavailable`,
+      "PUBLIC_RELEASE_EXTERNAL_FAILURE",
+    );
+  }
+  return normalized;
+}
+
+function publicReleaseUrl(base, relativePath, sequence) {
+  const target = new URL(relativePath, base);
+  target.searchParams.set("kyw-public-read", String(sequence ?? 1));
+  return target;
+}
+
+async function fetchPublicReleaseBytes({
+  fetchImpl,
+  url,
+  role,
+  allowNotFound = false,
+}) {
+  if (typeof fetchImpl !== "function") {
+    throw publicReleaseHydrationError(
+      role,
+      "fetch is unavailable",
+      "PUBLIC_RELEASE_EXTERNAL_FAILURE",
+    );
+  }
+  let response;
+  try {
+    response = await fetchImpl(url, {
+      method: "GET",
+      cache: "no-store",
+      redirect: "error",
+      signal: AbortSignal.timeout(COMMAND_TIMEOUT_MS),
+      headers: Object.freeze({
+        accept: "application/json, application/octet-stream;q=0.9",
+        "cache-control": "no-cache, no-store, max-age=0",
+        pragma: "no-cache",
+      }),
+    });
+  } catch {
+    throw publicReleaseHydrationError(
+      role,
+      "canonical read failed",
+      "PUBLIC_RELEASE_EXTERNAL_FAILURE",
+    );
+  }
+  if (response?.status === 404 && allowNotFound) {
+    return Object.freeze({ status: 404, bytes: undefined });
+  }
+  if (!response?.ok) {
+    throw publicReleaseHydrationError(
+      role,
+      `canonical read returned status ${response?.status ?? "UNKNOWN"}`,
+      "PUBLIC_RELEASE_EXTERNAL_FAILURE",
+    );
+  }
+  const declaredLength = response.headers?.get?.("content-length");
+  if (
+    declaredLength !== null &&
+    declaredLength !== undefined &&
+    (!/^(?:0|[1-9]\d*)$/u.test(declaredLength) ||
+      Number(declaredLength) > PUBLIC_RELEASE_MAX_RESPONSE_BYTES)
+  ) {
+    throw publicReleaseHydrationError(
+      role,
+      `response exceeds ${PUBLIC_RELEASE_MAX_RESPONSE_BYTES} bytes`,
+      "PUBLIC_RELEASE_RESPONSE_BOUND_EXCEEDED",
+    );
+  }
+  if (response.body === null || response.body === undefined) {
+    return Object.freeze({ status: response.status, bytes: Buffer.alloc(0) });
+  }
+  if (typeof response.body.getReader !== "function") {
+    throw publicReleaseHydrationError(
+      role,
+      "canonical response body cannot be read through the bounded stream boundary",
+      "PUBLIC_RELEASE_EXTERNAL_FAILURE",
+    );
+  }
+  const reader = response.body.getReader();
+  const chunks = [];
+  let receivedBytes = 0;
+  try {
+    while (true) {
+      const chunk = await reader.read();
+      if (chunk?.done === true) break;
+      if (!(chunk?.value instanceof Uint8Array)) {
+        throw publicReleaseHydrationError(
+          role,
+          "canonical response returned a malformed body chunk",
+          "PUBLIC_RELEASE_EXTERNAL_FAILURE",
+        );
+      }
+      receivedBytes += chunk.value.byteLength;
+      if (receivedBytes > PUBLIC_RELEASE_MAX_RESPONSE_BYTES) {
+        try {
+          await reader.cancel();
+        } catch {
+          // The bounded read has already failed closed; cancellation is best effort.
+        }
+        throw publicReleaseHydrationError(
+          role,
+          `response exceeds ${PUBLIC_RELEASE_MAX_RESPONSE_BYTES} bytes`,
+          "PUBLIC_RELEASE_RESPONSE_BOUND_EXCEEDED",
+        );
+      }
+      chunks.push(Buffer.from(chunk.value));
+    }
+  } catch (error) {
+    if (error instanceof TaskArtifactError) throw error;
+    throw publicReleaseHydrationError(
+      role,
+      "canonical response body read failed",
+      "PUBLIC_RELEASE_EXTERNAL_FAILURE",
+    );
+  } finally {
+    reader.releaseLock?.();
+  }
+  const buffer = Buffer.concat(chunks, receivedBytes);
+  return Object.freeze({ status: response.status, bytes: buffer });
+}
+
+async function fetchPublicReleaseJson(options) {
+  const response = await fetchPublicReleaseBytes(options);
+  if (response.status === 404) return Object.freeze({ status: 404, value: null });
+  let value;
+  try {
+    value = JSON.parse(response.bytes.toString("utf8"));
+  } catch {
+    throw publicReleaseHydrationError(
+      options.role,
+      "canonical endpoint returned malformed JSON",
+      "PUBLIC_RELEASE_EXTERNAL_FAILURE",
+    );
+  }
+  return Object.freeze({ status: response.status, value });
+}
+
+function parseJsonBlob(text, role) {
+  try {
+    const value = JSON.parse(text);
+    if (!isRecord(value)) throw new TypeError("expected an object");
+    return value;
+  } catch {
+    throw publicReleaseHydrationError(role, "repository JSON is malformed");
+  }
+}
+
+async function readCommitFile(commandCache, repositoryRoot, revision, relativePath, role) {
+  const result = await commandCache.run({
+    command: "git",
+    args: ["show", `${revision}:${relativePath}`],
+    cwd: repositoryRoot,
+    role,
+    maxBuffer: PUBLIC_RELEASE_MAX_RESPONSE_BYTES,
+  });
+  return boundedText(result.stdout, role);
+}
+
+function normalizedPackageRepository(value) {
+  return typeof value === "string" ? value : value?.url;
+}
+
+function stableVersionParts(value) {
+  const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/u.exec(value);
+  return match ? match.slice(1).map(Number) : undefined;
+}
+
+function compareStableVersions(left, right) {
+  const leftParts = stableVersionParts(left);
+  const rightParts = stableVersionParts(right);
+  if (!leftParts || !rightParts) return String(left).localeCompare(String(right));
+  for (let index = 0; index < leftParts.length; index += 1) {
+    if (leftParts[index] !== rightParts[index]) {
+      return leftParts[index] - rightParts[index];
+    }
+  }
+  return 0;
+}
+
+function decodeCanonicalBase64(value) {
+  if (
+    typeof value !== "string" ||
+    !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u.test(
+      value,
+    )
+  ) {
+    return undefined;
+  }
+  const bytes = Buffer.from(value, "base64");
+  if (bytes.length < 1 || bytes.toString("base64") !== value) return undefined;
+  return bytes;
+}
+
+function parseRegistrySigningPublicKey(value) {
+  const bytes = decodeCanonicalBase64(value);
+  if (!bytes) return undefined;
+  try {
+    const publicKey = createPublicKey({ key: bytes, format: "der", type: "spki" });
+    verifySignature("sha256", Buffer.alloc(0), publicKey, Buffer.alloc(0));
+    return publicKey;
+  } catch {
+    return undefined;
+  }
+}
+
+function selectCurrentRegistrySigningKey(
+  rawKeys,
+  expectedKeyId,
+  {
+    validAt = Date.now(),
+    requireSoleActive = expectedKeyId === undefined,
+  } = {},
+) {
+  if (!Array.isArray(rawKeys?.keys)) {
+    throw publicReleaseHydrationError("REGISTRY_KEYS", "signing-key response is malformed");
+  }
+  if (
+    rawKeys.keys.some(
+      (key) =>
+        !isRecord(key) ||
+        typeof key.keyid !== "string" ||
+        !key.keyid ||
+        /\s/u.test(key.keyid) ||
+        Buffer.byteLength(key.keyid, "utf8") > 256 ||
+        parseRegistrySigningPublicKey(key.key) === undefined ||
+        !(
+          key.expires === null ||
+          (typeof key.expires === "string" &&
+            Number.isFinite(Date.parse(key.expires)))
+        ),
+    )
+  ) {
+    throw publicReleaseHydrationError(
+      "REGISTRY_KEYS",
+      "signing-key response contains an unreadable key record",
+    );
+  }
+  const allActive = rawKeys.keys.filter(
+    (key) => key.expires === null || Date.parse(key.expires) > validAt,
+  );
+  const active =
+    expectedKeyId === undefined
+      ? allActive
+      : allActive.filter((key) => key.keyid === expectedKeyId);
+  if (
+    requireSoleActive &&
+    (allActive.length !== 1 ||
+      (expectedKeyId !== undefined && allActive[0]?.keyid !== expectedKeyId))
+  ) {
+    throw publicReleaseHydrationError(
+      "REGISTRY_KEYS",
+      "the canonical registry does not expose one exact current signing key",
+    );
+  }
+  if (active.length !== 1) {
+    throw publicReleaseHydrationError(
+      "REGISTRY_KEYS",
+      expectedKeyId === undefined
+        ? "the canonical registry does not expose exactly one unambiguous current signing key"
+        : "the frozen signing key does not map to exactly one active canonical registry key",
+    );
+  }
+  return active[0];
+}
+
+function assertPublicReleaseSourceContract({
+  packageJson,
+  pluginJson,
+  workflowText,
+  repository,
+}) {
+  const publishConfig = packageJson.publishConfig;
+  const publishConfigKeys = isRecord(publishConfig)
+    ? Object.keys(publishConfig).sort()
+    : [];
+  const publishConfigPrototype = isRecord(publishConfig)
+    ? Object.getPrototypeOf(publishConfig)
+    : undefined;
+  if (
+    packageJson.name !== pluginJson.name ||
+    packageJson.version !== pluginJson.version ||
+    !stableVersionParts(packageJson.version)
+  ) {
+    throw publicReleaseHydrationError(
+      "SOURCE_IDENTITY",
+      "package and plugin name/version are not one stable exact identity",
+    );
+  }
+  if (
+    parseRepositorySlug(normalizedPackageRepository(packageJson.repository)) !==
+      repository ||
+    !isRecord(publishConfig) ||
+    (publishConfigPrototype !== Object.prototype &&
+      publishConfigPrototype !== null) ||
+    publishConfigKeys.length !== 2 ||
+    publishConfigKeys[0] !== "access" ||
+    publishConfigKeys[1] !== "registry" ||
+    publishConfig.access !== "public" ||
+    publishConfig.registry !== PUBLIC_REGISTRY ||
+    packageJson.private !== false
+  ) {
+    throw publicReleaseHydrationError(
+      "SOURCE_IDENTITY",
+      "package repository/access/registry identity is not the expected public tuple",
+    );
+  }
+  if (
+    [
+      "dependencies",
+      "devDependencies",
+      "optionalDependencies",
+      "bundledDependencies",
+      "bundleDependencies",
+      "peerDependencies",
+      "peerDependenciesMeta",
+    ].some((name) => Object.hasOwn(packageJson, name)) ||
+    PUBLIC_RELEASE_LIFECYCLE_SCRIPTS.some((name) =>
+      Object.hasOwn(packageJson.scripts ?? {}, name),
+    )
+  ) {
+    throw publicReleaseHydrationError(
+      "SOURCE_IDENTITY",
+      "package dependencies or lifecycle scripts violate the public-release contract",
+    );
+  }
+  const requiredWorkflowFragments = [
+    `name: ${PUBLIC_RELEASE_WORKFLOW_NAME}`,
+    "  workflow_dispatch:",
+    "      expected_sha:",
+    "      expected_version:",
+    "      expected_tarball_bytes:",
+    "      expected_tarball_sha256:",
+    "      expected_tarball_shasum:",
+    "      expected_tarball_integrity:",
+    "      expected_packed_entries_sha256:",
+    "      expected_prior_versions_sha256:",
+    "      expected_prior_latest:",
+    "      expected_signing_key_id:",
+    "permissions: {}",
+    "  cancel-in-progress: false",
+    "    timeout-minutes: 30",
+    "    environment: npm-production",
+    "      actions: read",
+    "      contents: read",
+    "      id-token: write",
+    "          persist-credentials: false",
+    "          ref: ${{ inputs.expected_sha }}",
+    '          test "$ACTUAL_EVENT" = "workflow_dispatch"',
+    '          test "$ACTUAL_REPOSITORY" = "' + repository + '"',
+    '          test "$ACTUAL_REF" = "refs/heads/main"',
+    '          test "$ACTUAL_SHA" = "$EXPECTED_SHA"',
+    '          test "$(git rev-parse HEAD)" = "${{ inputs.expected_sha }}"',
+    '          test -z "$(git status --porcelain --untracked-files=all)"',
+    "      - name: Guard checkout, runtime, and package identity",
+    "      - name: Require frozen packed artifact and registry preconditions",
+    "      - name: Publish the exact checkout directory through OIDC",
+    '          const keysUrl = new URL("-/npm/v1/keys", "https://registry.npmjs.org/");',
+    '          const packageName = JSON.parse(readFileSync("package.json", "utf8")).name;',
+    '            typeof packageJson.name !== "string" ||',
+    "              `git+https://github.com/${expectedRepository}.git` ||",
+    "            JSON.stringify(Object.keys(packageJson.publishConfig).sort()) !==",
+    "              '[\"access\",\"registry\"]' ||",
+    `run: ${PUBLIC_RELEASE_COMMAND}`,
+  ];
+  const triggerBlock = /^on:\s*\r?\n([\s\S]*?)(?=^[^\s#])/mu.exec(workflowText)?.[1];
+  const triggerKeys = triggerBlock
+    ? [...triggerBlock.matchAll(/^  ([a-zA-Z0-9_-]+):/gmu)].map(
+        (match) => match[1],
+      )
+    : [];
+  const uses = [...workflowText.matchAll(/^\s*uses:\s*(\S+)\s*(?:#.*)?$/gmu)].map(
+    (match) => match[1],
+  );
+  const exactPinnedUses =
+    uses.length === 2 &&
+    /^actions\/checkout@[0-9a-f]{40}$/u.test(uses[0]) &&
+    /^actions\/setup-node@[0-9a-f]{40}$/u.test(uses[1]);
+  const publishCommands = workflowText.match(/\bnpm\s+publish\b/gu) ?? [];
+  const forbiddenWorkflowPatterns = [
+    /\b(?:npm\s+(?:login|adduser)|NODE_AUTH_TOKEN|NPM_TOKEN|_authToken|always-auth)\b/iu,
+    /\bsecrets\.[A-Za-z0-9_]+\b/u,
+    /\bgh\s+run\s+rerun\b/iu,
+    /\/rerun\b/iu,
+    /^\s*continue-on-error\s*:/mu,
+    /^\s*strategy\s*:/mu,
+    /\b(?:curl|wget)\b[^\r\n]*(?:npmjs|registry)/iu,
+  ];
+  const workflowContractDigest = createHash("sha256")
+    .update(
+      workflowText
+        .replaceAll("\r\n", "\n")
+        .replaceAll(repository, "<REPOSITORY>"),
+    )
+    .digest("hex");
+  if (
+    requiredWorkflowFragments.some((fragment) => !workflowText.includes(fragment)) ||
+    workflowText.split(`run: ${PUBLIC_RELEASE_COMMAND}`).length !== 2 ||
+    triggerKeys.length !== 1 ||
+    triggerKeys[0] !== "workflow_dispatch" ||
+    !exactPinnedUses ||
+    publishCommands.length !== 1 ||
+    workflowContractDigest !== PUBLIC_RELEASE_WORKFLOW_CONTRACT_SHA256 ||
+    forbiddenWorkflowPatterns.some((pattern) => pattern.test(workflowText))
+  ) {
+    throw publicReleaseHydrationError(
+      "PUBLISH_WORKFLOW",
+      "repository publication workflow does not retain the exact manual one-publish contract",
+    );
+  }
+}
+
+function safePackagePaths(packageJson) {
+  const candidates = ["package.json", ...(packageJson.files ?? [])];
+  if (
+    !Array.isArray(packageJson.files) ||
+    candidates.some(
+      (value) =>
+        typeof value !== "string" ||
+        !value ||
+        path.posix.isAbsolute(value) ||
+        value.includes("\\") ||
+        value.split("/").includes(".."),
+    )
+  ) {
+    throw publicReleaseHydrationError(
+      "PACK_INPUT",
+      "package files allowlist is missing or contains an unsafe path",
+    );
+  }
+  return Object.freeze([...new Set(candidates)]);
+}
+
+function normalizedPackEntries(report) {
+  if (
+    !Array.isArray(report?.files) ||
+    report.files.length < 1 ||
+    report.files.length > PUBLIC_RELEASE_MAX_PACK_ENTRIES
+  ) {
+    throw publicReleaseHydrationError(
+      "PACK",
+      "npm pack entry report is missing or exceeds the bounded entry count",
+    );
+  }
+  const entries = report.files.map((file) => file?.path);
+  if (
+    entries.some(
+      (entry) =>
+        typeof entry !== "string" ||
+        !entry ||
+        Buffer.byteLength(entry, "utf8") > PUBLIC_RELEASE_MAX_PACK_PATH_BYTES ||
+        path.posix.isAbsolute(entry) ||
+        entry.includes("\\") ||
+        entry
+          .split("/")
+          .some((segment) => !segment || segment === "." || segment === ".."),
+    ) ||
+    new Set(entries).size !== entries.length
+  ) {
+    throw publicReleaseHydrationError(
+      "PACK",
+      "npm pack entry report contains an unsafe or duplicate path",
+    );
+  }
+  return Object.freeze(entries.sort());
+}
+
+async function createExactPublicReleaseTarball({
+  commandCache,
+  commandRunner,
+  repositoryRoot,
+  mergeSha,
+  packageJson,
+}) {
+  safePackagePaths(packageJson);
+  const npmrc = await commandCache.run({
+    command: "git",
+    args: ["cat-file", "-e", `${mergeSha}:.npmrc`],
+    cwd: repositoryRoot,
+    role: "PACK_INPUT",
+    allowFailure: true,
+  });
+  if (npmrc.status === 0) {
+    throw publicReleaseHydrationError(
+      "PACK_INPUT",
+      "the exact delivered merge contains .npmrc",
+    );
+  }
+
+  const temporaryRoot = await mkdtemp(path.join(tmpdir(), "kyw-public-release-pack-"));
+  try {
+    const sourceRoot = path.join(temporaryRoot, "source");
+    const packRoot = path.join(temporaryRoot, "pack");
+    const archivePath = path.join(temporaryRoot, "source.tar");
+    await Promise.all([mkdir(sourceRoot), mkdir(packRoot)]);
+    await runPublicReleaseCommand({
+      runner: commandRunner,
+      command: "git",
+      args: ["archive", "--format=tar", `--output=${archivePath}`, mergeSha],
+      cwd: repositoryRoot,
+      role: "PACK_ARCHIVE",
+    });
+    await runPublicReleaseCommand({
+      runner: commandRunner,
+      command: "tar",
+      args: ["-xf", archivePath, "-C", sourceRoot],
+      cwd: repositoryRoot,
+      role: "PACK_ARCHIVE",
+    });
+    const npmPackArgs = [
+      "pack",
+      "--json",
+      "--ignore-scripts",
+      "--pack-destination",
+      packRoot,
+    ];
+    const result = await runPublicReleaseCommand({
+      runner: commandRunner,
+      command: process.platform === "win32" ? process.execPath : "npm",
+      args:
+        process.platform === "win32"
+          ? [
+              path.join(
+                path.dirname(process.execPath),
+                "node_modules",
+                "npm",
+                "bin",
+                "npm-cli.js",
+              ),
+              ...npmPackArgs,
+            ]
+          : npmPackArgs,
+      cwd: sourceRoot,
+      role: "PACK",
+    });
+    let report;
+    try {
+      const parsed = JSON.parse(result.stdout);
+      if (!Array.isArray(parsed) || parsed.length !== 1 || !isRecord(parsed[0])) {
+        throw new TypeError("unexpected report");
+      }
+      report = parsed[0];
+    } catch {
+      throw publicReleaseHydrationError("PACK", "npm pack returned malformed JSON");
+    }
+    if (
+      typeof report.filename !== "string" ||
+      !report.filename ||
+      report.filename === "." ||
+      report.filename === ".." ||
+      path.basename(report.filename) !== report.filename
+    ) {
+      throw publicReleaseHydrationError("PACK", "npm pack returned an unsafe filename");
+    }
+    const packedArchivePath = path.join(packRoot, report.filename);
+    const packedArchiveState = await lstat(packedArchivePath);
+    if (
+      packedArchiveState.isSymbolicLink() ||
+      !packedArchiveState.isFile() ||
+      packedArchiveState.size < 1 ||
+      packedArchiveState.size > PUBLIC_RELEASE_MAX_TARBALL_BYTES
+    ) {
+      throw publicReleaseHydrationError(
+        "PACK",
+        `generated archive must be a regular file between 1 and ${PUBLIC_RELEASE_MAX_TARBALL_BYTES} bytes`,
+      );
+    }
+    const archive = await readFile(packedArchivePath);
+    const entries = normalizedPackEntries(report);
+    const integrity = `sha512-${createHash("sha512").update(archive).digest("base64")}`;
+    const shasum = createHash("sha1").update(archive).digest("hex");
+    if (
+      archive.length < 1 ||
+      report.size !== archive.length ||
+      report.integrity !== integrity ||
+      report.shasum !== shasum ||
+      report.name !== packageJson.name ||
+      report.version !== packageJson.version
+    ) {
+      throw publicReleaseHydrationError(
+        "PACK",
+        "npm pack report does not match the exact generated archive",
+      );
+    }
+    return Object.freeze({
+      identity: Object.freeze({
+        bytes: archive.length,
+        integrity,
+        shasum,
+        sha256: createHash("sha256").update(archive).digest("hex"),
+        entries,
+      }),
+      archiveBytes: archive,
+      entries,
+    });
+  } finally {
+    await rm(temporaryRoot, { recursive: true, force: true });
+  }
+}
+
+function githubEndpointSegment(value) {
+  return encodeURIComponent(value).replaceAll("%2F", "/");
+}
+
+function isGitHubNotFound(result) {
+  return (
+    result?.status !== 0 &&
+    /(?:HTTP\s+404|status\s+404|not found)/iu.test(String(result.stderr ?? ""))
+  );
+}
+
+async function parseGitHubJsonCommand({
+  runner,
+  repositoryRoot,
+  args,
+  role,
+  allowNotFound = false,
+}) {
+  const result = await runPublicReleaseCommand({
+    runner,
+    command: "gh",
+    args,
+    cwd: repositoryRoot,
+    role,
+    allowFailure: allowNotFound,
+  });
+  if (allowNotFound && isGitHubNotFound(result)) return null;
+  if (result.status !== 0) {
+    throw publicReleaseHydrationError(
+      role,
+      `${failureKind(result)}; canonical GitHub evidence is unavailable`,
+      "PUBLIC_RELEASE_EXTERNAL_FAILURE",
+    );
+  }
+  if (!result.stdout.trim()) return Object.freeze({});
+  try {
+    return JSON.parse(result.stdout);
+  } catch {
+    throw publicReleaseHydrationError(
+      role,
+      "GitHub returned malformed JSON",
+      "PUBLIC_RELEASE_EXTERNAL_FAILURE",
+    );
+  }
+}
+
+function publishEvidenceFromLog(log) {
+  const dispatchMatches = [
+    ...log.matchAll(
+      /KYWPUBLISHEVIDENCE schema=1 stage=dispatch repository=(\S+) event=(\S+) ref=(\S+) expected_sha=([0-9a-f]{40}) expected_version=(\S+) expected_tarball_bytes=(\d+) expected_tarball_sha256=([0-9a-f]{64}) expected_tarball_shasum=([0-9a-f]{40}) expected_tarball_integrity=(sha512-\S+) expected_packed_entries_sha256=([0-9a-f]{64}) expected_prior_versions_sha256=([0-9a-f]{64}) expected_prior_latest=(\S+) expected_signing_key_id=(\S+)/gu,
+    ),
+  ];
+  const sourceMatches = [
+    ...log.matchAll(
+      /KYWPUBLISHEVIDENCE schema=1 stage=source expected_sha=([0-9a-f]{40}) actual_sha=([0-9a-f]{40}) package=(\S+) version=(\S+)/gu,
+    ),
+  ];
+  const dispatch = dispatchMatches.length === 1 ? dispatchMatches[0] : undefined;
+  const source = sourceMatches.length === 1 ? sourceMatches[0] : undefined;
+  return Object.freeze({
+    inputs: dispatch
+      ? Object.freeze({
+          expectedSha: dispatch[4],
+          expectedVersion: dispatch[5],
+          expectedTarballBytes: dispatch[6],
+          expectedTarballSha256: dispatch[7],
+          expectedTarballShasum: dispatch[8],
+          expectedTarballIntegrity: dispatch[9],
+          expectedPackedEntriesSha256: dispatch[10],
+          expectedPriorVersionsSha256: dispatch[11],
+          expectedPriorLatest: dispatch[12],
+          expectedSigningKeyId: dispatch[13],
+        })
+      : undefined,
+    checkoutSha: source?.[2],
+  });
+}
+
+function normalizeGitHubWorkflow(raw, expectedPath) {
+  return Object.freeze({
+    id: positiveInteger(raw?.id) ? raw.id : undefined,
+    name: raw?.name,
+    path: raw?.path,
+    state: raw?.state,
+    expectedPath,
+  });
+}
+
+function normalizeTagObject(tuple, rawRef, peeled) {
+  const objectType = rawRef?.object?.type;
+  return Object.freeze({
+    repository: tuple.repository,
+    ref: rawRef?.ref,
+    objectType,
+    ...(objectType === "commit" ? { targetSha: rawRef?.object?.sha } : {}),
+    ...(objectType === "tag"
+      ? {
+          peelComplete:
+            peeled === undefined ? undefined : peeled?.type === "commit",
+          peeledSha: peeled?.type === "commit" ? peeled.sha : undefined,
+        }
+      : {}),
+  });
+}
+
+async function peelGitHubTag({
+  tuple,
+  rawRef,
+  githubGet,
+  context,
+}) {
+  const object = rawRef?.object;
+  if (object?.type !== "tag") return object;
+  if (!SHA_PATTERN.test(object.sha ?? "")) return undefined;
+  const tagObject = await githubGet(
+    `repos/${tuple.repository}/git/tags/${object.sha}`,
+    "TAG_PEEL",
+    { context },
+  );
+  if (
+    !isRecord(tagObject) ||
+    !SHA_PATTERN.test(tagObject.sha ?? "") ||
+    typeof tagObject.tag !== "string" ||
+    !isRecord(tagObject.object) ||
+    typeof tagObject.object.type !== "string" ||
+    !SHA_PATTERN.test(tagObject.object.sha ?? "")
+  ) {
+    return undefined;
+  }
+  if (
+    tagObject.sha !== object.sha ||
+    tagObject.tag !== tuple.tag.name ||
+    tagObject.object.type !== "commit"
+  ) {
+    return Object.freeze({ conflict: true });
+  }
+  return tagObject.object;
+}
+
+function normalizedReleaseBody(release) {
+  return Object.hasOwn(release, "body") ? (release.body ?? "") : undefined;
+}
+
+function normalizedReleaseAssets(release) {
+  return Object.hasOwn(release, "assets") && Array.isArray(release.assets)
+    ? Object.freeze([...release.assets])
+    : release.assets;
+}
+
+function releaseEndpointIdentity(release) {
+  if (!isRecord(release)) return undefined;
+  const assets = normalizedReleaseAssets(release);
+  return JSON.stringify({
+    id: release.id,
+    tagName: release.tag_name,
+    title: release.name,
+    body: normalizedReleaseBody(release),
+    draft: release.draft,
+    prerelease: release.prerelease,
+    assets: Array.isArray(assets) ? assets : { unreadable: true },
+  });
+}
+
+function packageUrlPath(name, suffix = "") {
+  return `${encodeURIComponent(name)}${suffix}`;
+}
+
+function registryRepository(metadata) {
+  return normalizedPackageRepository(metadata?.repository);
+}
+
+function registryImmutableVersionIdentity(metadata) {
+  if (
+    !isRecord(metadata) ||
+    !isRecord(metadata.dist) ||
+    !Array.isArray(metadata.dist.signatures)
+  ) {
+    return undefined;
+  }
+  const signatures = metadata.dist.signatures.map((signature) => ({
+    keyid: signature?.keyid,
+    sig: signature?.sig,
+  }));
+  if (
+    signatures.some(
+      (signature) =>
+        typeof signature.keyid !== "string" || typeof signature.sig !== "string",
+    )
+  ) {
+    return undefined;
+  }
+  return JSON.stringify({
+    name: metadata.name,
+    version: metadata.version,
+    repository: registryRepository(metadata),
+    gitHead: metadata.gitHead,
+    dist: {
+      tarball: metadata.dist.tarball,
+      integrity: metadata.dist.integrity,
+      shasum: metadata.dist.shasum,
+      signatures,
+    },
+  });
+}
+
+function parseGitHubWorkflowInvocationId(value, repository) {
+  try {
+    const target = new URL(value);
+    const [owner, name] = repository.split("/");
+    const segments = target.pathname.split("/").filter(Boolean);
+    if (
+      target.protocol !== "https:" ||
+      target.hostname !== "github.com" ||
+      target.port ||
+      target.username ||
+      target.password ||
+      target.search ||
+      target.hash ||
+      segments.length !== 7 ||
+      segments[0] !== owner ||
+      segments[1] !== name ||
+      segments[2] !== "actions" ||
+      segments[3] !== "runs" ||
+      segments[5] !== "attempts" ||
+      !/^[1-9]\d*$/u.test(segments[4]) ||
+      !/^[1-9]\d*$/u.test(segments[6])
+    ) {
+      return undefined;
+    }
+    const runId = Number(segments[4]);
+    const runAttempt = Number(segments[6]);
+    return Number.isSafeInteger(runId) && Number.isSafeInteger(runAttempt)
+      ? Object.freeze({ runId, runAttempt })
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function verifyRegistrySignature({ name, version, integrity, signature, key }) {
+  if (
+    !isRecord(signature) ||
+    signature.keyid !== key?.keyid ||
+    typeof signature.sig !== "string" ||
+    typeof key?.key !== "string"
+  ) {
+    return false;
+  }
+  try {
+    const publicKey = parseRegistrySigningPublicKey(key.key);
+    const signatureBytes = decodeCanonicalBase64(signature.sig);
+    if (!publicKey || !signatureBytes) return false;
+    return verifySignature(
+      "sha256",
+      Buffer.from(`${name}@${version}:${integrity}`, "utf8"),
+      publicKey,
+      signatureBytes,
+    );
+  } catch {
+    return false;
+  }
+}
+
+async function defaultProvenanceVerifier(
+  bundle,
+  tuple,
+  { moduleLoader = requireFromRuntime } = {},
+) {
+  const executableRoot = path.dirname(process.execPath);
+  const npmRoots = [
+    path.join(executableRoot, "node_modules", "npm"),
+    path.resolve(executableRoot, "..", "lib", "node_modules", "npm"),
+    path.resolve(executableRoot, "..", "node_modules", "npm"),
+  ];
+  let sigstore;
+  for (const npmRoot of new Set(npmRoots)) {
+    try {
+      sigstore = moduleLoader(path.join(npmRoot, "node_modules", "sigstore"));
+      break;
+    } catch {
+      // Try the next bounded runtime-owned npm installation layout.
+    }
+  }
+  if (typeof sigstore?.verify !== "function") {
+    throw publicReleaseHydrationError(
+      "PROVENANCE_VERIFIER",
+      "the runtime-owned npm Sigstore verifier is unavailable",
+      "PUBLIC_RELEASE_PROVENANCE_VERIFIER_UNAVAILABLE",
+    );
+  }
+  try {
+    await sigstore.verify(bundle, {
+      certificateIssuer: "https://token.actions.githubusercontent.com",
+      certificateIdentityURI: `https://github.com/${tuple.repository}/${tuple.publishWorkflow.path}@${tuple.publishWorkflow.ref}`,
+      retry: { retries: 0 },
+      timeout: 5_000,
+    });
+    return true;
+  } catch (error) {
+    if (
+      [sigstore.ValidationError, sigstore.VerificationError, sigstore.PolicyError]
+        .filter((ErrorType) => typeof ErrorType === "function")
+        .some((ErrorType) => error instanceof ErrorType)
+    ) {
+      return false;
+    }
+    throw publicReleaseHydrationError(
+      "PROVENANCE_VERIFIER",
+      "the runtime-owned npm Sigstore trust material is unavailable",
+      "PUBLIC_RELEASE_PROVENANCE_VERIFIER_UNAVAILABLE",
+    );
+  }
+}
+
+async function parseSlsaProvenance({
+  tuple,
+  attestations,
+  tarballSha512,
+  tarballSha256,
+  provenanceVerifier,
+}) {
+  const matches = [];
+  let verificationUnavailable = false;
+  let malformedRelevant = !Array.isArray(attestations?.attestations);
+  let conflictingRelevant = false;
+  const candidates = Array.isArray(attestations?.attestations)
+    ? attestations.attestations
+    : [];
+  for (const attestation of candidates) {
+    if (!isRecord(attestation) || typeof attestation.predicateType !== "string") {
+      malformedRelevant = true;
+      continue;
+    }
+    if (attestation.predicateType !== "https://slsa.dev/provenance/v1") continue;
+    try {
+      const envelope = attestation.bundle?.dsseEnvelope;
+      const verificationMaterial = attestation.bundle?.verificationMaterial;
+      const payloadBytes = decodeCanonicalBase64(envelope?.payload);
+      if (
+        !isRecord(attestation) ||
+        !isRecord(attestation.bundle) ||
+        !isRecord(envelope) ||
+        payloadBytes === undefined ||
+        typeof envelope.payloadType !== "string" ||
+        !Array.isArray(envelope.signatures) ||
+        envelope.signatures.length < 1 ||
+        envelope.signatures.some(
+          (signature) =>
+            !isRecord(signature) ||
+            decodeCanonicalBase64(signature.sig) === undefined,
+        ) ||
+        !isRecord(verificationMaterial) ||
+        (!Array.isArray(verificationMaterial.tlogEntries) &&
+          !isRecord(verificationMaterial.certificate))
+      ) {
+        malformedRelevant = true;
+        continue;
+      }
+      const statement = JSON.parse(
+        payloadBytes.toString("utf8"),
+      );
+      if (
+        !isRecord(statement) ||
+        !isRecord(statement.predicate) ||
+        !Array.isArray(statement.subject) ||
+        !Array.isArray(
+          statement.predicate?.buildDefinition?.resolvedDependencies,
+        )
+      ) {
+        malformedRelevant = true;
+        continue;
+      }
+      const workflow =
+        statement?.predicate?.buildDefinition?.externalParameters?.workflow;
+      const buildDefinition = statement?.predicate?.buildDefinition;
+      const runDetails = statement?.predicate?.runDetails;
+      const invocation = parseGitHubWorkflowInvocationId(
+        runDetails?.metadata?.invocationId,
+        tuple.repository,
+      );
+      const dependencies =
+        statement.predicate.buildDefinition.resolvedDependencies;
+      const expectedSubjects = statement.subject.filter(
+        (candidate) => candidate?.name === `pkg:npm/${tuple.package.name}@${tuple.package.version}`,
+      );
+      const subject = expectedSubjects.length === 1 ? expectedSubjects[0] : undefined;
+      const source = dependencies.find(
+        (candidate) => candidate?.digest?.gitCommit === tuple.target.mergeSha,
+      );
+      const identityMatches =
+        envelope.payloadType === "application/vnd.in-toto+json" &&
+        statement._type === "https://in-toto.io/Statement/v1" &&
+        statement.predicateType === "https://slsa.dev/provenance/v1" &&
+        expectedSubjects.length === 1 &&
+        buildDefinition?.buildType ===
+          "https://slsa-framework.github.io/github-actions-buildtypes/workflow/v1" &&
+        buildDefinition?.internalParameters?.github?.event_name ===
+          "workflow_dispatch" &&
+        runDetails?.builder?.id ===
+          "https://github.com/actions/runner/github-hosted" &&
+        invocation &&
+        invocation.runAttempt === 1 &&
+        subject?.digest?.sha512 === tarballSha512 &&
+        parseRepositorySlug(workflow?.repository) === tuple.repository &&
+        workflow?.path === tuple.publishWorkflow.path &&
+        workflow?.ref === tuple.publishWorkflow.ref &&
+        source;
+      if (!identityMatches) {
+        conflictingRelevant = true;
+        continue;
+      }
+      let cryptographicallyVerified;
+      try {
+        cryptographicallyVerified = await provenanceVerifier(
+          attestation.bundle,
+          tuple,
+        );
+      } catch {
+        verificationUnavailable = true;
+        continue;
+      }
+      if (cryptographicallyVerified === true) {
+        matches.push({
+          source,
+          runId: invocation.runId,
+          runAttempt: invocation.runAttempt,
+        });
+      } else {
+        conflictingRelevant = true;
+      }
+    } catch {
+      malformedRelevant = true;
+    }
+  }
+  return Object.freeze({
+    verified:
+      malformedRelevant || verificationUnavailable
+        ? undefined
+        : matches.length === 1 && !conflictingRelevant
+        ? true
+        : false,
+    sourceRepository: tuple.repository,
+    workflowPath: tuple.publishWorkflow.path,
+    workflowRef: tuple.publishWorkflow.ref,
+    sourceCommit: tuple.target.mergeSha,
+    subjectSha256: tarballSha256,
+    ...(matches.length === 1
+      ? { runId: matches[0].runId, runAttempt: matches[0].runAttempt }
+      : {}),
+  });
+}
+
+async function assertPublicReleaseWorktreeArtifacts(
+  repositoryRoot,
+  artifacts,
+) {
+  for (const artifact of artifacts) {
+    const absolutePath = path.resolve(repositoryRoot, artifact.relativePath);
+    let state;
+    try {
+      state = await lstat(absolutePath);
+    } catch (error) {
+      if (error.code !== "ENOENT") {
+        throw publicReleaseHydrationError(
+          "REPOSITORY_GUARD",
+          "guarded repository filesystem state is unreadable",
+        );
+      }
+    }
+    if (!artifact.present) {
+      if (state !== undefined) {
+        throw publicReleaseHydrationError(
+          "REPOSITORY_GUARD",
+          "an absent guarded repository artifact is shadowed in the worktree",
+        );
+      }
+      continue;
+    }
+    if (
+      !state ||
+      state.isSymbolicLink() ||
+      !state.isFile() ||
+      state.size > PUBLIC_RELEASE_MAX_RESPONSE_BYTES
+    ) {
+      throw publicReleaseHydrationError(
+        "REPOSITORY_GUARD",
+        "guarded repository artifact type or size changed",
+      );
+    }
+    let bytes;
+    try {
+      bytes = await readFile(absolutePath);
+    } catch {
+      throw publicReleaseHydrationError(
+        "REPOSITORY_GUARD",
+        "guarded repository artifact bytes are unreadable",
+      );
+    }
+    if (!bytes.equals(artifact.bytes)) {
+      throw publicReleaseHydrationError(
+        "REPOSITORY_GUARD",
+        "guarded repository artifact bytes changed",
+      );
+    }
+  }
+}
+
+async function freezePublicReleaseRepositoryState({
+  commandCache,
+  repositoryRoot,
+  repository,
+  taskId,
+  mergeSha,
+  currentMainSha,
+}) {
+  const taskPaths = await gitText(
+    commandCache,
+    repositoryRoot,
+    ["ls-tree", "-r", "--name-only", mergeSha, "--", "docs/tasks"],
+    { taskId, role: "PUBLIC_RELEASE_REPOSITORY_GUARD" },
+  );
+  const pairs = new Map();
+  for (const relativePath of taskPaths.split(/\r?\n/u).filter(Boolean)) {
+    const matched = taskPairPathMatch(taskId, relativePath);
+    if (!matched) continue;
+    const pair = pairs.get(matched.directory) ?? {};
+    pair[matched.kind === "TASK" ? "taskPath" : "testPath"] =
+      matched.relativePath;
+    pairs.set(matched.directory, pair);
+  }
+  const completePairs = [...pairs.values()].filter(
+    (pair) => pair.taskPath && pair.testPath,
+  );
+  if (completePairs.length !== 1) {
+    throw publicReleaseHydrationError(
+      "REPOSITORY_GUARD",
+      "the exact delivered tree does not contain one canonical selected Task/Test pair",
+    );
+  }
+  const pair = completePairs[0];
+  const pairPaths = [pair.taskPath, pair.testPath];
+  const guardedPaths = [...pairPaths, STANDARD_DELIVERY_CONTINUITY_RELATIVE_PATH];
+  const [targetEntries, currentEntries, indexEntries, taskText, testText] =
+    await Promise.all([
+      readTerminalArtifactGitEntries({
+        cache: commandCache,
+        repositoryRoot,
+        source: "tree",
+        revision: mergeSha,
+        relativePaths: pairPaths,
+        taskId,
+        role: "PUBLIC_RELEASE_REPOSITORY_GUARD",
+      }),
+      readTerminalArtifactGitEntries({
+        cache: commandCache,
+        repositoryRoot,
+        source: "tree",
+        revision: currentMainSha,
+        relativePaths: guardedPaths,
+        taskId,
+        role: "PUBLIC_RELEASE_REPOSITORY_GUARD",
+      }),
+      readTerminalArtifactGitEntries({
+        cache: commandCache,
+        repositoryRoot,
+        source: "index",
+        relativePaths: guardedPaths,
+        taskId,
+        role: "PUBLIC_RELEASE_REPOSITORY_GUARD",
+      }),
+      showGitFile(commandCache, repositoryRoot, mergeSha, pair.taskPath, taskId),
+      showGitFile(commandCache, repositoryRoot, mergeSha, pair.testPath, taskId),
+    ]);
+  if (!targetEntries || !currentEntries || !indexEntries) {
+    throw publicReleaseHydrationError(
+      "REPOSITORY_GUARD",
+      "guarded repository Git entries are malformed or ambiguous",
+    );
+  }
+  if (
+    taskText === undefined ||
+    testText === undefined ||
+    !isImmutableTerminalTaskContractVersion(getTaskContractVersion(taskText)) ||
+    getTaskContractVersion(testText) !== getTaskContractVersion(taskText) ||
+    sectionStatus(taskText) !== "DONE" ||
+    sectionStatus(testText) !== "PASSED"
+  ) {
+    throw publicReleaseHydrationError(
+      "REPOSITORY_GUARD",
+      "the exact selected Task/Test pair is not immutable DONE/PASSED truth",
+    );
+  }
+  const artifacts = [];
+  for (const relativePath of guardedPaths) {
+    const targetEntry = targetEntries.get(relativePath);
+    const currentEntry = currentEntries.get(relativePath);
+    const indexEntry = indexEntries.get(relativePath);
+    const pairArtifact = pairPaths.includes(relativePath);
+    if (
+      pairArtifact &&
+      (!terminalArtifactGitEntryIsRegular(targetEntry, { source: "tree" }) ||
+        !terminalArtifactGitEntryIsRegular(currentEntry, { source: "tree" }) ||
+        targetEntry.mode !== currentEntry.mode ||
+        targetEntry.objectSha !== currentEntry.objectSha)
+    ) {
+      throw publicReleaseHydrationError(
+        "REPOSITORY_GUARD",
+        "current main does not preserve the exact selected terminal pair",
+      );
+    }
+    if (
+      currentEntry !== undefined &&
+      !terminalArtifactGitEntryIsRegular(currentEntry, { source: "tree" })
+    ) {
+      throw publicReleaseHydrationError(
+        "REPOSITORY_GUARD",
+        "guarded repository artifact is not a regular Git file",
+      );
+    }
+    if (
+      (currentEntry === undefined) !== (indexEntry === undefined) ||
+      (currentEntry !== undefined &&
+        (!terminalArtifactGitEntryIsRegular(indexEntry, { source: "index" }) ||
+          currentEntry.mode !== indexEntry.mode ||
+          currentEntry.objectSha !== indexEntry.objectSha))
+    ) {
+      throw publicReleaseHydrationError(
+        "REPOSITORY_GUARD",
+        "the index does not preserve guarded repository identity",
+      );
+    }
+    const text =
+      currentEntry === undefined
+        ? undefined
+        : await showGitFile(
+            commandCache,
+            repositoryRoot,
+            currentMainSha,
+            relativePath,
+            taskId,
+          );
+    if (currentEntry !== undefined && text === undefined) {
+      throw publicReleaseHydrationError(
+        "REPOSITORY_GUARD",
+        "guarded repository bytes are unavailable from current main",
+      );
+    }
+    artifacts.push({
+      relativePath,
+      present: currentEntry !== undefined,
+      mode: currentEntry?.mode,
+      blobSha: currentEntry?.objectSha,
+      bytes: Buffer.from(text ?? "", "utf8"),
+    });
+  }
+  await assertPublicReleaseWorktreeArtifacts(repositoryRoot, artifacts);
+  return {
+    taskId,
+    repositoryRoot,
+    repository,
+    targetMergeSha: mergeSha,
+    artifacts,
+  };
+}
+
+function decodeGitHubContents(raw, artifact) {
+  if (raw === null) return undefined;
+  if (
+    !isRecord(raw) ||
+    raw.type !== "file" ||
+    raw.encoding !== "base64" ||
+    typeof raw.content !== "string" ||
+    raw.sha !== artifact.blobSha ||
+    !Number.isSafeInteger(raw.size) ||
+    raw.size < 0
+  ) {
+    throw publicReleaseHydrationError(
+      "REPOSITORY_GUARD",
+      "GitHub returned malformed guarded repository content",
+    );
+  }
+  const encoded = raw.content.replaceAll(/\s/gu, "");
+  if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u.test(encoded)) {
+    throw publicReleaseHydrationError(
+      "REPOSITORY_GUARD",
+      "GitHub returned malformed guarded repository encoding",
+    );
+  }
+  const bytes = Buffer.from(encoded, "base64");
+  if (
+    bytes.length !== raw.size ||
+    bytes.toString("base64") !== encoded ||
+    !bytes.equals(artifact.bytes)
+  ) {
+    throw publicReleaseHydrationError(
+      "REPOSITORY_GUARD",
+      "GitHub guarded repository bytes changed",
+    );
+  }
+  return bytes;
+}
+
+function assertGitHubRemoteTreeIdentity(raw, artifacts, expectedTreeSha) {
+  if (
+    !isRecord(raw) ||
+    raw.sha !== expectedTreeSha ||
+    raw.truncated !== false ||
+    !Array.isArray(raw.tree)
+  ) {
+    throw publicReleaseHydrationError(
+      "REPOSITORY_GUARD",
+      "GitHub returned an incomplete guarded repository tree",
+    );
+  }
+  for (const artifact of artifacts) {
+    const entries = raw.tree.filter(
+      (entry) => isRecord(entry) && entry.path === artifact.relativePath,
+    );
+    if (!artifact.present) {
+      if (entries.length !== 0) {
+        throw publicReleaseHydrationError(
+          "REPOSITORY_GUARD",
+          "an absent guarded repository artifact appeared in the remote tree",
+        );
+      }
+      continue;
+    }
+    if (
+      entries.length !== 1 ||
+      entries[0].type !== "blob" ||
+      entries[0].mode !== artifact.mode ||
+      entries[0].sha !== artifact.blobSha
+    ) {
+      throw publicReleaseHydrationError(
+        "REPOSITORY_GUARD",
+        "GitHub guarded repository mode or blob identity changed",
+      );
+    }
+  }
+}
+
+export function createPublicReleaseClients({
+  repositoryRoot,
+  commandRunner = defaultCommandRunner,
+  fetchImpl = globalThis.fetch,
+  expectedTarball,
+  provenanceVerifier,
+  provenanceModuleLoader = requireFromRuntime,
+  guardedRepositoryState,
+} = {}) {
+  const cwd = path.resolve(repositoryRoot);
+  const privateExpectedTarball = Buffer.isBuffer(expectedTarball?.archiveBytes)
+    ? {
+        archiveBytes: Buffer.from(expectedTarball.archiveBytes),
+        entries: Object.freeze([...(expectedTarball.entries ?? [])]),
+      }
+    : undefined;
+  const privateRepositoryGuard = isRecord(guardedRepositoryState)
+    ? {
+        taskId: guardedRepositoryState.taskId,
+        repository: guardedRepositoryState.repository,
+        repositoryRoot: path.resolve(guardedRepositoryState.repositoryRoot),
+        targetMergeSha: guardedRepositoryState.targetMergeSha,
+        artifacts: (guardedRepositoryState.artifacts ?? []).map((artifact) => ({
+          relativePath: artifact.relativePath,
+          present: artifact.present,
+          mode: artifact.mode,
+          blobSha: artifact.blobSha,
+          bytes: Buffer.from(artifact.bytes ?? ""),
+        })),
+      }
+    : undefined;
+  if (
+    privateRepositoryGuard &&
+    (privateRepositoryGuard.repositoryRoot !== cwd ||
+      !/^\d{4}$/u.test(privateRepositoryGuard.taskId ?? "") ||
+      !SHA_PATTERN.test(privateRepositoryGuard.targetMergeSha ?? "") ||
+      typeof privateRepositoryGuard.repository !== "string" ||
+      privateRepositoryGuard.artifacts.length !== 3 ||
+      privateRepositoryGuard.artifacts.some(
+        (artifact) =>
+          typeof artifact.relativePath !== "string" ||
+          typeof artifact.present !== "boolean" ||
+          !Buffer.isBuffer(artifact.bytes) ||
+          (artifact.present &&
+            (typeof artifact.mode !== "string" ||
+              !SHA_PATTERN.test(artifact.blobSha ?? ""))),
+      ))
+  ) {
+    throw publicReleaseHydrationError(
+      "REPOSITORY_GUARD",
+      "guarded repository state is malformed",
+    );
+  }
+  const verifyProvenance =
+    provenanceVerifier ??
+    ((bundle, tuple) =>
+      defaultProvenanceVerifier(bundle, tuple, {
+        moduleLoader: provenanceModuleLoader,
+      }));
+
+  const githubGet = (
+    endpoint,
+    role,
+    { allowNotFound = false, context = {} } = {},
+  ) => {
+    const separator = endpoint.includes("?") ? "&" : "?";
+    const sequencedEndpoint = `${endpoint}${separator}kyw-public-read=${
+      Number.isInteger(context.sequence) ? context.sequence : 1
+    }`;
+    return parseGitHubJsonCommand({
+      runner: commandRunner,
+      repositoryRoot: cwd,
+      args: [
+        "api",
+        "--hostname",
+        "github.com",
+        "--method",
+        "GET",
+        "-H",
+        "Cache-Control: no-cache, no-store, max-age=0",
+        "-H",
+        "Pragma: no-cache",
+        sequencedEndpoint,
+      ],
+      role,
+      allowNotFound,
+    });
+  };
+
+  const githubCreate = async (endpoint, fields, role) => {
+    const args = [
+      "api",
+      "--hostname",
+      "github.com",
+      "--method",
+      "POST",
+      endpoint,
+    ];
+    for (const [name, value, typed = false] of fields) {
+      args.push(typed ? "-F" : "-f", `${name}=${String(value)}`);
+    }
+    const response = await parseGitHubJsonCommand({
+      runner: commandRunner,
+      repositoryRoot: cwd,
+      args,
+      role,
+    });
+    return Object.freeze({ accepted: true, id: response?.id });
+  };
+
+  async function readPublishWorkflowIdentity(
+    { repository, path: workflowPath },
+    context = {},
+  ) {
+    const raw = await githubGet(
+      `repos/${repository}/actions/workflows/${path.posix.basename(workflowPath)}`,
+      "PUBLISH_WORKFLOW",
+      { context },
+    );
+    return normalizeGitHubWorkflow(raw, workflowPath);
+  }
+
+  async function readPackageIndex({ name, registry }, context = {}) {
+    const response = await fetchPublicReleaseJson({
+      fetchImpl,
+      url: publicReleaseUrl(
+        registry,
+        packageUrlPath(name),
+        context.sequence,
+      ),
+      role: "REGISTRY_PACKAGE",
+      allowNotFound: true,
+    });
+    return response.status === 404 ? null : response.value;
+  }
+
+  async function readSigningKeys(registry, context = {}) {
+    const response = await fetchPublicReleaseJson({
+      fetchImpl,
+      url: publicReleaseUrl(registry, "-/npm/v1/keys", context.sequence),
+      role: "REGISTRY_KEYS",
+    });
+    return response.value;
+  }
+
+  async function readFreshGitText(args, role, { allowFailure = false } = {}) {
+    const result = await runPublicReleaseCommand({
+      runner: commandRunner,
+      command: "git",
+      args,
+      cwd,
+      role,
+      allowFailure,
+    });
+    return result;
+  }
+
+  async function revalidateGuardedRepositoryState(
+    tuple,
+    remoteHeadSha,
+    context,
+  ) {
+    if (!privateRepositoryGuard) return;
+    if (
+      tuple.taskId !== privateRepositoryGuard.taskId ||
+      tuple.repository !== privateRepositoryGuard.repository ||
+      tuple.target.mergeSha !== privateRepositoryGuard.targetMergeSha
+    ) {
+      throw publicReleaseHydrationError(
+        "REPOSITORY_GUARD",
+        "frozen public tuple does not match guarded repository identity",
+      );
+    }
+    const guardCache = createInvocationCommandCache({ runner: commandRunner });
+    const localMainSha = await gitText(
+      guardCache,
+      cwd,
+      ["rev-parse", "refs/heads/main"],
+      { taskId: tuple.taskId, role: "PUBLIC_RELEASE_REPOSITORY_GUARD" },
+    );
+    if (
+      !SHA_PATTERN.test(localMainSha) ||
+      (localMainSha !== tuple.target.mergeSha &&
+        !(await gitIsAncestor(
+          guardCache,
+          cwd,
+          tuple.target.mergeSha,
+          localMainSha,
+        )))
+    ) {
+      throw publicReleaseHydrationError(
+        "REPOSITORY_GUARD",
+        "local main no longer contains the frozen public target",
+      );
+    }
+    const paths = privateRepositoryGuard.artifacts.map(
+      ({ relativePath }) => relativePath,
+    );
+    const remoteCommit = await githubGet(
+      `repos/${tuple.repository}/git/commits/${remoteHeadSha}`,
+      "PUBLIC_REPOSITORY_COMMIT",
+      { context },
+    );
+    const remoteTreeSha = remoteCommit?.tree?.sha;
+    if (
+      remoteCommit?.sha !== remoteHeadSha ||
+      !isRecord(remoteCommit.tree) ||
+      !SHA_PATTERN.test(remoteTreeSha ?? "")
+    ) {
+      throw publicReleaseHydrationError(
+        "REPOSITORY_GUARD",
+        "GitHub returned a malformed guarded repository commit",
+      );
+    }
+    const [currentEntries, indexEntries, remoteTree, remoteContents] =
+      await Promise.all([
+      readTerminalArtifactGitEntries({
+        cache: guardCache,
+        repositoryRoot: cwd,
+        source: "tree",
+        revision: localMainSha,
+        relativePaths: paths,
+        taskId: tuple.taskId,
+        role: "PUBLIC_RELEASE_REPOSITORY_GUARD",
+      }),
+      readTerminalArtifactGitEntries({
+        cache: guardCache,
+        repositoryRoot: cwd,
+        source: "index",
+        relativePaths: paths,
+        taskId: tuple.taskId,
+        role: "PUBLIC_RELEASE_REPOSITORY_GUARD",
+        }),
+        githubGet(
+          `repos/${tuple.repository}/git/trees/${remoteTreeSha}?recursive=1`,
+          "PUBLIC_REPOSITORY_TREE",
+          { context },
+      ),
+      Promise.all(
+        privateRepositoryGuard.artifacts.map((artifact) =>
+          githubGet(
+            `repos/${tuple.repository}/contents/${githubEndpointSegment(artifact.relativePath)}?ref=${encodeURIComponent(remoteHeadSha)}`,
+            "PUBLIC_REPOSITORY_CONTENT",
+            { context, allowNotFound: !artifact.present },
+          ),
+        ),
+      ),
+      ]);
+    if (!currentEntries || !indexEntries) {
+      throw publicReleaseHydrationError(
+        "REPOSITORY_GUARD",
+        "guarded repository Git entries are malformed or ambiguous",
+      );
+    }
+    assertGitHubRemoteTreeIdentity(
+      remoteTree,
+      privateRepositoryGuard.artifacts,
+      remoteTreeSha,
+    );
+    for (let index = 0; index < privateRepositoryGuard.artifacts.length; index += 1) {
+      const artifact = privateRepositoryGuard.artifacts[index];
+      const currentEntry = currentEntries.get(artifact.relativePath);
+      const indexEntry = indexEntries.get(artifact.relativePath);
+      if (!artifact.present) {
+        if (
+          currentEntry !== undefined ||
+          indexEntry !== undefined ||
+          remoteContents[index] !== null
+        ) {
+          throw publicReleaseHydrationError(
+            "REPOSITORY_GUARD",
+            "an absent guarded repository artifact appeared",
+          );
+        }
+        continue;
+      }
+      if (
+        !terminalArtifactGitEntryIsRegular(currentEntry, { source: "tree" }) ||
+        !terminalArtifactGitEntryIsRegular(indexEntry, { source: "index" }) ||
+        currentEntry.mode !== artifact.mode ||
+        indexEntry.mode !== artifact.mode ||
+        currentEntry.objectSha !== artifact.blobSha ||
+        indexEntry.objectSha !== artifact.blobSha
+      ) {
+        throw publicReleaseHydrationError(
+          "REPOSITORY_GUARD",
+          "local guarded repository identity changed",
+        );
+      }
+      decodeGitHubContents(remoteContents[index], artifact);
+    }
+    await assertPublicReleaseWorktreeArtifacts(
+      privateRepositoryGuard.repositoryRoot,
+      privateRepositoryGuard.artifacts,
+    );
+  }
+
+  async function revalidateTupleSource(tuple, context = {}) {
+    const sequence = Number.isInteger(context.sequence) ? context.sequence : 1;
+    const remoteRef = await githubGet(
+      `repos/${tuple.repository}/git/ref/heads/${githubEndpointSegment(tuple.baseBranch)}`,
+      "PUBLIC_BASE_REF",
+      { context: { ...context, sequence } },
+    );
+    const remoteHeadSha = remoteRef?.object?.sha;
+    let descendantProof;
+    if (remoteHeadSha !== tuple.target.mergeSha && SHA_PATTERN.test(remoteHeadSha ?? "")) {
+      descendantProof = await githubGet(
+        `repos/${tuple.repository}/compare/${tuple.target.mergeSha}...${remoteHeadSha}`,
+        "PUBLIC_BASE_ANCESTRY",
+        { context: { ...context, sequence } },
+      );
+    }
+    const [treeResult, packageResult, pluginResult, workflowResult, npmrcResult] =
+      await Promise.all([
+        readFreshGitText(
+          ["rev-parse", `${tuple.target.mergeSha}^{tree}`],
+          "PUBLIC_SOURCE_TREE",
+        ),
+        readFreshGitText(
+          ["show", `${tuple.target.mergeSha}:package.json`],
+          "PUBLIC_SOURCE_PACKAGE",
+        ),
+        readFreshGitText(
+          ["show", `${tuple.target.mergeSha}:.codex-plugin/plugin.json`],
+          "PUBLIC_SOURCE_PLUGIN",
+        ),
+        readFreshGitText(
+          ["show", `${tuple.target.mergeSha}:${tuple.publishWorkflow.path}`],
+          "PUBLIC_SOURCE_WORKFLOW",
+        ),
+        readFreshGitText(
+          ["cat-file", "-e", `${tuple.target.mergeSha}:.npmrc`],
+          "PUBLIC_SOURCE_NPMRC",
+          { allowFailure: true },
+        ),
+      ]);
+    const packageJson = parseJsonBlob(packageResult.stdout, "PUBLIC_SOURCE_PACKAGE");
+    const pluginJson = parseJsonBlob(pluginResult.stdout, "PUBLIC_SOURCE_PLUGIN");
+    assertPublicReleaseSourceContract({
+      packageJson,
+      pluginJson,
+      workflowText: workflowResult.stdout,
+      repository: tuple.repository,
+    });
+    if (
+      remoteRef?.ref !== tuple.publishWorkflow.ref ||
+      tuple.baseBranch !== "main" ||
+      tuple.publishWorkflow.ref !== "refs/heads/main" ||
+      remoteRef?.object?.type !== "commit" ||
+      !SHA_PATTERN.test(remoteHeadSha ?? "") ||
+      (remoteHeadSha !== tuple.target.mergeSha &&
+        (descendantProof?.status !== "ahead" ||
+          descendantProof?.base_commit?.sha !== tuple.target.mergeSha ||
+          descendantProof?.merge_base_commit?.sha !== tuple.target.mergeSha)) ||
+      (context.purpose === "PRE_NPM_WRITE" &&
+        remoteHeadSha !== tuple.target.mergeSha) ||
+      treeResult.stdout.trim() !== tuple.target.treeSha ||
+      npmrcResult.status === 0 ||
+      packageJson.name !== tuple.package.name ||
+      packageJson.version !== tuple.package.version ||
+      normalizedPackageRepository(packageJson.repository) !==
+        tuple.package.repository ||
+      pluginJson.name !== tuple.plugin.name ||
+      pluginJson.version !== tuple.plugin.version
+    ) {
+      throw publicReleaseHydrationError(
+        "PUBLIC_SOURCE_IDENTITY",
+        "canonical base ref or exact delivered source drifted after tuple freeze",
+      );
+    }
+    await revalidateGuardedRepositoryState(tuple, remoteHeadSha, context);
+    return Object.freeze({ remoteHeadSha });
+  }
+
+  async function readTag(tuple, context = {}) {
+    const matching = await githubGet(
+      `repos/${tuple.repository}/git/matching-refs/tags/${githubEndpointSegment(tuple.tag.name)}?per_page=${MAX_GITHUB_RESULTS}&page=1`,
+      "TAG_READ",
+      { context },
+    );
+    if (!Array.isArray(matching)) {
+      throw publicReleaseHydrationError("TAG_READ", "matching-ref response is malformed");
+    }
+    if (
+      matching.some(
+        (rawRef) => !isRecord(rawRef) || typeof rawRef.ref !== "string",
+      )
+    ) {
+      return Object.freeze({ tags: Object.freeze([]), complete: false });
+    }
+    if (matching.length >= MAX_GITHUB_RESULTS) {
+      return Object.freeze({ tags: Object.freeze([]), complete: false });
+    }
+    const exact = matching.filter((rawRef) => rawRef?.ref === tuple.tag.ref);
+    const namespaceCollisions = matching.filter((rawRef) =>
+      String(rawRef?.ref ?? "").startsWith(`${tuple.tag.ref}/`),
+    );
+    const tags = [];
+    for (const rawRef of exact) {
+      const peeled = await peelGitHubTag({ tuple, rawRef, githubGet, context });
+      tags.push(normalizeTagObject(tuple, rawRef, peeled));
+    }
+    if (namespaceCollisions.length > 0) {
+      tags.push(
+        Object.freeze({
+          repository: tuple.repository,
+          ref: tuple.tag.ref,
+          objectType: "unsupported",
+          namespaceCollision: true,
+        }),
+      );
+    }
+    return Object.freeze({ tags: Object.freeze(tags), complete: true });
+  }
+
+  let publicClients;
+  async function assertPublicMutationBoundary(tuple, stage) {
+    const readContext = Object.freeze({
+      fresh: true,
+      cacheBypass: true,
+      purpose: `PRE_${stage}_WRITE`,
+      sequence: 1,
+    });
+    let workflow;
+    let npm;
+    let tag;
+    let release;
+    try {
+      [workflow, npm, tag, release] = await Promise.all([
+        publicClients.readWorkflowRuns(tuple, readContext),
+        publicClients.readNpmVersion(tuple, readContext),
+        publicClients.readTag(tuple, readContext),
+        publicClients.readRelease(tuple, readContext),
+      ]);
+    } catch {
+      throw publicReleaseHydrationError(
+        `${stage}_WRITE_BOUNDARY`,
+        "fresh canonical boundary reads failed before the create action",
+        "PUBLIC_RELEASE_PREWRITE_STATE_CHANGED",
+      );
+    }
+    const state = classifyPublicReleaseState(tuple, {
+      workflow,
+      npm,
+      tag,
+      release,
+      readContext,
+    });
+    if (state.disposition !== "READY" || state.nextStage !== stage) {
+      throw publicReleaseHydrationError(
+        `${stage}_WRITE_BOUNDARY`,
+        "fresh canonical state no longer admits this exact create action",
+        "PUBLIC_RELEASE_PREWRITE_STATE_CHANGED",
+      );
+    }
+  }
+
+  publicClients = {
+    readPublishWorkflowIdentity,
+    readPackageIndex,
+    readSigningKeys,
+    async readWorkflowRuns(tuple, context = {}) {
+      const sourceState = await revalidateTupleSource(tuple, context);
+      const workflow = await readPublishWorkflowIdentity({
+        repository: tuple.repository,
+        path: tuple.publishWorkflow.path,
+      }, context);
+      if (
+        workflow.id !== tuple.publishWorkflow.id ||
+        workflow.name !== tuple.publishWorkflow.name ||
+        workflow.path !== tuple.publishWorkflow.path ||
+        workflow.state !== "active"
+      ) {
+        throw publicReleaseHydrationError(
+          "PUBLISH_WORKFLOW",
+          "workflow identity drifted after tuple freeze",
+        );
+      }
+      const parameters = new URLSearchParams({
+        event: "workflow_dispatch",
+        head_sha: tuple.target.mergeSha,
+        per_page: String(MAX_GITHUB_RESULTS),
+        page: "1",
+      });
+      const raw = await githubGet(
+        `repos/${tuple.repository}/actions/workflows/${tuple.publishWorkflow.id}/runs?${parameters}`,
+        "PUBLISH_WORKFLOW_RUNS",
+        { context },
+      );
+      if (!Array.isArray(raw?.workflow_runs) || !Number.isInteger(raw.total_count)) {
+        throw publicReleaseHydrationError(
+          "PUBLISH_WORKFLOW_RUNS",
+          "workflow run collection is malformed",
+        );
+      }
+      const collectionComplete =
+        raw.workflow_runs.length < MAX_GITHUB_RESULTS &&
+        raw.total_count === raw.workflow_runs.length;
+      if (!collectionComplete) {
+        return Object.freeze({
+          runs: Object.freeze([]),
+          complete: false,
+          baseHeadSha: sourceState.remoteHeadSha,
+        });
+      }
+      const matching = raw.workflow_runs;
+      if (matching.length > MAX_RUN_ATTEMPTS) {
+        throw publicReleaseHydrationError(
+          "PUBLISH_WORKFLOW_RUNS",
+          `more than ${MAX_RUN_ATTEMPTS} matching workflow runs exceed the bounded read contract`,
+        );
+      }
+      const runs = [];
+      for (const run of matching) {
+        if (
+          !isRecord(run) ||
+          !positiveInteger(run.id) ||
+          !positiveInteger(run.run_attempt)
+        ) {
+          throw publicReleaseHydrationError(
+            "PUBLISH_WORKFLOW_RUNS",
+            "workflow run identity contains a malformed numeric identifier",
+          );
+        }
+        const normalizedRun = {
+          runId: run.id,
+          runAttempt: run.run_attempt,
+          repository: tuple.repository,
+          workflowId: workflow.id,
+          workflowName: workflow.name,
+          workflowPath: workflow.path,
+          event: run.event,
+          ref:
+            typeof run.head_branch === "string"
+              ? `refs/heads/${run.head_branch}`
+              : undefined,
+          headSha: run.head_sha,
+          ...(run.inputs === undefined ? {} : { inputs: run.inputs }),
+          status: run.status,
+          conclusion: run.conclusion,
+        };
+        if (
+          ["queued", "in_progress", "waiting", "requested", "pending"].includes(
+            run.status,
+          ) ||
+          run.status !== "completed" ||
+          run.conclusion !== "success"
+        ) {
+          runs.push(Object.freeze(normalizedRun));
+          continue;
+        }
+        const jobsResponse = await githubGet(
+          `repos/${tuple.repository}/actions/runs/${run.id}/attempts/${run.run_attempt}/jobs?per_page=${MAX_GITHUB_RESULTS}&page=1`,
+          "PUBLISH_WORKFLOW_JOBS",
+          { context },
+        );
+        if (
+          !Array.isArray(jobsResponse?.jobs) ||
+          !Number.isInteger(jobsResponse.total_count) ||
+          jobsResponse.total_count !== jobsResponse.jobs.length ||
+          jobsResponse.jobs.length !== 1 ||
+          jobsResponse.jobs.some(
+            (job) => !isRecord(job) || !positiveInteger(job.id),
+          )
+        ) {
+          throw publicReleaseHydrationError(
+            "PUBLISH_WORKFLOW_JOBS",
+            "workflow job collection is incomplete or violates the exact one-job contract",
+          );
+        }
+        const jobEvidence = [];
+        for (const job of jobsResponse.jobs) {
+          const logResult = await runPublicReleaseCommand({
+            runner: commandRunner,
+            command: "gh",
+            args: [
+              "run",
+              "view",
+              String(run.id),
+              "--repo",
+              `github.com/${tuple.repository}`,
+              "--attempt",
+              String(run.run_attempt),
+              "--job",
+              String(job.id),
+              "--log",
+            ],
+            cwd,
+            role: "PUBLISH_WORKFLOW_LOG",
+            allowFailure: true,
+          });
+          if (logResult.status === 0) {
+            jobEvidence.push(publishEvidenceFromLog(logResult.stdout));
+          }
+        }
+        const evidence =
+          jobEvidence.length === 1 ? jobEvidence[0] : Object.freeze({});
+        const publishSteps = jobsResponse.jobs.flatMap((job) =>
+          (job.steps ?? []).filter(
+            (step) => step?.name === "Publish the exact checkout directory through OIDC",
+          ),
+        );
+        runs.push(
+          Object.freeze({
+            ...normalizedRun,
+            inputs: evidence.inputs ?? run.inputs,
+            ...(run.status === "completed" && publishSteps.length > 0
+              ? {
+                  publishAttempts: publishSteps.map((step) =>
+                    Object.freeze({
+                      checkoutSha: evidence.checkoutSha,
+                      conclusion: String(step.conclusion ?? "").toUpperCase(),
+                      command: PUBLIC_RELEASE_COMMAND,
+                    }),
+                  ),
+                }
+              : {}),
+          }),
+        );
+      }
+      return Object.freeze({
+        runs: Object.freeze(runs),
+        complete: true,
+        baseHeadSha: sourceState.remoteHeadSha,
+      });
+    },
+    async readNpmVersion(tuple, context = {}) {
+      const versionResponse = await fetchPublicReleaseJson({
+        fetchImpl,
+        url: publicReleaseUrl(
+          tuple.package.registry,
+          packageUrlPath(tuple.package.name, `/${encodeURIComponent(tuple.package.version)}`),
+          context.sequence,
+        ),
+        role: "REGISTRY_VERSION",
+        allowNotFound: true,
+      });
+      if (versionResponse.status === 404) {
+        const [index, keys] = await Promise.all([
+          readPackageIndex(tuple.package, context),
+          readSigningKeys(tuple.package.registry, context),
+        ]);
+        if (
+          !isRecord(index) ||
+          index.name !== tuple.package.name ||
+          !isRecord(index.versions) ||
+          !isRecord(index["dist-tags"])
+        ) {
+          throw publicReleaseHydrationError(
+            "REGISTRY_PACKAGE",
+            "package index is malformed while the target version is absent",
+          );
+        }
+        const currentKey = selectCurrentRegistrySigningKey(
+          keys,
+          tuple.package.signature.keyId,
+          { requireSoleActive: true },
+        );
+        return Object.freeze({
+          status: 404,
+          absent: true,
+          name: tuple.package.name,
+          version: tuple.package.version,
+          registry: tuple.package.registry,
+          signatureKeyId: currentKey.keyid,
+          indexComplete: true,
+          versions: Object.freeze(
+            Object.keys(index?.versions ?? {}).sort(compareStableVersions),
+          ),
+          distTags: Object.freeze({
+            latest: index?.["dist-tags"]?.latest ?? null,
+          }),
+        });
+      }
+      const metadata = versionResponse.value;
+      if (!isRecord(metadata) || typeof metadata.dist?.tarball !== "string") {
+        throw publicReleaseHydrationError(
+          "REGISTRY_VERSION",
+          "version metadata is malformed",
+        );
+      }
+      let canonicalTarballUrl;
+      try {
+        canonicalTarballUrl = new URL(metadata.dist.tarball);
+      } catch {
+        throw publicReleaseHydrationError(
+          "REGISTRY_TARBALL",
+          "version metadata contains a malformed tarball URL",
+        );
+      }
+      const packageLeaf = tuple.package.name.split("/").at(-1);
+      const expectedTarballPath = `/${tuple.package.name}/-/${packageLeaf}-${tuple.package.version}.tgz`;
+      if (
+        canonicalTarballUrl.origin !== new URL(tuple.package.registry).origin ||
+        decodeURIComponent(canonicalTarballUrl.pathname) !== expectedTarballPath ||
+        canonicalTarballUrl.username ||
+        canonicalTarballUrl.password ||
+        canonicalTarballUrl.search ||
+        canonicalTarballUrl.hash
+      ) {
+        throw publicReleaseHydrationError(
+          "REGISTRY_TARBALL",
+          "version metadata tarball URL is outside the exact canonical registry path",
+        );
+      }
+      const [index, keys, attestations, tarballResponse] = await Promise.all([
+        readPackageIndex(tuple.package, context),
+        readSigningKeys(tuple.package.registry, context),
+        fetchPublicReleaseJson({
+          fetchImpl,
+          url: publicReleaseUrl(
+            tuple.package.registry,
+            `-/npm/v1/attestations/${encodeURIComponent(tuple.package.name)}@${encodeURIComponent(tuple.package.version)}`,
+            context.sequence,
+          ),
+          role: "REGISTRY_ATTESTATIONS",
+        }).then((response) => response.value),
+        fetchPublicReleaseBytes({
+          fetchImpl,
+          url: publicReleaseUrl(
+            canonicalTarballUrl,
+            "",
+            context.sequence,
+          ),
+          role: "REGISTRY_TARBALL",
+        }),
+      ]);
+      const indexedTarget = index?.versions?.[tuple.package.version];
+      const endpointIdentity = registryImmutableVersionIdentity(metadata);
+      const indexedIdentity = registryImmutableVersionIdentity(indexedTarget);
+      if (
+        !isRecord(index) ||
+        index.name !== tuple.package.name ||
+        !isRecord(index.versions) ||
+        !isRecord(index["dist-tags"]) ||
+        endpointIdentity === undefined ||
+        indexedIdentity === undefined ||
+        endpointIdentity !== indexedIdentity
+      ) {
+        throw publicReleaseHydrationError(
+          "REGISTRY_PACKAGE",
+          "package index and version endpoint do not expose one exact immutable target identity",
+        );
+      }
+      const archive = tarballResponse.bytes;
+      const rawBytesVerified =
+        Buffer.isBuffer(privateExpectedTarball?.archiveBytes) &&
+        archive.equals(privateExpectedTarball.archiveBytes);
+      const sha512Hex = createHash("sha512").update(archive).digest("hex");
+      const sha256 = createHash("sha256").update(archive).digest("hex");
+      const activeKey = selectCurrentRegistrySigningKey(
+        keys,
+        tuple.package.signature.keyId,
+        {
+          validAt: Number.isFinite(Date.parse(index?.time?.[tuple.package.version]))
+            ? Date.parse(index.time[tuple.package.version])
+            : Date.now(),
+        },
+      );
+      const signatures = metadata.dist.signatures ?? [];
+      const signature = signatures.find(
+        (candidate) => candidate?.keyid === tuple.package.signature.keyId,
+      );
+      return Object.freeze({
+        status: 200,
+        name: metadata.name,
+        version: metadata.version,
+        registry: tuple.package.registry,
+        repository: registryRepository(metadata),
+        access: "public",
+        gitHead: metadata.gitHead,
+        distTags: Object.freeze({ latest: index?.["dist-tags"]?.latest }),
+        tarball: Object.freeze({
+          bytes: archive.length,
+          integrity: metadata.dist.integrity,
+          shasum: metadata.dist.shasum,
+          sha256,
+          rawBytesVerified,
+          entries: Object.freeze(
+            rawBytesVerified && Array.isArray(privateExpectedTarball?.entries)
+              ? [...privateExpectedTarball.entries]
+              : [],
+          ),
+        }),
+        signature: Object.freeze({
+          keyId: signature?.keyid,
+          verified:
+            activeKey.keyid === tuple.package.signature.keyId &&
+            signatures.length === 1 &&
+            verifyRegistrySignature({
+              name: metadata.name,
+              version: metadata.version,
+              integrity: metadata.dist.integrity,
+              signature,
+              key: activeKey,
+            }),
+        }),
+        provenance: await parseSlsaProvenance({
+          tuple,
+          attestations,
+          tarballSha512: sha512Hex,
+          tarballSha256: sha256,
+          provenanceVerifier: verifyProvenance,
+        }),
+        versions: Object.freeze(Object.keys(index?.versions ?? {}).sort(compareStableVersions)),
+      });
+    },
+    readTag,
+    async readRelease(tuple, context = {}) {
+      const [byTag, raw] = await Promise.all([
+        githubGet(
+          `repos/${tuple.repository}/releases/tags/${encodeURIComponent(tuple.release.tagName)}`,
+          "RELEASE_BY_TAG_READ",
+          { context, allowNotFound: true },
+        ),
+        githubGet(
+          `repos/${tuple.repository}/releases?per_page=${MAX_GITHUB_RESULTS}&page=1`,
+          "RELEASE_READ",
+          { context },
+        ),
+      ]);
+      if (!Array.isArray(raw)) {
+        throw publicReleaseHydrationError("RELEASE_READ", "release collection is malformed");
+      }
+      if (
+        (byTag !== null &&
+          (!isRecord(byTag) ||
+            !positiveInteger(byTag.id) ||
+            typeof byTag.tag_name !== "string")) ||
+        raw.some(
+          (release) =>
+            !isRecord(release) ||
+            !positiveInteger(release.id) ||
+            typeof release.tag_name !== "string",
+        )
+      ) {
+        return Object.freeze({ releases: Object.freeze([]), complete: false });
+      }
+      if (raw.length >= MAX_GITHUB_RESULTS) {
+        return Object.freeze({ releases: Object.freeze([]), complete: false });
+      }
+      const matching = raw.filter((release) => release?.tag_name === tuple.release.tagName);
+      const tagState = await readTag(tuple, context);
+      const tagTarget = tagState.tags?.[0];
+      const tagTargetSha =
+        tagTarget?.objectType === "tag" ? tagTarget.peeledSha : tagTarget?.targetSha;
+      const endpointsAgree =
+        (byTag === null && matching.length === 0) ||
+        (isRecord(byTag) &&
+          matching.length === 1 &&
+          releaseEndpointIdentity(byTag) ===
+            releaseEndpointIdentity(matching[0]));
+      const selected = byTag === null ? matching : [byTag];
+      if (!endpointsAgree) {
+        selected.push(
+          Object.freeze({
+            id: -1,
+            tag_name: tuple.release.tagName,
+            name: "CANONICAL_ENDPOINT_CONFLICT",
+            body: "",
+            draft: false,
+            prerelease: false,
+            assets: [],
+          }),
+        );
+      }
+      return Object.freeze({
+        releases: Object.freeze(
+          selected.map((release) =>
+            Object.freeze({
+              id: release.id,
+              repository: tuple.repository,
+              tagName: release.tag_name,
+              tagTargetSha,
+              title: release.name,
+              body: normalizedReleaseBody(release),
+              draft: release.draft,
+              prerelease: release.prerelease,
+              state: release.draft ? "draft" : "published",
+              assets: normalizedReleaseAssets(release),
+            }),
+          ),
+        ),
+        complete: true,
+      });
+    },
+    async dispatchPublishWorkflow(tuple) {
+      await assertPublicMutationBoundary(tuple, "NPM");
+      const workflowInputs = derivePublicReleaseWorkflowInputs(tuple);
+      return githubCreate(
+        `repos/${tuple.repository}/actions/workflows/${tuple.publishWorkflow.id}/dispatches`,
+        [
+          ["ref", tuple.baseBranch],
+          ...Object.entries(workflowInputs).map(([name, value]) => [
+            `inputs[${name}]`,
+            value,
+          ]),
+        ],
+        "PUBLISH_WORKFLOW_DISPATCH",
+      );
+    },
+    async createTag(tuple) {
+      await assertPublicMutationBoundary(tuple, "TAG");
+      return githubCreate(
+        `repos/${tuple.repository}/git/refs`,
+        [
+          ["ref", tuple.tag.ref],
+          ["sha", tuple.target.mergeSha],
+        ],
+        "TAG_CREATE",
+      );
+    },
+    async createRelease(tuple) {
+      await assertPublicMutationBoundary(tuple, "RELEASE");
+      return githubCreate(
+        `repos/${tuple.repository}/releases`,
+        [
+          ["tag_name", tuple.release.tagName],
+          ["target_commitish", tuple.target.mergeSha],
+          ["name", tuple.release.title],
+          ["body", tuple.release.body],
+          ["draft", false, true],
+          ["prerelease", false, true],
+          ["generate_release_notes", false, true],
+        ],
+        "RELEASE_CREATE",
+      );
+    },
+  };
+  return Object.freeze(publicClients);
+}
+
+export async function hydratePublicReleaseContext({
+  tasksRoot,
+  taskId,
+  deliveryLedger,
+  deliveryExpectations,
+  commandRunner,
+  fetchImpl = globalThis.fetch,
+  provenanceVerifier,
+  clients: suppliedClients,
+} = {}) {
+  if (!/^\d{4}$/u.test(taskId ?? "")) {
+    throw publicReleaseHydrationError(
+      "STANDARD_FINAL",
+      "selected Task ID must be an exact four-digit value",
+    );
+  }
+  const entry = deliveryLedger?.[taskId];
+  const expectation = deliveryExpectations?.[taskId];
+  const evaluation = evaluateDeliveryEvidence(taskId, entry, expectation);
+  if (
+    !evaluation.satisfied ||
+    evaluation.classification !== "HARDENED_EXACT_HEAD" ||
+    evaluation.postMerge !== "VERIFIED_EXACT_CHECKOUT" ||
+    entry?.schemaVersion !== 2 ||
+    entry?.claim !== "FINAL"
+  ) {
+    throw publicReleaseHydrationError(
+      "STANDARD_FINAL",
+      "production evaluator did not prove a fresh hardened FINAL graph",
+      "STANDARD_DELIVERY_NOT_FINAL",
+    );
+  }
+
+  const resolvedTasksRoot = path.resolve(tasksRoot);
+  const commandCache = createInvocationCommandCache({ runner: commandRunner });
+  const repositoryRoot = await gitText(
+    commandCache,
+    resolvedTasksRoot,
+    ["rev-parse", "--show-toplevel"],
+    { taskId, role: "PUBLIC_RELEASE_REPOSITORY" },
+  );
+  if (!(await tasksRootMatchesRepository(resolvedTasksRoot, repositoryRoot))) {
+    throw publicReleaseHydrationError(
+      "SOURCE_IDENTITY",
+      "tasks root is not the canonical repository docs/tasks directory",
+    );
+  }
+  const repository = entry.repository;
+  const mergeSha = entry.merge?.sha;
+  if (entry.merge?.branch !== "main") {
+    throw publicReleaseHydrationError(
+      "PUBLISH_WORKFLOW",
+      "the repository-owned publication workflow permits only the exact main base",
+    );
+  }
+  requireSha(mergeSha, taskId, "PUBLIC_RELEASE_STANDARD", "merge SHA");
+  const [mainSha, treeSha, packageText, pluginText, workflowText] = await Promise.all([
+    gitText(commandCache, repositoryRoot, ["rev-parse", "refs/heads/main"], {
+      taskId,
+      role: "PUBLIC_RELEASE_MAIN",
+    }),
+    gitText(commandCache, repositoryRoot, ["rev-parse", `${mergeSha}^{tree}`], {
+      taskId,
+      role: "PUBLIC_RELEASE_TREE",
+    }),
+    readCommitFile(
+      commandCache,
+      repositoryRoot,
+      mergeSha,
+      "package.json",
+      "PUBLIC_RELEASE_PACKAGE",
+    ),
+    readCommitFile(
+      commandCache,
+      repositoryRoot,
+      mergeSha,
+      ".codex-plugin/plugin.json",
+      "PUBLIC_RELEASE_PLUGIN",
+    ),
+    readCommitFile(
+      commandCache,
+      repositoryRoot,
+      mergeSha,
+      PUBLIC_RELEASE_WORKFLOW_PATH,
+      "PUBLIC_RELEASE_WORKFLOW",
+    ),
+  ]);
+  if (mainSha !== mergeSha) {
+    const ancestry = await commandCache.run({
+      command: "git",
+      args: ["merge-base", "--is-ancestor", mergeSha, mainSha],
+      cwd: repositoryRoot,
+      role: "PUBLIC_RELEASE_MAIN_ANCESTRY",
+      allowFailure: true,
+    });
+    if (ancestry.status !== 0) {
+      throw publicReleaseHydrationError(
+        "STANDARD_FINAL",
+        "selected expected-head merge is not the current base or its proven ancestor",
+        "STANDARD_DELIVERY_NOT_FINAL",
+      );
+    }
+  }
+  requireSha(treeSha, taskId, "PUBLIC_RELEASE_TREE", "merge tree SHA");
+  const packageJson = parseJsonBlob(packageText, "SOURCE_PACKAGE");
+  const pluginJson = parseJsonBlob(pluginText, "SOURCE_PLUGIN");
+  assertPublicReleaseSourceContract({
+    packageJson,
+    pluginJson,
+    workflowText,
+    repository,
+  });
+  const guardedRepositoryState = suppliedClients
+    ? undefined
+    : await freezePublicReleaseRepositoryState({
+        commandCache,
+        repositoryRoot,
+        repository,
+        taskId,
+        mergeSha,
+        currentMainSha: mainSha,
+      });
+
+  const bootstrapClients =
+    suppliedClients ??
+    createPublicReleaseClients({
+      repositoryRoot,
+      commandRunner,
+      fetchImpl,
+      provenanceVerifier,
+    });
+  if (
+    typeof bootstrapClients?.readPublishWorkflowIdentity !== "function" ||
+    typeof bootstrapClients?.readPackageIndex !== "function" ||
+    typeof bootstrapClients?.readSigningKeys !== "function"
+  ) {
+    throw publicReleaseHydrationError(
+      "CLIENTS",
+      "tuple hydration clients are incomplete",
+    );
+  }
+  const packageIdentity = Object.freeze({
+    name: packageJson.name,
+    version: packageJson.version,
+    repository: normalizedPackageRepository(packageJson.repository),
+    access: "public",
+    registry: PUBLIC_REGISTRY,
+  });
+  const [workflow, packageIndex, registryKeys, tarball] = await Promise.all([
+    bootstrapClients.readPublishWorkflowIdentity({
+      repository,
+      path: PUBLIC_RELEASE_WORKFLOW_PATH,
+    }),
+    bootstrapClients.readPackageIndex(packageIdentity, {
+      fresh: true,
+      cacheBypass: true,
+      purpose: "TUPLE_FREEZE",
+      sequence: 1,
+    }),
+    bootstrapClients.readSigningKeys(PUBLIC_REGISTRY, {
+      fresh: true,
+      cacheBypass: true,
+      purpose: "TUPLE_FREEZE",
+      sequence: 1,
+    }),
+    createExactPublicReleaseTarball({
+      commandCache,
+      commandRunner,
+      repositoryRoot,
+      mergeSha,
+      packageJson,
+    }),
+  ]);
+  if (
+    workflow?.name !== PUBLIC_RELEASE_WORKFLOW_NAME ||
+    workflow?.path !== PUBLIC_RELEASE_WORKFLOW_PATH ||
+    workflow?.state !== "active" ||
+    !positiveInteger(workflow?.id)
+  ) {
+    throw publicReleaseHydrationError(
+      "PUBLISH_WORKFLOW",
+      "canonical GitHub workflow identity is malformed or changed",
+    );
+  }
+  if (
+    packageIndex !== null &&
+    (!isRecord(packageIndex) || !isRecord(packageIndex.versions))
+  ) {
+    throw publicReleaseHydrationError(
+      "REGISTRY_PACKAGE",
+      "canonical package index is malformed",
+    );
+  }
+  const versions = Object.keys(packageIndex?.versions ?? {});
+  const stableVersions = versions.filter(stableVersionParts);
+  if (stableVersions.length !== versions.length) {
+    throw publicReleaseHydrationError(
+      "REGISTRY_PACKAGE",
+      "canonical version history contains a non-stable version outside the release tuple",
+    );
+  }
+  const priorVersions = stableVersions
+    .filter((version) => version !== packageJson.version)
+    .sort(compareStableVersions);
+  const priorLatest = priorVersions.at(-1) ?? null;
+  if (
+    priorVersions.some(
+      (version) => compareStableVersions(packageJson.version, version) <= 0,
+    )
+  ) {
+    throw publicReleaseHydrationError(
+      "REGISTRY_PACKAGE",
+      "target version is not newer than every stable prior version",
+    );
+  }
+  const targetRegistryMetadata = packageIndex?.versions?.[packageJson.version];
+  let tupleSigningKey;
+  if (targetRegistryMetadata !== undefined) {
+    const targetSignatures = targetRegistryMetadata?.dist?.signatures;
+    if (
+      !Array.isArray(targetSignatures) ||
+      targetSignatures.length !== 1 ||
+      typeof targetSignatures[0]?.keyid !== "string"
+    ) {
+      throw publicReleaseHydrationError(
+        "REGISTRY_PACKAGE",
+        "existing target metadata does not expose one exact registry signature identity",
+      );
+    }
+    const publishedAt = Date.parse(packageIndex?.time?.[packageJson.version]);
+    tupleSigningKey = selectCurrentRegistrySigningKey(
+      registryKeys,
+      targetSignatures[0].keyid,
+      { validAt: Number.isFinite(publishedAt) ? publishedAt : Date.now() },
+    );
+  } else {
+    tupleSigningKey = selectCurrentRegistrySigningKey(registryKeys);
+    if ((packageIndex?.["dist-tags"]?.latest ?? null) !== priorLatest) {
+      throw publicReleaseHydrationError(
+        "REGISTRY_PACKAGE",
+        "current latest dist-tag does not equal the highest stable prior version",
+      );
+    }
+  }
+  const tagName = `v${packageJson.version}`;
+  const workflowRef = `refs/heads/${entry.merge.branch}`;
+  const tuple = freezePublicReleaseTuple({
+    schemaVersion: 1,
+    taskId,
+    repository,
+    baseBranch: entry.merge.branch,
+    target: { mergeSha, treeSha },
+    publishWorkflow: {
+      id: workflow.id,
+      name: workflow.name,
+      path: workflow.path,
+      state: workflow.state,
+      ref: workflowRef,
+      event: "workflow_dispatch",
+      environment: "npm-production",
+      publisher: {
+        provider: "GitHub Actions",
+        authentication: "OIDC",
+        repository,
+        workflow: path.posix.basename(workflow.path),
+        environment: "npm-production",
+        action: "npm publish",
+      },
+    },
+    package: {
+      ...packageIdentity,
+      tarball: tarball.identity,
+      signature: { required: true, keyId: tupleSigningKey.keyid },
+      provenance: {
+        required: true,
+        sourceRepository: repository,
+        workflowPath: workflow.path,
+        workflowRef,
+        sourceCommit: mergeSha,
+        subjectSha256: tarball.identity.sha256,
+      },
+      priorVersions,
+      priorLatest,
+    },
+    plugin: { name: pluginJson.name, version: pluginJson.version },
+    tag: { name: tagName, ref: `refs/tags/${tagName}` },
+    release: {
+      tagName,
+      title: tagName,
+      body: "",
+      draft: false,
+      prerelease: false,
+      generateReleaseNotes: false,
+      assets: [],
+    },
+  });
+  const clients =
+    suppliedClients ??
+    createPublicReleaseClients({
+      repositoryRoot,
+      commandRunner,
+      fetchImpl,
+      expectedTarball: tarball,
+      provenanceVerifier,
+      guardedRepositoryState,
+    });
+  return Object.freeze({
+    tuple,
+    standardDelivery: Object.freeze({
+      evaluation,
+      evidence: entry,
+      mergeTreeSha: treeSha,
+    }),
+    clients,
+    diagnostics: Object.freeze({
+      taskId,
+      repository,
+      mergeSha,
+      mergeTreeSha: treeSha,
+      package: `${packageJson.name}@${packageJson.version}`,
+      workflowId: workflow.id,
+      priorVersionCount: priorVersions.length,
+      packedEntryCount: tarball.entries.length,
+      baseHeadSha: mainSha,
+      baseHeadRelation: mainSha === mergeSha ? "EXACT" : "DESCENDANT",
+      commandCache: commandCache.stats(),
+      repositoryMutation: false,
+      externalMutation: false,
+    }),
+  });
 }

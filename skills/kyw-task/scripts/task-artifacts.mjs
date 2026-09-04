@@ -26,11 +26,15 @@ const {
   createTaskArtifactBatch,
   createTaskArtifacts,
   createStandardDeliveryContinuityTransitionToken,
+  derivePublicReleasePlan,
   hydratePriorStandardDeliveries,
+  hydratePublicReleaseContext,
   inspectTaskBatchTransaction,
   recoverTaskBatchTransaction,
   parseTaskInvocation,
   resolveTaskDispatch,
+  redactPublicReleaseDiagnostics,
+  runPublicRelease,
   validateTaskDirectory,
 } = await import(coreUrl);
 
@@ -48,7 +52,10 @@ const usage =
   "--selected-task <NNNN> --transition-token <opaque-token>\n" +
   "   or: task-artifacts.mjs dispatch --tasks-root <path> --invocation <text> " +
   "--managed-routing <true|false> " +
-  "[--execution-preflight <json-path> | --execution-preflight-json <json>]";
+  "[--execution-preflight <json-path> | --execution-preflight-json <json>]\n" +
+  "   or: task-artifacts.mjs public-release --tasks-root <path> " +
+  "--invocation '$kyw-deliver NNNN --public-release' " +
+  "--managed-routing <true|false>";
 
 function parseOptions(args, requiredNames, optionalNames = []) {
   const allowed = new Set([...requiredNames, ...optionalNames]);
@@ -141,6 +148,139 @@ async function readJsonObjectOption(options, {
   return value;
 }
 
+async function settledPublicReleaseRead(method, tuple, readContext) {
+  try {
+    return { value: await method(tuple, readContext) };
+  } catch (error) {
+    return { error: redactPublicReleaseDiagnostics(error) };
+  }
+}
+
+async function readPublicReleaseSnapshot(tuple, clients) {
+  const readContext = Object.freeze({
+    fresh: true,
+    cacheBypass: true,
+    purpose: "ADAPTER_PREFLIGHT",
+    sequence: 1,
+  });
+  const [workflow, npm, tag, release] = await Promise.all([
+    settledPublicReleaseRead(clients?.readWorkflowRuns, tuple, readContext),
+    settledPublicReleaseRead(clients?.readNpmVersion, tuple, readContext),
+    settledPublicReleaseRead(clients?.readTag, tuple, readContext),
+    settledPublicReleaseRead(clients?.readRelease, tuple, readContext),
+  ]);
+  return Object.freeze({
+    snapshot: Object.freeze({
+      workflow: workflow.value,
+      npm: npm.value,
+      tag: tag.value,
+      release: release.value,
+      readContext,
+    }),
+    readErrors: Object.freeze({
+      ...(workflow.error ? { workflow: workflow.error } : {}),
+      ...(npm.error ? { npm: npm.error } : {}),
+      ...(tag.error ? { tag: tag.error } : {}),
+      ...(release.error ? { release: release.error } : {}),
+    }),
+  });
+}
+
+function publicReleaseHydrationBlocked(command, result, error, hydrationDiagnostics) {
+  const diagnostics = redactPublicReleaseDiagnostics(error);
+  const code = /^[A-Z][A-Z0-9_]{0,79}$/u.test(error?.code ?? "")
+    ? error.code
+    : "PUBLIC_RELEASE_HYDRATION_FAILED";
+  const rawMessage = String(error?.message ?? "");
+  const classification =
+    code === "PUBLIC_RELEASE_EXTERNAL_FAILURE" ||
+    code === "PUBLIC_RELEASE_RESPONSE_BOUND_EXCEEDED" ||
+    /\b(?:unavailable|unreadable|malformed|ambiguous|timeout|permission|authentication|network|parse|invalid json|exceeds? (?:its )?(?:byte|response) bound)\b/iu.test(
+      rawMessage,
+    )
+      ? "UNKNOWN"
+      : /\b(?:mismatch|changed|drift|conflict|violat\w*|forbidden|duplicate|already exists|does not match|does not retain|not (?:the )?(?:expected|exact)|must (?:remain|equal|match))\b/iu.test(
+            rawMessage,
+          )
+        ? "CONFLICT"
+        : "UNKNOWN";
+  return Object.freeze({
+    command,
+    ...result,
+    outcome: "BLOCKED",
+    code,
+    publicReleaseState: "BLOCKED",
+    publicReleaseNextStage: "NPM",
+    classification,
+    publicWriteAuthorized: false,
+    mutationRequired: false,
+    completedStage: "STANDARD_FINAL",
+    blockingStage: "NPM",
+    resumePoint: "NPM",
+    recoveryCondition:
+      "Restore fresh canonical STANDARD and public-release identity reads before resuming.",
+    publicReleaseDiagnostics: diagnostics,
+    ...(hydrationDiagnostics ? { hydration: hydrationDiagnostics } : {}),
+  });
+}
+
+export function formatTaskArtifactCliError(error, command) {
+  const rawCode = typeof error?.code === "string" ? error.code : "TASK_ADAPTER_FAILED";
+  const code =
+    command === "public-release" && !/^[A-Z][A-Z0-9_]{0,79}$/u.test(rawCode)
+      ? "PUBLIC_RELEASE_FAILED"
+      : rawCode;
+  const rawMessage = error instanceof Error ? error.message : String(error);
+  if (command !== "public-release") return { code, message: rawMessage };
+  const redacted = redactPublicReleaseDiagnostics({ message: rawMessage });
+  return {
+    code,
+    message:
+      typeof redacted?.message === "string"
+        ? redacted.message
+        : "Public release failed without canonical proof.",
+  };
+}
+
+function publicReleaseDispatchResult({
+  command,
+  result,
+  context,
+  plan,
+  snapshot,
+  readErrors,
+  hydrationDiagnostics,
+}) {
+  const ready = plan.outcome === "READY";
+  const nextStage = plan.nextStage ?? plan.resumePoint ?? null;
+  const publicWriteAuthorized =
+    ready &&
+    plan.mutationRequired === true &&
+    ["NPM", "TAG", "RELEASE"].includes(nextStage) &&
+    (nextStage !== "NPM" ||
+      snapshot.workflow?.baseHeadSha === context.tuple.target.mergeSha);
+  return Object.freeze({
+    command,
+    ...result,
+    outcome: ready ? result.outcome : "BLOCKED",
+    ...(ready ? {} : { code: plan.code }),
+    publicReleaseState: plan.outcome,
+    publicReleaseNextStage: nextStage,
+    ...(plan.classification ? { classification: plan.classification } : {}),
+    publicWriteAuthorized,
+    mutationRequired: plan.mutationRequired,
+    publicReleaseTuple: context.tuple,
+    publicReleasePlan: plan,
+    ...(Object.keys(readErrors).length > 0
+      ? { publicReleaseReadErrors: readErrors }
+      : {}),
+    ...(context.diagnostics
+      ? { publicReleaseHydration: context.diagnostics }
+      : {}),
+    ...(hydrationDiagnostics ? { hydration: hydrationDiagnostics } : {}),
+  });
+}
+
 export async function runTaskArtifactCommand(argv, runtime = {}) {
   const [command, ...args] = argv;
   const hydrateDeliveries =
@@ -149,6 +289,12 @@ export async function runTaskArtifactCommand(argv, runtime = {}) {
   const bootstrapContinuity =
     runtime.bootstrapStandardDeliveryContinuity ??
     bootstrapStandardDeliveryContinuity;
+  const hydratePublicContext =
+    runtime.hydratePublicReleaseContext ?? hydratePublicReleaseContext;
+  const derivePublicPlan =
+    runtime.derivePublicReleasePlan ?? derivePublicReleasePlan;
+  const runAuthorizedPublicRelease =
+    runtime.runPublicRelease ?? runPublicRelease;
 
   if (command === "create") {
     const options = parseOptions(args, ["--tasks-root", "--title"]);
@@ -274,18 +420,20 @@ export async function runTaskArtifactCommand(argv, runtime = {}) {
     return { command, ...applied };
   }
 
-  if (command === "dispatch") {
+  if (command === "dispatch" || command === "public-release") {
     const options = parseOptions(
       args,
       ["--tasks-root", "--invocation", "--managed-routing"],
-      [
-        "--delivery-ledger",
-        "--delivery-ledger-json",
-        "--delivery-expectations",
-        "--delivery-expectations-json",
-        "--execution-preflight",
-        "--execution-preflight-json",
-      ],
+      command === "dispatch"
+        ? [
+            "--delivery-ledger",
+            "--delivery-ledger-json",
+            "--delivery-expectations",
+            "--delivery-expectations-json",
+            "--execution-preflight",
+            "--execution-preflight-json",
+          ]
+        : [],
     );
     const managedRoutingValue = options.get("--managed-routing");
     if (!["true", "false"].includes(managedRoutingValue)) {
@@ -308,12 +456,30 @@ export async function runTaskArtifactCommand(argv, runtime = {}) {
     const parsedInvocation = parseTaskInvocation(invocation, {
       managedRoutingAvailable,
     });
+    if (
+      command === "public-release" &&
+      parsedInvocation?.deliveryMode !== "PUBLIC_RELEASE"
+    ) {
+      throw new TaskArtifactError(
+        "PUBLIC_RELEASE_EXACT_INVOCATION_REQUIRED",
+        "public-release requires exactly $kyw-deliver NNNN --public-release",
+      );
+    }
     const manualDeliveryInput = [
       "--delivery-ledger",
       "--delivery-ledger-json",
       "--delivery-expectations",
       "--delivery-expectations-json",
     ].some((name) => options.has(name));
+    if (
+      parsedInvocation?.deliveryMode === "PUBLIC_RELEASE" &&
+      manualDeliveryInput
+    ) {
+      throw new TaskArtifactError(
+        "PUBLIC_RELEASE_CANONICAL_HYDRATION_REQUIRED",
+        "public-release does not accept caller-supplied STANDARD ledger or expectation JSON",
+      );
+    }
     let deliveryLedger;
     let deliveryExpectations;
     let hydrationDiagnostics;
@@ -367,17 +533,109 @@ export async function runTaskArtifactCommand(argv, runtime = {}) {
             checkpoint: preparedCheckpoint,
           })
         : undefined;
-    return {
+    const baseResult = {
       command,
       ...result,
       ...(continuityTransitionToken ? { continuityTransitionToken } : {}),
       ...(hydrationDiagnostics ? { hydration: hydrationDiagnostics } : {}),
     };
+    if (
+      parsedInvocation?.deliveryMode !== "PUBLIC_RELEASE" ||
+      result.outcome !== "SELECTED" ||
+      result.action !== "PUBLIC_RELEASE"
+    ) {
+      return baseResult;
+    }
+
+    let publicContext;
+    try {
+      publicContext = await hydratePublicContext({
+        tasksRoot,
+        taskId: parsedInvocation.taskId,
+        deliveryLedger,
+        deliveryExpectations,
+        commandRunner: runtime.commandRunner,
+        fetchImpl: runtime.fetchImpl,
+        provenanceVerifier: runtime.provenanceVerifier,
+        clients: runtime.publicReleaseClients,
+      });
+    } catch (error) {
+      return publicReleaseHydrationBlocked(
+        command,
+        result,
+        error,
+        hydrationDiagnostics,
+      );
+    }
+    const { snapshot, readErrors } = await readPublicReleaseSnapshot(
+      publicContext.tuple,
+      publicContext.clients,
+    );
+    const publicPlan = derivePublicPlan({
+      standardDelivery: publicContext.standardDelivery,
+      tuple: publicContext.tuple,
+      snapshot,
+    });
+    const dispatched = publicReleaseDispatchResult({
+      command,
+      result,
+      context: publicContext,
+      plan: publicPlan,
+      snapshot,
+      readErrors,
+      hydrationDiagnostics,
+    });
+    if (
+      command !== "public-release" ||
+      !["READY", "OBSERVE"].includes(publicPlan.outcome)
+    ) {
+      return dispatched;
+    }
+
+    let publicResult;
+    try {
+      publicResult = await runAuthorizedPublicRelease({
+        standardDelivery: publicContext.standardDelivery,
+        tuple: publicContext.tuple,
+        clients: publicContext.clients,
+        reconciliationReads: runtime.reconciliationReads,
+      });
+    } catch (error) {
+      return Object.freeze({
+        ...dispatched,
+        outcome: "BLOCKED",
+        code: "PUBLIC_RELEASE_RUNNER_FAILED",
+        publicReleaseState: "BLOCKED",
+        publicReleaseNextStage: publicPlan.nextStage ?? publicPlan.resumePoint,
+        classification: "UNKNOWN",
+        publicWriteAuthorized: false,
+        mutationRequired: false,
+        completedStage: publicPlan.completedStage,
+        blockingStage: publicPlan.nextStage ?? publicPlan.resumePoint,
+        resumePoint: publicPlan.nextStage ?? publicPlan.resumePoint,
+        recoveryCondition:
+          "Restore the canonical public-release runner boundary and resume without retrying an ambiguous mutator.",
+        publicReleaseDiagnostics: redactPublicReleaseDiagnostics(error),
+      });
+    }
+    return Object.freeze({
+      ...dispatched,
+      outcome: publicResult.outcome,
+      code: publicResult.code,
+      publicReleaseState: publicResult.outcome,
+      publicReleaseNextStage: publicResult.resumePoint ?? null,
+      ...(publicResult.classification
+        ? { classification: publicResult.classification }
+        : {}),
+      publicWriteAuthorized: false,
+      mutationRequired: false,
+      publicReleaseResult: publicResult,
+    });
   }
 
   throw new TaskArtifactError(
     "INVALID_TASK_ADAPTER_ARGUMENTS",
-    `Expected create, create-batch, inspect-transaction, recover-transaction, validate, bootstrap-continuity, apply-continuity, or dispatch, received ${command ?? "<missing>"}\n${usage}`,
+    `Expected create, create-batch, inspect-transaction, recover-transaction, validate, bootstrap-continuity, apply-continuity, dispatch, or public-release, received ${command ?? "<missing>"}\n${usage}`,
   );
 }
 
@@ -386,8 +644,7 @@ async function main() {
     const result = await runTaskArtifactCommand(process.argv.slice(2));
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
   } catch (error) {
-    const code = typeof error?.code === "string" ? error.code : "TASK_ADAPTER_FAILED";
-    const message = error instanceof Error ? error.message : String(error);
+    const { code, message } = formatTaskArtifactCliError(error, process.argv[2]);
     process.stderr.write(`${code}: ${message}\n`);
     process.exitCode = 1;
   }

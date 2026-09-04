@@ -458,6 +458,7 @@ function createSourceCopy(t, version, mutate) {
     "task-artifact-creation.mjs",
     "task-artifact-delivery.mjs",
     "task-artifact-hydration.mjs",
+    "task-artifact-public-release.mjs",
     "task-artifact-queue.mjs",
     "task-artifact-shared.mjs",
     "task-artifacts.mjs",
@@ -734,7 +735,7 @@ test("user install writes complete hashed Skills and a runnable direct-install T
     now: () => new Date("2026-07-17T00:00:00.000Z"),
   });
   assert.equal(result.skillCount, 6);
-  assert.equal(result.fileCount, 31);
+  assert.equal(result.fileCount, 33);
   assert.equal(readFileSync(unrelated, "utf8"), "unrelated\n");
 
   const location = resolveInstallLocation({ scope: "user", home });
@@ -745,7 +746,7 @@ test("user install writes complete hashed Skills and a runnable direct-install T
     metadata.skills.map(({ name, path: skillPath }) => [name, skillPath]),
     MANAGED_SKILL_NAMES.map((name) => [name, name]),
   );
-  assert.equal(metadata.files.length, 31);
+  assert.equal(metadata.files.length, 33);
   assert.ok(metadata.files.some((file) => file.path === ".kyw-dev/runtime/templates/task/TASK.md"));
   assert.ok(
     metadata.files.some(
@@ -755,6 +756,16 @@ test("user install writes complete hashed Skills and a runnable direct-install T
   assert.ok(
     metadata.files.some(
       (file) => file.path === ".kyw-dev/runtime/src/core/task-artifact-continuity.mjs",
+    ),
+  );
+  assert.ok(
+    metadata.files.some(
+      (file) => file.path === ".kyw-dev/runtime/src/core/task-artifact-public-release.mjs",
+    ),
+  );
+  assert.ok(
+    metadata.files.some(
+      (file) => file.path === "kyw-deliver/references/public-release.md",
     ),
   );
   for (const file of metadata.files) {
@@ -859,7 +870,7 @@ test("user install writes complete hashed Skills and a runnable direct-install T
   assert.equal(JSON.parse(transactionInspection.stdout).state, "NONE");
 
   const uninstall = uninstallManagedSkills({ scope: "user", home });
-  assert.equal(uninstall.removedFileCount, 31);
+  assert.equal(uninstall.removedFileCount, 33);
   assert.equal(readFileSync(unrelated, "utf8"), "unrelated\n");
   assert.equal(existsSync(location.metadataPath), false);
   for (const skillName of MANAGED_SKILL_NAMES) {
@@ -984,7 +995,7 @@ test("previous schema-1 five-Skill metadata remains safe for doctor, update, and
   const doctorLocation = resolveInstallLocation({ scope: "user", home: doctorHome });
   const doctorMetadata = convertCurrentInstallToPrevious(doctorLocation);
   assert.deepEqual(validateInstallMetadata(doctorMetadata, { expectedScope: "user" }), []);
-  assert.equal(doctorMetadata.files.length, 28);
+  assert.equal(doctorMetadata.files.length, 29);
   const doctorReport = diagnoseInstallations({ home: doctorHome, commandRunner });
   assert.equal(doctorReport.exitCode, 0);
   assert.deepEqual(
@@ -998,13 +1009,13 @@ test("previous schema-1 five-Skill metadata remains safe for doctor, update, and
   convertCurrentInstallToPrevious(updateLocation);
   const updated = updateManagedSkills({ scope: "user", home: updateHome });
   assert.equal(updated.skillCount, 6);
-  assert.equal(updated.fileCount, 31);
+  assert.equal(updated.fileCount, 33);
   const updatedMetadata = readInstallMetadata(updateLocation, { required: true });
   assert.deepEqual(
     updatedMetadata.skills.map(({ name }) => name),
     MANAGED_SKILL_NAMES,
   );
-  assert.equal(updatedMetadata.files.length, 31);
+  assert.equal(updatedMetadata.files.length, 33);
   assert.ok(existsSync(join(updateLocation.skillsRoot, "kyw-deliver", "SKILL.md")));
   assert.deepEqual(inspectManagedInstallation(updateLocation, updatedMetadata).modified, []);
 
@@ -1013,7 +1024,7 @@ test("previous schema-1 five-Skill metadata remains safe for doctor, update, and
   const uninstallLocation = resolveInstallLocation({ scope: "user", home: uninstallHome });
   convertCurrentInstallToPrevious(uninstallLocation);
   const uninstalled = uninstallManagedSkills({ scope: "user", home: uninstallHome });
-  assert.equal(uninstalled.removedFileCount, 28);
+  assert.equal(uninstalled.removedFileCount, 29);
   assert.equal(existsSync(uninstallLocation.metadataPath), false);
   for (const skillName of previousManagedSkillNames) {
     assert.equal(existsSync(join(uninstallLocation.skillsRoot, skillName)), false);
@@ -1026,7 +1037,7 @@ test("original schema-1 four-Skill metadata remains safe for doctor, update, and
   const doctorLocation = resolveInstallLocation({ scope: "user", home: doctorHome });
   const doctorMetadata = convertCurrentInstallToOriginal(doctorLocation);
   assert.deepEqual(validateInstallMetadata(doctorMetadata, { expectedScope: "user" }), []);
-  assert.equal(doctorMetadata.files.length, 26);
+  assert.equal(doctorMetadata.files.length, 27);
   const doctorReport = diagnoseInstallations({ home: doctorHome, commandRunner });
   assert.equal(doctorReport.exitCode, 0);
   assert.deepEqual(
@@ -1040,13 +1051,13 @@ test("original schema-1 four-Skill metadata remains safe for doctor, update, and
   convertCurrentInstallToOriginal(updateLocation);
   const updated = updateManagedSkills({ scope: "user", home: updateHome });
   assert.equal(updated.skillCount, 6);
-  assert.equal(updated.fileCount, 31);
+  assert.equal(updated.fileCount, 33);
   const updatedMetadata = readInstallMetadata(updateLocation, { required: true });
   assert.deepEqual(
     updatedMetadata.skills.map(({ name }) => name),
     MANAGED_SKILL_NAMES,
   );
-  assert.equal(updatedMetadata.files.length, 31);
+  assert.equal(updatedMetadata.files.length, 33);
   assert.ok(existsSync(join(updateLocation.skillsRoot, "kyw-impl", "SKILL.md")));
   assert.ok(existsSync(join(updateLocation.skillsRoot, "kyw-deliver", "SKILL.md")));
   assert.equal(
@@ -1060,7 +1071,7 @@ test("original schema-1 four-Skill metadata remains safe for doctor, update, and
   const uninstallLocation = resolveInstallLocation({ scope: "user", home: uninstallHome });
   convertCurrentInstallToOriginal(uninstallLocation);
   const uninstalled = uninstallManagedSkills({ scope: "user", home: uninstallHome });
-  assert.equal(uninstalled.removedFileCount, 26);
+  assert.equal(uninstalled.removedFileCount, 27);
   assert.equal(existsSync(uninstallLocation.metadataPath), false);
   for (const skillName of originalManagedSkillNames) {
     assert.equal(existsSync(join(uninstallLocation.skillsRoot, skillName)), false);
@@ -1917,7 +1928,7 @@ test("packaged managed source inventory is stable and fully hashed", () => {
     "kyw-audit",
   ]);
   assert.equal(inventory.version, "0.1.4");
-  assert.equal(inventory.files.length, 31);
+  assert.equal(inventory.files.length, 33);
   assert.deepEqual(
     inventory.files.map((file) => file.path),
     [...inventory.files].map((file) => file.path).sort((left, right) => left.localeCompare(right)),
@@ -1949,7 +1960,7 @@ test("actual npm tarball installs, diagnoses, runs its installed adapter, and un
   }
   assert.equal(packed.status, 0, packed.stderr);
   const report = JSON.parse(packed.stdout)[0];
-  assert.equal(report.entryCount, 46);
+  assert.equal(report.entryCount, 48);
   const extractRoot = join(root, "extract");
   mkdirSync(extractRoot);
   const extracted = spawnSync("tar", ["-xf", join(root, report.filename), "-C", extractRoot], {
@@ -1959,6 +1970,7 @@ test("actual npm tarball installs, diagnoses, runs its installed adapter, and un
   assertNoConsumedTask0070RecoveryState([
     join(extractRoot, "package", "skills", "kyw-task", "scripts", "task-artifacts.mjs"),
     join(extractRoot, "package", "src", "core", "task-artifact-hydration.mjs"),
+    join(extractRoot, "package", "src", "core", "task-artifact-public-release.mjs"),
     join(extractRoot, "package", "skills", "kyw-impl", "SKILL.md"),
     join(
       extractRoot,

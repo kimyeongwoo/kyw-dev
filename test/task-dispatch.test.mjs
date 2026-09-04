@@ -16,6 +16,7 @@ import {
   ALL_TASKS_COMPLETE_MESSAGE,
   classifyDeliveryEvidence,
   evaluateDeliveryEvidence,
+  freezePublicReleaseTuple,
   parseTaskInvocation,
   resolveTaskDispatch,
 } from "../src/core/task-artifacts.mjs";
@@ -23,7 +24,10 @@ import {
   TASK_CONTRACT_MARKER,
   TASK_TEST_STATUS_PAIRS,
 } from "../src/core/template-contracts.mjs";
-import { runTaskArtifactCommand } from "../skills/kyw-task/scripts/task-artifacts.mjs";
+import {
+  formatTaskArtifactCliError,
+  runTaskArtifactCommand,
+} from "../skills/kyw-task/scripts/task-artifacts.mjs";
 
 test("all-complete dispatch message remains the exact product phrase", () => {
   assert.equal(
@@ -358,6 +362,128 @@ function deliveredExpectation({
   };
 }
 
+function publicReleaseTuple({ taskId = "0001" } = {}) {
+  const mergeSha = "b".repeat(40);
+  const treeSha = "e".repeat(40);
+  const sha256 = "1".repeat(64);
+  return freezePublicReleaseTuple({
+    schemaVersion: 1,
+    taskId,
+    repository: "example/dispatch-fixture",
+    baseBranch: "main",
+    target: { mergeSha, treeSha },
+    publishWorkflow: {
+      id: 42,
+      name: "Publish npm package through OIDC",
+      path: ".github/workflows/publish.yml",
+      state: "active",
+      ref: "refs/heads/main",
+      event: "workflow_dispatch",
+      environment: "npm-production",
+      publisher: {
+        provider: "GitHub Actions",
+        authentication: "OIDC",
+        repository: "example/dispatch-fixture",
+        workflow: "publish.yml",
+        environment: "npm-production",
+        action: "npm publish",
+      },
+    },
+    package: {
+      name: "dispatch-fixture",
+      version: "1.2.3",
+      repository: "git+https://github.com/example/dispatch-fixture.git",
+      access: "public",
+      registry: "https://registry.npmjs.org/",
+      tarball: {
+        bytes: 123,
+        integrity: `sha512-${Buffer.alloc(64, 1).toString("base64")}`,
+        shasum: "2".repeat(40),
+        sha256,
+        entries: ["package.json"],
+      },
+      signature: { required: true, keyId: "SHA256:fixture" },
+      provenance: {
+        required: true,
+        sourceRepository: "example/dispatch-fixture",
+        workflowPath: ".github/workflows/publish.yml",
+        workflowRef: "refs/heads/main",
+        sourceCommit: mergeSha,
+        subjectSha256: sha256,
+      },
+      priorVersions: ["1.0.0"],
+      priorLatest: "1.0.0",
+    },
+    plugin: { name: "dispatch-fixture", version: "1.2.3" },
+    tag: { name: "v1.2.3", ref: "refs/tags/v1.2.3" },
+    release: {
+      tagName: "v1.2.3",
+      title: "v1.2.3",
+      body: "",
+      draft: false,
+      prerelease: false,
+      generateReleaseNotes: false,
+      assets: [],
+    },
+  });
+}
+
+function publicReleaseStandardFinal(tuple) {
+  return Object.freeze({
+    satisfied: true,
+    classification: "HARDENED_EXACT_HEAD",
+    claim: "FINAL",
+    taskId: tuple.taskId,
+    repository: tuple.repository,
+    baseBranch: tuple.baseBranch,
+    mergeSha: tuple.target.mergeSha,
+    mergeTreeSha: tuple.target.treeSha,
+    postMainCi: "VERIFIED_EXACT_CHECKOUT",
+  });
+}
+
+function publicReleaseAbsentClients(tuple, calls) {
+  const read = (surface, value) => async (_tuple, context) => {
+    calls.push({ kind: "read", surface, context });
+    assert.equal(_tuple, tuple);
+    assert.equal(context.fresh, true);
+    assert.equal(context.cacheBypass, true);
+    return value;
+  };
+  return Object.freeze({
+    readWorkflowRuns: read("workflow", {
+      runs: [],
+      complete: true,
+      baseHeadSha: tuple.target.mergeSha,
+    }),
+    readNpmVersion: read("npm", {
+      status: 404,
+      absent: true,
+      name: tuple.package.name,
+      version: tuple.package.version,
+      registry: tuple.package.registry,
+      signatureKeyId: tuple.package.signature.keyId,
+      indexComplete: true,
+      versions: [...tuple.package.priorVersions],
+      distTags: { latest: tuple.package.priorLatest },
+    }),
+    readTag: read("tag", { tags: [], complete: true }),
+    readRelease: read("release", { releases: [], complete: true }),
+    dispatchPublishWorkflow: async () => {
+      calls.push({ kind: "mutation", surface: "workflow" });
+      return { accepted: true };
+    },
+    createTag: async () => {
+      calls.push({ kind: "mutation", surface: "tag" });
+      return { accepted: true };
+    },
+    createRelease: async () => {
+      calls.push({ kind: "mutation", surface: "release" });
+      return { accepted: true };
+    },
+  });
+}
+
 function legacyDeliveredExpectation({
   taskId = "0001",
   outcomeCharacter = "a",
@@ -563,6 +689,60 @@ test("anchored invocation parsing preserves overrides and rejects non-Skill text
   );
 });
 
+test("exact public-release routing is opt-in and leaves the plain delivery descriptor unchanged", () => {
+  const plain = {
+    recognized: true,
+    route: "DELIVERY",
+    mode: "EXACT",
+    source: "PORTABLE_SKILL",
+    taskId: "0042",
+    overrideText: "",
+    overrideScope: "NONE",
+  };
+  assert.deepEqual(parseTaskInvocation("$kyw-deliver 0042"), plain);
+  assert.deepEqual(parseTaskInvocation("$kyw-deliver 0042 --public-release"), {
+    ...plain,
+    deliveryMode: "PUBLIC_RELEASE",
+  });
+
+  for (const invocation of [
+    "$kyw-deliver --public-release",
+    "$kyw-deliver 42 --public-release",
+    "$kyw-deliver 00420 --public-release",
+    "$kyw-deliver 0042 --PUBLIC-RELEASE",
+    "$kyw-deliver 0042 --public-release extra",
+    "$kyw-deliver 0042 --public-release --background",
+    "$kyw-deliver 0042 --public-release &",
+    "$kyw-deliver 0042 && $kyw-deliver 0042 --public-release",
+    "Please publish Task 0042 as a public release.",
+  ]) {
+    const parsed = parseTaskInvocation(invocation, {
+      managedRoutingAvailable: true,
+    });
+    assert.equal(parsed.recognized, false, invocation);
+    assert.equal(parsed.mode, "NONE", invocation);
+    assert.notEqual(parsed.deliveryMode, "PUBLIC_RELEASE", invocation);
+  }
+
+  for (const managedImplementation of [
+    "task 진행해줘 --public-release",
+    "남은 task 계속 실행해줘 --public-release",
+  ]) {
+    const parsed = parseTaskInvocation(managedImplementation, {
+      managedRoutingAvailable: true,
+    });
+    assert.equal(parsed.recognized, true, managedImplementation);
+    assert.equal(parsed.route, "IMPLEMENTATION", managedImplementation);
+    assert.notEqual(parsed.deliveryMode, "PUBLIC_RELEASE", managedImplementation);
+  }
+  assert.deepEqual(
+    parseTaskInvocation("task 0042 --public-release 실행해줘", {
+      managedRoutingAvailable: true,
+    }),
+    { recognized: false, mode: "NONE" },
+  );
+});
+
 test("implementation and exact delivery routes keep disjoint terminal authority", async (t) => {
   const root = await createQueue(t, [{ id: "0001", status: "DONE" }]);
 
@@ -589,6 +769,381 @@ test("implementation and exact delivery routes keep disjoint terminal authority"
   assert.equal(delivery.standardDeliveryAuthorized, true);
   assert.equal(delivery.continuous, false);
   assert.equal(delivery.overrideScope, "NONE");
+});
+
+test("public-release dispatch retains STANDARD authority until a fresh hardened FINAL graph", async (t) => {
+  const root = await createQueue(t, [{ id: "0001", status: "DONE" }]);
+
+  const pending = await resolveTaskDispatch({
+    tasksRoot: root,
+    invocation: "$kyw-deliver 0001 --public-release",
+  });
+  assert.equal(pending.outcome, "SELECTED");
+  assert.equal(pending.action, "DELIVER");
+  assert.equal(pending.deliveryMode, "PUBLIC_RELEASE");
+  assert.equal(pending.authorityScope, "PUBLIC_RELEASE");
+  assert.equal(pending.standardDeliveryAuthorized, true);
+  assert.equal(pending.publicReleaseAuthorized, true);
+  assert.equal(pending.publicWriteAuthorized, false);
+  assert.equal(pending.publicReleaseState, "STANDARD_PENDING");
+  assert.equal(pending.publicReleaseNextStage, "STANDARD_DELIVERY");
+
+  const entry = deliveredEntry();
+  const expectation = deliveredExpectation();
+  const ready = await resolveTaskDispatch({
+    tasksRoot: root,
+    invocation: "$kyw-deliver 0001 --public-release",
+    deliveryLedger: { "0001": entry },
+    deliveryExpectations: { "0001": expectation },
+  });
+  assert.equal(ready.outcome, "SELECTED");
+  assert.equal(ready.action, "PUBLIC_RELEASE");
+  assert.equal(ready.deliveryMode, "PUBLIC_RELEASE");
+  assert.equal(ready.authorityScope, "PUBLIC_RELEASE");
+  assert.equal(ready.standardDeliveryAuthorized, false);
+  assert.equal(ready.publicReleaseAuthorized, true);
+  assert.equal(ready.publicWriteAuthorized, false);
+  assert.equal(ready.publicReleaseState, "READY");
+  assert.equal(ready.publicReleaseNextStage, "PUBLIC_PREFLIGHT");
+  assert.equal(ready.deliveryDisposition, "SATISFIED");
+  assert.equal(ready.deliveryClassification, "HARDENED_EXACT_HEAD");
+  assert.equal(ready.postMergeEvidence, "VERIFIED_EXACT_CHECKOUT");
+
+  const legacy = await resolveTaskDispatch({
+    tasksRoot: root,
+    invocation: "$kyw-deliver 0001 --public-release",
+    deliveryLedger: { "0001": legacyDeliveredEntry() },
+    deliveryExpectations: { "0001": legacyDeliveredExpectation() },
+  });
+  assert.equal(legacy.outcome, "BLOCKED");
+  assert.equal(legacy.code, "PUBLIC_RELEASE_STANDARD_FINAL_REQUIRED");
+  assert.equal(legacy.deliveryMode, "PUBLIC_RELEASE");
+  assert.equal(legacy.publicReleaseAuthorized, true);
+  assert.equal(legacy.publicWriteAuthorized, false);
+  assert.equal(legacy.publicReleaseNextStage, "STANDARD_FINAL");
+  assert.equal("action" in legacy, false);
+});
+
+test("sole adapter preflights exact public-release state read-only and exposes one authorized stage", async (t) => {
+  const root = await createQueue(t, [{ id: "0001", status: "DONE" }]);
+  const tuple = publicReleaseTuple();
+  const calls = [];
+  const clients = publicReleaseAbsentClients(tuple, calls);
+  let contextHydrations = 0;
+  const result = await runTaskArtifactCommand(
+    [
+      "dispatch",
+      "--tasks-root",
+      root,
+      "--invocation",
+      "$kyw-deliver 0001 --public-release",
+      "--managed-routing",
+      "false",
+    ],
+    {
+      hydratePriorStandardDeliveries: async () => ({
+        deliveryLedger: { "0001": deliveredEntry() },
+        deliveryExpectations: { "0001": deliveredExpectation() },
+        diagnostics: { source: "STANDARD_FIXTURE" },
+      }),
+      hydratePublicReleaseContext: async (options) => {
+        contextHydrations += 1;
+        assert.equal(options.taskId, "0001");
+        assert.equal(options.deliveryLedger["0001"].claim, "FINAL");
+        return {
+          tuple,
+          standardDelivery: publicReleaseStandardFinal(tuple),
+          clients,
+          diagnostics: { source: "PUBLIC_FIXTURE", externalMutation: false },
+        };
+      },
+    },
+  );
+  assert.equal(contextHydrations, 1);
+  assert.equal(result.command, "dispatch");
+  assert.equal(result.outcome, "SELECTED");
+  assert.equal(result.action, "PUBLIC_RELEASE");
+  assert.equal(result.authorityScope, "PUBLIC_RELEASE");
+  assert.equal(result.publicReleaseAuthorized, true);
+  assert.equal(result.publicWriteAuthorized, true);
+  assert.equal(result.publicReleaseState, "READY");
+  assert.equal(result.publicReleaseNextStage, "NPM");
+  assert.equal(result.publicReleaseTuple, tuple);
+  assert.equal(result.publicReleasePlan.code, "PUBLIC_RELEASE_NPM_READY");
+  assert.deepEqual(
+    calls.map(({ kind, surface }) => [kind, surface]),
+    [
+      ["read", "workflow"],
+      ["read", "npm"],
+      ["read", "tag"],
+      ["read", "release"],
+    ],
+  );
+  assert.equal(calls.some(({ kind }) => kind === "mutation"), false);
+});
+
+test("packaged public-release command joins selection, hydration, and the shared runner without a live write", async (t) => {
+  const root = await createQueue(t, [{ id: "0001", status: "DONE" }]);
+  const tuple = publicReleaseTuple();
+  const calls = [];
+  const clients = publicReleaseAbsentClients(tuple, calls);
+  let runnerCalls = 0;
+  const result = await runTaskArtifactCommand(
+    [
+      "public-release",
+      "--tasks-root",
+      root,
+      "--invocation",
+      "$kyw-deliver 0001 --public-release",
+      "--managed-routing",
+      "false",
+    ],
+    {
+      hydratePriorStandardDeliveries: async () => ({
+        deliveryLedger: { "0001": deliveredEntry() },
+        deliveryExpectations: { "0001": deliveredExpectation() },
+      }),
+      hydratePublicReleaseContext: async () => ({
+        tuple,
+        standardDelivery: publicReleaseStandardFinal(tuple),
+        clients,
+      }),
+      runPublicRelease: async (input) => {
+        runnerCalls += 1;
+        assert.equal(input.tuple, tuple);
+        assert.equal(input.clients, clients);
+        assert.equal(input.standardDelivery.taskId, "0001");
+        return Object.freeze({
+          outcome: "COMPLETE",
+          code: "PUBLIC_RELEASE_COMPLETE",
+          completedStage: "RELEASE",
+          resumePoint: null,
+          mutationRequired: false,
+          mutations: Object.freeze([]),
+        });
+      },
+    },
+  );
+  assert.equal(runnerCalls, 1);
+  assert.equal(result.command, "public-release");
+  assert.equal(result.outcome, "COMPLETE");
+  assert.equal(result.code, "PUBLIC_RELEASE_COMPLETE");
+  assert.equal(result.publicReleaseState, "COMPLETE");
+  assert.equal(result.publicWriteAuthorized, false);
+  assert.equal(calls.filter(({ kind }) => kind === "read").length, 4);
+  assert.equal(calls.some(({ kind }) => kind === "mutation"), false);
+
+  await assert.rejects(
+    runTaskArtifactCommand(
+      [
+        "public-release",
+        "--tasks-root",
+        root,
+        "--invocation",
+        "$kyw-deliver 0001",
+        "--managed-routing",
+        "false",
+      ],
+      {},
+    ),
+    { code: "PUBLIC_RELEASE_EXACT_INVOCATION_REQUIRED" },
+  );
+  await assert.rejects(
+    runTaskArtifactCommand(
+      [
+        "dispatch",
+        "--tasks-root",
+        root,
+        "--invocation",
+        "$kyw-deliver 0001 --public-release",
+        "--managed-routing",
+        "false",
+        "--delivery-ledger-json",
+        "{}",
+      ],
+      {},
+    ),
+    { code: "PUBLIC_RELEASE_CANONICAL_HYDRATION_REQUIRED" },
+  );
+  await assert.rejects(
+    runTaskArtifactCommand(
+      [
+        "public-release",
+        "--tasks-root",
+        root,
+        "--invocation",
+        "$kyw-deliver 0001 --public-release",
+        "--managed-routing",
+        "false",
+        "--execution-preflight-json",
+        "{}",
+      ],
+      {},
+    ),
+    { code: "INVALID_TASK_ADAPTER_ARGUMENTS" },
+  );
+});
+
+test("public-release adapter terminal errors are bounded and credential-redacted", () => {
+  const formatted = formatTaskArtifactCliError(
+    Object.assign(
+      new Error(
+        "Bearer ghp_abcdefghijklmnopqrstuvwxyz012345 token=npm_secret_abcdefghijklmnopqrstuvwxyz https://user:password@example.invalid/path",
+      ),
+      { code: "unsafe-secret-code" },
+    ),
+    "public-release",
+  );
+  assert.equal(formatted.code, "PUBLIC_RELEASE_FAILED");
+  assert.doesNotMatch(formatted.message, /ghp_|npm_secret_|password/u);
+  assert.ok(Buffer.byteLength(formatted.message, "utf8") < 16 * 1024);
+});
+
+test("packaged adapter enters bounded observation and reports post-STANDARD hydration blocks", async (t) => {
+  const root = await createQueue(t, [{ id: "0001", status: "DONE" }]);
+  const tuple = publicReleaseTuple();
+  const calls = [];
+  const absent = publicReleaseAbsentClients(tuple, calls);
+  const observingClients = Object.freeze({
+    ...absent,
+    readWorkflowRuns: async (_tuple, context) => ({
+      runs: [
+        {
+          runId: 501,
+          runAttempt: 1,
+          repository: tuple.repository,
+          workflowId: tuple.publishWorkflow.id,
+          workflowName: tuple.publishWorkflow.name,
+          workflowPath: tuple.publishWorkflow.path,
+          event: "workflow_dispatch",
+          ref: tuple.publishWorkflow.ref,
+          headSha: tuple.target.mergeSha,
+          status: "queued",
+          conclusion: null,
+        },
+      ],
+      complete: true,
+      baseHeadSha: tuple.target.mergeSha,
+    }),
+  });
+  let observations = 0;
+  const baseRuntime = {
+    hydratePriorStandardDeliveries: async () => ({
+      deliveryLedger: { "0001": deliveredEntry() },
+      deliveryExpectations: { "0001": deliveredExpectation() },
+    }),
+  };
+  const observed = await runTaskArtifactCommand(
+    [
+      "public-release",
+      "--tasks-root",
+      root,
+      "--invocation",
+      "$kyw-deliver 0001 --public-release",
+      "--managed-routing",
+      "false",
+    ],
+    {
+      ...baseRuntime,
+      hydratePublicReleaseContext: async () => ({
+        tuple,
+        standardDelivery: publicReleaseStandardFinal(tuple),
+        clients: observingClients,
+      }),
+      runPublicRelease: async () => {
+        observations += 1;
+        return {
+          outcome: "BLOCKED",
+          code: "PUBLIC_RELEASE_PENDING_PROOF",
+          completedStage: "STANDARD_FINAL",
+          blockingStage: "NPM",
+          resumePoint: "NPM",
+          mutationRequired: false,
+          mutations: [],
+        };
+      },
+    },
+  );
+  assert.equal(observations, 1);
+  assert.equal(observed.outcome, "BLOCKED");
+  assert.equal(observed.code, "PUBLIC_RELEASE_PENDING_PROOF");
+  assert.equal(observed.publicWriteAuthorized, false);
+
+  const blocked = await runTaskArtifactCommand(
+    [
+      "dispatch",
+      "--tasks-root",
+      root,
+      "--invocation",
+      "$kyw-deliver 0001 --public-release",
+      "--managed-routing",
+      "false",
+    ],
+    {
+      ...baseRuntime,
+      hydratePublicReleaseContext: async () => {
+        throw Object.assign(
+          new Error("Bearer ghp_abcdefghijklmnopqrstuvwxyz012345"),
+          { code: "PUBLIC_RELEASE_REGISTRY_UNAVAILABLE" },
+        );
+      },
+    },
+  );
+  assert.equal(blocked.outcome, "BLOCKED");
+  assert.equal(blocked.completedStage, "STANDARD_FINAL");
+  assert.equal(blocked.blockingStage, "NPM");
+  assert.equal(blocked.resumePoint, "NPM");
+  assert.equal(blocked.classification, "UNKNOWN");
+  assert.doesNotMatch(JSON.stringify(blocked), /ghp_/u);
+
+  const conflict = await runTaskArtifactCommand(
+    [
+      "dispatch",
+      "--tasks-root",
+      root,
+      "--invocation",
+      "$kyw-deliver 0001 --public-release",
+      "--managed-routing",
+      "false",
+    ],
+    {
+      ...baseRuntime,
+      hydratePublicReleaseContext: async () => {
+        throw Object.assign(
+          new Error("public release SOURCE_IDENTITY: workflow does not match exact source"),
+          { code: "PUBLIC_RELEASE_HYDRATION_FAILED" },
+        );
+      },
+    },
+  );
+  assert.equal(conflict.outcome, "BLOCKED");
+  assert.equal(conflict.classification, "CONFLICT");
+
+  const runnerFailure = await runTaskArtifactCommand(
+    [
+      "public-release",
+      "--tasks-root",
+      root,
+      "--invocation",
+      "$kyw-deliver 0001 --public-release",
+      "--managed-routing",
+      "false",
+    ],
+    {
+      ...baseRuntime,
+      hydratePublicReleaseContext: async () => ({
+        tuple,
+        standardDelivery: publicReleaseStandardFinal(tuple),
+        clients: absent,
+      }),
+      runPublicRelease: async () => {
+        throw new Error("unexpected runner boundary failure");
+      },
+    },
+  );
+  assert.equal(runnerFailure.outcome, "BLOCKED");
+  assert.equal(runnerFailure.code, "PUBLIC_RELEASE_RUNNER_FAILED");
+  assert.equal(runnerFailure.classification, "UNKNOWN");
 });
 
 test("exact delivery rejects every nonterminal or non-STANDARD lifecycle", async (t) => {

@@ -276,6 +276,30 @@ function blockedResult(code, message, details = {}) {
   return Object.freeze({ outcome: "BLOCKED", code, message, ...details });
 }
 
+function isPublicReleaseInvocation(parsedInvocation) {
+  return parsedInvocation?.deliveryMode === "PUBLIC_RELEASE";
+}
+
+function publicReleaseResult(
+  result,
+  parsedInvocation,
+  {
+    authorized = false,
+    state = "BLOCKED",
+    nextStage = "STANDARD_FINAL",
+  } = {},
+) {
+  if (!isPublicReleaseInvocation(parsedInvocation)) return result;
+  return Object.freeze({
+    ...result,
+    deliveryMode: "PUBLIC_RELEASE",
+    publicReleaseAuthorized: authorized,
+    publicWriteAuthorized: false,
+    publicReleaseState: state,
+    publicReleaseNextStage: nextStage,
+  });
+}
+
 function deliveryClassification(task, deliveryState) {
   if (task.deliveryRequirement.kind !== "STANDARD") {
     return Object.freeze({ disposition: "SATISFIED", issues: Object.freeze([]) });
@@ -412,7 +436,13 @@ function selectedResult(
       : activeTask(task)
         ? "RESUME"
         : "IMPLEMENT");
-  const lifecycleSelection = ["IMPLEMENT", "RESUME", "DELIVER"].includes(action);
+  const publicRelease = isPublicReleaseInvocation(parsedInvocation);
+  const lifecycleSelection = [
+    "IMPLEMENT",
+    "RESUME",
+    "DELIVER",
+    "PUBLIC_RELEASE",
+  ].includes(action);
   const standardDeliveryAuthorized =
     lifecycleSelection &&
     parsedInvocation.route === "DELIVERY" &&
@@ -429,12 +459,29 @@ function selectedResult(
     ...(lifecycleSelection
       ? {
           authoritySource: "RECOGNIZED_TASK_INVOCATION",
-          authorityScope: standardDeliveryAuthorized
-            ? "STANDARD_DELIVERY"
-            : "REPOSITORY_LIFECYCLE",
+          authorityScope: publicRelease
+            ? "PUBLIC_RELEASE"
+            : standardDeliveryAuthorized
+              ? "STANDARD_DELIVERY"
+              : "REPOSITORY_LIFECYCLE",
           standardDeliveryAuthorized,
           ceremonialConfirmationRequired: false,
-          separateAuthorityBoundary: "NON_STANDARD_EXTERNAL_MUTATIONS",
+          separateAuthorityBoundary: publicRelease
+            ? "OUT_OF_SCOPE_EXTERNAL_MUTATIONS"
+            : "NON_STANDARD_EXTERNAL_MUTATIONS",
+        }
+      : {}),
+    ...(publicRelease
+      ? {
+          deliveryMode: "PUBLIC_RELEASE",
+          publicReleaseAuthorized: true,
+          publicWriteAuthorized: false,
+          publicReleaseState:
+            action === "PUBLIC_RELEASE" ? "READY" : "STANDARD_PENDING",
+          publicReleaseNextStage:
+            action === "PUBLIC_RELEASE"
+              ? "PUBLIC_PREFLIGHT"
+              : "STANDARD_DELIVERY",
         }
       : {}),
     ...(action === "DELIVER"
@@ -446,6 +493,16 @@ function selectedResult(
             deliveryEvidence?.mergeCompatibility ?? "UNVERIFIED",
           postMergeEvidence: deliveryEvidence?.postMerge ?? "UNVERIFIED",
           message: `Task ${task.id} is repository-complete; the exact $kyw-deliver route authorizes resuming STANDARD delivery without ceremonial reconfirmation.`,
+        }
+      : {}),
+    ...(action === "PUBLIC_RELEASE"
+      ? {
+          deliveryDisposition: "SATISFIED",
+          deliveryClassification: deliveryEvidence?.classification,
+          actualHeadEvidence: deliveryEvidence?.actualHead,
+          mergeCompatibilityEvidence: deliveryEvidence?.mergeCompatibility,
+          postMergeEvidence: deliveryEvidence?.postMerge,
+          message: `Task ${task.id} has a freshly revalidated FINAL STANDARD graph; public-release state preflight is the next read-only stage.`,
         }
       : {}),
     ...(blockedTask(task) ? { blocker: task.blocker } : {}),
@@ -664,25 +721,35 @@ function exactDeliveryResult(
   deliveryState,
   parsedInvocation,
 ) {
+  const publicRelease = isPublicReleaseInvocation(parsedInvocation);
   if (active.length === 1 && active[0].id !== task.id) {
-    return blockedResult(
-      "ANOTHER_TASK_ACTIVE",
-      `Task ${active[0].id} is active; Task ${task.id} cannot be delivered while implementation is active.`,
-      { route: "DELIVERY", task: taskSummary(active[0]) },
+    return publicReleaseResult(
+      blockedResult(
+        "ANOTHER_TASK_ACTIVE",
+        `Task ${active[0].id} is active; Task ${task.id} cannot be delivered while implementation is active.`,
+        { route: "DELIVERY", task: taskSummary(active[0]) },
+      ),
+      parsedInvocation,
     );
   }
   if (!completeTask(task)) {
-    return blockedResult(
-      "TASK_NOT_DELIVERABLE",
-      `Task ${task.id} is not repository-complete (${task.taskStatus}/${task.testStatus}); $kyw-deliver accepts only DONE/PASSED Tasks.`,
-      { route: "DELIVERY", task: taskSummary(task), mutationRequired: false },
+    return publicReleaseResult(
+      blockedResult(
+        "TASK_NOT_DELIVERABLE",
+        `Task ${task.id} is not repository-complete (${task.taskStatus}/${task.testStatus}); $kyw-deliver accepts only DONE/PASSED Tasks.`,
+        { route: "DELIVERY", task: taskSummary(task), mutationRequired: false },
+      ),
+      parsedInvocation,
     );
   }
   if (task.deliveryRequirement.kind !== "STANDARD") {
-    return blockedResult(
-      "DELIVERY_NOT_REQUIRED",
-      `Task ${task.id} declares reasoned NONE delivery; $kyw-deliver applies only to STANDARD delivery.`,
-      { route: "DELIVERY", task: taskSummary(task), mutationRequired: false },
+    return publicReleaseResult(
+      blockedResult(
+        "DELIVERY_NOT_REQUIRED",
+        `Task ${task.id} declares reasoned NONE delivery; $kyw-deliver applies only to STANDARD delivery.`,
+        { route: "DELIVERY", task: taskSummary(task), mutationRequired: false },
+      ),
+      parsedInvocation,
     );
   }
   const blockers = queueSelectionBlockers(
@@ -692,14 +759,59 @@ function exactDeliveryResult(
     deliveryState,
   );
   if (blockers.length > 0) {
-    return selectionBlockedResult(task, blockers, parsedInvocation);
+    return publicReleaseResult(
+      selectionBlockedResult(task, blockers, parsedInvocation),
+      parsedInvocation,
+    );
   }
   const classification = deliveryClassification(task, deliveryState);
   if (classification.disposition === "RESUMABLE") {
     return selectedResult(task, parsedInvocation, "DELIVER", classification);
   }
   if (classification.disposition === "BLOCKED") {
-    return deliveryEvidenceBlockedResult(task, classification, parsedInvocation);
+    return publicReleaseResult(
+      deliveryEvidenceBlockedResult(task, classification, parsedInvocation),
+      parsedInvocation,
+      { authorized: true },
+    );
+  }
+  if (publicRelease) {
+    const entry = deliveryState.ledger?.[task.id];
+    const expectation = deliveryState.expectations?.[task.id];
+    const finalHardenedGraph =
+      entry?.schemaVersion === 2 &&
+      entry?.claim === "FINAL" &&
+      expectation?.deliveryContract?.kind === "HARDENED_EXACT_HEAD" &&
+      classification.classification === "HARDENED_EXACT_HEAD" &&
+      classification.actualHead === "VERIFIED" &&
+      classification.mergeCompatibility === "VERIFIED_SYNTHETIC" &&
+      classification.postMerge === "VERIFIED_EXACT_CHECKOUT";
+    if (!finalHardenedGraph) {
+      return publicReleaseResult(
+        blockedResult(
+          "PUBLIC_RELEASE_STANDARD_FINAL_REQUIRED",
+          `Task ${task.id} public release requires a freshly evaluator-satisfied HARDENED_EXACT_HEAD FINAL graph with exact post-main evidence.`,
+          {
+            route: "DELIVERY",
+            task: taskSummary(task),
+            deliveryDisposition: "BLOCKED",
+            deliveryClassification: classification.classification,
+            actualHeadEvidence: classification.actualHead,
+            mergeCompatibilityEvidence: classification.mergeCompatibility,
+            postMergeEvidence: classification.postMerge,
+            mutationRequired: false,
+          },
+        ),
+        parsedInvocation,
+        { authorized: true },
+      );
+    }
+    return selectedResult(
+      task,
+      parsedInvocation,
+      "PUBLIC_RELEASE",
+      classification,
+    );
   }
   return terminalTaskResult(
     task,

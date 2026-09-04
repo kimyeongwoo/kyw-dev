@@ -1083,6 +1083,7 @@ test("activation-scoped guardrails fix their projection manifest, claims, and li
     { path: "skills/kyw-impl/references/execution.md", profile: "procedure" },
     { path: "skills/kyw-deliver/SKILL.md", profile: "procedure" },
     { path: "skills/kyw-deliver/references/delivery.md", profile: "procedure" },
+    { path: "skills/kyw-deliver/references/public-release.md", profile: "procedure" },
     { path: "skills/kyw-audit/SKILL.md", profile: "procedure" },
     { path: "skills/kyw-audit/references/audit.md", profile: "procedure" },
   ];
@@ -1251,6 +1252,7 @@ test("activation-scoped guardrails fix their projection manifest, claims, and li
         ["IMPLEMENT", "MUTABLE", "NONE", "MUTATING"],
         ["RESUME", "MUTABLE", "NONE", "MUTATING"],
         ["DELIVER", "IMMUTABLE", "RESUMABLE", "MUTATING"],
+        ["PUBLIC_RELEASE", "IMMUTABLE", "RESUMABLE", "MUTATING"],
         ["REPORT", "IMMUTABLE", "SATISFIED", "READ_ONLY"],
       ],
       stateIds: expectedStates,

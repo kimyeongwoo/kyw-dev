@@ -64,7 +64,15 @@ Repository-complete Task의 현재 `STANDARD` delivery만 다음 exact form으�
 $kyw-deliver 0001
 ```
 
-Bare form, Korean alias, implicit 호출, suffix, 자동 Skill chaining, background delivery는 지원하지 않는다. 상세 Git/GitHub 절차는 설치된 `$kyw-deliver` reference 하나가 소유하며, 여기서는 복제하지 않는다. 이미 satisfied인 contract-3 Task는 immutable report-only이고 correction은 새 hard-dependent `$kyw-task "<correction outcome>"`로 작성한다.
+이 plain form은 `STANDARD` 전용이며 bare/Korean/implicit/chained/background 호출은 지원하지 않는다. 이미 satisfied인 contract-3 Task는 immutable report-only이고 correction은 새 hard-dependent `$kyw-task "<correction outcome>"`로 작성한다.
+
+같은 Task의 `STANDARD FINAL` 뒤 npm→exact-SHA tag→GitHub Release를 한 번만 수행/재개하려면 다음 exact opt-in만 사용한다.
+
+```text
+$kyw-deliver 0001 --public-release
+```
+
+다른 suffix는 권한이 없다. 이 form은 canonical state를 다시 읽어 exact stage를 건너뛰고 conflict/unknown/failure에서 retry 없이 멈춘다. 상세 STANDARD/public 절차는 각각 설치된 `$kyw-deliver` reference가 소유하며 여기서는 복제하지 않는다.
 
 ## Task 없이 수행할 소규모 변경 프롬프트
 

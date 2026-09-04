@@ -11,6 +11,38 @@ on:
         description: Exact package version at that commit
         required: true
         type: string
+      expected_tarball_bytes:
+        description: Exact packed tarball byte length
+        required: true
+        type: string
+      expected_tarball_sha256:
+        description: Exact packed tarball SHA-256
+        required: true
+        type: string
+      expected_tarball_shasum:
+        description: Exact packed tarball npm SHA-1 shasum
+        required: true
+        type: string
+      expected_tarball_integrity:
+        description: Exact packed tarball npm SHA-512 integrity
+        required: true
+        type: string
+      expected_packed_entries_sha256:
+        description: Exact packed entry-set digest
+        required: true
+        type: string
+      expected_prior_versions_sha256:
+        description: Exact prior npm version-set digest
+        required: true
+        type: string
+      expected_prior_latest:
+        description: Exact prior npm latest tag or null
+        required: true
+        type: string
+      expected_signing_key_id:
+        description: Exact sole current npm registry signing-key identity
+        required: true
+        type: string
 
 permissions: {}
 
@@ -37,6 +69,7 @@ jobs:
     timeout-minutes: 30
     environment: npm-production
     permissions:
+      actions: read
       contents: read
       id-token: write
     steps:
@@ -49,6 +82,14 @@ jobs:
           ACTUAL_SHA: ${{ github.sha }}
           EXPECTED_SHA: ${{ inputs.expected_sha }}
           EXPECTED_VERSION: ${{ inputs.expected_version }}
+          EXPECTED_TARBALL_BYTES: ${{ inputs.expected_tarball_bytes }}
+          EXPECTED_TARBALL_SHA256: ${{ inputs.expected_tarball_sha256 }}
+          EXPECTED_TARBALL_SHASUM: ${{ inputs.expected_tarball_shasum }}
+          EXPECTED_TARBALL_INTEGRITY: ${{ inputs.expected_tarball_integrity }}
+          EXPECTED_PACKED_ENTRIES_SHA256: ${{ inputs.expected_packed_entries_sha256 }}
+          EXPECTED_PRIOR_VERSIONS_SHA256: ${{ inputs.expected_prior_versions_sha256 }}
+          EXPECTED_PRIOR_LATEST: ${{ inputs.expected_prior_latest }}
+          EXPECTED_SIGNING_KEY_ID: ${{ inputs.expected_signing_key_id }}
         run: |
           set -euo pipefail
           test "$ACTUAL_EVENT" = "workflow_dispatch"
@@ -64,8 +105,40 @@ jobs:
           if ! [[ "$EXPECTED_VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
             exit 1
           fi
-          printf 'KYWPUBLISHEVIDENCE schema=1 stage=dispatch repository=%s event=%s ref=%s expected_sha=%s expected_version=%s\n' \
-            "$ACTUAL_REPOSITORY" "$ACTUAL_EVENT" "$ACTUAL_REF" "$EXPECTED_SHA" "$EXPECTED_VERSION"
+          if (( ${#EXPECTED_VERSION} > 64 )); then
+            exit 1
+          fi
+          if ! [[ "$EXPECTED_TARBALL_BYTES" =~ ^[1-9][0-9]*$ ]]; then
+            exit 1
+          fi
+          if (( ${#EXPECTED_TARBALL_BYTES} > 7 )); then
+            exit 1
+          fi
+          if (( EXPECTED_TARBALL_BYTES > 8388608 )); then
+            exit 1
+          fi
+          for digest in "$EXPECTED_TARBALL_SHA256" "$EXPECTED_PACKED_ENTRIES_SHA256" "$EXPECTED_PRIOR_VERSIONS_SHA256"; do
+            if ! [[ "$digest" =~ ^[0-9a-f]{64}$ ]]; then
+              exit 1
+            fi
+          done
+          if ! [[ "$EXPECTED_TARBALL_SHASUM" =~ ^[0-9a-f]{40}$ ]]; then
+            exit 1
+          fi
+          if ! [[ "$EXPECTED_TARBALL_INTEGRITY" =~ ^sha512-[A-Za-z0-9+/]+={0,2}$ ]]; then
+            exit 1
+          fi
+          if [ "${#EXPECTED_TARBALL_INTEGRITY}" -ne 95 ]; then
+            exit 1
+          fi
+          if [ "$EXPECTED_PRIOR_LATEST" != "null" ] && ! [[ "$EXPECTED_PRIOR_LATEST" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            exit 1
+          fi
+          if ! [[ "$EXPECTED_SIGNING_KEY_ID" =~ ^[^[:space:]]{1,256}$ ]]; then
+            exit 1
+          fi
+          printf 'KYWPUBLISHEVIDENCE schema=1 stage=dispatch repository=%s event=%s ref=%s expected_sha=%s expected_version=%s expected_tarball_bytes=%s expected_tarball_sha256=%s expected_tarball_shasum=%s expected_tarball_integrity=%s expected_packed_entries_sha256=%s expected_prior_versions_sha256=%s expected_prior_latest=%s expected_signing_key_id=%s\n' \
+            "$ACTUAL_REPOSITORY" "$ACTUAL_EVENT" "$ACTUAL_REF" "$EXPECTED_SHA" "$EXPECTED_VERSION" "$EXPECTED_TARBALL_BYTES" "$EXPECTED_TARBALL_SHA256" "$EXPECTED_TARBALL_SHASUM" "$EXPECTED_TARBALL_INTEGRITY" "$EXPECTED_PACKED_ENTRIES_SHA256" "$EXPECTED_PRIOR_VERSIONS_SHA256" "$EXPECTED_PRIOR_LATEST" "$EXPECTED_SIGNING_KEY_ID"
 
       - name: Check out exact source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -82,6 +155,7 @@ jobs:
       - name: Guard checkout, runtime, and package identity
         shell: bash
         env:
+          EXPECTED_REPOSITORY: ${{ github.repository }}
           EXPECTED_SHA: ${{ inputs.expected_sha }}
           EXPECTED_VERSION: ${{ inputs.expected_version }}
         run: |
@@ -94,6 +168,7 @@ jobs:
 
           const expectedSha = process.env.EXPECTED_SHA;
           const expectedVersion = process.env.EXPECTED_VERSION;
+          const expectedRepository = process.env.EXPECTED_REPOSITORY;
           const actualSha = process.env.ACTUAL_SHA;
           const packageJson = JSON.parse(readFileSync("package.json", "utf8"));
           const pluginJson = JSON.parse(
@@ -128,7 +203,9 @@ jobs:
             throw new Error("Checkout SHA does not match the dispatch input");
           }
           if (
-            packageJson.name !== "kyw-dev" ||
+            typeof packageJson.name !== "string" ||
+            Buffer.byteLength(packageJson.name, "utf8") > 214 ||
+            !/^(?:@[a-z0-9][a-z0-9._~-]*\/)?[a-z0-9][a-z0-9._~-]*$/.test(packageJson.name) ||
             packageJson.version !== expectedVersion ||
             pluginJson.name !== packageJson.name ||
             pluginJson.version !== packageJson.version
@@ -137,15 +214,25 @@ jobs:
           }
           if (
             packageJson.repository?.url !==
-              "git+https://github.com/kimyeongwoo/kyw-dev.git" ||
-            packageJson.publishConfig?.access !== "public" ||
-            packageJson.publishConfig?.registry !== "https://registry.npmjs.org/"
+              `git+https://github.com/${expectedRepository}.git` ||
+            !packageJson.publishConfig ||
+            typeof packageJson.publishConfig !== "object" ||
+            Array.isArray(packageJson.publishConfig) ||
+            JSON.stringify(Object.keys(packageJson.publishConfig).sort()) !==
+              '["access","registry"]' ||
+            packageJson.publishConfig.access !== "public" ||
+            packageJson.publishConfig.registry !== "https://registry.npmjs.org/"
           ) {
             throw new Error("Package repository or public registry identity is invalid");
           }
           if (
             "dependencies" in packageJson ||
             "devDependencies" in packageJson ||
+            "optionalDependencies" in packageJson ||
+            "peerDependencies" in packageJson ||
+            "peerDependenciesMeta" in packageJson ||
+            "bundledDependencies" in packageJson ||
+            "bundleDependencies" in packageJson ||
             existsSync(".npmrc")
           ) {
             throw new Error("Publication source contains an unauthorized dependency or npm config");
@@ -171,47 +258,416 @@ jobs:
           );
           NODE
 
-      - name: Require registry version absence
+      - name: Require frozen packed artifact and registry preconditions
+        shell: bash
         env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
           EXPECTED_VERSION: ${{ inputs.expected_version }}
+          EXPECTED_TARBALL_BYTES: ${{ inputs.expected_tarball_bytes }}
+          EXPECTED_TARBALL_SHA256: ${{ inputs.expected_tarball_sha256 }}
+          EXPECTED_TARBALL_SHASUM: ${{ inputs.expected_tarball_shasum }}
+          EXPECTED_TARBALL_INTEGRITY: ${{ inputs.expected_tarball_integrity }}
+          EXPECTED_PACKED_ENTRIES_SHA256: ${{ inputs.expected_packed_entries_sha256 }}
+          EXPECTED_PRIOR_VERSIONS_SHA256: ${{ inputs.expected_prior_versions_sha256 }}
+          EXPECTED_PRIOR_LATEST: ${{ inputs.expected_prior_latest }}
+          EXPECTED_SIGNING_KEY_ID: ${{ inputs.expected_signing_key_id }}
+          GITHUB_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
         run: |
+          set -euo pipefail
           node --input-type=module <<'NODE'
-          const packageName = "kyw-dev";
+          import { execFileSync } from "node:child_process";
+          import {
+            createHash,
+            createPublicKey,
+            verify as verifySignature,
+          } from "node:crypto";
+          import {
+            mkdtempSync,
+            readFileSync,
+            rmSync,
+            statSync,
+          } from "node:fs";
+          import { tmpdir } from "node:os";
+          import path from "node:path";
+
+          const packageName = JSON.parse(readFileSync("package.json", "utf8")).name;
+          const repository = process.env.REPOSITORY;
+          const expectedSha = process.env.EXPECTED_SHA;
           const version = process.env.EXPECTED_VERSION;
-          const registryUrl = new URL(
-            `${encodeURIComponent(packageName)}/${encodeURIComponent(version)}`,
-            "https://registry.npmjs.org/",
-          );
+          const stableVersionPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
+          const maxRegistryBytes = 8 * 1024 * 1024;
+          const maxPackedEntries = 256;
+          const maxPackedPathBytes = 512;
+          const packedEntryDomain = "kyw-public-release/packed-entry-set/v1\n";
+          const priorVersionDomain = "kyw-public-release/prior-version-set/v1\n";
+
+          function digestStringSet(values, domain) {
+            if (
+              !Array.isArray(values) ||
+              values.some((value) => typeof value !== "string") ||
+              new Set(values).size !== values.length
+            ) {
+              throw new Error("Expected a unique string set");
+            }
+            return createHash("sha256")
+              .update(domain, "utf8")
+              .update(JSON.stringify([...values].sort()), "utf8")
+              .digest("hex");
+          }
+
+          function compareStableVersions(left, right) {
+            const leftParts = stableVersionPattern.exec(left).slice(1).map(BigInt);
+            const rightParts = stableVersionPattern.exec(right).slice(1).map(BigInt);
+            for (let index = 0; index < leftParts.length; index += 1) {
+              if (leftParts[index] < rightParts[index]) return -1;
+              if (leftParts[index] > rightParts[index]) return 1;
+            }
+            return 0;
+          }
+
+          function isCanonicalSupportedSpki(value) {
+            if (typeof value !== "string" || !value) return false;
+            const der = Buffer.from(value, "base64");
+            if (der.length < 1 || der.toString("base64") !== value) return false;
+            try {
+              const publicKey = createPublicKey({
+                key: der,
+                format: "der",
+                type: "spki",
+              });
+              verifySignature("sha256", Buffer.alloc(0), publicKey, Buffer.alloc(0));
+              return true;
+            } catch {
+              return false;
+            }
+          }
+
+          function safePackedEntries(report) {
+            if (
+              !Array.isArray(report?.files) ||
+              report.files.length < 1 ||
+              report.files.length > maxPackedEntries
+            ) {
+              throw new Error("Packed entry report is missing or exceeds its bound");
+            }
+            const entries = report.files.map((file) => file?.path);
+            if (
+              entries.some(
+                (entry) =>
+                  typeof entry !== "string" ||
+                  !entry ||
+                  Buffer.byteLength(entry, "utf8") > maxPackedPathBytes ||
+                  path.posix.isAbsolute(entry) ||
+                  entry.includes("\\") ||
+                  entry.split("/").some((segment) =>
+                    !segment || segment === "." || segment === ".."),
+              ) ||
+              new Set(entries).size !== entries.length
+            ) {
+              throw new Error("Packed entry report contains an unsafe or duplicate path");
+            }
+            return entries;
+          }
+
+          async function boundedJson(response, maxBytes, label) {
+            const chunks = [];
+            let bytes = 0;
+            for await (const chunk of response.body) {
+              bytes += chunk.byteLength;
+              if (bytes > maxBytes) {
+                throw new Error(`${label} exceeds its response bound`);
+              }
+              chunks.push(Buffer.from(chunk));
+            }
+            return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+          }
+
+          const packRoot = mkdtempSync(path.join(tmpdir(), "kyw-public-release-pack-"));
+          try {
+            const rawReport = execFileSync(
+              "npm",
+              ["pack", "--json", "--ignore-scripts", "--pack-destination", packRoot],
+              { encoding: "utf8", maxBuffer: 1024 * 1024 },
+            );
+            const parsed = JSON.parse(rawReport);
+            if (!Array.isArray(parsed) || parsed.length !== 1) {
+              throw new Error("npm pack did not return exactly one report");
+            }
+            const report = parsed[0];
+            if (
+              !report ||
+              typeof report !== "object" ||
+              Array.isArray(report) ||
+              report.name !== packageName ||
+              report.version !== version ||
+              typeof report.filename !== "string" ||
+              !report.filename ||
+              report.filename === "." ||
+              report.filename === ".." ||
+              path.basename(report.filename) !== report.filename
+            ) {
+              throw new Error("npm pack report identity is malformed");
+            }
+            const archivePath = path.join(packRoot, report.filename);
+            const archiveSize = statSync(archivePath).size;
+            if (archiveSize < 1 || archiveSize > 8 * 1024 * 1024) {
+              throw new Error("Packed artifact exceeds its byte bound");
+            }
+            const archive = readFileSync(archivePath);
+            const actualIntegrity = `sha512-${createHash("sha512").update(archive).digest("base64")}`;
+            const actualShasum = createHash("sha1").update(archive).digest("hex");
+            const actualSha256 = createHash("sha256").update(archive).digest("hex");
+            const actualEntriesDigest = digestStringSet(
+              safePackedEntries(report),
+              packedEntryDomain,
+            );
+            if (
+              archive.length !== Number(process.env.EXPECTED_TARBALL_BYTES) ||
+              report.size !== archive.length ||
+              report.integrity !== actualIntegrity ||
+              report.shasum !== actualShasum ||
+              actualIntegrity !== process.env.EXPECTED_TARBALL_INTEGRITY ||
+              actualShasum !== process.env.EXPECTED_TARBALL_SHASUM ||
+              actualSha256 !== process.env.EXPECTED_TARBALL_SHA256 ||
+              actualEntriesDigest !== process.env.EXPECTED_PACKED_ENTRIES_SHA256
+            ) {
+              throw new Error("Packed artifact does not match the frozen release tuple");
+            }
+          } finally {
+            rmSync(packRoot, { recursive: true, force: true });
+          }
+
+          const registryUrl = new URL(encodeURIComponent(packageName), "https://registry.npmjs.org/");
           registryUrl.searchParams.set(
             "kyw-run",
             `${process.env.GITHUB_RUN_ID}-${process.env.GITHUB_RUN_ATTEMPT}`,
           );
           const response = await fetch(registryUrl, {
+            redirect: "error",
             headers: {
               accept: "application/json",
               "cache-control": "no-cache",
             },
           });
-          if (response.status === 404) {
-            console.log(
-              `KYWPUBLISHEVIDENCE schema=1 stage=registry-absence package=${packageName} version=${version} status=404`,
-            );
-          } else if (response.ok) {
-            throw new Error(`Registry version ${packageName}@${version} already exists`);
-          } else {
+          let packageIndex = null;
+          if (response.status !== 404 && !response.ok) {
             throw new Error(
-              `Registry absence check was ambiguous with status ${response.status}`,
+              `Registry package-index check was ambiguous with status ${response.status}`,
             );
           }
+          if (response.ok) {
+            packageIndex = await boundedJson(
+              response,
+              maxRegistryBytes,
+              "Registry package index",
+            );
+          }
+          if (
+            packageIndex !== null &&
+            (!packageIndex ||
+              typeof packageIndex !== "object" ||
+              Array.isArray(packageIndex) ||
+              packageIndex.name !== packageName ||
+              !packageIndex.versions ||
+              typeof packageIndex.versions !== "object" ||
+              Array.isArray(packageIndex.versions) ||
+              !packageIndex["dist-tags"] ||
+              typeof packageIndex["dist-tags"] !== "object" ||
+              Array.isArray(packageIndex["dist-tags"]))
+          ) {
+            throw new Error("Registry package index is malformed");
+          }
+          const priorVersions = Object.keys(packageIndex?.versions ?? {});
+          if (
+            priorVersions.length > 1024 ||
+            Buffer.byteLength(JSON.stringify(priorVersions), "utf8") > 128 * 1024 ||
+            priorVersions.some((prior) =>
+              Buffer.byteLength(prior, "utf8") > 64 ||
+              !stableVersionPattern.test(prior) ||
+              !packageIndex.versions[prior] ||
+              typeof packageIndex.versions[prior] !== "object" ||
+              Array.isArray(packageIndex.versions[prior])) ||
+            priorVersions.includes(version) ||
+            priorVersions.some((prior) => compareStableVersions(version, prior) <= 0)
+          ) {
+            throw new Error(`Registry version ${packageName}@${version} already exists or history is malformed`);
+          }
+          const actualPriorDigest = digestStringSet(priorVersions, priorVersionDomain);
+          const actualPriorLatest = packageIndex?.["dist-tags"]?.latest ?? null;
+          const expectedPriorLatest = process.env.EXPECTED_PRIOR_LATEST === "null"
+            ? null
+            : process.env.EXPECTED_PRIOR_LATEST;
+          const highestPriorVersion = priorVersions
+            .sort(compareStableVersions)
+            .at(-1) ?? null;
+          if (
+            (actualPriorLatest !== null && typeof actualPriorLatest !== "string") ||
+            actualPriorDigest !== process.env.EXPECTED_PRIOR_VERSIONS_SHA256 ||
+            actualPriorLatest !== expectedPriorLatest ||
+            actualPriorLatest !== highestPriorVersion
+          ) {
+            throw new Error("Registry prior state does not match the frozen release tuple");
+          }
+
+          const keysUrl = new URL("-/npm/v1/keys", "https://registry.npmjs.org/");
+          keysUrl.searchParams.set(
+            "kyw-run",
+            `${process.env.GITHUB_RUN_ID}-${process.env.GITHUB_RUN_ATTEMPT}`,
+          );
+          const keysResponse = await fetch(keysUrl, {
+            redirect: "error",
+            headers: {
+              accept: "application/json",
+              "cache-control": "no-cache",
+            },
+          });
+          if (!keysResponse.ok) {
+            throw new Error(`Registry signing-key check was ambiguous with status ${keysResponse.status}`);
+          }
+          const keyIndex = await boundedJson(
+            keysResponse,
+            1024 * 1024,
+            "Registry signing-key index",
+          );
+          if (
+            !keyIndex ||
+            typeof keyIndex !== "object" ||
+            Array.isArray(keyIndex) ||
+            !Array.isArray(keyIndex.keys) ||
+            keyIndex.keys.some(
+              (key) =>
+                !key ||
+                typeof key !== "object" ||
+                Array.isArray(key) ||
+                typeof key.keyid !== "string" ||
+                !key.keyid ||
+                /\s/u.test(key.keyid) ||
+                Buffer.byteLength(key.keyid, "utf8") > 256 ||
+                typeof key.key !== "string" ||
+                !isCanonicalSupportedSpki(key.key) ||
+                !(
+                  key.expires === null ||
+                  (typeof key.expires === "string" &&
+                    Number.isFinite(Date.parse(key.expires)))
+                ),
+            )
+          ) {
+            throw new Error("Registry signing-key state is malformed");
+          }
+          const activeKeys = keyIndex.keys.filter(
+            (key) => key.expires === null || Date.parse(key.expires) > Date.now(),
+          );
+          if (
+            activeKeys.length !== 1 ||
+            activeKeys[0].keyid !== process.env.EXPECTED_SIGNING_KEY_ID
+          ) {
+            throw new Error("Registry sole current signing key changed from the frozen tuple");
+          }
+
+          const githubHeaders = {
+            accept: "application/vnd.github+json",
+            authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
+            "cache-control": "no-cache",
+            "x-github-api-version": "2022-11-28",
+          };
+          const runsUrl = new URL(
+            `repos/${repository}/actions/workflows/publish.yml/runs`,
+            "https://api.github.com/",
+          );
+          runsUrl.searchParams.set("event", "workflow_dispatch");
+          runsUrl.searchParams.set("head_sha", expectedSha);
+          runsUrl.searchParams.set("per_page", "100");
+          runsUrl.searchParams.set("page", "1");
+          const runsResponse = await fetch(runsUrl, {
+            redirect: "error",
+            headers: githubHeaders,
+          });
+          if (!runsResponse.ok) {
+            throw new Error(`GitHub workflow-run check was ambiguous with status ${runsResponse.status}`);
+          }
+          const runIndex = await boundedJson(
+            runsResponse,
+            1024 * 1024,
+            "GitHub workflow-run index",
+          );
+          if (
+            !runIndex ||
+            typeof runIndex !== "object" ||
+            Array.isArray(runIndex) ||
+            !Number.isInteger(runIndex.total_count) ||
+            !Array.isArray(runIndex.workflow_runs) ||
+            runIndex.total_count !== runIndex.workflow_runs.length ||
+            runIndex.workflow_runs.length !== 1
+          ) {
+            throw new Error("GitHub workflow-run state is incomplete or conflicting");
+          }
+          const currentRun = runIndex.workflow_runs[0];
+          if (
+            !currentRun ||
+            typeof currentRun !== "object" ||
+            Array.isArray(currentRun) ||
+            String(currentRun.id) !== process.env.GITHUB_RUN_ID ||
+            currentRun.run_attempt !== 1 ||
+            process.env.GITHUB_RUN_ATTEMPT !== "1" ||
+            currentRun.event !== "workflow_dispatch" ||
+            currentRun.head_branch !== "main" ||
+            currentRun.head_sha !== expectedSha ||
+            currentRun.status !== "in_progress"
+          ) {
+            throw new Error("GitHub workflow-run identity does not match this sole first attempt");
+          }
+
+          const tagName = `v${version}`;
+          const tagsResponse = await fetch(
+            new URL(
+              `repos/${repository}/git/matching-refs/tags/${encodeURIComponent(tagName)}`,
+              "https://api.github.com/",
+            ),
+            { redirect: "error", headers: githubHeaders },
+          );
+          if (!tagsResponse.ok) {
+            throw new Error(`GitHub tag check was ambiguous with status ${tagsResponse.status}`);
+          }
+          const matchingTags = await boundedJson(
+            tagsResponse,
+            1024 * 1024,
+            "GitHub matching-tag index",
+          );
+          if (
+            !Array.isArray(matchingTags) ||
+            matchingTags.some(
+              (entry) =>
+                !entry ||
+                typeof entry !== "object" ||
+                Array.isArray(entry) ||
+                typeof entry.ref !== "string",
+            ) ||
+            matchingTags.length !== 0
+          ) {
+            throw new Error("GitHub tag state is malformed or no longer absent");
+          }
+
+          const releaseResponse = await fetch(
+            new URL(
+              `repos/${repository}/releases/tags/${encodeURIComponent(tagName)}`,
+              "https://api.github.com/",
+            ),
+            { redirect: "error", headers: githubHeaders },
+          );
+          if (releaseResponse.status !== 404) {
+            throw new Error(
+              releaseResponse.ok
+                ? "GitHub Release is no longer absent"
+                : `GitHub Release check was ambiguous with status ${releaseResponse.status}`,
+            );
+          }
+          console.log(
+            `KYWPUBLISHEVIDENCE schema=1 stage=prepublish package=${packageName} version=${version} packed_sha256=${process.env.EXPECTED_TARBALL_SHA256} prior_versions_sha256=${actualPriorDigest} prior_latest=${process.env.EXPECTED_PRIOR_LATEST}`,
+          );
           NODE
 
-      - name: Reconfirm exact checkout before OIDC publication
-        shell: bash
-        env:
-          EXPECTED_SHA: ${{ inputs.expected_sha }}
-        run: |
-          set -euo pipefail
-          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          test "$(git rev-parse HEAD)" = "${{ inputs.expected_sha }}"
           test -z "$(git status --porcelain --untracked-files=all)"
           test ! -e .npmrc
 
