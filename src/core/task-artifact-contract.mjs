@@ -3,9 +3,11 @@ import { lstat, readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 
 import {
+  RELEASE_BEARING_TASK_CONTRACT_VERSION,
   TASK_TEST_STATUS_PAIRS,
   getTaskContractVersion,
   isQueueAwareTaskContractVersion,
+  isStableReleaseVersion,
   validateTaskTestContract,
 } from "./template-contracts.mjs";
 import {
@@ -82,14 +84,40 @@ export function parseDeliveryRequirement(taskMarkdown, contractVersion) {
   if (!isQueueAwareTaskContractVersion(contractVersion)) {
     return Object.freeze({ kind: "LEGACY" });
   }
-  const requirement = stripMarkdownComments(markdownSection(taskMarkdown, "Delivery"))
+  const lines = stripMarkdownComments(markdownSection(taskMarkdown, "Delivery"))
     .split(/\r?\n/)
     .map((line) => line.trim())
-    .find((line) => line.startsWith("- Requirement:"));
+    .filter(Boolean);
+  const requirements = lines.filter((line) => line.startsWith("- Requirement:"));
+  const releaseVersions = lines.filter((line) =>
+    line.startsWith("- Release version:"),
+  );
+  if (requirements.length !== 1) {
+    return Object.freeze({ kind: "INVALID" });
+  }
+  const [requirement] = requirements;
   if (requirement === "- Requirement: STANDARD") {
+    if (contractVersion === RELEASE_BEARING_TASK_CONTRACT_VERSION) {
+      if (releaseVersions.length !== 1) {
+        return Object.freeze({ kind: "INVALID" });
+      }
+      const releaseVersion = releaseVersions[0].slice(
+        "- Release version: ".length,
+      );
+      if (!isStableReleaseVersion(releaseVersion)) {
+        return Object.freeze({ kind: "INVALID" });
+      }
+      return Object.freeze({ kind: "STANDARD", releaseVersion });
+    }
+    if (releaseVersions.length > 0) {
+      return Object.freeze({ kind: "INVALID" });
+    }
     return Object.freeze({ kind: "STANDARD" });
   }
-  if (requirement?.startsWith("- Requirement: NONE — ")) {
+  if (
+    requirement.startsWith("- Requirement: NONE — ") &&
+    releaseVersions.length === 0
+  ) {
     return Object.freeze({ kind: "NONE", reason: requirement.slice("- Requirement: NONE — ".length) });
   }
   return Object.freeze({ kind: "INVALID" });

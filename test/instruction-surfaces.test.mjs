@@ -4,10 +4,7 @@ import { dirname, join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-import {
-  PERMANENT_DOCUMENT_COMPACTION_ACCEPTANCE,
-  PERMANENT_DOCUMENT_POLICY,
-} from "../scripts/lib/validate-foundation.mjs";
+import { PERMANENT_DOCUMENT_POLICY } from "../scripts/lib/validate-foundation.mjs";
 import {
   evaluateTaskExecutionPreflight,
   parseTaskInvocation,
@@ -232,7 +229,7 @@ test("instruction surfaces retain one canonical owner and minimal projections", 
   for (const projection of [agents, agentsTemplate]) {
     assert.match(
       projection,
-      /Always load applicable `AGENTS\.md`[\s\S]{0,100}active kyw workflow[\s\S]{0,80}selected\/current Task\/Test pair[\s\S]{0,100}inactive ordinary prompts? (?:does not select one|select(?:s)? none)/,
+      /Always load applicable `AGENTS\.md`[\s\S]{0,100}active kyw workflow[\s\S]{0,80}selected\/current Task\/Test pair[\s\S]{0,100}inactive (?:ordinary )?prompts? (?:does not select one|select(?:s)? none)/,
     );
     assert.match(projection, /Index or search README, SPEC, and ARCHITECTURE first/);
     assert.match(
@@ -246,9 +243,10 @@ test("instruction surfaces retain one canonical owner and minimal projections", 
     ]) {
       assert.ok(projection.includes(routingAnchor), routingAnchor);
     }
-    assert.match(projection, /`\$kyw-impl NNNN` is portable for (?:existing )?implementation/);
+    assert.match(projection, /`\$kyw-impl NNNN` is portable(?: for (?:existing )?implementation)?/);
     assert.match(projection, /Only exact `\$kyw-deliver NNNN`/);
-    assert.match(projection, /exact `\$kyw-deliver NNNN --public-release`/i);
+    assert.match(projection, /release-bearing contract 4[\s\S]{0,100}same invocation/i);
+    assert.match(projection, /Every suffix, including `--public-release`, is unsupported/i);
   }
 
   assert.match(authoring, /author/i);
@@ -262,6 +260,8 @@ test("instruction surfaces retain one canonical owner and minimal projections", 
   const ordinaryTask = ordinaryBatch.tasks[0];
   assert.equal(Object.hasOwn(ordinaryTask, "key"), false);
   assert.equal(ordinaryTask.title, "First outcome");
+  assert.equal(ordinaryTask.releaseVersion, "1.2.3");
+  assert.match(ordinaryTask.taskMarkdown, /\{\{TASK_RELEASE_VERSION\}\}/);
   assert.deepEqual(ordinaryTask.dependencies, [
     { taskId: "0039" },
     { taskTitle: "Earlier outcome" },
@@ -284,12 +284,12 @@ test("instruction surfaces retain one canonical owner and minimal projections", 
   assert.match(implementation, /existing Task/i);
   assert.match(execution, /canonical detailed repository implementation procedure/);
   assert.match(deliverySkill, /\[STANDARD Delivery and Resume\]\(references\/delivery\.md\)/);
-  assert.match(delivery, /canonical detailed Git\/GitHub delivery procedure/);
+  assert.match(delivery, /canonical detailed Git\/GitHub procedure/);
   assert.match(
     deliverySkill,
     /\[Public Release and Resume\]\(references\/public-release\.md\)/,
   );
-  assert.match(publicRelease, /canonical detailed public-release procedure/);
+  assert.match(publicRelease, /canonical internal public-release procedure/);
   assert.match(publicRelease, /^## Perform the ordered public release$/m);
   assert.doesNotMatch(delivery, /^## Perform the ordered public release$/m);
   assert.doesNotMatch(implementation, /create-batch --tasks-root/);
@@ -306,15 +306,19 @@ test("instruction surfaces retain one canonical owner and minimal projections", 
   assert.match(readme, /\$kyw-task "goal"[\s\S]*authors[\s\S]*stops/i);
   assert.match(readme, /stops, including continuous mode/);
   assert.match(readme, /Pending delivery blocks with exact `\$kyw-deliver NNNN`/);
-  assert.match(readme, /Exact `\$kyw-deliver NNNN` retains `STANDARD`-only behavior/);
-  assert.match(readme, /exact `\$kyw-deliver NNNN --public-release`/);
+  assert.match(readme, /Exact plain `\$kyw-deliver NNNN` is the sole delivery route/);
+  assert.match(readme, /contract 4[\s\S]{0,120}same invocation/i);
+  assert.match(readme, /`--public-release`[\s\S]{0,80}unsupported/i);
   assert.match(readme, /fixed-bounded checkpoint in exact aligned `main`/);
   assert.match(readme, /at most one freshly reconstructed uncovered predecessor/);
   assert.match(spec, /before (?:its )?one dispatcher call/);
   assert.match(architecture, /bounded local-Git \/ GitHub hydration inputs/);
   assert.match(readme, /surface without the managed contract uses `\$kyw-impl NNNN`/);
   assert.match(readme, /selected implementation action owns repository mutation through `DONE\/PASSED`/i);
-  assert.match(readme, /selected delivery owns only its separate aligned GitHub lifecycle/i);
+  assert.match(
+    readme,
+    /Exact plain `\$kyw-deliver NNNN` is the sole delivery route[\s\S]{0,240}contract 4[\s\S]{0,120}npm→tag→Release/i,
+  );
   assert.match(
     architecture,
     /no automatic registry publish, version\/tag\/Release creation, public[\s\S]*submission, force push, CI rerun, or (?:branch-)?protection bypass/,
@@ -335,15 +339,20 @@ test("instruction surfaces retain one canonical owner and minimal projections", 
   assert.match(execution, /separate `bootstrap-continuity` command/);
   assert.match(execution, /not a dispatch option, source-repair path, or Task-ID exception/);
   assert.doesNotMatch(execution, /apply-continuity/);
-  assert.match(delivery, /apply-continuity/);
+  assert.doesNotMatch(delivery, /apply-continuity|transition token/i);
+  assert.match(delivery, /dispatcher runs exactly once/i);
+  assert.match(delivery, /apply runs zero or one time/i);
   assert.match(delivery, /actual head visibly `UNVERIFIED`/);
   assert.match(execution, /contracts 1\/2 are grandfathered/);
-  assert.match(authoring, /delivered contract-3 Tasks use new hard-dependent pairs/);
+  assert.match(
+    authoring,
+    /Corrections to delivered contract-3 or contract-4 Tasks use new hard-dependent pairs/i,
+  );
   assert.match(implementation, /unchanged invocation reports only/i);
   for (const projection of [agents, agentsTemplate]) {
     assert.match(
       projection,
-      /(?:future-contract terminal pair becomes byte-immutable|Delivered contract-3 pairs are immutable)/i,
+      /(?:future-contract terminal pair becomes byte-immutable|delivered contract-3\/4 pairs are immutable|contract-3\/4 delivery freezes pairs)/i,
     );
     assert.match(projection, /hard-dependent Task/);
   }
@@ -369,19 +378,20 @@ test("instruction surfaces retain one canonical owner and minimal projections", 
   assert.match(plugin.interface.defaultPrompt[2], /\$kyw-impl 0001/);
   assert.match(plugin.interface.defaultPrompt[2], /repository completion[\s\S]*stop/i);
   assert.match(plugin.interface.defaultPrompt[3], /\$kyw-deliver 0001/);
-  assert.match(plugin.interface.defaultPrompt[3], /--public-release/);
+  assert.match(plugin.interface.defaultPrompt[3], /same invocation[\s\S]*npm→tag→Release/);
+  assert.doesNotMatch(plugin.interface.defaultPrompt[3], /--public-release/);
   assert.match(plugin.interface.defaultPrompt[4], /\$kyw-audit 0001/);
   for (const invocation of [
     '$kyw-task "<outcome>"',
     "$kyw-impl 0001",
     "$kyw-deliver 0001",
-    "$kyw-deliver 0001 --public-release",
     "task 0001 실행해줘",
     "task 진행해줘",
     "남은 task 계속 실행해줘",
   ]) {
     assert.ok(prompts.includes(invocation), `${invocation}: prompt projection`);
   }
+  assert.match(prompts, /`--public-release`[\s\S]{0,80}(?:권한이 없다|unsupported)/i);
   for (const alias of [
     /task (?:NNNN|\d{4}) 실행해줘/,
     /task 진행해줘/,
@@ -394,7 +404,11 @@ test("instruction surfaces retain one canonical owner and minimal projections", 
     assert.match(surface, /\$kyw-deliver NNNN/);
   }
   for (const surface of [deliverySkill, publicRelease, readme, spec, architecture]) {
-    assert.match(surface, /\$kyw-deliver NNNN --public-release/);
+    assert.match(surface, /--public-release/);
+    assert.match(
+      surface,
+      /(?:unsupported|grant(?:s)? no (?:public )?authority|권한이 없다|do not route)/i,
+    );
   }
 });
 
@@ -2633,26 +2647,26 @@ test("README puts installation, explicit Skills, first use, and current status b
   }
   assert.match(
     readme,
-    /Version `0\.1\.4`[\s\S]*current source\/package release and public `latest`/,
+    /Version `0\.2\.0`[\s\S]*current source\/package\/plugin release[\s\S]*Registry `latest` is external mutable state/,
   );
   assert.match(
     readme,
-    /Exact historical results live only in numbered Task\/Test pairs and GitHub/,
+    /Exact historical delivery results live only in numbered Task\/Test pairs and GitHub/,
   );
   assert.match(
     readme,
-    /`kyw-dev@0\.1\.4` is published to the public npm registry under the `latest` tag/,
+    /`kyw-dev@0\.1\.4` is the last verified historical public release and was served under `latest` at this source baseline/,
   );
   assert.match(
     readme,
-    /canonical version metadata exposes a `gitHead` field matching the published source commit/,
+    /canonical version metadata exposes a matching `gitHead`/,
   );
   assert.match(
     readme,
-    /The `v0\.1\.4` Git tag identifies the published source commit, and the corresponding GitHub Release uses that tag/,
+    /The `v0\.1\.4` Git tag and corresponding GitHub Release identify that source/,
   );
-  assert.match(readme, /No public plugin submission has occurred/);
-  assert.match(readme, /npx --yes kyw-dev@0\.1\.4 install --scope user/);
+  assert.match(readme, /no public plugin submission has occurred/i);
+  assert.match(readme, /npx --yes kyw-dev@latest install --scope user/);
   assert.match(readme, /Version change[\s\S]{0,180}remain separate bounds/);
   assert.doesNotMatch(readme, /\bTask 0\d{3}\b|READY_FOR_APPROVAL|UNCHANGED at the audited point/);
   assert.doesNotMatch(readme, /^### Grilling evaluation harness$/m);
@@ -2662,10 +2676,12 @@ test("README puts installation, explicit Skills, first use, and current status b
     firstUse,
     /result schema|SIGINT|process group|protected snapshots|native sandbox/i,
   );
+  const readmePolicy = PERMANENT_DOCUMENT_POLICY.documents.find(
+    ({ path }) => path === "README.md",
+  );
   assert.ok(
-    Buffer.byteLength(readme) <=
-      PERMANENT_DOCUMENT_COMPACTION_ACCEPTANCE.targets["README.md"],
-    "README must satisfy its one-time compaction target",
+    Buffer.byteLength(readme) <= readmePolicy.warningBytes,
+    "README must remain within its future-growth warning budget",
   );
 });
 
@@ -2712,11 +2728,11 @@ test("permanent truth separates credential-free CI, manual OIDC publication, and
 
   assert.match(
     specification,
-    /One owned expectation defines `GitHub Actions`[\s\S]*`kimyeongwoo\/kyw-dev`[\s\S]*\.github\/workflows\/publish\.yml[\s\S]*npm-production[\s\S]*npm publish/,
+    /One expectation binds GitHub Actions, this repository, `publish\.yml`, `npm-production`, and `npm publish`/,
   );
   assert.match(
     specification,
-    /without automatic trigger[\s\S]*token\/interactive\/account inspection[\s\S]*retry\/second dispatch\/fallback/,
+    /It has no automatic\/token\/interactive, retry, fallback/,
   );
   assert.match(
     specification,
@@ -2724,19 +2740,19 @@ test("permanent truth separates credential-free CI, manual OIDC publication, and
   );
   assert.match(
     specification,
-    /workflow requires current `main`, exact SHA, and package\/plugin version[\s\S]*Repository\/event\/ref\/input\/checkout\/runtime\/registry\/version-absence\/clean-tree mismatch[\s\S]*npm publish \. --ignore-scripts` once/,
+    /ten inputs bind main SHA\/version, pack identity, prior registry state, and signing key[\s\S]*identity\/state drift blocks before one real-checkout `npm publish \. --ignore-scripts`/,
   );
   assert.match(
     specification,
-    /published version `0\.1\.4`[\s\S]*public npm registry serves `kyw-dev@0\.1\.4`[\s\S]*canonical metadata exposes matching `gitHead`[\s\S]*Tag `v0\.1\.4` and its GitHub Release identify it[\s\S]*Historical `0\.1\.2`[\s\S]*lacks `gitHead`/,
+    /npm served historical `0\.1\.4` under `latest`[\s\S]*exact-checkout publication has matching `gitHead`[\s\S]*`v0\.1\.4` tag, and Release[\s\S]*Historical `0\.1\.2`[\s\S]*lacks `gitHead`/,
   );
   assert.match(
     specification,
-    /Routine release preflight does not require npm account\/settings inspection[\s\S]*account auth is limited to setup[\s\S]*actual OIDC failure investigation/,
+    /Routine preflight avoids npm account inspection\/login\/OTP\/security keys[\s\S]*account auth is only for setup[\s\S]*actual OIDC failure/,
   );
   assert.match(
     specification,
-    /Success proves npm accepted the OIDC identity[\s\S]*rejection blocks public release without demoting the Task/,
+    /Success proves OIDC acceptance; rejection blocks without Task demotion or reauthentication/,
   );
 
   assert.match(architecture, /### 8\.5 Trusted publication workflow/);
@@ -2770,7 +2786,11 @@ test("permanent truth separates credential-free CI, manual OIDC publication, and
   );
 
   for (const projection of [readme, specification, architecture]) {
-    assert.match(projection, /\$kyw-deliver NNNN --public-release/);
+    assert.match(projection, /\$kyw-deliver NNNN/);
+    assert.match(
+      projection,
+      /`--public-release`[\s\S]{0,100}(?:unsupported|no authority|do not route)/i,
+    );
     assert.match(projection, /STANDARD(?:`)? FINAL|STANDARD` graph is\s+final/i);
     assert.match(projection, /npm[^\n]{0,80}(?:→|then)[^\n]{0,80}tag[^\n]{0,80}(?:→|then)[^\n]{0,80}Release/i);
     assert.match(projection, /(?:terminal )?Task\/Test|terminal Task/i);
@@ -2779,7 +2799,10 @@ test("permanent truth separates credential-free CI, manual OIDC publication, and
     specification,
     /`ABSENT`[\s\S]*`EXACT_ALREADY_COMPLETE`[\s\S]*`PENDING_PROOF`[\s\S]*`CONFLICT`[\s\S]*`UNKNOWN`/,
   );
-  assert.match(architecture, /Development tests supply mocks or owned loopback[\s\S]*zero live public writes/);
+  assert.match(
+    architecture,
+    /Development\s+tests supply mocks or owned loopback[\s\S]*zero live public writes/,
+  );
 });
 
 test("permanent-document inventory and deliberate scope boundaries stay explicit", async () => {
@@ -2917,7 +2940,7 @@ test("route-specific representative instruction bundles stay concise with one pr
       "skills/kyw-deliver/references/public-release.md",
     ),
     false,
-    "plain STANDARD representative context must not load the public-release procedure",
+    "initial STANDARD representative context must not eagerly load the public-release procedure",
   );
 });
 
@@ -2936,10 +2959,13 @@ test("routine Task workflows index owners before targeted reads and escalate onl
   for (const projection of [agents, agentsTemplate]) {
     assert.match(
       projection,
-      /Always load applicable `AGENTS\.md`[\s\S]{0,100}active kyw workflow[\s\S]{0,80}selected\/current Task\/Test pair[\s\S]{0,100}inactive ordinary prompts? (?:does not select one|select(?:s)? none)/,
+      /Always load applicable `AGENTS\.md`[\s\S]{0,100}active kyw workflow[\s\S]{0,80}selected\/current Task\/Test pair[\s\S]{0,100}inactive (?:ordinary )?prompts? (?:does not select one|select(?:s)? none)/,
     );
     assert.match(projection, /Index or search README, SPEC, and ARCHITECTURE first/);
-    assert.match(projection, /read only owner sections selected by [Gg]oal, scope/);
+    assert.match(
+      projection,
+      /read (?:only )?owner sections (?:selected )?by [Gg]oal, scope/,
+    );
     assert.match(
       projection,
       /Read all four(?: permanent documents)? for `kyw-init`, rebaseline/,

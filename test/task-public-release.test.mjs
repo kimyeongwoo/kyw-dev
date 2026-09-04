@@ -257,19 +257,18 @@ function createStateClients(tuple, initial = {}) {
   return { clients, trace, state: () => state, setState };
 }
 
-test("public-release routing recognizes only the exact opt-in form", () => {
-  assert.deepEqual(parsePublicReleaseInvocation("$kyw-deliver 0085 --public-release"), {
+test("public-release routing recognizes only the exact plain delivery form", () => {
+  assert.deepEqual(parsePublicReleaseInvocation("$kyw-deliver 0085"), {
     recognized: true,
     route: "DELIVERY",
     mode: "EXACT",
-    deliveryMode: "PUBLIC_RELEASE",
     source: "PORTABLE_SKILL",
     taskId: "0085",
     overrideText: "",
     overrideScope: "NONE",
   });
   for (const invocation of [
-    "$kyw-deliver 0085",
+    "$kyw-deliver 0085 --public-release",
     "$kyw-deliver 85 --public-release",
     "$kyw-deliver 0085 --public-release now",
     "$kyw-deliver 0085 --PUBLIC-RELEASE",

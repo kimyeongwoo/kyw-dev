@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
 const exactPublicReleaseInvocationPattern =
-  /^\$kyw-deliver\s+(\d{4})\s+--public-release\s*$/u;
+  /^\$kyw-deliver\s+(\d{4})\s*$/u;
 const gitShaPattern = /^[0-9a-f]{40}$/u;
 const sha256Pattern = /^[0-9a-f]{64}$/u;
 const sha1Pattern = /^[0-9a-f]{40}$/u;
@@ -196,7 +196,6 @@ export function parsePublicReleaseInvocation(invocation) {
     recognized: true,
     route: "DELIVERY",
     mode: "EXACT",
-    deliveryMode: "PUBLIC_RELEASE",
     source: "PORTABLE_SKILL",
     taskId: match[1],
     overrideText: "",

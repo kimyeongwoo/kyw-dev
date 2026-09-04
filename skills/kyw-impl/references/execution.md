@@ -27,7 +27,7 @@ Proceed only on the sole dispatcher's `IMPLEMENT` or `RESUME`; a repository-comp
 
 Keep the Skill explicit-only. `$kyw-impl NNNN` is portable; every four-digit ID uses the same generic queue path, none reserved or intercepted for recovery. The three aliases require loaded managed `AGENTS.md`. Match the full command plus current-user suffix; ordinary “task” prose does not dispatch.
 
-New pairs use contract 3; contract 2 stays queue-aware and unmarked contract 1 legacy. Current pairs allow only `DRAFT/DRAFT`, `READY/READY`, `IN_PROGRESS/RUNNING`, `DONE/PASSED`, `BLOCKED/BLOCKED`, and `CANCELLED/BLOCKED`. Never migrate or reinterpret terminal history.
+New pairs use contract 4; contract 3 remains immutable-terminal and queue-aware, contract 2 stays queue-aware, and unmarked contract 1 remains legacy. Current pairs allow only `DRAFT/DRAFT`, `READY/READY`, `IN_PROGRESS/RUNNING`, `DONE/PASSED`, `BLOCKED/BLOCKED`, and `CANCELLED/BLOCKED`. Never migrate or reinterpret terminal history.
 
 A non-complete Task uses the exact no-dependency sentence or distinct `- Task NNNN.` bullets; reject prose, duplicate/mixed/missing references, and cycles. Hard dependencies require `DONE/PASSED` plus required delivery.
 
@@ -44,7 +44,7 @@ When nothing is implementation-selectable, report the actual frontier rather tha
 
 `## Delivery` is static policy: `STANDARD` requires a later explicit delivery invocation and reasoned `NONE` ends locally. For normal `$kyw-impl NNNN`, pass no delivery payload. The adapter evaluates required prior delivery and exact aligned-`main` continuity as a read-only prior-delivery gate before its sole dispatcher call. It may use one fixed-bounded rolling checkpoint and at most one freshly evaluator-satisfied uncovered predecessor; invalid, missing, stale, or over-gap continuity blocks without automatic whole-history replay. The separate `bootstrap-continuity` command requires exact `EXPLICIT_REBASELINE` authority and is not a dispatch option, source-repair path, or Task-ID exception.
 
-Pending prior delivery reports its Task-specific command; the generic form is `$kyw-deliver NNNN`. Implementation never applies a continuity transition, hydrates current delivery as prior completion, or performs a Git/GitHub delivery action. Contract-3 terminal path/mode/byte drift or redelivery fails with new hard-dependent `$kyw-task "<correction outcome>"` guidance; contracts 1/2 are grandfathered.
+Pending prior delivery reports its Task-specific command; the generic form is `$kyw-deliver NNNN`. Implementation never applies a continuity transition, hydrates current delivery as prior completion, or performs a Git/GitHub delivery action. Contract-3 or contract-4 terminal path/mode/byte drift or redelivery fails with new hard-dependent `$kyw-task "<correction outcome>"` guidance; contracts 1/2 are grandfathered. Versionless contract 1–3 `STANDARD` pairs retain their historical GitHub-only delivery/report meaning and never inherit package/public-release stages.
 
 ## Apply activation-scoped guardrails and preserve model provenance
 
@@ -107,6 +107,8 @@ Follow `AGENTS.md`: product/acceptance -> `docs/SPEC.md`; components/dependencie
 Discover commands from repository truth and the Task. Run acceptance-specific checks, required regressions, and final-diff-implied branches. Use the planner when present: **Focused** covers changed behavior and near regressions; **Stable** covers runtime, cross-cutting, unknown, or higher risk; **Release** covers release-sensitive or candidate boundaries. Local verification grants no delivery or publication authority.
 
 Only executed proof may pass: `PASS` is reproducible, `FAIL` preserves failure, `BLOCKED` gives condition/recovery/risk, `N/A` gives reason, and `TODO` claims nothing. If a required check cannot run, do not substitute a generic passing command. Mark its row and pair `BLOCKED/BLOCKED` when completion depends on it. Never use `DONE` or `PASSED` with an unexecuted required test.
+
+For contract-4 `STANDARD`, the Delivery section must carry exactly one stable SemVer Release version before implementation starts and at terminalization. Treat it as immutable Task input: never infer, increment, select, replace, or edit it during delivery preparation. Before `DONE/PASSED`, perform fresh read-only non-conflict checks for that exact version across canonical npm version/history, every matching publication attempt within the bounded evidence scan, the tag namespace, GitHub Release-by-tag, exact package/plugin agreement, and duplicate release-version claims in the current queue. Record bounded evidence. Missing, malformed, occupied, duplicate, incomplete, unreadable, or ambiguous state blocks terminalization. These checks grant no workflow dispatch, publication, tag, Release, or retry authority.
 
 ## Perform the final diff coverage review
 

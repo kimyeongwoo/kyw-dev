@@ -32,7 +32,7 @@ node <kyw-impl-skill-directory>/../kyw-task/scripts/task-artifacts.mjs dispatch 
 
 Use `true` only for loaded managed routing. Preflight verified conflict, unexplained work, drift, and user decisions. Before the sole call, the adapter uses the fixed-bounded checkpoint and freshly production-evaluates at most one uncovered GitHub predecessor as a read-only implementation gate; no whole-history fallback. Never ask for delivery JSON, checkpoint content, tokens, or evidence IDs.
 
-Pending `STANDARD` delivery is never selected by an implementation route. It blocks advancement and reports its exact `$kyw-deliver NNNN` command. Delivered contract-3 Tasks remain bound to their canonical pair: unchanged invocation reports only; drift or redelivery stops with Task/path and hard-dependent `$kyw-task "<correction outcome>"` guidance.
+Pending `STANDARD` delivery is never selected by an implementation route. It blocks advancement and reports its exact `$kyw-deliver NNNN` command. Delivered contract-3 and contract-4 Tasks remain bound to their canonical pair: unchanged invocation reports only; drift or redelivery stops with Task/path and hard-dependent `$kyw-task "<correction outcome>"` guidance.
 
 ## Dispatch handoff
 
@@ -48,4 +48,6 @@ Then stop, including continuous mode. A reasoned `NONE` Task has no delivery han
 
 Aligned work continues without duplicate confirmation; classify appended constraints once. A baseline, Task, acceptance, scope, action, target, attempt, Skill, or mode change gets an old/new implementation, Task/Test, permanent-document, verification, delivery-impact, exact-bounds warning and zero-mutation wait. Immediate exact reconfirmation of unchanged facts permits owner/pair sync then only the bounded action. Skill/mode/route replacement expires and requires its own exact route. Completion deactivates. Origin cannot self-confirm, redispatch, or chain Skills; invalid, stale, or enlarged assent grants nothing.
 
-Publication/registry/version/tag/Release/submission, delivery, retry/fallback, force/destructive action, deletion/rerun, bypass/admin/account change, and unrelated mutation stay separate. Failure grants no retry. Conflict, unexplained work, drift, failed evidence, or user choice stops. Never perform the independent audit owned by `$kyw-audit`.
+For a contract-4 `STANDARD` Task, implementation may only read and validate the already settled Task-owned release version. Before `DONE/PASSED`, freshly prove that exact stable SemVer remains non-conflicting across canonical npm version/history, bounded matching publication attempts, the Git tag namespace, GitHub Release-by-tag, package/plugin agreement, and duplicate claims in the current Task queue. Missing, changed, occupied, duplicate, incomplete, unreadable, or ambiguous evidence blocks terminalization. Never select, infer, increment, substitute, commit, publish, tag, or release a version during implementation.
+
+Publication/registry/tag/Release/submission, delivery, retry/fallback, force/destructive action, deletion/rerun, bypass/admin/account change, and unrelated mutation stay separate. Failure grants no retry. Conflict, unexplained work, drift, failed evidence, or user choice stops. Never perform the independent audit owned by `$kyw-audit`.

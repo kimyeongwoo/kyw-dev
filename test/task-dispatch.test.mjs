@@ -53,8 +53,9 @@ function taskMarkdown({
   status = "READY",
   dependencies = "- Not applicable — no hard dependency is required for this outcome.",
   delivery = "STANDARD",
+  releaseVersion,
   legacy = false,
-  contractVersion,
+  contractVersion = 3,
   blocker = "- None known.",
 }) {
   const done = status === "DONE";
@@ -65,7 +66,7 @@ function taskMarkdown({
     ? ""
     : `\n## Delivery\n\n${
         delivery === "STANDARD"
-          ? "- Requirement: STANDARD\n- Canonical ledger: GitHub PR/Actions exact-SHA state."
+          ? `- Requirement: STANDARD${releaseVersion ? `\n- Release version: ${releaseVersion}` : ""}\n- Canonical ledger: GitHub PR/Actions exact-SHA state.`
           : `- Requirement: NONE — ${delivery}`
       }\n\nRepository outcome only; mutable delivery state is external.\n`;
   return `# TASK ${id} — ${title}
@@ -140,7 +141,7 @@ function testMarkdown({
   title = `Task ${id}`,
   taskStatus = "READY",
   legacy = false,
-  contractVersion,
+  contractVersion = 3,
 }) {
   const status = pairStatus(taskStatus);
   const passed = status === "PASSED";
@@ -689,7 +690,7 @@ test("anchored invocation parsing preserves overrides and rejects non-Skill text
   );
 });
 
-test("exact public-release routing is opt-in and leaves the plain delivery descriptor unchanged", () => {
+test("exact plain delivery is the sole user route and the retired suffix is rejected", () => {
   const plain = {
     recognized: true,
     route: "DELIVERY",
@@ -700,12 +701,9 @@ test("exact public-release routing is opt-in and leaves the plain delivery descr
     overrideScope: "NONE",
   };
   assert.deepEqual(parseTaskInvocation("$kyw-deliver 0042"), plain);
-  assert.deepEqual(parseTaskInvocation("$kyw-deliver 0042 --public-release"), {
-    ...plain,
-    deliveryMode: "PUBLIC_RELEASE",
-  });
 
   for (const invocation of [
+    "$kyw-deliver 0042 --public-release",
     "$kyw-deliver --public-release",
     "$kyw-deliver 42 --public-release",
     "$kyw-deliver 00420 --public-release",
@@ -721,7 +719,7 @@ test("exact public-release routing is opt-in and leaves the plain delivery descr
     });
     assert.equal(parsed.recognized, false, invocation);
     assert.equal(parsed.mode, "NONE", invocation);
-    assert.notEqual(parsed.deliveryMode, "PUBLIC_RELEASE", invocation);
+    assert.equal("deliveryMode" in parsed, false, invocation);
   }
 
   for (const managedImplementation of [
@@ -771,12 +769,19 @@ test("implementation and exact delivery routes keep disjoint terminal authority"
   assert.equal(delivery.overrideScope, "NONE");
 });
 
-test("public-release dispatch retains STANDARD authority until a fresh hardened FINAL graph", async (t) => {
-  const root = await createQueue(t, [{ id: "0001", status: "DONE" }]);
+test("contract-4 plain delivery retains public authority through STANDARD and enters release only after fresh FINAL", async (t) => {
+  const root = await createQueue(t, [
+    {
+      id: "0001",
+      status: "DONE",
+      contractVersion: 4,
+      releaseVersion: "1.2.3",
+    },
+  ]);
 
   const pending = await resolveTaskDispatch({
     tasksRoot: root,
-    invocation: "$kyw-deliver 0001 --public-release",
+    invocation: "$kyw-deliver 0001",
   });
   assert.equal(pending.outcome, "SELECTED");
   assert.equal(pending.action, "DELIVER");
@@ -792,7 +797,7 @@ test("public-release dispatch retains STANDARD authority until a fresh hardened 
   const expectation = deliveredExpectation();
   const ready = await resolveTaskDispatch({
     tasksRoot: root,
-    invocation: "$kyw-deliver 0001 --public-release",
+    invocation: "$kyw-deliver 0001",
     deliveryLedger: { "0001": entry },
     deliveryExpectations: { "0001": expectation },
   });
@@ -811,7 +816,7 @@ test("public-release dispatch retains STANDARD authority until a fresh hardened 
 
   const legacy = await resolveTaskDispatch({
     tasksRoot: root,
-    invocation: "$kyw-deliver 0001 --public-release",
+    invocation: "$kyw-deliver 0001",
     deliveryLedger: { "0001": legacyDeliveredEntry() },
     deliveryExpectations: { "0001": legacyDeliveredExpectation() },
   });
@@ -824,8 +829,150 @@ test("public-release dispatch retains STANDARD authority until a fresh hardened 
   assert.equal("action" in legacy, false);
 });
 
-test("sole adapter preflights exact public-release state read-only and exposes one authorized stage", async (t) => {
+test("versionless contract-3 plain delivery remains STANDARD-only and report-only after FINAL", async (t) => {
   const root = await createQueue(t, [{ id: "0001", status: "DONE" }]);
+
+  const pending = await resolveTaskDispatch({
+    tasksRoot: root,
+    invocation: "$kyw-deliver 0001",
+  });
+  assertStandardAuthority(pending, "DELIVER");
+  assert.equal("deliveryMode" in pending, false);
+  assert.equal("publicReleaseAuthorized" in pending, false);
+
+  const complete = await resolveTaskDispatch({
+    tasksRoot: root,
+    invocation: "$kyw-deliver 0001",
+    deliveryLedger: { "0001": deliveredEntry() },
+    deliveryExpectations: { "0001": deliveredExpectation() },
+  });
+  assert.equal(complete.outcome, "TERMINAL");
+  assert.equal(complete.code, "TASK_COMPLETE");
+  assert.equal(complete.deliveryDisposition, "SATISFIED");
+  assert.equal("action" in complete, false);
+  assert.equal("deliveryMode" in complete, false);
+  assert.equal("publicReleaseAuthorized" in complete, false);
+});
+
+test("versionless contract-2 static STANDARD plain delivery remains GitHub-only and report-only after FINAL", async (t) => {
+  const root = await createQueue(t, [
+    { id: "0001", status: "DONE", contractVersion: 2 },
+  ]);
+
+  const pending = await resolveTaskDispatch({
+    tasksRoot: root,
+    invocation: "$kyw-deliver 0001",
+  });
+  assertStandardAuthority(pending, "DELIVER");
+  assert.equal("deliveryMode" in pending, false);
+  assert.equal("publicReleaseAuthorized" in pending, false);
+
+  const complete = await resolveTaskDispatch({
+    tasksRoot: root,
+    invocation: "$kyw-deliver 0001",
+    deliveryLedger: { "0001": deliveredEntry() },
+    deliveryExpectations: { "0001": deliveredExpectation() },
+  });
+  assert.equal(complete.outcome, "TERMINAL");
+  assert.equal(complete.code, "TASK_COMPLETE");
+  assert.equal(complete.deliveryDisposition, "SATISFIED");
+  assert.equal("action" in complete, false);
+  assert.equal("deliveryMode" in complete, false);
+  assert.equal("publicReleaseAuthorized" in complete, false);
+});
+
+test("duplicate contract-4 release claims block delivery before selection", async (t) => {
+  const root = await createQueue(t, [
+    {
+      id: "0001",
+      status: "DONE",
+      contractVersion: 4,
+      releaseVersion: "1.2.3",
+    },
+    {
+      id: "0002",
+      status: "DONE",
+      contractVersion: 4,
+      releaseVersion: "1.2.3",
+    },
+  ]);
+
+  const result = await resolveTaskDispatch({
+    tasksRoot: root,
+    invocation: "$kyw-deliver 0001",
+  });
+  assert.equal(result.outcome, "BLOCKED");
+  assert.equal(result.code, "INVALID_TASK_QUEUE");
+  assert.match(
+    result.message,
+    /Release version 1\.2\.3 is claimed by both Task 0001 and Task 0002/,
+  );
+  assert.equal("action" in result, false);
+  assert.equal("publicReleaseAuthorized" in result, false);
+});
+
+test("plain contract-4 dispatch completes STANDARD before the internal public runner can start", async (t) => {
+  const root = await createQueue(t, [
+    {
+      id: "0001",
+      status: "DONE",
+      contractVersion: 4,
+      releaseVersion: "1.2.3",
+    },
+  ]);
+  let publicHydrations = 0;
+  let runnerCalls = 0;
+  const runtime = {
+    hydratePriorStandardDeliveries: async () => ({
+      deliveryLedger: {},
+      deliveryExpectations: {},
+    }),
+    hydratePublicReleaseContext: async () => {
+      publicHydrations += 1;
+      throw new Error("public context must stay closed before STANDARD FINAL");
+    },
+    runPublicRelease: async () => {
+      runnerCalls += 1;
+      throw new Error("public runner must stay closed before STANDARD FINAL");
+    },
+  };
+  const invocation = [
+    "--tasks-root",
+    root,
+    "--invocation",
+    "$kyw-deliver 0001",
+    "--managed-routing",
+    "false",
+  ];
+
+  const pending = await runTaskArtifactCommand(
+    ["dispatch", ...invocation],
+    runtime,
+  );
+  assert.equal(pending.outcome, "SELECTED");
+  assert.equal(pending.action, "DELIVER");
+  assert.equal(pending.deliveryMode, "PUBLIC_RELEASE");
+  assert.equal(pending.publicReleaseState, "STANDARD_PENDING");
+  assert.equal(publicHydrations, 0);
+  assert.equal(runnerCalls, 0);
+
+  await assert.rejects(
+    runTaskArtifactCommand(["public-release", ...invocation], runtime),
+    { code: "PUBLIC_RELEASE_STANDARD_FINAL_REQUIRED" },
+  );
+  assert.equal(publicHydrations, 0);
+  assert.equal(runnerCalls, 0);
+});
+
+test("sole adapter preflights exact public-release state read-only and exposes one authorized stage", async (t) => {
+  const root = await createQueue(t, [
+    {
+      id: "0001",
+      status: "DONE",
+      contractVersion: 4,
+      releaseVersion: "1.2.3",
+    },
+  ]);
   const tuple = publicReleaseTuple();
   const calls = [];
   const clients = publicReleaseAbsentClients(tuple, calls);
@@ -836,7 +983,7 @@ test("sole adapter preflights exact public-release state read-only and exposes o
       "--tasks-root",
       root,
       "--invocation",
-      "$kyw-deliver 0001 --public-release",
+      "$kyw-deliver 0001",
       "--managed-routing",
       "false",
     ],
@@ -883,7 +1030,14 @@ test("sole adapter preflights exact public-release state read-only and exposes o
 });
 
 test("packaged public-release command joins selection, hydration, and the shared runner without a live write", async (t) => {
-  const root = await createQueue(t, [{ id: "0001", status: "DONE" }]);
+  const root = await createQueue(t, [
+    {
+      id: "0001",
+      status: "DONE",
+      contractVersion: 4,
+      releaseVersion: "1.2.3",
+    },
+  ]);
   const tuple = publicReleaseTuple();
   const calls = [];
   const clients = publicReleaseAbsentClients(tuple, calls);
@@ -894,7 +1048,7 @@ test("packaged public-release command joins selection, hydration, and the shared
       "--tasks-root",
       root,
       "--invocation",
-      "$kyw-deliver 0001 --public-release",
+      "$kyw-deliver 0001",
       "--managed-routing",
       "false",
     ],
@@ -940,7 +1094,7 @@ test("packaged public-release command joins selection, hydration, and the shared
         "--tasks-root",
         root,
         "--invocation",
-        "$kyw-deliver 0001",
+        "$kyw-deliver 0001 --public-release",
         "--managed-routing",
         "false",
       ],
@@ -955,7 +1109,7 @@ test("packaged public-release command joins selection, hydration, and the shared
         "--tasks-root",
         root,
         "--invocation",
-        "$kyw-deliver 0001 --public-release",
+        "$kyw-deliver 0001",
         "--managed-routing",
         "false",
         "--delivery-ledger-json",
@@ -972,7 +1126,7 @@ test("packaged public-release command joins selection, hydration, and the shared
         "--tasks-root",
         root,
         "--invocation",
-        "$kyw-deliver 0001 --public-release",
+        "$kyw-deliver 0001",
         "--managed-routing",
         "false",
         "--execution-preflight-json",
@@ -1000,7 +1154,14 @@ test("public-release adapter terminal errors are bounded and credential-redacted
 });
 
 test("packaged adapter enters bounded observation and reports post-STANDARD hydration blocks", async (t) => {
-  const root = await createQueue(t, [{ id: "0001", status: "DONE" }]);
+  const root = await createQueue(t, [
+    {
+      id: "0001",
+      status: "DONE",
+      contractVersion: 4,
+      releaseVersion: "1.2.3",
+    },
+  ]);
   const tuple = publicReleaseTuple();
   const calls = [];
   const absent = publicReleaseAbsentClients(tuple, calls);
@@ -1039,7 +1200,7 @@ test("packaged adapter enters bounded observation and reports post-STANDARD hydr
       "--tasks-root",
       root,
       "--invocation",
-      "$kyw-deliver 0001 --public-release",
+      "$kyw-deliver 0001",
       "--managed-routing",
       "false",
     ],
@@ -1075,7 +1236,7 @@ test("packaged adapter enters bounded observation and reports post-STANDARD hydr
       "--tasks-root",
       root,
       "--invocation",
-      "$kyw-deliver 0001 --public-release",
+      "$kyw-deliver 0001",
       "--managed-routing",
       "false",
     ],
@@ -1102,7 +1263,7 @@ test("packaged adapter enters bounded observation and reports post-STANDARD hydr
       "--tasks-root",
       root,
       "--invocation",
-      "$kyw-deliver 0001 --public-release",
+      "$kyw-deliver 0001",
       "--managed-routing",
       "false",
     ],
@@ -1125,7 +1286,7 @@ test("packaged adapter enters bounded observation and reports post-STANDARD hydr
       "--tasks-root",
       root,
       "--invocation",
-      "$kyw-deliver 0001 --public-release",
+      "$kyw-deliver 0001",
       "--managed-routing",
       "false",
     ],

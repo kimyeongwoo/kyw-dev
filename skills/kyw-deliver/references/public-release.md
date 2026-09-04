@@ -2,9 +2,9 @@
 
 # Public Release and Resume
 
-Use this only after the packaged dispatcher recognizes exact `$kyw-deliver NNNN --public-release` for one repository-complete `STANDARD` Task. This is the canonical detailed public-release procedure. Plain `$kyw-deliver NNNN` never loads or executes it.
+Use this only after exact `$kyw-deliver NNNN` selects one release-bearing contract-4 `STANDARD` Task and its Git/GitHub graph is freshly evaluator-satisfied `FINAL`. This is the canonical internal public-release procedure. Versionless contract 1–3 delivery never loads or executes it.
 
-The exact opt-in is one compound, attempt-specific authority for `npm publication → exact-SHA GitHub tag → GitHub Release`, in that order, after the unchanged `STANDARD` graph is final. It does not authorize a version change, public plugin-directory submission, dist-tag repair, asset upload, metadata edit, retry, rerun, fallback, force, deletion, bypass, account change, or another Task or repository.
+The exact plain invocation carries one compound, attempt-specific authority for `npm publication → exact-SHA GitHub tag → GitHub Release`, in that order, after the unchanged `STANDARD` graph is final. It does not authorize a version change, public plugin-directory submission, dist-tag repair, asset upload, metadata edit, retry, rerun, fallback, force, deletion, bypass, account change, or another Task or repository.
 
 ## Contents
 
@@ -12,19 +12,19 @@ Reconstruct or finish `STANDARD` first, freeze one release tuple, read every pub
 
 ## Authority and immutable inputs
 
-The exact route itself supplies authority for the fixed ordered stages; aligned execution needs no duplicate confirmation. Every other suffix, spelling, alias, ordinary-language request, implicit route, chained call, continuous mode, or background request grants no public authority. Changing the selected Task, repository, base, version, registry, workflow, target SHA/tree, tag, Release metadata, action set, or attempt exits this route and follows the shared warning/reconfirmation contract before any changed action. A failed or ambiguous action never enlarges the attempt.
+The exact plain route itself supplies authority for the fixed ordered stages; aligned execution needs no duplicate confirmation. Every suffix—including `--public-release`—and every other spelling, alias, ordinary-language request, implicit route, chained call, continuous mode, or background request grants no public authority. Changing the selected Task, repository, base, version, registry, workflow, target SHA/tree, tag, Release metadata, action set, or attempt exits this route and follows the shared warning/reconfirmation contract before any changed action. A failed or ambiguous action never enlarges the attempt.
 
 Read applicable `AGENTS.md`, the selected full Task/Test pair and dependencies, and targeted permanent-owner sections. Inspect and preserve unrelated work. The selected pair must remain the same immutable `DONE/PASSED` regular-file bytes throughout this procedure; do not reopen, demote, annotate, or record public chronology in it. The fixed-bounded `STANDARD` continuity checkpoint is also read-only during public release. Mutable public truth lives only in canonical npm and GitHub state plus the bounded invocation report.
 
 Use the sole packaged Task adapter and shared parser, dispatcher, production evaluator, hydration, continuity, command-cache, tuple, classifier, and orchestration graph. Do not create a second parser, receipt ledger, checkpoint, state file, or provider abstraction. Do not accept a user-supplied tuple, delivery ledger, workflow run, digest, credential, or proof object.
 
-Call the sole adapter path with the exact invocation before STANDARD work:
+After `STANDARD FINAL`, call the sole internal adapter path once with the unchanged exact plain invocation:
 
 ```text
-node <kyw-deliver-skill-directory>/../kyw-task/scripts/task-artifacts.mjs public-release --tasks-root <repository>/docs/tasks --invocation '$kyw-deliver NNNN --public-release' --managed-routing false
+node <kyw-deliver-skill-directory>/../kyw-task/scripts/task-artifacts.mjs public-release --tasks-root <repository>/docs/tasks --invocation '$kyw-deliver NNNN' --managed-routing false
 ```
 
-If that fresh result is `DELIVER`, follow the existing STANDARD procedure; after it reaches production-evaluator `FINAL`, call this same exact command once more in the same user invocation. Only a fresh `PUBLIC_RELEASE` result may enter the public stages. If the first result is already `PUBLIC_RELEASE`, do not repeat it before acting. A terminal public `COMPLETE` or `BLOCKED` ends command use for that invocation. Never append user-supplied preflight/client/state JSON or a credential argument; execution preflight is internally derived and closed before either permitted call.
+Only a fresh `PUBLIC_RELEASE` selection may enter the public stages. `DELIVER`, historical/report-only, or any other result stops without a public read or write; never use this internal command to finish STANDARD. A terminal public `COMPLETE` or `BLOCKED` ends command use for the invocation. Never append user-supplied preflight/client/state JSON or a credential argument; execution preflight is internally derived and closed before the one permitted call.
 
 ## Activation-scoped guardrails
 
@@ -34,15 +34,15 @@ Only the trusted current user's immediate unambiguous reconfirmation of that exa
 
 ## Require `STANDARD FINAL` first
 
-On every fresh or resumed invocation, reconstruct the selected Task's unchanged `STANDARD` delivery before reading public state for action. Follow [STANDARD Delivery and Resume](delivery.md) for any unfinished exact-path commit, non-force push, non-draft PR, exact-head CI, synthetic compatibility, review/mergeability, expected-head merge, or post-main CI stage. Reuse proven stages and never repeat a completed `STANDARD` write or rerun CI.
+On every fresh or resumed invocation, freshly revalidate the selected Task's unchanged `STANDARD FINAL` result before reading public state for action. Any unfinished exact-path commit, non-force push, non-draft PR, exact-head CI, synthetic compatibility, review/mergeability, expected-head merge, or post-main CI stage belongs to [STANDARD Delivery and Resume](delivery.md) and blocks this internal procedure. Never repeat a completed `STANDARD` write or rerun CI.
 
 No npm, tag, or Release mutation is eligible until the unchanged production evaluator returns `FINAL` for the selected Task's canonical `HARDENED_EXACT_HEAD` graph, the expected-head PR merge is at one exact merge SHA and tree on the exact base, and successful post-main evidence is bound to that SHA. `PENDING`, legacy continuity, checkpoint coverage without current selected-Task finality, command success, a merged PR alone, or CI prose is insufficient.
 
-If `STANDARD` is blocked, return its existing delivery disposition without a second adapter call. If it reaches or was already `FINAL`, keep the exact target merge SHA/tree and continue in the same authorized invocation. Plain `$kyw-deliver NNNN` stops with its existing report and cannot cross this boundary.
+If `STANDARD` is no longer exact `FINAL`, return its existing delivery disposition without a public-state read or later action. Otherwise keep the exact target merge SHA/tree and continue in the same authorized plain invocation. Historical contract 1–3 Tasks cannot cross this boundary.
 
 ## Freeze the exact public-release tuple
 
-Before the first public read that could lead to mutation, derive one immutable tuple from repository-owned bytes, the production evaluator's final result, the exact delivered merge tree, and fresh canonical GitHub facts. Cross-check every duplicate source and fail closed on a missing, malformed, or different value. Freeze at least:
+Before the first public read that could lead to mutation, derive one immutable tuple from repository-owned bytes, the Task's exact stable-SemVer `Release version`, the production evaluator's final result, the exact delivered merge tree, and fresh canonical GitHub facts. Cross-check the Task version against delivered package/plugin metadata and every duplicate source; fail closed on a missing, malformed, or different value. Freeze at least:
 
 - selected Task ID and canonical terminal-pair identity;
 - GitHub owner/repository, exact base branch, target merge SHA, and target tree;
@@ -52,7 +52,7 @@ Before the first public read that could lead to mutation, derive one immutable t
 - derived lightweight tag `v<version>` pointing directly to the target merge SHA;
 - deterministic Release fields: exact repository and tag, title `v<version>`, `draft=false`, `prerelease=false`, and an empty asset policy. Do not infer notes, generate or upload assets, or authorize later edits.
 
-The package/plugin version must already be established by delivered repository truth, be strictly newer than every frozen prior version, and be absent or exact in public state. This route never selects or increments it. A version already bound to another source, including this repository's published `0.1.4` when a later Task targets another merge, is a conflict.
+The Task-owned package/plugin version must already be established by delivered repository truth, be strictly newer than every frozen prior version, and be absent or exact in public state. This route never selects, increments, edits, commits, or substitutes it. A version already bound to another source, including a historical release when a later Task targets another merge, is a conflict.
 
 Immediately before every eligible mutation, rederive the live portions and compare them with the frozen tuple. Repository, base, workflow, package, registry, merge, tree, tag, or Release drift blocks before the request. Never refresh the tuple to absorb drift.
 
@@ -138,7 +138,7 @@ Every invocation reconstructs canonical state instead of trusting conversation h
 
 Each externally visible mutator has a limit of one request or workflow-contained execution for the authorized attempt: inherited `STANDARD` actions retain their existing limits; workflow dispatch is at most once; workflow-contained `npm publish` is at most once; tag creation is at most once; Release creation is at most once. Failure, cancellation, timeout, lost response, runner error, API error, race, or eventual-consistency ambiguity consumes the applicable request boundary and permits only bounded canonical reads. It never grants retry, rerun, fallback, alternate credentials, a replacement object, or a later-stage write.
 
-One attempt is one execution of the sole adapter under one exact opt-in invocation. These request limits are invocation-local: a later exact opt-in is a newly authorized attempt, and separate or concurrent authorized invocations do not claim a distributed lock or globally exactly-once requests. Every such attempt still reclassifies canonical state first, skips exact state, observes pending state, blocks conflict or unknown state, and may issue its one request only for complete fresh `ABSENT` proof.
+One attempt is one execution of the sole adapter under one exact plain invocation. These request limits are invocation-local: a later exact plain invocation is a newly authorized attempt, and separate or concurrent authorized invocations do not claim a distributed lock or globally exactly-once requests. Every such attempt still reclassifies canonical state first, skips exact state, observes pending state, blocks conflict or unknown state, and may issue its one request only for complete fresh `ABSENT` proof.
 
 `npm-success/tag-failure` resumes by proving npm and inspecting tag; it never republishes or dispatches again. `npm-plus-tag-success/Release-failure` resumes by proving npm and tag and inspecting the Release; it never republishes or recreates the tag. A prior failed publication attempt remains authoritative even if an older attempt succeeded.
 
@@ -148,7 +148,7 @@ Use only GitHub's already authenticated API boundary and the workflow's noninter
 
 Sanitize before retaining or displaying any external error. Emit an allowlisted, size-bounded structure containing only public repository/object identities, classification, stage, run/job/attempt numbers, non-secret digests, error category, recovery condition, and resume point. Redact token/JWT/OTP/auth-URL/cookie/header/environment patterns recursively; truncate unbounded prose and logs. Never print raw request headers, environment dumps, API bodies, workflow logs, npm debug logs, or authentication links. If safe redaction cannot be proved, report only `UNKNOWN` plus a non-secret category.
 
-Implementation, unit tests, fixtures, and verification of this capability use injected clients, deterministic mocks, and owned loopback endpoints only. They must never dispatch the live workflow, publish to npm, create a live tag or Release, or require a real credential. Only a later exact public-release invocation for an eligible delivered Task can cross the live mutation boundary.
+Implementation, unit tests, fixtures, and verification of this capability use injected clients, deterministic mocks, and owned loopback endpoints only. They must never dispatch the live workflow, publish to npm, create a live tag or Release, or require a real credential. Only a later exact plain `$kyw-deliver NNNN` invocation for an eligible delivered contract-4 Task can cross the live mutation boundary.
 
 ## Terminal report
 

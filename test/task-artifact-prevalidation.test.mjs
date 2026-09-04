@@ -21,7 +21,7 @@ import { runTaskArtifactCommand } from "../skills/kyw-task/scripts/task-artifact
 function readyTaskMarkdown() {
   return `# TASK {{TASK_ID}} — {{TASK_TITLE}}
 
-<!-- kyw-task-contract: 3 -->
+<!-- kyw-task-contract: 4 -->
 
 ## Status
 
@@ -73,6 +73,7 @@ Deliver one independently verifiable batch-authored outcome.
 ## Delivery
 
 - Requirement: STANDARD
+- Release version: {{TASK_RELEASE_VERSION}}
 - Canonical ledger: GitHub PR/Actions exact-SHA state.
 
 ## Completed
@@ -96,7 +97,7 @@ Deliver one independently verifiable batch-authored outcome.
 function readyTestMarkdown() {
   return `# TEST {{TASK_ID}} — {{TASK_TITLE}}
 
-<!-- kyw-task-contract: 3 -->
+<!-- kyw-task-contract: 4 -->
 
 ## Status
 
@@ -148,13 +149,21 @@ READY
 `;
 }
 
-function definition(title, dependencies = [], key) {
+let nextFixtureRelease = 1;
+
+function definition(
+  title,
+  dependencies = [],
+  key,
+  releaseVersion = `0.0.${nextFixtureRelease++}`,
+) {
   return {
     ...(key === undefined ? {} : { key }),
     title,
     taskMarkdown: readyTaskMarkdown(),
     testMarkdown: readyTestMarkdown(),
     dependencies,
+    releaseVersion,
   };
 }
 
@@ -213,6 +222,7 @@ test("complete planning derives missing keys, preserves explicit keys, and resol
           "dependencies",
           "key",
           "keySource",
+          "releaseVersion",
           "slug",
           "title",
         ]);
@@ -247,6 +257,116 @@ test("complete planning derives missing keys, preserves explicit keys, and resol
       { key: "dependent-outcome", dependencies: ["0001"] },
       { key: "compatibility-explicit-key", dependencies: [] },
     ],
+  );
+});
+
+test("STANDARD authoring requires one settled unique release version before publication", async (t) => {
+  const cases = [];
+
+  const missing = definition("Missing release version");
+  const renderedVersion = missing.releaseVersion;
+  delete missing.releaseVersion;
+  missing.taskMarkdown = missing.taskMarkdown.replace(
+    "{{TASK_RELEASE_VERSION}}",
+    renderedVersion,
+  );
+  cases.push({ name: "missing", task: missing, code: "INVALID_TASK_BATCH_PAIR" });
+
+  const malformed = definition("Malformed release version");
+  malformed.releaseVersion = "1.2.3-rc.1";
+  cases.push({ name: "malformed", task: malformed, code: "INVALID_TASK_BATCH" });
+
+  const mismatched = definition("Mismatched release version");
+  mismatched.taskMarkdown = mismatched.taskMarkdown.replace(
+    "{{TASK_RELEASE_VERSION}}",
+    "9.9.9",
+  );
+  cases.push({ name: "mismatched", task: mismatched, code: "INVALID_TASK_BATCH" });
+
+  const previousContract = definition("Previous contract");
+  delete previousContract.releaseVersion;
+  previousContract.taskMarkdown = previousContract.taskMarkdown
+    .replace("<!-- kyw-task-contract: 4 -->", "<!-- kyw-task-contract: 3 -->")
+    .replace(
+      "- Requirement: STANDARD\n- Release version: {{TASK_RELEASE_VERSION}}\n- Canonical ledger: GitHub PR/Actions exact-SHA state.",
+      "- Requirement: NONE — this compatibility fixture has no external delivery.",
+    );
+  previousContract.testMarkdown = previousContract.testMarkdown.replace(
+    "<!-- kyw-task-contract: 4 -->",
+    "<!-- kyw-task-contract: 3 -->",
+  );
+  cases.push({
+    name: "previous-contract",
+    task: previousContract,
+    code: "INVALID_TASK_BATCH_PAIR",
+  });
+
+  for (const scenario of cases) {
+    const tasksRoot = await temporaryTasksRoot(t, `release-${scenario.name}`);
+    const observed = [];
+    await assert.rejects(
+      createTaskArtifactBatch({
+        tasksRoot,
+        tasks: [scenario.task],
+        hooks: observedMutationHooks(observed),
+      }),
+      (error) => error.code === scenario.code,
+      scenario.name,
+    );
+    assert.deepEqual(observed, [], scenario.name);
+    await assertAbsent(tasksRoot);
+  }
+
+  const duplicateRoot = await temporaryTasksRoot(t, "release-duplicate-batch");
+  const duplicateObserved = [];
+  await assert.rejects(
+    createTaskArtifactBatch({
+      tasksRoot: duplicateRoot,
+      tasks: [
+        definition("First duplicate", [], undefined, "7.8.9"),
+        definition("Second duplicate", [], undefined, "7.8.9"),
+      ],
+      hooks: observedMutationHooks(duplicateObserved),
+    }),
+    (error) => error.code === "TASK_RELEASE_VERSION_CONFLICT",
+  );
+  assert.deepEqual(duplicateObserved, []);
+  await assertAbsent(duplicateRoot);
+
+  const existingRoot = await temporaryTasksRoot(t, "release-duplicate-existing");
+  await createTaskArtifactBatch({
+    tasksRoot: existingRoot,
+    tasks: [definition("Existing claim", [], undefined, "8.9.10")],
+  });
+  const existingObserved = [];
+  await assert.rejects(
+    createTaskArtifactBatch({
+      tasksRoot: existingRoot,
+      tasks: [definition("New claim", [], undefined, "8.9.10")],
+      hooks: observedMutationHooks(existingObserved),
+    }),
+    (error) =>
+      error.code === "TASK_RELEASE_VERSION_CONFLICT" &&
+      /Task 0001.*Task 0002/.test(error.message),
+  );
+  assert.deepEqual(existingObserved, []);
+  assert.deepEqual(await readdir(existingRoot), ["0001-existing-claim"]);
+
+  const noneRoot = await temporaryTasksRoot(t, "release-none");
+  const none = definition("No external delivery");
+  delete none.releaseVersion;
+  none.taskMarkdown = none.taskMarkdown.replace(
+    "- Requirement: STANDARD\n- Release version: {{TASK_RELEASE_VERSION}}\n- Canonical ledger: GitHub PR/Actions exact-SHA state.",
+    "- Requirement: NONE — this outcome has no external delivery.",
+  );
+  const noneCreated = await createTaskArtifactBatch({
+    tasksRoot: noneRoot,
+    tasks: [none],
+  });
+  assert.equal(Object.hasOwn(noneCreated.tasks[0], "releaseVersion"), false);
+  assert.match(
+    await readFile(noneCreated.tasks[0].taskPath, "utf8"),
+    /- Requirement: NONE — this outcome has no external delivery\./,
   );
 });
 

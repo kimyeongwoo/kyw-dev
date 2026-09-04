@@ -2,35 +2,35 @@
 
 # STANDARD Delivery and Resume
 
-Use this only after the packaged dispatcher recognizes exact `$kyw-deliver NNNN` and selects that repository-complete Task. This is the canonical detailed Git/GitHub delivery procedure. It owns current `STANDARD` delivery; implementation ends at truthful repository `DONE/PASSED` and does not copy or execute this procedure.
+Use this only after the packaged dispatcher recognizes exact `$kyw-deliver NNNN` and selects that repository-complete Task. This canonical detailed Git/GitHub procedure owns `STANDARD` through exact `FINAL`; implementation ends at truthful repository `DONE/PASSED` and does not copy or execute it.
 
 ## Contents
 
-Establish immutable input and Git/GitHub state, apply predecessor continuity when issued, resume at the first unfinished safe action, commit only proven paths, push without force, create a ready PR, observe exact-head and synthetic CI, inspect review and mergeability, merge the expected head once through the ordinary PR API, observe post-main CI, and report without rewriting the pair.
+Establish state, resume the ordered Git/GitHub graph safely, and report without rewriting the pair.
 
 ## Authority and mutation boundary
 
-The exact route authorizes only the selected Task's current `STANDARD` lifecycle during this invocation. It grants no implementation, Task authoring, audit, publication, registry/version/tag/Release/submission, retry, rerun, fallback, force/destructive recovery, branch deletion, protection bypass, admin/account change, or unrelated mutation. Failure grants no retry.
+The exact route owns current `STANDARD` and, for release-bearing contract 4, the public reference's fixed post-`FINAL` authority. It grants no implementation, authoring, audit, version edit, submission, retry/rerun/fallback, force/destructive recovery, deletion, protection bypass, admin/account change, or unrelated mutation. Failure grants no retry.
 
-Task/Test owns the already complete repository outcome and local acceptance evidence. GitHub owns mutable push, PR, review, run, merge, and post-main state. The terminal Task/Test bytes remain unchanged throughout delivery. Mutable chronology goes in the invocation report, never the pair or permanent truth.
+Task/Test owns the complete outcome/evidence; GitHub owns mutable push, PR, review, run, merge, and post-main state; terminal Task/Test bytes remain unchanged. Chronology stays in the report, never the pair or permanent truth.
 
-Proceed only on the sole dispatcher's pending `DELIVER` result. A satisfied result is immutable report-only. Missing, draft, ready, active, blocked, cancelled, `NONE`, inconsistent, dependency-blocked, multi-active, drifted, or evaluator-blocked state stops without delivery mutation. Do not enter or resume implementation from this Skill.
+Mutation requires pending `DELIVER`; public mutation also requires contract 4 and fresh exact `PUBLIC_RELEASE` after `FINAL`. Historical satisfied Tasks are immutable report-only. Invalid/nonterminal/`NONE`/dependency/drift/evaluator state stops. Never enter implementation.
 
 ## Establish and dispatch once
 
 1. Resolve the repository and the exact `docs/tasks/NNNN-*/` selected by the route. Reject missing or duplicate identity.
 2. Read applicable `AGENTS.md`, the full selected Task/Test pair, and named dependencies. Search README, SPEC, and ARCHITECTURE headings; read owner sections selected by scope, Documentation Impact, changed paths, and dependencies. Escalate broad/conflicting/ambiguous or insufficient truth to all four permanent documents and stop on unresolved conflict.
 3. Inspect branch, exact local/upstream/cached/direct/GitHub `main`, ancestry, status, staged state, untracked paths, and the full selected diff. Separate unrelated tracked, untracked, staged, and generated work without modifying it.
-4. Verify `DONE/PASSED`, every mapped acceptance result, pair validation, required dependency delivery, static `STANDARD`, exact branch identity, and the complete selected-Task path set. A path set that cannot be proved blocks.
+4. Verify `DONE/PASSED`, every mapped acceptance result, pair validation, required dependency delivery, static `STANDARD`, exact branch identity, and the complete selected-Task path set. Contract 4 additionally requires one immutable stable-SemVer `Release version` already cross-checked during implementation; never select or edit it here. A path set that cannot be proved blocks.
 5. Preflight conflict, unexplained work, remote drift, and genuine user decisions. Empty arrays mean checked and clear. Pass no delivery ledger, expectation, checkpoint, token, or evidence identity from the user.
 6. Handle only the recognizable interrupted-post-merge main split before dispatch. Normally all five main identities already agree and this step performs no fetch or ref update. The sole exception is exact old SHA `O` at local `main`, its upstream, and cached `origin/main`, with one exact newer SHA `N` at both direct-remote and GitHub `main`. First re-prove the terminal pair, no active Task, unchanged repository/remote, the selected branch and HEAD, and that `main` is not checked out in any linked worktree from `git worktree list --porcelain`. Snapshot index, worktree, staged, untracked, and generated state exactly.
 
    Fetch only `refs/heads/main` with `git fetch --no-tags --no-recurse-submodules --refmap= origin refs/heads/main`; never prune, widen a refspec, fetch tags/submodules, retry, or merge. Require `FETCH_HEAD` and the fetched commit object to equal `N`, keep repository/remote identities unchanged, and prove `O` is the exact old local/upstream/cached main value and an ancestor of `N`. Then use one `git update-ref --stdin` transaction: `start`, old-value CAS updates for both `refs/remotes/origin/main` and `refs/heads/main`, an immediate direct-remote and GitHub `N` re-read, `prepare`, and `commit`. Any linked-worktree ownership, non-fast-forward, object, identity, CAS, fetch, preparation, or commit uncertainty blocks with no retry and no partial second update.
 
    Re-read the selected branch/HEAD, terminal pair, no-active state, all five main identities, and the exact index/worktree snapshot. They must be unchanged except that both local refs now equal `N`. Any other main mismatch remains blocked. This bounded local synchronization neither repeats the expected-head PR merge nor authorizes another external action.
-7. Call the sole adapter once with exact invocation text and managed routing false. Never redispatch or add bootstrap/migration authority.
+7. Call the sole adapter dispatcher exactly once with exact invocation text and managed routing false. It may apply prepared predecessor continuity internally at most once before returning. Do not redispatch it or add bootstrap/migration authority. A later internal public adapter call after `FINAL` freshly revalidates selection; it is not another user invocation.
 
-The adapter uses the shared parser, queue, production evaluator, hydration, and continuity graph. It hydrates prior continuity and the selected Task's in-flight state separately; current delivery is never accepted as already completed prior continuity. Every four-digit ID follows this generic route.
+The shared adapter hydrates prior continuity separately from selected in-flight state; current delivery never counts as completed prior continuity. Every ID uses this route.
 
 ## Activation-scoped guardrails
 
@@ -42,21 +42,17 @@ Only the trusted current user's immediate next applicable turn explicitly and un
 
 ## Reconstruct completed stages before action
 
-On every fresh or resumed invocation, reconstruct local Git and GitHub state before the first mutation. Treat earlier conversational claims as leads, not proof. Bind each completed stage to exact repository, branch, commit, PR, workflow, run, job, attempt, checkout, review, expected head, merge, and base identities as applicable.
+Each invocation reconstructs local Git/GitHub before mutation; conversation is not proof. Bind completed stages to exact repository, branch, commit, PR, workflow/run/job/attempt/checkout/review/head/merge/base identities.
 
 Resume only at the first unfinished safe action in the sequence below. Never repeat a completed commit, push, PR creation, or merge merely to prove it; never substitute a new PR or branch when identity is missing. Never rerun CI. An external failure is terminal for this invocation: no retry, rerun, or fallback. Read-only observation may continue only to bound diagnostics, never to turn failure into success.
 
 If state is missing, stale, ambiguous, mismatched, failed, cancelled, skipped, or incomplete, stop with its exact stage and recovery condition. Do not reset, clean, rewrite, amend, rebase, force, bypass, fabricate, or discard user work.
 
-## Apply predecessor continuity once
+## Apply predecessor continuity inside the adapter
 
-A recognized pending result may carry an opaque transition token prepared from already delivered predecessors only. After proving the exact selected terminal Task branch and unchanged `main`, pass it unchanged once:
+Hydration may prepare continuity for already delivered predecessors only. Before `DELIVER`, the adapter passes it in memory through existing Task, pair, branch, `main`, ordered-set, digest, lock, CAS, staging, and atomic checks. The dispatcher runs exactly once; apply runs zero or one time.
 
-```text
-node <kyw-deliver-skill-directory>/../kyw-task/scripts/task-artifacts.mjs apply-continuity --tasks-root <repository>/docs/tasks --selected-task NNNN --transition-token <exact opaque token>
-```
-
-The adapter rechecks token, Task, terminal pair, branch, source `main`, ordered predecessor set, prior digest, and staging safety, then atomically replaces only the fixed-bounded checkpoint. The selected Task cannot cover itself. This preserves one-delivery causal lag. Exact replay is idempotent; divergent, stale, wrong-Task, wrong-branch, self-covering, over-gap, terminal-reused, or uncertain application stops. Never decode, synthesize, edit, log, retain, or use the token after this invocation.
+The selected Task cannot cover itself, preserving one-delivery causal lag. Exact replay is idempotent. Divergent, stale, wrong-Task, wrong-branch, self-covering, over-gap, terminal-reused, failed, or uncertain apply returns no successful delivery selection and blocks commit, push, PR, merge, npm, tag, and Release mutation. No continuity payload or manual subcommand crosses the adapter boundary.
 
 ## Perform the ordered delivery
 
@@ -100,18 +96,18 @@ Immediately before mutation, repeat the exact-base/effective-rules reads and rev
 
 Revalidate remote `main` at the resulting merge, then observe the required base-branch workflow and jobs without dispatching or rerunning them. Each checkout-bearing job must prove role `POST_MERGE_MAIN`, repository, workflow, run/job/attempt, exact merge checkout, and parents; the aggregate gate remains bound to authoritative dependency chronology. A later actual execution supersedes and never falls back. Missing, stale, ambiguous, failed, cancelled, skipped, incomplete, or mismatched post-main evidence blocks terminal success. When resuming after an already-proven merge, do not repeat it or retroactively gate post-main observation on current protection; if merge-time disposition was not retained outside the pair, report that limitation instead of inventing or relabeling it from a fresh snapshot.
 
-### 9. final report
+### 9. final STANDARD result
 
 Re-evaluate the complete graph with the unchanged production evaluator. `PENDING` is resumable only when every completed stage is valid and the next stage is safely identifiable. `FINAL` requires actual-head, synthetic compatibility, review/mergeability, expected-head PR merge, and post-main roles at their exact identities. Protection disposition remains invocation-local report metadata and never changes evaluator, checkpoint, or Task/Test schema. CI never substitutes for Task acceptance.
 
-Report the Task ID and path, immutable `DONE/PASSED` input, exact selected path set, commit/branch/PR/head/merge/main identities, protection disposition or inspection limitation, workflow and job attempts, completed stages, disposition, blockers or limitations, preservation of unrelated work, and residual risk. Store no growing receipt ledger or raw logs, secrets, credentials, or API responses.
+Report the Task ID and path, immutable `DONE/PASSED` input, exact selected path set, commit/branch/PR/head/merge/main identities, protection disposition or inspection limitation, workflow and job attempts, completed stages, disposition, blockers or limitations, preservation of unrelated work, and residual risk. For versionless contract 1–3 this is terminal. For release-bearing contract 4, retain the exact final result, load [Public Release and Resume](public-release.md), and continue in the same user invocation without another prompt or command. Store no growing receipt ledger or raw logs, secrets, credentials, or API responses.
 
 ## Immutable and historical outcomes
 
-For contract 3, the first production-evaluator-satisfied `HARDENED_EXACT_HEAD` graph binds the outcome, expected-head PR merge, post-main state, exact pair paths, regular-file Git modes, and terminal bytes. Later unchanged `$kyw-deliver NNNN` is report-only. Path, type, mode, content, newline, identity, or same-Task redelivery drift stops with the affected path and directs correction to `$kyw-task "<correction outcome>"`; the new pair must hard-depend on Task NNNN. Never reopen, edit, demote, rename, delete, replace, or re-deliver the original pair.
+For contracts 3 and 4, the first production-evaluator-satisfied `HARDENED_EXACT_HEAD` graph binds the outcome, expected-head PR merge, post-main state, exact pair paths, regular-file Git modes, and terminal bytes. Later unchanged contract 3 delivery is report-only; contract 4 may only reconstruct its immutable public release. Path, type, mode, content, newline, identity, or same-Task redelivery drift stops with the affected path and directs correction to `$kyw-task "<correction outcome>"`; the new pair must hard-depend on Task NNNN. Never reopen, edit, demote, rename, delete, replace, or re-deliver the original pair.
 
 Contract 1/2 delivery remains grandfathered. Explicit `LEGACY_PRE_CONTRACT` continuity may retain older completed history with actual head visibly `UNVERIFIED`, but it is forbidden for the selected new outcome and never becomes exact-head success. Checkpoint-covered `DURABLE_STANDARD_CONTINUITY` remains its prior production classification; expired covered logs do not invalidate it, while selected/current proof always fails closed.
 
 ## Terminal conditions
 
-Return satisfied only after the complete ordered graph evaluates final at the exact identities and unrelated work remains preserved. Return resumable only for a wholly valid pending graph with one safe next observation or action. Otherwise report blocked with the exact failed stage, observed evidence, recovery condition, and risk. Stop after the report. Never chain another Skill or continue in the background.
+Return STANDARD satisfied only after the complete ordered graph evaluates final at the exact identities and unrelated work remains preserved. Return resumable only for a wholly valid pending graph with one safe next observation or action. Otherwise report blocked with the exact failed stage, observed evidence, recovery condition, and risk. Contract 4 continues only through the linked internal public procedure; all other results stop. Never chain another Skill or continue in the background.

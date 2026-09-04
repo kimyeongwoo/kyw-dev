@@ -16,18 +16,25 @@ export const TEST_STATUSES = Object.freeze(["DRAFT", "READY", "RUNNING", "PASSED
 export const TEST_ROW_STATUSES = Object.freeze(["TODO", "PASS", "FAIL", "BLOCKED", "N/A"]);
 export const LEGACY_TASK_CONTRACT_VERSION = 1;
 export const PREVIOUS_TASK_CONTRACT_VERSION = 2;
-export const CURRENT_TASK_CONTRACT_VERSION = 3;
+export const IMMUTABLE_TERMINAL_TASK_CONTRACT_VERSION = 3;
+export const RELEASE_BEARING_TASK_CONTRACT_VERSION = 4;
+export const CURRENT_TASK_CONTRACT_VERSION = RELEASE_BEARING_TASK_CONTRACT_VERSION;
 export const QUEUE_AWARE_TASK_CONTRACT_VERSIONS = Object.freeze([
   PREVIOUS_TASK_CONTRACT_VERSION,
+  IMMUTABLE_TERMINAL_TASK_CONTRACT_VERSION,
   CURRENT_TASK_CONTRACT_VERSION,
 ]);
 export const SUPPORTED_TASK_CONTRACT_VERSIONS = Object.freeze([
   LEGACY_TASK_CONTRACT_VERSION,
   ...QUEUE_AWARE_TASK_CONTRACT_VERSIONS,
 ]);
-export const IMMUTABLE_TERMINAL_TASK_CONTRACT_VERSION =
-  CURRENT_TASK_CONTRACT_VERSION;
+export const IMMUTABLE_TERMINAL_TASK_CONTRACT_VERSIONS = Object.freeze([
+  IMMUTABLE_TERMINAL_TASK_CONTRACT_VERSION,
+  RELEASE_BEARING_TASK_CONTRACT_VERSION,
+]);
 export const TASK_CONTRACT_MARKER = `<!-- kyw-task-contract: ${CURRENT_TASK_CONTRACT_VERSION} -->`;
+export const STABLE_RELEASE_VERSION_PATTERN =
+  /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u;
 export const MODEL_PROVENANCE_FIELDS = Object.freeze([
   "Model identifier",
   "Requested model alias",
@@ -49,7 +56,18 @@ export function isQueueAwareTaskContractVersion(version) {
 }
 
 export function isImmutableTerminalTaskContractVersion(version) {
-  return version === IMMUTABLE_TERMINAL_TASK_CONTRACT_VERSION;
+  return IMMUTABLE_TERMINAL_TASK_CONTRACT_VERSIONS.includes(version);
+}
+
+export function isReleaseBearingTaskContractVersion(version) {
+  return version === RELEASE_BEARING_TASK_CONTRACT_VERSION;
+}
+
+export function isStableReleaseVersion(version) {
+  return (
+    typeof version === "string" &&
+    STABLE_RELEASE_VERSION_PATTERN.test(version)
+  );
 }
 
 export const DOCUMENT_CONTRACTS = Object.freeze({
@@ -385,7 +403,7 @@ function validatesTerminalNone(markdown) {
   return lines.length === 1 && /^[-*]\s+None\s+[—-]\s+\S.*$/i.test(lines[0]);
 }
 
-function validateDeliverySection(taskSections) {
+function validateDeliverySection(taskSections, contractVersion) {
   const errors = [];
   const delivery = sectionText(taskSections, "Delivery");
   const content = stripComments(delivery).trim();
@@ -393,6 +411,9 @@ function validateDeliverySection(taskSections) {
     .split(/\r?\n/)
     .map((line) => line.trim());
   const requirements = lines.filter((line) => line.startsWith("- Requirement:"));
+  const releaseVersions = lines.filter((line) =>
+    line.startsWith("- Release version:"),
+  );
   const ledgers = lines.filter((line) => line.startsWith("- Canonical ledger:"));
   if (requirements.length !== 1) {
     errors.push("TASK.md: current contract requires exactly one Delivery Requirement");
@@ -401,6 +422,26 @@ function validateDeliverySection(taskSections) {
 
   const [requirement] = requirements;
   if (requirement === "- Requirement: STANDARD") {
+    if (isReleaseBearingTaskContractVersion(contractVersion)) {
+      if (releaseVersions.length !== 1) {
+        errors.push(
+          "TASK.md: contract 4 STANDARD delivery requires exactly one Release version",
+        );
+      } else {
+        const releaseVersion = releaseVersions[0].slice(
+          "- Release version: ".length,
+        );
+        if (!isStableReleaseVersion(releaseVersion)) {
+          errors.push(
+            "TASK.md: Release version must be an exact stable SemVer x.y.z without prerelease, build metadata, or leading zeros",
+          );
+        }
+      }
+    } else if (releaseVersions.length > 0) {
+      errors.push(
+        "TASK.md: contracts before 4 must not declare a Release version",
+      );
+    }
     if (ledgers.length !== 1 || ledgers[0] !== standardDeliveryLedger) {
       errors.push(`TASK.md: STANDARD delivery requires "${standardDeliveryLedger}"`);
     }
@@ -408,6 +449,9 @@ function validateDeliverySection(taskSections) {
     errors.push("TASK.md: Delivery Requirement must be STANDARD or NONE — <reason>");
   } else if (ledgers.length > 0) {
     errors.push("TASK.md: NONE delivery must not declare an external canonical ledger");
+  }
+  if (requirement?.startsWith("- Requirement: NONE — ") && releaseVersions.length > 0) {
+    errors.push("TASK.md: NONE delivery must not declare a Release version");
   }
 
   if (/^\s*-\s+(?:Status|State|Delivered|PR|Merge|Actions)\s*:/im.test(content)) {
@@ -635,7 +679,7 @@ export function validateTaskTestContract({ taskMarkdown, testMarkdown }) {
       }
     }
     if (taskSectionCounts.get(normalizeHeading("Delivery")) === 1) {
-      errors.push(...validateDeliverySection(taskSections));
+      errors.push(...validateDeliverySection(taskSections, taskContractVersion));
     }
     if (!["DRAFT", "CANCELLED"].includes(taskStatus)) {
       errors.push(

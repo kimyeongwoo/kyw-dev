@@ -7,70 +7,54 @@ description: Author a complete dependency-aware Task/Test set or finish one DRAF
 
 ## Inputs and boundary
 
-Goal-style explicit `$kyw-task` publishes the smallest justified complete `READY/READY` pair set and stops; `$kyw-task NNNN` accepts only `DRAFT/DRAFT`. Other states stay unchanged and get state-appropriate report-only guidance: repository work uses exact `$kyw-impl NNNN`, pending terminal `STANDARD` delivery uses exact `$kyw-deliver NNNN`, and locally complete, satisfied, or cancelled state gets no invented next action. Managed Korean execution aliases belong only to `kyw-impl`.
+Goal-style explicit `$kyw-task` publishes the smallest justified complete `READY/READY` pair set and stops; `$kyw-task NNNN` accepts only `DRAFT/DRAFT`. Other states stay unchanged with state-appropriate report-only guidance: repository work uses exact `$kyw-impl NNNN`, pending terminal `STANDARD` delivery uses exact `$kyw-deliver NNNN`, and satisfied/cancelled state gets no action. Do not invoke either Skill. Managed Korean execution aliases belong only to `kyw-impl`. Never auto-invoke another Skill.
 
 <!-- kyw-active-skill-guardrails:v1 -->
 
-Exact `$kyw-task` alone activates; otherwise ordinary. Aligned work needs no duplicate confirmation. Baseline/Task/acceptance/scope/action/target/attempt/Skill/mode change gets an old/new warning: implementation, Task/Test, permanent-document, verification, delivery impacts, exact bounds, then zero-mutation wait. Only the trusted current user's immediate next unambiguous explicit reconfirmation of the unchanged warning advances mutable criteria; Skill/mode/route identity replacement expires; its own exact route is required; origin cannot self-confirm. Cancel/decline/ambiguity or stale/intervened/fact/bound drift clears/replaces it. Sync applicable mutable Task/Test and owners before the warned action; completion/cancel/stop/expiry deactivates. Never redispatch/chain Skills or relax system/platform safety, honest evidence, user work, delivered-pair immutability. Open answers align; DRAFT promotion keeps native confirmation.
+Exact `$kyw-task` alone activates. Aligned work needs no duplicate confirmation. A baseline, Task/acceptance, scope, action, target, attempt, or Skill/mode change gets a warning covering implementation, Task/Test, permanent-document, verification, and delivery impacts, then a zero-mutation wait. Route replacement requires its own exact route. Only the immediately next unambiguous explicit reconfirmation of that unchanged warning advances. Cancellation/decline/ambiguity clears or replaces it. Sync applicable mutable Task/Test and owners before the warned action; the originating turn cannot self-confirm; completion/cancel/stop/expiry deactivates. Never redispatch/chain Skills or weaken system/platform safety, honest evidence, user work, or delivered-pair immutability. DRAFT promotion retains native confirmation.
 
-This Skill owns inspection, adaptive decomposition, grilling, publication, and DRAFT authoring; mutate only returned pairs. Do not edit implementation/tests/configuration/permanent truth/existing Tasks; `kyw-impl` owns synchronization. Never auto-invoke another Skill.
+This Skill owns inspection, adaptive decomposition, grilling, publication, and DRAFT authoring; mutate only returned pairs. Do not edit implementation/tests/configuration/permanent truth; `kyw-impl` owns synchronization.
 
-## Inspect without writing
+## Inspect and settle without writing
 
-Read applicable `AGENTS.md` and selected/current pairs. Index or search headings in `README.md`, `docs/SPEC.md`, and `docs/ARCHITECTURE.md`; read only the owning permanent-document sections chosen by goal, scope, Documentation Impact, code, and dependencies. Fully read all permanent documents for rebaseline, redesign, broad scope, source conflict, ambiguous ownership, or insufficient truth; stop if a conflict remains unresolved.
+Read applicable `AGENTS.md` and selected/current pairs. Index or search headings in `README.md`, `docs/SPEC.md`, and `docs/ARCHITECTURE.md`; read only the owning permanent-document sections selected by goal, scope, Documentation Impact, code, and dependencies. Read all permanent documents for rebaseline, redesign, broad or conflicting work, or ambiguity; stop on unresolved conflict. Inspect code, tests, state, dependencies, residue, and user work; do not ask for inspectable facts. Separate settled facts and current-user decisions. Write nothing while inspecting.
 
-Inspect relevant code/tests/manifests/commands, state, dependencies, and residue; preserve user work and do not ask for inspectable facts. Separate settled facts and current-user decisions from unresolved Task decisions. Write nothing while inspecting.
+Use one pair per verifiable outcome; split only for independently shippable outcomes, acceptance/decision bounds, dependencies, or multi-compaction work. Preserve explicit count, boundaries, order, titles, and dependencies when safe; ask only when the user must choose. Corrections to delivered contract-3 or contract-4 Tasks use new hard-dependent pairs. A correction depends on the delivered Task with `{"taskId":"NNNN"}`. Preserve old bytes. Reuse `$kyw-grilling` only for unresolved intent or a user-owned blocker: one question and recommendation. Do not write while a required answer is unknown.
 
-## Derive and settle the pair set
+Each prospective `STANDARD` pair needs one user-settled stable SemVer; never infer, increment, or substitute it. Fresh reads must find no conflict across npm history, bounded attempts, tags, Release-by-tag, package/plugin, or queue claims. Bad or incomplete evidence blocks. `NONE` is version-free.
 
-Keep one pair per independently verifiable outcome. Split only for independently shippable outcomes, distinct acceptance/decisions, dependency order, or likely multi-compaction work. Preserve explicit count, boundaries, order, titles, and dependencies when safe; otherwise give the minimum safe alternative and ask only when the user must choose.
+## Prepare and publish complete READY pairs
 
-Corrections to delivered contract-3 Tasks use new hard-dependent pairs; preserve old bytes. A correction depends on the delivered Task with `{"taskId":"NNNN"}`. Reuse `$kyw-grilling` only for unresolved intent or a user-owned blocker: one question and recommendation. Do not write while a required answer is unknown.
+Render canonical templates in memory; the adapter derives its key. Include identity/dependencies, the contract-4 marker exactly once per artifact, every section, and set both statuses to `READY`. `STANDARD` has one `- Release version: x.y.z` and ledger; `NONE` has neither. Use five-field provenance, stable unchecked `AC-NN` and `TODO` `T-NN` identifiers, complete mapping, failure/compatibility coverage, commands, honest evidence, and reasoned N/A entries only; do not repeat the contract identity; never leave empty required content, bare None, comments, or template guidance.
 
-## Prepare complete READY pairs
-
-Render complete pairs from canonical templates in memory; the adapter derives its key.
-
-- Include identity/dependency fields, the contract marker exactly once per artifact, and set both statuses to `READY`.
-- Fill every section, static `STANDARD` or reasoned `NONE`, and five-field provenance.
-- Use stable unchecked `AC-NN` and `TODO` `T-NN` identifiers with complete mapping, failure/compatibility coverage, commands, honest evidence, and reasoned N/A entries only; never leave empty required content, bare None, comments, or template guidance.
-- do not repeat the contract identity.
-
-The ordinary production batch has exactly this outer schema:
+The ordinary production batch is:
 
 ```json
-{"schemaVersion":1,"tasks":[{"title":"First outcome","taskMarkdown":"<complete Markdown>","testMarkdown":"<complete Markdown>","dependencies":[{"taskId":"0039"},{"taskTitle":"Earlier outcome"}]}]}
+{"schemaVersion":1,"tasks":[{"title":"First outcome","taskMarkdown":"<complete Markdown containing {{TASK_RELEASE_VERSION}}>","testMarkdown":"<complete Markdown>","releaseVersion":"1.2.3","dependencies":[{"taskId":"0039"},{"taskTitle":"Earlier outcome"}]}]}
 ```
 
-Dependency objects have one field; omit them or use `[]`. Explicit `key`/`taskKey` is caller compatibility only. Never guess IDs or hand-create directories.
+Dependency objects have one field; omit or use `[]`. `releaseVersion` is `STANDARD`-only, matches the Delivery token, and is forbidden for `NONE`. `key`/`taskKey` is caller compatibility only. Never guess IDs or hand-create directories.
 
 ## Publish atomically
 
-Call the packaged adapter once:
+Call once:
 
 ```text
 node <kyw-task-skill-directory>/scripts/task-artifacts.mjs create-batch --tasks-root <repository>/docs/tasks (--batch-json <json> | --batch-file <existing external scratch path>)
 ```
 
-Use an external file for multi-pair or large input, never the repository. Prevalidate and publish once. Expected failure rolls back batch-owned final paths only with complete ownership proof; otherwise fail closed. Validate paths, markers, and residue; do not post-edit. On failure, do not retry, reuse an ID, hand-create a replacement, or implement.
+Use an external file for multi-pair or large input. Prevalidate and publish once. Expected failure rolls back batch-owned final paths only with complete ownership proof; otherwise fail closed. Validate residue; do not retry, reuse an ID, hand-create a replacement, post-edit, or implement.
 
-Read-only diagnosis and separately authorized recovery use:
-
-```text
-node <kyw-task-skill-directory>/scripts/task-artifacts.mjs inspect-transaction --tasks-root <repository>/docs/tasks
-node <kyw-task-skill-directory>/scripts/task-artifacts.mjs recover-transaction --tasks-root <repository>/docs/tasks
-```
+Read-only diagnosis and separately authorized recovery use `inspect-transaction --tasks-root` and `recover-transaction --tasks-root` on the same adapter.
 
 ## Report and stop
 
-Report ordered IDs/titles/paths/dependencies; if eligible, print exactly one next command for the first eligible pair:
+Report ordered IDs/titles/paths/dependencies and print exactly one next command for the first eligible pair. Do not print several implementation commands, call `kyw-impl`, deliver, or invoke the command:
 
 ```text
 $kyw-impl NNNN
 ```
 
-Do not print several implementation commands, call `kyw-impl`, implement, edit permanent truth, or deliver.
-
 ## Existing DRAFT compatibility
 
-Resolve exact `$kyw-task NNNN` without allocation. If not `DRAFT/DRAFT`, report state without editing and give only its applicable exact `$kyw-impl NNNN` or `$kyw-deliver NNNN`; terminal local, satisfied, or cancelled state gets neither. Do not invoke either Skill. Otherwise complete, validate, summarize, then require explicit confirmation before promoting both statuses to `READY`. Preserve ID/path/contract and stop with `$kyw-impl NNNN`.
+Resolve exact `$kyw-task NNNN` without allocation. Non-`DRAFT/DRAFT` is report-only with its applicable implementation/delivery command. Otherwise complete, validate, summarize, then require explicit confirmation before promoting both statuses to `READY`. Preserve ID/path/contract; stop with `$kyw-impl NNNN`.

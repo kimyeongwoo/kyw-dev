@@ -6,7 +6,7 @@
 
 ## Start here
 
-The repository and package metadata identify `kyw-dev@0.1.4`, which the public npm registry serves under `latest`; no public plugin-directory submission has occurred.
+The repository and package metadata identify the selected source release `kyw-dev@0.2.0`. Public npm state is mutable and must be queried when installing; the last verified historical release is `0.1.4`, and no public plugin-directory submission has occurred.
 
 ### Choose one installation surface
 
@@ -24,7 +24,7 @@ Use one source for each managed Skill name. Keeping direct and plugin copies tog
 | `$kyw-init` | `$kyw-init "adopt this repository"` | Inspect and confirm durable decisions, then create or minimally update the four permanent documents. |
 | `$kyw-task` | `$kyw-task "add account lockout"` | Author the smallest dependency-aware complete `READY/READY` Task/Test set, print one next `$kyw-impl NNNN`, and stop. |
 | `$kyw-impl` | `$kyw-impl 0007` | Implement or resume one Task through verification, truth synchronization, and `DONE/PASSED`; then stop. |
-| `$kyw-deliver` | `$kyw-deliver 0007` | Plain form is `STANDARD`-only; exact `$kyw-deliver 0007 --public-release` first finishes it, then resumes npm→tag→Release. |
+| `$kyw-deliver` | `$kyw-deliver 0007` | For a contract-4 `STANDARD` Task, the one plain command finishes or resumes GitHub delivery and then npm→tag→Release in the same invocation. |
 | `$kyw-audit` | `$kyw-audit 0007` | Independently verify one Task without writes; only `$kyw-audit 0007 --fix` permits bounded repair. |
 | `$kyw-grilling` | `$kyw-grilling "stress-test this design"` | Run the read-only, one-question-at-a-time decision interview without creating files. |
 
@@ -54,11 +54,11 @@ Outside an active workflow, ordinary prompts get no kyw block, warning, Task cre
 
 ## Release status
 
-Version `0.1.4` is the current source/package release and public `latest`; this source projects six Skills while package/publication version state remains unchanged. Exact historical results live only in numbered Task/Test pairs and GitHub.
+Version `0.2.0` is the current source/package/plugin release selected by this repository. Registry `latest` is external mutable state, so query it rather than treating README as a live registry ledger. Exact historical delivery results live only in numbered Task/Test pairs and GitHub.
 
-`kyw-dev@0.1.4` is published to the public npm registry under the `latest` tag; historical versions `0.1.0` through `0.1.3` remain available. Its single authorized publication used the GitHub Actions trusted publisher from the exact Git checkout, so canonical version metadata exposes a `gitHead` field matching the published source commit and carries npm registry signatures plus SLSA provenance bound to the exact workflow and commit. The `v0.1.4` Git tag identifies the published source commit, and the corresponding GitHub Release uses that tag. Historical `0.1.2` retains its original signature and provenance, but its immutable canonical metadata lacks `gitHead` because that release published a prebuilt tarball. No public plugin submission has occurred.
+`kyw-dev@0.1.4` is the last verified historical public release and was served under `latest` at this source baseline; historical versions `0.1.0` through `0.1.3` also remain recorded. Its trusted GitHub Actions publication used the exact Git checkout, so canonical version metadata exposes a matching `gitHead` and carries npm registry signatures plus SLSA provenance bound to the exact workflow and commit. The `v0.1.4` Git tag and corresponding GitHub Release identify that source. Historical `0.1.2` retains its original signature and provenance but lacks `gitHead` because it published a prebuilt tarball. Query npm for current mutable state; no public plugin submission has occurred.
 The separate `.github/workflows/publish.yml` maintainer workflow is manual-only and is validated against the repository-owned expected publisher `GitHub Actions / kimyeongwoo/kyw-dev / publish.yml / npm-production`. Ten required inputs bind current `main` SHA/version, packed bytes/digests/entry set, prior npm versions/`latest`, and the sole current registry signing key. The sole OIDC job fails closed on identity or checkout drift, frozen registry/pack mismatch, another target run, or an existing target tag/Release, then publishes the exact real Git checkout directory once in one tokenless, OTP-free attempt. Required candidate and exact-SHA CI evidence stays outside this workflow. A successful actual publish is the runtime proof that npm accepted that identity, and the public repository receives npm provenance automatically.
-Merging the workflow, passing credential-free exact-SHA CI, packing a candidate, or completing `npm run release:check` cannot execute it. Routine release preflight validates the expected tuple and exact workflow bytes; only the requested workflow validates public package identity and target-version absence, freshly rechecking its frozen packed/prior state before publication. Neither needs `npm login`, OTP, security-key authentication, account-settings inspection, or `npm trust list`; account authentication is reserved for setup, an explicit security/configuration audit/change, or actual OIDC failure. Only exact `$kyw-deliver NNNN --public-release` supplies the fixed npm→exact-SHA tag→GitHub Release attempt after `STANDARD FINAL`; implementation/tests perform zero live writes. Version change, submission, retry/fallback, force/destructive, bypass/admin/account, and deletion remain separate bounds; failure grants no retry.
+Merging the workflow, passing credential-free exact-SHA CI, packing a candidate, or completing `npm run release:check` cannot execute it. Routine release preflight validates the expected tuple and exact workflow bytes; only the requested workflow validates public package identity and target-version absence, freshly rechecking its frozen packed/prior state before publication. Neither needs `npm login`, OTP, security-key authentication, account-settings inspection, or `npm trust list`; account authentication is reserved for setup, an explicit security/configuration audit/change, or actual OIDC failure. Exact plain `$kyw-deliver NNNN` is the sole authority: for a release-bearing contract-4 `STANDARD` Task it crosses `STANDARD FINAL` in the same invocation into the fixed npm→exact-SHA tag→GitHub Release attempt. Versionless contract 1–3 Tasks retain their historical GitHub-only delivery/report meaning. `--public-release` and every other suffix are unsupported; implementation/tests perform zero live writes. Version change, submission, retry/fallback, force/destructive, bypass/admin/account, and deletion remain separate bounds; failure grants no retry.
 
 Source: [kimyeongwoo/kyw-dev](https://github.com/kimyeongwoo/kyw-dev) · Issues: [GitHub issue tracker](https://github.com/kimyeongwoo/kyw-dev/issues)
 
@@ -82,22 +82,22 @@ Incidental prose containing `task` does not route. A surface without the managed
 
 - `$kyw-task "goal"` authors only complete Task/Test pairs and stops. `$kyw-task NNNN` handles only a compatible existing `DRAFT/DRAFT` pair; implementation belongs to a later `$kyw-impl NNNN`.
 - `$kyw-impl` never allocates, authors, selects, or executes delivery. It resumes the active Task, otherwise the lowest eligible ready Task. Pending delivery blocks with exact `$kyw-deliver NNNN`; a completed `STANDARD` Task prints exactly `다음 단계: $kyw-deliver NNNN` and stops, including continuous mode.
-- Exact `$kyw-deliver NNNN` retains `STANDARD`-only behavior. The sole suffix is exact `$kyw-deliver NNNN --public-release`; every other suffix and every bare/Korean, implicit, continuous, chained, or background form is unsupported. Reasoned `NONE` remains local.
+- Exact plain `$kyw-deliver NNNN` is the sole delivery route. It keeps versionless contract 1–3 `STANDARD` history GitHub-only; for contract 4 it finishes or resumes GitHub `STANDARD` and then npm→tag→Release in that same invocation. `--public-release`, every other suffix, and every bare/Korean, implicit, continuous, chained, or background form are unsupported. Reasoned `NONE` remains local.
 - `$kyw-audit` is independent. Bare audit is byte-preserving read-only; bounded repair requires a new exact invocation with `--fix`.
 - Appended user constraints cannot waive acceptance, truthful evidence, safety, or preservation. The configured model and reasoning effort remain unchanged unless the current user explicitly overrides them; unavailable provenance is recorded as unavailable, never guessed.
 
 Task/Test owns repository outcome and reproducible acceptance evidence. GitHub owns mutable PR, review, merge, and Actions state.
 Before implementation selection, `$kyw-impl NNNN` read-only validates prior `STANDARD` continuity from one fixed-bounded checkpoint in exact aligned `main` and at most one freshly reconstructed uncovered predecessor. Users supply no ledger/checkpoint/evidence payload. Missing, stale, over-gap, or incomplete proof blocks before mutation and requires explicit rebaseline, never automatic replay. `$kyw-deliver NNNN` separately hydrates current delivery. Its hardened graph keeps actual PR-head jobs, synthetic merge compatibility, reviewed expected-head merge, and post-merge `main` jobs as distinct exact-SHA roles; invalid evidence fails closed and CI never substitutes for acceptance.
 
-Public opt-in reuses that graph and permits no public write before its exact merge/post-main `FINAL`. It freezes repository, workflow, package/plugin, tarball, merge, tag, and Release identity; fresh npm/run/tag/Release reads classify absence, exact completion, pending proof, conflict, or unknown. Only absence creates once in npm→tag→Release order. Resume skips exact stages; pending observes; failure/ambiguity blocks with redacted recovery and never retries. Final proof is fresh canonical npm and GitHub state, while terminal Task/Test and continuity bytes stay unchanged.
+For contract 4, the same plain route reuses that graph and permits no public write before exact merge/post-main `FINAL`. It freezes the Task-owned version and repository/workflow/package/plugin/tarball/merge/tag/Release identity; fresh whole-state reads classify absence, exact completion, pending proof, conflict, or unknown. Only absence creates once in npm→tag→Release order. Resume skips exact stages; pending observes; failure/ambiguity blocks with redacted recovery and never retries. Final proof is fresh canonical npm/GitHub state, while pair and continuity bytes stay unchanged.
 
-A future-contract `STANDARD` Task has one canonical delivery. Its first complete hardened exact-head graph binds the exact
-terminal `TASK.md` and `TEST.md` bytes; later invocations are report-only, and a correction starts with an explicit
+A contract-3/4 `STANDARD` Task has one canonical GitHub delivery. Its first complete hardened exact-head graph binds the exact
+terminal `TASK.md` and `TEST.md` bytes; later GitHub work is report-only while contract 4 may resume external public stages. A correction starts with an explicit
 `$kyw-task "<correction outcome>"` whose new pair hard-depends on the delivered Task. Editing, deleting, renaming, replacing, or
 redelivering the old pair fails before dispatch. Unmarked and prior-contract history remains readable and is not retroactively
 rewritten or reclassified.
 
-A selected implementation action owns repository mutation through `DONE/PASSED`; selected delivery owns only its separate aligned GitHub lifecycle. Changed bounds use the warning/reconfirmation transition; later post-terminal prompts are ordinary.
+A selected implementation action owns repository mutation through `DONE/PASSED`; selected delivery owns its aligned GitHub lifecycle and eligible contract-4 public continuation. Changed bounds use the warning/reconfirmation transition; later post-terminal prompts are ordinary.
 
 Product behavior is owned by [SPEC](docs/SPEC.md), repository invariants by [AGENTS](AGENTS.md), and system boundaries by [ARCHITECTURE](docs/ARCHITECTURE.md). Detailed procedure belongs only to [`kyw-impl`](skills/kyw-impl/references/execution.md), [`kyw-deliver`](skills/kyw-deliver/references/delivery.md), or its conditionally loaded [public-release reference](skills/kyw-deliver/references/public-release.md).
 
@@ -117,17 +117,18 @@ The portable `$kyw-grilling`, `$kyw-init`, `$kyw-task "<outcome>"`, `$kyw-impl N
 
 ### Direct Skills installation
 
-Use the published CLI:
+Query the registry-owned current release, then use `@latest` rather than a README-pinned version:
 
 ```bash
-npx --yes kyw-dev@0.1.4 install --scope user
-npx --yes kyw-dev@0.1.4 install --scope project
-npx --yes kyw-dev@0.1.4 update --scope user
-npx --yes kyw-dev@0.1.4 uninstall --scope user
-npx --yes kyw-dev@0.1.4 doctor
+npm view kyw-dev dist-tags.latest --prefer-online
+npx --yes kyw-dev@latest install --scope user
+npx --yes kyw-dev@latest install --scope project
+npx --yes kyw-dev@latest update --scope user
+npx --yes kyw-dev@latest uninstall --scope user
+npx --yes kyw-dev@latest doctor
 ```
 
-For source-checkout development, clone the repository and substitute `node ./bin/kyw-dev.mjs` for `npx --yes kyw-dev@0.1.4` in the same commands.
+For source-checkout development, clone the repository and substitute `node ./bin/kyw-dev.mjs` for `npx --yes kyw-dev@latest` in the same commands.
 
 - The CLI installs the six workflow Skills only. `$kyw-init`, after confirmation, owns project-document creation.
 - Ownership metadata is stored in `.agents/skills/.kyw-dev-install.json`; deterministic Task support is stored under `.agents/skills/.kyw-dev/runtime/`, which is not a discoverable Skill.
@@ -153,7 +154,7 @@ CLI exit codes are stable:
 
 For codes 4–7, run `doctor`, inspect only the reported paths, and preserve unknown files and links. Resolve duplicates by uninstalling an unchanged direct copy with the CLI or removing a plugin through the supported plugin browser, then restart the affected Codex surface and rerun `doctor`.
 
-The unscoped `kyw-dev` name is public on npm. A future exact public-release invocation revalidates identity, version absence, publisher tuple, and delivered workflow without routine npm-account reauthentication; it never selects the next version.
+The unscoped `kyw-dev` name is public on npm. A later exact plain `$kyw-deliver NNNN` invocation revalidates the Task-owned version, identity, version absence, publisher tuple, and delivered workflow without routine npm-account reauthentication; it never selects the next version.
 
 ### Codex plugin installation
 

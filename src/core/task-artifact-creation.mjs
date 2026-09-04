@@ -16,6 +16,7 @@ import path from "node:path";
 import {
   CURRENT_TASK_CONTRACT_VERSION,
   getTaskContractVersion,
+  isStableReleaseVersion,
   readCanonicalTemplate,
   renderTemplate,
   validateTaskTestContract,
@@ -30,6 +31,7 @@ import {
   inspectTaskDirectories,
   markdownSection,
   normalizeTaskTitle,
+  parseDeliveryRequirement,
   parseHardDependencies,
   resolveTaskDirectory,
   slugPattern,
@@ -74,6 +76,7 @@ const batchKeyPattern = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 const batchIdToken = "{{TASK_ID}}";
 const batchTitleToken = "{{TASK_TITLE}}";
 const batchDependenciesToken = "{{TASK_DEPENDENCIES}}";
+const batchReleaseVersionToken = "{{TASK_RELEASE_VERSION}}";
 
 async function ensureTasksRoot(tasksRoot) {
   try {
@@ -149,6 +152,7 @@ function normalizeBatchTaskDefinitions(tasks) {
         "taskMarkdown",
         "testMarkdown",
         "dependencies",
+        "releaseVersion",
       ]);
       const unknownKeys = Object.keys(definition).filter((key) => !allowedKeys.has(key));
       if (unknownKeys.length > 0) {
@@ -210,6 +214,44 @@ function normalizeBatchTaskDefinitions(tasks) {
         throw invalidBatch(`${label} testMarkdown must not contain ${batchDependenciesToken}`);
       }
 
+      const hasReleaseVersion = Object.hasOwn(definition, "releaseVersion");
+      const releaseVersion = definition.releaseVersion;
+      if (hasReleaseVersion && !isStableReleaseVersion(releaseVersion)) {
+        throw invalidBatch(
+          `${label} releaseVersion must be an exact stable SemVer x.y.z without prerelease, build metadata, or leading zeros`,
+        );
+      }
+      const releaseVersionTokenCount =
+        taskMarkdown.split(batchReleaseVersionToken).length - 1;
+      const deliveryReleaseVersionTokenCount = stripMarkdownComments(
+        markdownSection(taskMarkdown, "Delivery"),
+      )
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(
+          (line) =>
+            line === `- Release version: ${batchReleaseVersionToken}`,
+        ).length;
+      if (
+        hasReleaseVersion &&
+        (releaseVersionTokenCount !== 1 ||
+          deliveryReleaseVersionTokenCount !== 1)
+      ) {
+        throw invalidBatch(
+          `${label} taskMarkdown must place exactly one ${batchReleaseVersionToken} as the canonical Delivery Release version`,
+        );
+      }
+      if (!hasReleaseVersion && releaseVersionTokenCount > 0) {
+        throw invalidBatch(
+          `${label} must provide releaseVersion for ${batchReleaseVersionToken}`,
+        );
+      }
+      if (testMarkdown.includes(batchReleaseVersionToken)) {
+        throw invalidBatch(
+          `${label} testMarkdown must not contain ${batchReleaseVersionToken}`,
+        );
+      }
+
       const dependencies = definition.dependencies ?? [];
       if (!Array.isArray(dependencies)) {
         throw invalidBatch(`${label} dependencies must be an array`);
@@ -221,6 +263,7 @@ function normalizeBatchTaskDefinitions(tasks) {
         taskMarkdown,
         testMarkdown,
         rawDependencies: dependencies,
+        ...(hasReleaseVersion ? { releaseVersion } : {}),
         label,
       };
     });
@@ -304,6 +347,9 @@ function normalizeBatchTaskDefinitions(tasks) {
         taskMarkdown: definition.taskMarkdown,
         testMarkdown: definition.testMarkdown,
         dependencies: Object.freeze(normalizedDependencies),
+        ...(definition.releaseVersion
+          ? { releaseVersion: definition.releaseVersion }
+          : {}),
       });
     }),
   );
@@ -361,6 +407,9 @@ function prevalidateBatchPlan(tasksRoot, inventory, definitions, existingTasks) 
         title: task.title,
         slug: task.slug,
         dependencies: task.dependencies,
+        ...(task.releaseVersion
+          ? { releaseVersion: task.releaseVersion }
+          : {}),
       }),
     ),
   );
@@ -450,6 +499,9 @@ function renderBatchTasks(preallocated, existingTasks) {
         TASK_ID: task.id,
         TASK_TITLE: task.title,
         TASK_DEPENDENCIES: dependencyMarkdown,
+        ...(task.releaseVersion
+          ? { TASK_RELEASE_VERSION: task.releaseVersion }
+          : {}),
       };
       taskMarkdown = renderTemplate(task.taskMarkdown, values);
       testMarkdown = renderTemplate(task.testMarkdown, values);
@@ -463,6 +515,13 @@ function renderBatchTasks(preallocated, existingTasks) {
     if (contractErrors.length > 0) {
       throw invalidBatch(
         `Task batch key ${task.key} failed canonical validation:\n- ${contractErrors.join("\n- ")}`,
+        "INVALID_TASK_BATCH_PAIR",
+      );
+    }
+    const contractVersion = getTaskContractVersion(taskMarkdown);
+    if (contractVersion !== CURRENT_TASK_CONTRACT_VERSION) {
+      throw invalidBatch(
+        `Task batch key ${task.key} must use current Task contract ${CURRENT_TASK_CONTRACT_VERSION}`,
         "INVALID_TASK_BATCH_PAIR",
       );
     }
@@ -490,7 +549,7 @@ function renderBatchTasks(preallocated, existingTasks) {
     }
     const parsedDependencies = parseHardDependencies(
       taskMarkdown,
-      getTaskContractVersion(taskMarkdown),
+      contractVersion,
     );
     if (
       parsedDependencies.errors.length > 0 ||
@@ -501,12 +560,36 @@ function renderBatchTasks(preallocated, existingTasks) {
         "INVALID_TASK_BATCH_PAIR",
       );
     }
+    const deliveryRequirement = parseDeliveryRequirement(
+      taskMarkdown,
+      contractVersion,
+    );
+    if (deliveryRequirement.kind === "STANDARD") {
+      if (!task.releaseVersion) {
+        throw invalidBatch(
+          `Task batch key ${task.key} STANDARD delivery requires a settled releaseVersion definition`,
+          "INVALID_TASK_BATCH_PAIR",
+        );
+      }
+      if (deliveryRequirement.releaseVersion !== task.releaseVersion) {
+        throw invalidBatch(
+          `Task batch key ${task.key} releaseVersion must match its canonical Delivery Release version`,
+          "INVALID_TASK_BATCH_PAIR",
+        );
+      }
+    } else if (task.releaseVersion) {
+      throw invalidBatch(
+        `Task batch key ${task.key} ${deliveryRequirement.kind} delivery must not define releaseVersion`,
+        "INVALID_TASK_BATCH_PAIR",
+      );
+    }
 
     return Object.freeze({
       ...task,
       taskMarkdown,
       testMarkdown,
       resolvedDependencies: Object.freeze(resolvedDependencies),
+      deliveryRequirement,
     });
   });
 
@@ -525,7 +608,7 @@ function renderBatchTasks(preallocated, existingTasks) {
         testStatus: "READY",
         contractVersion: CURRENT_TASK_CONTRACT_VERSION,
         dependencies: task.resolvedDependencies,
-        deliveryRequirement: Object.freeze({ kind: "STANDARD" }),
+        deliveryRequirement: task.deliveryRequirement,
         blocker: "Not applicable — no blocker is known.",
       }),
     ),
@@ -535,9 +618,13 @@ function renderBatchTasks(preallocated, existingTasks) {
     new Map(combinedTasks.map((task) => [task.id, task])),
   );
   if (graphErrors.length > 0) {
-    const code = graphErrors.some((error) => error.startsWith("Hard dependency cycle:"))
-      ? "TASK_DEPENDENCY_CYCLE"
-      : "MISSING_TASK_DEPENDENCY";
+    let code = "MISSING_TASK_DEPENDENCY";
+    if (graphErrors.some((error) => error.startsWith("Release version "))) {
+      code = "TASK_RELEASE_VERSION_CONFLICT";
+    }
+    if (graphErrors.some((error) => error.startsWith("Hard dependency cycle:"))) {
+      code = "TASK_DEPENDENCY_CYCLE";
+    }
     throw invalidBatch(
       `Task batch dependency graph is invalid:\n- ${graphErrors.join("\n- ")}`,
       code,
@@ -2137,6 +2224,9 @@ export async function createTaskArtifactBatch({ tasksRoot, tasks, hooks = {} }) 
           taskPath: task.taskPath,
           testPath: task.testPath,
           dependencies: task.resolvedDependencies,
+          ...(task.releaseVersion
+            ? { releaseVersion: task.releaseVersion }
+            : {}),
         }),
       ),
     ),

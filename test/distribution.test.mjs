@@ -47,13 +47,14 @@ const forbiddenLifecycleScripts = [
   "postpublish",
 ];
 
-test("release metadata is public-ready while publication remains an explicit command", () => {
+test("release metadata selects 0.2.0 while publication remains an exact delivery command", () => {
   const packageJson = JSON.parse(readFileSync(join(repositoryRoot, "package.json"), "utf8"));
   const pluginJson = JSON.parse(
     readFileSync(join(repositoryRoot, ".codex-plugin", "plugin.json"), "utf8"),
   );
 
   assert.equal(packageJson.private, false);
+  assert.equal(RELEASE_METADATA.version, "0.2.0");
   assert.equal(packageJson.name, RELEASE_METADATA.name);
   assert.equal(packageJson.version, RELEASE_METADATA.version);
   assert.equal(packageJson.author.name, RELEASE_METADATA.authorName);
@@ -101,6 +102,7 @@ test("release metadata is public-ready while publication remains an explicit com
   assert.equal(pluginJson.interface.developerName, packageJson.author.name);
   assert.equal(pluginJson.interface.websiteURL, RELEASE_METADATA.repositoryWebUrl);
   assert.deepEqual(pluginJson.interface.capabilities, ["Interactive", "Write"]);
+  assert.match(pluginJson.interface.longDescription, /public release in one exact command/);
   assert.deepEqual(
     readdirSync(join(repositoryRoot, "skills"), { withFileTypes: true })
       .filter((entry) => entry.isDirectory() && !entry.isSymbolicLink())
@@ -122,8 +124,9 @@ test("release metadata is public-ready while publication remains an explicit com
   );
   assert.match(
     pluginJson.interface.defaultPrompt[3],
-    /\$kyw-deliver 0001.*completed Task's current STANDARD delivery/,
+    /\$kyw-deliver 0001.*finish STANDARD.*same invocation.*npm→tag→Release.*eligible contract 4/,
   );
+  assert.doesNotMatch(JSON.stringify(pluginJson.interface), /--public-release/);
   assert.match(
     pluginJson.interface.defaultPrompt[4],
     /\$kyw-audit 0001.*without modifying the repository/,

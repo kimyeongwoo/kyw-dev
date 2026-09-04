@@ -23,7 +23,7 @@ const IMPLEMENTED_SKILL_NAMES = new Set(SKILL_NAMES);
 
 export const RELEASE_METADATA = Object.freeze({
   name: "kyw-dev",
-  version: "0.1.4",
+  version: "0.2.0",
   authorName: "Kim Yeongwoo",
   homepage: "https://github.com/kimyeongwoo/kyw-dev#readme",
   repositoryWebUrl: "https://github.com/kimyeongwoo/kyw-dev",
@@ -785,7 +785,7 @@ export const PERMANENT_RULE_FAMILIES = deepFreeze([
               : pattern("sync(?:hronize)?[^.]*Task/Test[^.]*owner", "i"),
           pattern("bounded action|warned action|executing its exact bounds", "i"),
           pattern(
-            "completion[^.]{0,40}deactivates|completed bounded action expires|terminal report[^.]{0,40}ends it|post-terminal prompts[^.]{0,40}inactive|Stop after the report",
+            "completion[^.]{0,40}deactivates|completed bounded action expires|terminal report[^.]{0,40}ends it|inactive and post-terminal prompts|post-terminal prompts[^.]{0,40}inactive|Stop after the report",
             "i",
           ),
         ],
@@ -919,7 +919,7 @@ export const PERMANENT_RULE_FAMILIES = deepFreeze([
         profile: "procedure",
         anchors: [
           pattern(
-            "implementation ends at truthful repository `DONE/PASSED` and does not copy or execute this procedure",
+            "implementation ends at truthful repository `DONE/PASSED` and does not copy or execute it",
           ),
         ],
       },
@@ -936,9 +936,9 @@ export const PERMANENT_RULE_FAMILIES = deepFreeze([
     owner: {
       path: "skills/kyw-deliver/references/delivery.md",
       anchors: [
-        pattern("canonical detailed Git/GitHub delivery procedure"),
+        pattern("canonical detailed Git/GitHub procedure"),
         pattern("^## Perform the ordered delivery$"),
-        pattern("^### 9\\. final report$"),
+        pattern("^### 9\\. final STANDARD result$"),
       ],
     },
     projections: [
@@ -949,7 +949,10 @@ export const PERMANENT_RULE_FAMILIES = deepFreeze([
       },
       { path: "AGENTS.md", anchors: [pattern("skills/kyw-deliver/references/delivery\\.md")] },
       { path: "README.md", anchors: [pattern("\\[`kyw-deliver`\\]\\(skills/kyw-deliver/references/delivery\\.md\\)")] },
-      { path: "docs/SPEC.md", anchors: [pattern("skills/kyw-deliver/references/delivery\\.md")] },
+      {
+        path: "docs/SPEC.md",
+        anchors: [pattern("delivery reference owns GitHub procedure", "i")],
+      },
       { path: "docs/ARCHITECTURE.md", anchors: [pattern("skills/kyw-deliver/references/delivery\\.md")] },
     ],
     forbiddenDetailedAnchors: [
@@ -962,7 +965,8 @@ export const PERMANENT_RULE_FAMILIES = deepFreeze([
     owner: {
       path: "skills/kyw-deliver/references/public-release.md",
       anchors: [
-        pattern("canonical detailed public-release procedure"),
+        pattern("canonical internal public-release procedure"),
+        pattern("exact plain invocation"),
         pattern("^## Perform the ordered public release$"),
         pattern("^### 5\\. `FINAL_PROOF`$"),
       ],
@@ -973,15 +977,30 @@ export const PERMANENT_RULE_FAMILIES = deepFreeze([
         profile: "procedure",
         anchors: [pattern("\\[Public Release and Resume\\]\\(references/public-release\\.md\\)")],
       },
-      { path: "AGENTS.md", anchors: [pattern("\\$kyw-deliver NNNN --public-release")] },
+      {
+        path: "AGENTS.md",
+        anchors: [
+          pattern("Only exact `\\$kyw-deliver NNNN` owns `STANDARD`"),
+          pattern("release-bearing contract 4[^.]*same invocation", "i"),
+        ],
+      },
       {
         path: "templates/project/AGENTS.md",
-        anchors: [pattern("\\$kyw-deliver NNNN --public-release")],
+        anchors: [
+          pattern("Only exact `\\$kyw-deliver NNNN` owns `STANDARD`"),
+          pattern("release-bearing contract 4[^.]*same invocation", "i"),
+        ],
       },
-      { path: "README.md", anchors: [pattern("\\$kyw-deliver NNNN --public-release")] },
+      {
+        path: "README.md",
+        anchors: [
+          pattern("Exact plain `\\$kyw-deliver NNNN`[^.]{0,80}sole", "i"),
+          pattern("same invocation", "i"),
+        ],
+      },
       {
         path: "docs/SPEC.md",
-        anchors: [pattern("skills/kyw-deliver/references/public-release\\.md")],
+        anchors: [pattern("internal public reference loads only after contract-4 `FINAL`", "i")],
       },
       {
         path: "docs/ARCHITECTURE.md",
@@ -1032,9 +1051,10 @@ export const PERMANENT_RULE_FAMILIES = deepFreeze([
     owner: {
       path: "templates/task/TASK.md",
       anchors: [
-        pattern("<!-- kyw-task-contract: 3 -->"),
+        pattern("<!-- kyw-task-contract: 4 -->"),
         pattern("^## Acceptance Criteria$"),
         pattern("^## Delivery$"),
+        pattern("Release version: x\\.y\\.z"),
         pattern("^## Resume Point$"),
       ],
     },
@@ -1068,6 +1088,7 @@ export const PERMANENT_RULE_FAMILIES = deepFreeze([
     owner: {
       path: "templates/task/TEST.md",
       anchors: [
+        pattern("<!-- kyw-task-contract: 4 -->"),
         pattern("^## Model Provenance$"),
         pattern("\\| ID \\| Intent / acceptance criterion \\| Method \\| Level \\| Status \\| Evidence \\|"),
         pattern("^## Final Coverage Review$"),
@@ -1195,53 +1216,55 @@ export const PERMANENT_RULE_FAMILIES = deepFreeze([
       path: "docs/SPEC.md",
       anchors: [
         pattern("npm publish", "i"),
-        pattern(
-          "Only exact `\\$kyw-deliver NNNN --public-release` adds fixed compound authority",
-          "i",
-        ),
-        pattern("plain/other routes do not", "i"),
+        pattern("(?:Only exact|Exact plain) `\\$kyw-deliver NNNN`", "i"),
+        pattern("contract 4[^.]{0,160}Release version|Release version[^.]{0,160}contract 4", "i"),
+        pattern("same invocation", "i"),
+        pattern("`--public-release`[^.]{0,100}(?:unsupported|no authority)", "i"),
       ],
     },
     projections: [
       {
         path: "README.md",
         anchors: [
-          pattern("Version `0\\.1\\.4`"),
-          pattern(
-            "Only exact `\\$kyw-deliver NNNN --public-release` supplies the fixed",
-            "i",
-          ),
+          pattern("Version `0\\.2\\.0`"),
+          pattern("(?:Only exact|Exact plain) `\\$kyw-deliver NNNN`", "i"),
+          pattern("same invocation", "i"),
+          pattern("`--public-release`[^.]{0,100}unsupported", "i"),
           pattern("Version change, submission, retry/fallback", "i"),
         ],
       },
       {
         path: "AGENTS.md",
         anchors: [
-          pattern("\\$kyw-deliver NNNN --public-release"),
+          pattern("Only exact `\\$kyw-deliver NNNN` owns `STANDARD`"),
+          pattern("Every suffix, including `--public-release`, is unsupported"),
+          pattern("same invocation", "i"),
           pattern("Failure permits reads, never retry", "i"),
         ],
       },
       {
         path: "templates/project/AGENTS.md",
         anchors: [
-          pattern("\\$kyw-deliver NNNN --public-release"),
+          pattern("Only exact `\\$kyw-deliver NNNN` owns `STANDARD`"),
+          pattern("Every suffix, including `--public-release`, is unsupported"),
+          pattern("same invocation", "i"),
           pattern("Failure permits reads, not retry", "i"),
         ],
       },
       {
         path: "docs/ARCHITECTURE.md",
         anchors: [
-          pattern(
-            "one compound exception: exact `\\$kyw-deliver NNNN --public-release`",
-            "i",
-          ),
-          pattern("version change, public plugin submission, retry/fallback", "i"),
+          pattern("(?:Only exact|Exact plain) `\\$kyw-deliver NNNN`", "i"),
+          pattern("same invocation", "i"),
+          pattern("`--public-release`[^.]{0,100}(?:unsupported|do not route|no authority)", "i"),
+          pattern("cannot select, increment,[^.]{0,80}edit, or commit", "i"),
+          pattern("Public plugin submission[^.]{0,120}retry/fallback[^.]{0,120}stay separate", "i"),
         ],
       },
       {
         path: "skills/kyw-impl/SKILL.md",
         profile: "procedure",
-        anchors: [pattern("Publication/registry/version/tag/Release/submission")],
+        anchors: [pattern("Publication/registry/(?:version/)?tag/Release/submission")],
       },
       {
         path: "skills/kyw-impl/references/execution.md",
@@ -1254,17 +1277,18 @@ export const PERMANENT_RULE_FAMILIES = deepFreeze([
         path: "skills/kyw-deliver/SKILL.md",
         profile: "procedure",
         anchors: [
-          pattern("Only exact `\\$kyw-deliver NNNN --public-release` adds one ordered"),
-          pattern(
-            "Neither implements, authors, audits, selects a version, submits a plugin, retries",
-          ),
+          pattern("Only exact `\\$kyw-deliver NNNN` selects delivery"),
+          pattern("continues in the same invocation through one ordered npm publication"),
+          pattern("Every suffix, including `--public-release`"),
+          pattern("Versionless contract 1–3 Tasks retain historical GitHub-only"),
         ],
       },
       {
         path: "skills/kyw-deliver/references/delivery.md",
         profile: "procedure",
         anchors: [
-          pattern("publication, registry/version/tag/Release/submission"),
+          pattern("Contract 4 additionally requires one immutable stable-SemVer `Release version`"),
+          pattern("continue in the same user invocation without another prompt or command"),
           pattern("Failure grants no retry"),
         ],
       },
@@ -3019,22 +3043,23 @@ function validateSkill(root, skillName, errors) {
         "public-release.md",
       );
       expect(
-        skill.includes(
-          "Only exact `$kyw-deliver NNNN` selects unchanged `STANDARD`-only delivery",
-        ),
-        `${skillName} must preserve its exact plain STANDARD route`,
+        skill.includes("Only exact `$kyw-deliver NNNN` selects delivery"),
+        `${skillName} must expose the exact plain route as the sole delivery authority`,
         errors,
       );
       expect(
-        skill.includes("Only exact `$kyw-deliver NNNN --public-release` adds one ordered"),
-        `${skillName} must require its exact public-release opt-in route`,
+        skill.includes("continues in the same invocation through one ordered npm publication") &&
+          skill.includes("release-bearing contract-4 `STANDARD` Task"),
+        `${skillName} must continue eligible contract-4 STANDARD through public release in the same invocation`,
         errors,
       );
       expect(
-        skill.includes("No other suffix, bare form") &&
+        skill.includes("Every suffix, including `--public-release`") &&
+          skill.includes("unsupported") &&
+          skill.includes("bare form") &&
           skill.includes("next/continuous mode") &&
           skill.includes("background"),
-        `${skillName} must reject every other suffix, alias, implicit, chained, continuous, and background route`,
+        `${skillName} must reject the retired suffix and every alias, implicit, chained, continuous, and background route`,
         errors,
       );
       expect(
@@ -3081,18 +3106,35 @@ function validateSkill(root, skillName, errors) {
           errors,
         );
         expect(
-          deliveryReference.includes("An unchanged satisfied contract-3 result is immutable and report-only") ||
-            deliveryReference.includes("Later unchanged `$kyw-deliver NNNN` is report-only"),
-          `${skillName} must keep satisfied contract-3 delivery immutable and report-only`,
+          deliveryReference.includes("For versionless contract 1–3 this is terminal") &&
+            deliveryReference.includes("Later unchanged contract 3 delivery is report-only"),
+          `${skillName} must keep versionless historical delivery terminal and satisfied contract 3 report-only`,
+          errors,
+        );
+        expect(
+          deliveryReference.includes(
+            "Contract 4 additionally requires one immutable stable-SemVer `Release version`",
+          ) &&
+            deliveryReference.includes(
+              "continue in the same user invocation without another prompt or command",
+            ),
+          `${skillName} must consume the contract-4 release version and continue after FINAL without another command`,
           errors,
         );
       }
       if (existsSync(publicReleaseReferencePath)) {
         const publicReleaseReference = readFileSync(publicReleaseReferencePath, "utf8");
         expect(
-          publicReleaseReference.includes("canonical detailed public-release procedure") &&
+          publicReleaseReference.includes("canonical internal public-release procedure") &&
             publicReleaseReference.includes("## Perform the ordered public release"),
           `${skillName} public-release reference must own the ordered procedure`,
+          errors,
+        );
+        expect(
+          publicReleaseReference.includes("The exact plain invocation carries one compound") &&
+            publicReleaseReference.includes("Every suffix—including `--public-release`—") &&
+            publicReleaseReference.includes("grants no public authority"),
+          `${skillName} public-release reference must accept only the exact plain invocation`,
           errors,
         );
         for (const classification of [
@@ -3178,7 +3220,12 @@ function validateSkill(root, skillName, errors) {
   expect(metadata.includes("interface:\n"), `${skillName} metadata is missing interface`, errors);
   expect(/  display_name: "[^"]+"/.test(metadata), `${skillName} metadata is missing a quoted display_name`, errors);
   expect(/  short_description: "[^"]{25,64}"/.test(metadata), `${skillName} short_description must be 25-64 characters`, errors);
-  expect(metadata.includes(`default_prompt: "Use $${skillName} `), `${skillName} default_prompt must mention the Skill`, errors);
+  expect(
+    metadata.includes(`default_prompt: "Use $${skillName} `) ||
+      metadata.includes(`default_prompt: "Use exact $${skillName} `),
+    `${skillName} default_prompt must mention the Skill`,
+    errors,
+  );
   expect(metadata.includes("policy:\n  allow_implicit_invocation: false\n"), `${skillName} must disable implicit invocation`, errors);
   expect(!metadata.includes("dependencies:"), `${skillName} must not declare tool dependencies`, errors);
 }
@@ -3202,7 +3249,7 @@ export function validateFoundation(
 
   if (packageJson && pluginJson) {
     expect(packageJson.name === RELEASE_METADATA.name, "package name must be kyw-dev", errors);
-    expect(packageJson.version === RELEASE_METADATA.version, "package version must be 0.1.4", errors);
+    expect(packageJson.version === RELEASE_METADATA.version, "package version must be 0.2.0", errors);
     expect(packageJson.private === false, "release package must be publishable only through the explicit approval gate", errors);
     expect(sameJson(packageJson.keywords, releaseKeywords), "package release keywords changed", errors);
     expect(packageJson.homepage === RELEASE_METADATA.homepage, "package homepage must be the public repository README", errors);
@@ -3381,6 +3428,20 @@ export function validateFoundation(
     for (const prompt of pluginJson.interface?.defaultPrompt ?? []) {
       expect(typeof prompt === "string" && prompt.length <= 128, "plugin default prompts must be strings of at most 128 characters", errors);
     }
+    const deliveryPrompt = pluginJson.interface?.defaultPrompt?.[3] ?? "";
+    expect(
+      /\$kyw-deliver 0001/.test(deliveryPrompt) &&
+        /STANDARD/.test(deliveryPrompt) &&
+        /same invocation/.test(deliveryPrompt) &&
+        /npm→tag→Release/.test(deliveryPrompt),
+      "plugin delivery prompt must project the exact plain same-invocation release route",
+      errors,
+    );
+    expect(
+      !JSON.stringify(pluginJson.interface ?? {}).includes("--public-release"),
+      "plugin interface must not advertise the retired public-release suffix",
+      errors,
+    );
     for (const field of ["mcpServers", "apps", "hooks"]) {
       expect(!(field in pluginJson), `plugin field ${field} is out of scope`, errors);
     }

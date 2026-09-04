@@ -5,6 +5,8 @@ import {
   getTaskContractVersion,
   isImmutableTerminalTaskContractVersion,
   isQueueAwareTaskContractVersion,
+  isStableReleaseVersion,
+  RELEASE_BEARING_TASK_CONTRACT_VERSION,
   validateTaskTestContract,
 } from "./template-contracts.mjs";
 import {
@@ -201,6 +203,26 @@ export function dependencyGraphErrors(tasks, byId) {
     visit(task);
   }
   errors.push(...cycles);
+
+  const releaseVersionClaims = new Map();
+  for (const task of currentTasks) {
+    if (
+      task.contractVersion !== RELEASE_BEARING_TASK_CONTRACT_VERSION ||
+      task.deliveryRequirement?.kind !== "STANDARD" ||
+      !isStableReleaseVersion(task.deliveryRequirement?.releaseVersion)
+    ) {
+      continue;
+    }
+    const releaseVersion = task.deliveryRequirement.releaseVersion;
+    const claimedBy = releaseVersionClaims.get(releaseVersion);
+    if (claimedBy) {
+      errors.push(
+        `Release version ${releaseVersion} is claimed by both Task ${claimedBy} and Task ${task.id}`,
+      );
+    } else {
+      releaseVersionClaims.set(releaseVersion, task.id);
+    }
+  }
   return errors;
 }
 
@@ -276,20 +298,35 @@ function blockedResult(code, message, details = {}) {
   return Object.freeze({ outcome: "BLOCKED", code, message, ...details });
 }
 
-function isPublicReleaseInvocation(parsedInvocation) {
-  return parsedInvocation?.deliveryMode === "PUBLIC_RELEASE";
+function isReleaseBearingStandardTask(task) {
+  return (
+    task?.contractVersion === RELEASE_BEARING_TASK_CONTRACT_VERSION &&
+    task?.deliveryRequirement?.kind === "STANDARD" &&
+    isStableReleaseVersion(task.deliveryRequirement.releaseVersion)
+  );
+}
+
+function isPublicReleaseInvocation(parsedInvocation, task) {
+  return (
+    parsedInvocation?.recognized === true &&
+    parsedInvocation.route === "DELIVERY" &&
+    parsedInvocation.mode === "EXACT" &&
+    parsedInvocation.source === "PORTABLE_SKILL" &&
+    isReleaseBearingStandardTask(task)
+  );
 }
 
 function publicReleaseResult(
   result,
   parsedInvocation,
+  task,
   {
     authorized = false,
     state = "BLOCKED",
     nextStage = "STANDARD_FINAL",
   } = {},
 ) {
-  if (!isPublicReleaseInvocation(parsedInvocation)) return result;
+  if (!isPublicReleaseInvocation(parsedInvocation, task)) return result;
   return Object.freeze({
     ...result,
     deliveryMode: "PUBLIC_RELEASE",
@@ -436,7 +473,7 @@ function selectedResult(
       : activeTask(task)
         ? "RESUME"
         : "IMPLEMENT");
-  const publicRelease = isPublicReleaseInvocation(parsedInvocation);
+  const publicRelease = isPublicReleaseInvocation(parsedInvocation, task);
   const lifecycleSelection = [
     "IMPLEMENT",
     "RESUME",
@@ -721,7 +758,7 @@ function exactDeliveryResult(
   deliveryState,
   parsedInvocation,
 ) {
-  const publicRelease = isPublicReleaseInvocation(parsedInvocation);
+  const publicRelease = isPublicReleaseInvocation(parsedInvocation, task);
   if (active.length === 1 && active[0].id !== task.id) {
     return publicReleaseResult(
       blockedResult(
@@ -730,6 +767,7 @@ function exactDeliveryResult(
         { route: "DELIVERY", task: taskSummary(active[0]) },
       ),
       parsedInvocation,
+      task,
     );
   }
   if (!completeTask(task)) {
@@ -740,6 +778,7 @@ function exactDeliveryResult(
         { route: "DELIVERY", task: taskSummary(task), mutationRequired: false },
       ),
       parsedInvocation,
+      task,
     );
   }
   if (task.deliveryRequirement.kind !== "STANDARD") {
@@ -750,6 +789,7 @@ function exactDeliveryResult(
         { route: "DELIVERY", task: taskSummary(task), mutationRequired: false },
       ),
       parsedInvocation,
+      task,
     );
   }
   const blockers = queueSelectionBlockers(
@@ -762,6 +802,7 @@ function exactDeliveryResult(
     return publicReleaseResult(
       selectionBlockedResult(task, blockers, parsedInvocation),
       parsedInvocation,
+      task,
     );
   }
   const classification = deliveryClassification(task, deliveryState);
@@ -772,6 +813,7 @@ function exactDeliveryResult(
     return publicReleaseResult(
       deliveryEvidenceBlockedResult(task, classification, parsedInvocation),
       parsedInvocation,
+      task,
       { authorized: true },
     );
   }
@@ -803,6 +845,7 @@ function exactDeliveryResult(
           },
         ),
         parsedInvocation,
+        task,
         { authorized: true },
       );
     }
