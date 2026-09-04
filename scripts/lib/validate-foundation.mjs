@@ -76,6 +76,7 @@ export const EXPECTED_TARBALL_FILES = [
   "skills/kyw-deliver/SKILL.md",
   "skills/kyw-deliver/agents/openai.yaml",
   "skills/kyw-deliver/references/delivery.md",
+  "skills/kyw-deliver/references/public-release.md",
   "skills/kyw-init/SKILL.md",
   "skills/kyw-init/agents/openai.yaml",
   "skills/kyw-task/SKILL.md",
@@ -94,6 +95,7 @@ export const EXPECTED_TARBALL_FILES = [
   "src/core/task-artifact-creation.mjs",
   "src/core/task-artifact-delivery.mjs",
   "src/core/task-artifact-hydration.mjs",
+  "src/core/task-artifact-public-release.mjs",
   "src/core/task-artifact-queue.mjs",
   "src/core/task-artifact-shared.mjs",
   "src/core/task-artifacts.mjs",
@@ -272,6 +274,7 @@ export const REQUIRED_INSTRUCTION_RULE_FAMILY_IDS = Object.freeze([
   "task-authoring-procedure",
   "existing-task-execution-procedure",
   "standard-delivery-procedure",
+  "public-release-procedure",
   "independent-audit-procedure",
   "task-artifact-shape",
   "test-evidence-shape",
@@ -323,6 +326,7 @@ export const REQUIRED_ACTIVATION_SCOPED_SKILL_GUARDRAIL_MANIFEST = deepFreeze({
     { path: "skills/kyw-impl/references/execution.md", profile: "procedure" },
     { path: "skills/kyw-deliver/SKILL.md", profile: "procedure" },
     { path: "skills/kyw-deliver/references/delivery.md", profile: "procedure" },
+    { path: "skills/kyw-deliver/references/public-release.md", profile: "procedure" },
     { path: "skills/kyw-audit/SKILL.md", profile: "procedure" },
     { path: "skills/kyw-audit/references/audit.md", profile: "procedure" },
   ],
@@ -341,6 +345,7 @@ export const REQUIRED_ACTIVATION_SCOPED_SKILL_GUARDRAIL_MANIFEST = deepFreeze({
       ["IMPLEMENT", "MUTABLE", "NONE", "MUTATING"],
       ["RESUME", "MUTABLE", "NONE", "MUTATING"],
       ["DELIVER", "IMMUTABLE", "RESUMABLE", "MUTATING"],
+      ["PUBLIC_RELEASE", "IMMUTABLE", "RESUMABLE", "MUTATING"],
       ["REPORT", "IMMUTABLE", "SATISFIED", "READ_ONLY"],
     ],
     stateIds: [
@@ -559,6 +564,7 @@ export const PERMANENT_RULE_FAMILIES = deepFreeze([
           ["IMPLEMENT", "MUTABLE", "NONE", "MUTATING"],
           ["RESUME", "MUTABLE", "NONE", "MUTATING"],
           ["DELIVER", "IMMUTABLE", "RESUMABLE", "MUTATING"],
+          ["PUBLIC_RELEASE", "IMMUTABLE", "RESUMABLE", "MUTATING"],
           ["REPORT", "IMMUTABLE", "SATISFIED", "READ_ONLY"],
         ],
       },
@@ -758,6 +764,7 @@ export const PERMANENT_RULE_FAMILIES = deepFreeze([
         "skills/kyw-impl/references/execution.md",
         "skills/kyw-deliver/SKILL.md",
         "skills/kyw-deliver/references/delivery.md",
+        "skills/kyw-deliver/references/public-release.md",
         "skills/kyw-audit/SKILL.md",
         "skills/kyw-audit/references/audit.md",
       ].map((path) => ({
@@ -948,6 +955,43 @@ export const PERMANENT_RULE_FAMILIES = deepFreeze([
     forbiddenDetailedAnchors: [
       pattern("^### 1\\. exact-path commit$"),
       pattern("apply-continuity --tasks-root"),
+    ],
+  },
+  {
+    id: "public-release-procedure",
+    owner: {
+      path: "skills/kyw-deliver/references/public-release.md",
+      anchors: [
+        pattern("canonical detailed public-release procedure"),
+        pattern("^## Perform the ordered public release$"),
+        pattern("^### 5\\. `FINAL_PROOF`$"),
+      ],
+    },
+    projections: [
+      {
+        path: "skills/kyw-deliver/SKILL.md",
+        profile: "procedure",
+        anchors: [pattern("\\[Public Release and Resume\\]\\(references/public-release\\.md\\)")],
+      },
+      { path: "AGENTS.md", anchors: [pattern("\\$kyw-deliver NNNN --public-release")] },
+      {
+        path: "templates/project/AGENTS.md",
+        anchors: [pattern("\\$kyw-deliver NNNN --public-release")],
+      },
+      { path: "README.md", anchors: [pattern("\\$kyw-deliver NNNN --public-release")] },
+      {
+        path: "docs/SPEC.md",
+        anchors: [pattern("skills/kyw-deliver/references/public-release\\.md")],
+      },
+      {
+        path: "docs/ARCHITECTURE.md",
+        anchors: [pattern("skills/kyw-deliver/references/public-release\\.md")],
+      },
+    ],
+    forbiddenDetailedAnchors: [
+      pattern("^### 2\\. `NPM`$"),
+      pattern("^### 3\\. `TAG`$"),
+      pattern("^### 4\\. `RELEASE`$"),
     ],
   },
   {
@@ -1149,27 +1193,50 @@ export const PERMANENT_RULE_FAMILIES = deepFreeze([
     id: "publication-authority",
     owner: {
       path: "docs/SPEC.md",
-      anchors: [pattern("npm publish", "i"), pattern("each must be requested as its own action", "i")],
+      anchors: [
+        pattern("npm publish", "i"),
+        pattern(
+          "Only exact `\\$kyw-deliver NNNN --public-release` adds fixed compound authority",
+          "i",
+        ),
+        pattern("plain/other routes do not", "i"),
+      ],
     },
     projections: [
       {
         path: "README.md",
         anchors: [
           pattern("Version `0\\.1\\.4`"),
-          pattern("remain separate action/target/scope/attempt bounds"),
+          pattern(
+            "Only exact `\\$kyw-deliver NNNN --public-release` supplies the fixed",
+            "i",
+          ),
+          pattern("Version change, submission, retry/fallback", "i"),
         ],
       },
       {
         path: "AGENTS.md",
-        anchors: [pattern("Publication/registry/version/tag/Release/public submission")],
+        anchors: [
+          pattern("\\$kyw-deliver NNNN --public-release"),
+          pattern("Failure permits reads, never retry", "i"),
+        ],
       },
       {
         path: "templates/project/AGENTS.md",
-        anchors: [pattern("Publication/registry/version/tag/Release/(?:public )?submission")],
+        anchors: [
+          pattern("\\$kyw-deliver NNNN --public-release"),
+          pattern("Failure permits reads, not retry", "i"),
+        ],
       },
       {
         path: "docs/ARCHITECTURE.md",
-        anchors: [pattern("Publication", "i"), pattern("separate", "i")],
+        anchors: [
+          pattern(
+            "one compound exception: exact `\\$kyw-deliver NNNN --public-release`",
+            "i",
+          ),
+          pattern("version change, public plugin submission, retry/fallback", "i"),
+        ],
       },
       {
         path: "skills/kyw-impl/SKILL.md",
@@ -1186,7 +1253,12 @@ export const PERMANENT_RULE_FAMILIES = deepFreeze([
       {
         path: "skills/kyw-deliver/SKILL.md",
         profile: "procedure",
-        anchors: [pattern("never implements, authors, promotes, audits, publishes")],
+        anchors: [
+          pattern("Only exact `\\$kyw-deliver NNNN --public-release` adds one ordered"),
+          pattern(
+            "Neither implements, authors, audits, selects a version, submits a plugin, retries",
+          ),
+        ],
       },
       {
         path: "skills/kyw-deliver/references/delivery.md",
@@ -1208,7 +1280,7 @@ export const PERMANENT_RULE_FAMILIES = deepFreeze([
           "Always load applicable `AGENTS\\.md`[\\s\\S]{0,120}active kyw workflow[\\s\\S]{0,120}selected/current Task/Test pair",
         ),
         pattern("Index or search README, SPEC, and ARCHITECTURE first"),
-        pattern("Read all four for `kyw-init`, rebaseline, (?:major )?redesign"),
+        pattern("Read all four for `kyw-init`, rebaseline(?:/|, )(?:major )?redesign"),
       ],
     },
     projections: [
@@ -1263,7 +1335,7 @@ export const PERMANENT_RULE_FAMILIES = deepFreeze([
       anchors: [
         pattern("During an active Task workflow, work on one Task"),
         pattern("Keep one Task active"),
-        pattern("Before completion, compare the final diff"),
+        pattern("Before completion,? compare (?:the final )?diff"),
       ],
     },
     projections: [
@@ -1272,7 +1344,7 @@ export const PERMANENT_RULE_FAMILIES = deepFreeze([
         anchors: [
           pattern("During an active Task workflow, work on one Task"),
           pattern("Keep one Task active"),
-          pattern("Before completion, compare diff to scope/matrix"),
+          pattern("Before completion,? compare diff to scope/matrix"),
         ],
       },
     ],
@@ -1298,6 +1370,7 @@ export const INSTRUCTION_SURFACE_PATHS = Object.freeze([
   "skills/kyw-impl/references/execution.md",
   "skills/kyw-deliver/SKILL.md",
   "skills/kyw-deliver/references/delivery.md",
+  "skills/kyw-deliver/references/public-release.md",
   "skills/kyw-audit/SKILL.md",
   "skills/kyw-audit/references/audit.md",
 ]);
@@ -2938,20 +3011,40 @@ function validateSkill(root, skillName, errors) {
         "references",
         "delivery.md",
       );
+      const publicReleaseReferencePath = join(
+        root,
+        "skills",
+        skillName,
+        "references",
+        "public-release.md",
+      );
       expect(
-        skill.includes("Only exact `$kyw-deliver NNNN` selects a Task"),
-        `${skillName} must require its exact four-digit route`,
+        skill.includes(
+          "Only exact `$kyw-deliver NNNN` selects unchanged `STANDARD`-only delivery",
+        ),
+        `${skillName} must preserve its exact plain STANDARD route`,
         errors,
       );
       expect(
-        skill.includes("no bare form, Korean alias, implicit invocation") &&
-          skill.includes("next/continuous mode, chaining, or background behavior"),
-        `${skillName} must reject aliases, implicit routing, chaining, and background behavior`,
+        skill.includes("Only exact `$kyw-deliver NNNN --public-release` adds one ordered"),
+        `${skillName} must require its exact public-release opt-in route`,
+        errors,
+      );
+      expect(
+        skill.includes("No other suffix, bare form") &&
+          skill.includes("next/continuous mode") &&
+          skill.includes("background"),
+        `${skillName} must reject every other suffix, alias, implicit, chained, continuous, and background route`,
         errors,
       );
       expect(
         skill.includes("[STANDARD Delivery and Resume](references/delivery.md)"),
         `${skillName} must link its delivery reference`,
+        errors,
+      );
+      expect(
+        skill.includes("[Public Release and Resume](references/public-release.md)"),
+        `${skillName} must progressively link its public-release reference`,
         errors,
       );
       expect(
@@ -2962,6 +3055,11 @@ function validateSkill(root, skillName, errors) {
       expect(
         existsSync(deliveryReferencePath),
         `${skillName} is missing its delivery reference`,
+        errors,
+      );
+      expect(
+        existsSync(publicReleaseReferencePath),
+        `${skillName} is missing its public-release reference`,
         errors,
       );
       if (existsSync(deliveryReferencePath)) {
@@ -2986,6 +3084,36 @@ function validateSkill(root, skillName, errors) {
           deliveryReference.includes("An unchanged satisfied contract-3 result is immutable and report-only") ||
             deliveryReference.includes("Later unchanged `$kyw-deliver NNNN` is report-only"),
           `${skillName} must keep satisfied contract-3 delivery immutable and report-only`,
+          errors,
+        );
+      }
+      if (existsSync(publicReleaseReferencePath)) {
+        const publicReleaseReference = readFileSync(publicReleaseReferencePath, "utf8");
+        expect(
+          publicReleaseReference.includes("canonical detailed public-release procedure") &&
+            publicReleaseReference.includes("## Perform the ordered public release"),
+          `${skillName} public-release reference must own the ordered procedure`,
+          errors,
+        );
+        for (const classification of [
+          "ABSENT",
+          "EXACT_ALREADY_COMPLETE",
+          "PENDING_PROOF",
+          "CONFLICT",
+          "UNKNOWN",
+        ]) {
+          expect(
+            publicReleaseReference.includes(`\`${classification}\``),
+            `${skillName} public-release reference must define ${classification}`,
+            errors,
+          );
+        }
+        expect(
+          publicReleaseReference.includes("npm publication → exact-SHA GitHub tag → GitHub Release") &&
+            /failure, cancellation, timeout, lost response/iu.test(
+              publicReleaseReference,
+            ),
+          `${skillName} public-release reference must enforce ordered create-once resume without retry`,
           errors,
         );
       }
@@ -3103,8 +3231,21 @@ export function validateFoundation(
     expect(!("maintainers" in packageJson), "registry-derived maintainers must not be guessed before publication", errors);
     expect(sameJson(packageJson.publishConfig, releasePublishConfig), "package publishConfig must target the public npm registry", errors);
     expect(sameJson(packageJson.files, PACKAGE_FILES_ALLOWLIST), "package files allowlist changed", errors);
-    expect(!("dependencies" in packageJson), "release package must remain production-dependency free", errors);
-    expect(!("devDependencies" in packageJson), "release package must remain development-dependency free", errors);
+    for (const field of [
+      "dependencies",
+      "devDependencies",
+      "optionalDependencies",
+      "peerDependencies",
+      "peerDependenciesMeta",
+      "bundledDependencies",
+      "bundleDependencies",
+    ]) {
+      expect(
+        !(field in packageJson),
+        `release package must remain dependency free; ${field} is not allowed`,
+        errors,
+      );
+    }
 
     for (const [name, command] of Object.entries(requiredScripts)) {
       expect(packageJson.scripts?.[name] === command, `package script ${name} is missing or changed`, errors);
@@ -3114,6 +3255,24 @@ export function validateFoundation(
     }
 
     if (publishWorkflow) {
+      for (const input of [
+        "expected_sha",
+        "expected_version",
+        "expected_tarball_bytes",
+        "expected_tarball_sha256",
+        "expected_tarball_shasum",
+        "expected_tarball_integrity",
+        "expected_packed_entries_sha256",
+        "expected_prior_versions_sha256",
+        "expected_prior_latest",
+        "expected_signing_key_id",
+      ]) {
+        expect(
+          publishWorkflow.includes(`      ${input}:\n`),
+          `trusted publishing workflow input ${input} is missing`,
+          errors,
+        );
+      }
       expect(
         publishWorkflow.includes("\n  workflow_dispatch:\n"),
         "trusted publishing workflow must be manual-only",

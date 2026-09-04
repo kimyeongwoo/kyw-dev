@@ -20,6 +20,18 @@ export {
   parseTaskInvocation,
 } from "./task-artifact-delivery.mjs";
 export {
+  PUBLIC_RELEASE_CLASSIFICATIONS,
+  PUBLIC_RELEASE_ATTEMPT_SCOPE,
+  PUBLIC_RELEASE_STAGES,
+  classifyPublicReleaseState,
+  createCanonicalPublicReleaseProof,
+  derivePublicReleasePlan,
+  freezePublicReleaseTuple,
+  parsePublicReleaseInvocation,
+  redactPublicReleaseDiagnostics,
+  runPublicRelease,
+} from "./task-artifact-public-release.mjs";
+export {
   MAX_STANDARD_DELIVERY_CONTINUITY_BYTES,
   MAX_STANDARD_DELIVERY_CONTINUITY_TASKS,
   STANDARD_DELIVERY_CONTINUITY_FILE,
@@ -39,10 +51,12 @@ export {
   bootstrapStandardDeliveryContinuity,
   classifyLocalDeliveryContracts,
   createGitHubEvidenceClient,
+  createPublicReleaseClients,
   createInvocationCommandCache,
   discoverLocalDeliveryOutcomes,
   discoverRequiredStandardDeliveries,
   hydratePriorStandardDeliveries,
+  hydratePublicReleaseContext,
   loadTrustedStandardDeliveryContinuity,
   normalizeHardenedDeliveryEvidence,
   normalizeLegacyDeliveryEvidence,

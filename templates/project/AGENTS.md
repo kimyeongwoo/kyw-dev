@@ -12,12 +12,12 @@ Always load applicable `AGENTS.md`. During an active kyw workflow load its selec
 
 - During an active Task workflow, work on one Task; preserve user work and exclude unrelated cleanup. Explanations and small fixes need no Task unless requested.
 - All six `kyw-*` Skills are explicit-only. `$kyw-task "goal"` authors the smallest complete dependency-aware `READY/READY` set, prints one `$kyw-impl NNNN`, and stops. `$kyw-task NNNN` handles only compatible `DRAFT/DRAFT`.
-- `$kyw-impl NNNN` is portable for implementation. Route only exact `task NNNN 실행해줘`, `task 진행해줘`, and `남은 task 계속 실행해줘`; incidental `task` prose never routes. Only exact `$kyw-deliver NNNN` owns current `STANDARD` delivery; it has no bare or managed alias.
+- `$kyw-impl NNNN` is portable for implementation. Route only exact `task NNNN 실행해줘`, `task 진행해줘`, and `남은 task 계속 실행해줘`; incidental `task` prose never routes. Only exact `$kyw-deliver NNNN` owns `STANDARD`; exact `$kyw-deliver NNNN --public-release` finishes it first, then may resume one npm→tag→Release sequence. Neither has a bare/managed alias.
 - Exact Skill/alias starts guardrails; terminal/stop/cancel/expiry ends them. Inactive ordinary prompts get no kyw-only block/warning/Task select/create/redirect.
 - Aligned work continues. Material baseline/Task/acceptance/scope/bound change gets the SPEC warning and zero-mutation wait. Immediate exact reconfirmation on unchanged facts permits owner/pair sync then its named bounds. Stale/changed/ambiguous/cancelled clears it; never chain Skills or bypass safety, honest evidence, or immutable delivered pairs.
 - Keep one Task active: implementation resumes it, otherwise selects the lowest eligible ready Task; pending `STANDARD` delivery blocks with exact `$kyw-deliver NNNN`. Continuous mode is serial, invocation-local, and never crosses into delivery.
 - Preserve model/effort unless the current user overrides it. Aligned route actions need no duplicate guardrail confirmation.
-- Task/Test owns repository outcome; GitHub gates mutable delivery. Gaps need rebaseline; delivered contract-3 pairs are immutable; corrections use hard-dependent Tasks. Publication/registry/version/tag/Release/submission, retry/fallback, force/destructive, bypass/admin/account, deletion, and unrelated mutation are distinct; none implies another and failure grants no retry.
+- Task/Test owns repository outcome; GitHub gates mutable delivery. Gaps need rebaseline; delivered contract-3 pairs are immutable; corrections use hard-dependent Tasks. Public release freezes one tuple, applies five-state fresh preflight/final proof, and preserves pair/continuity. Failure permits reads, not retry; fallback, force/destructive, bypass/admin/account, deletion, submission, and unrelated mutation stay separate.
 
 ## Change and documentation discipline
 

@@ -9,6 +9,11 @@ const SKILL_ROOT = join(REPOSITORY_ROOT, "skills", "kyw-deliver");
 const SKILL_PATH = join(SKILL_ROOT, "SKILL.md");
 const METADATA_PATH = join(SKILL_ROOT, "agents", "openai.yaml");
 const DELIVERY_REFERENCE_PATH = join(SKILL_ROOT, "references", "delivery.md");
+const PUBLIC_RELEASE_REFERENCE_PATH = join(
+  SKILL_ROOT,
+  "references",
+  "public-release.md",
+);
 const EXECUTION_SCENARIOS_PATH = join(
   REPOSITORY_ROOT,
   "test",
@@ -28,23 +33,33 @@ function frontmatterFields(skill) {
   );
 }
 
-test("kyw-deliver is an explicit exact-ID-only STANDARD delivery Skill", async () => {
-  const [skill, metadata, delivery] = await Promise.all([
+test("kyw-deliver exposes only exact-ID STANDARD and public-release routes", async () => {
+  const [skill, metadata, delivery, publicRelease] = await Promise.all([
     readFile(SKILL_PATH, "utf8"),
     readFile(METADATA_PATH, "utf8"),
     readFile(DELIVERY_REFERENCE_PATH, "utf8"),
+    readFile(PUBLIC_RELEASE_REFERENCE_PATH, "utf8"),
   ]);
   const frontmatter = frontmatterFields(skill);
 
   assert.deepEqual(Object.keys(frontmatter), ["name", "description"]);
   assert.equal(frontmatter.name, "kyw-deliver");
-  assert.match(frontmatter.description, /explicitly invokes \$kyw-deliver with a four-digit ID/);
-  assert.match(frontmatter.description, /current STANDARD delivery/);
-  assert.match(skill, /Only exact `\$kyw-deliver NNNN`/);
-  assert.match(skill, /no bare form, Korean alias, implicit invocation/);
+  assert.match(frontmatter.description, /explicitly invokes exact \$kyw-deliver/);
+  assert.match(frontmatter.description, /current STANDARD lifecycle/);
+  assert.match(frontmatter.description, /--public-release/);
+  assert.match(skill, /Only exact `\$kyw-deliver NNNN`[^.]*`STANDARD`-only/);
+  assert.match(skill, /Only exact `\$kyw-deliver NNNN --public-release`/);
+  assert.match(skill, /No other suffix, bare form, Korean\/managed alias, implicit/);
   assert.match(skill, /\[STANDARD Delivery and Resume\]\(references\/delivery\.md\)/);
+  assert.match(
+    skill,
+    /if and only if[^.]*exact `--public-release`[^.]*\[Public Release and Resume\]\(references\/public-release\.md\)/i,
+  );
+  assert.match(skill, /plain delivery never loads or executes that procedure/i);
   assert.match(delivery, /canonical detailed Git\/GitHub delivery procedure/);
+  assert.match(publicRelease, /canonical detailed public-release procedure/);
   assert.match(metadata, /default_prompt: "Use \$kyw-deliver NNNN/);
+  assert.match(metadata, /\$kyw-deliver NNNN --public-release/);
   assert.match(metadata, /policy:\n  allow_implicit_invocation: false\n/);
   assert.doesNotMatch(skill, /task \d{4} 실행해줘|task 진행해줘|남은 task 계속 실행해줘/);
   assert.doesNotMatch(metadata, /^dependencies:/m);
@@ -54,9 +69,14 @@ test("kyw-deliver reuses the sole packaged adapter and owns no duplicate engine"
   const skill = await readFile(SKILL_PATH, "utf8");
 
   await assert.rejects(access(join(SKILL_ROOT, "scripts")), (error) => error.code === "ENOENT");
-  assert.match(skill, /sole packaged Task adapter in the sibling `kyw-task` Skill/);
-  assert.match(skill, /owns no copied parser, queue, evaluator, hydration, continuity, or delivery engine/);
+  assert.match(skill, /sole packaged Task adapter in sibling `kyw-task`/);
+  assert.match(
+    skill,
+    /owns no copied parser, queue, evaluator, hydration, continuity, public classifier, or engine/,
+  );
   assert.match(skill, /\.\.\/kyw-task\/scripts\/task-artifacts\.mjs/);
+  assert.match(skill, /task-artifacts\.mjs public-release/);
+  assert.match(skill, /--invocation '\$kyw-deliver NNNN --public-release'/);
   assert.doesNotMatch(skill, /--delivery-(?:ledger|expectations)(?:-json)?/);
 });
 
@@ -79,10 +99,145 @@ test("kyw-deliver accepts only terminal STANDARD Tasks and keeps immutable resul
     assert.match(skill, new RegExp(state, "i"));
   }
   assert.match(skill, /reasoned `NONE`/);
-  assert.match(skill, /unchanged satisfied contract-3 Task[^.]*report-only/i);
+  assert.match(skill, /unchanged satisfied contract-3 Task[^.]*immutable\/report-only/i);
   assert.match(delivery, /terminal Task\/Test bytes remain unchanged/);
   assert.match(delivery, /\$kyw-task "<correction outcome>"/);
   assert.match(delivery, /hard-depend on Task NNNN/);
+});
+
+test("public release is progressively loaded and strictly gated by STANDARD FINAL", async () => {
+  const [skill, publicRelease] = await Promise.all([
+    readFile(SKILL_PATH, "utf8"),
+    readFile(PUBLIC_RELEASE_REFERENCE_PATH, "utf8"),
+  ]);
+
+  assert.match(publicRelease, /exact `\$kyw-deliver NNNN --public-release`/);
+  assert.match(
+    publicRelease,
+    /npm publication → exact-SHA GitHub tag → GitHub Release/,
+  );
+  assert.match(
+    publicRelease,
+    /Follow \[STANDARD Delivery and Resume\]\(delivery\.md\)[\s\S]*No npm, tag, or Release mutation is eligible until[^.]*production evaluator returns `FINAL`/,
+  );
+  assert.match(publicRelease, /expected-head PR merge[^.]*exact merge SHA and tree/);
+  assert.match(publicRelease, /successful post-main evidence[^.]*that SHA/);
+  assert.match(
+    publicRelease,
+    /Call the sole adapter path[^.]*before STANDARD work:[\s\S]*task-artifacts\.mjs public-release/,
+  );
+  assert.match(
+    publicRelease,
+    /fresh result is `DELIVER`[\s\S]{0,240}call this same exact command once more in the same user invocation/,
+  );
+  assert.match(publicRelease, /first result is already `PUBLIC_RELEASE`, do not repeat/);
+  assert.match(publicRelease, /without a second adapter call/);
+  assert.doesNotMatch(publicRelease, /--execution-preflight(?:-json)?/);
+  assert.match(skill, /plain delivery never loads or executes that procedure/i);
+  assert.doesNotMatch(
+    await readFile(DELIVERY_REFERENCE_PATH, "utf8"),
+    /^## Perform the ordered public release$/m,
+  );
+});
+
+test("public release freezes one tuple and uses the closed five-state preflight", async () => {
+  const publicRelease = await readFile(PUBLIC_RELEASE_REFERENCE_PATH, "utf8");
+
+  for (const identity of [
+    "Task ID",
+    "owner/repository",
+    "target merge SHA",
+    "target tree",
+    "workflow numeric ID",
+    "package, plugin, and CLI name/version",
+    "public access",
+    "sorted prior versions and `priorLatest`",
+    "expected packed entry set and raw tarball bytes",
+    "lightweight tag `v<version>`",
+    "title `v<version>`",
+  ]) {
+    assert.ok(publicRelease.includes(identity), identity);
+  }
+  const classifications = [
+    "ABSENT",
+    "EXACT_ALREADY_COMPLETE",
+    "PENDING_PROOF",
+    "CONFLICT",
+    "UNKNOWN",
+  ];
+  for (const classification of classifications) {
+    assert.ok(publicRelease.includes("`" + classification + "`"), classification);
+  }
+  assert.match(
+    publicRelease,
+    /read all four surfaces before the first public mutation and again immediately before each applicable mutation/,
+  );
+  assert.match(publicRelease, /Only `ABSENT` admits[^.]*one create action/);
+  assert.match(publicRelease, /`PENDING_PROOF` is observation-only/);
+  assert.match(publicRelease, /`CONFLICT` and `UNKNOWN` block/);
+  assert.match(publicRelease, /`CONFLICT`[^.]*out of order/i);
+  assert.match(publicRelease, /strictly newer than every frozen prior version/);
+  assert.match(publicRelease, /target-version 404 alone is unknown/);
+});
+
+test("public release performs create-once npm, tag, and Release stages with monotonic resume", async () => {
+  const publicRelease = await readFile(PUBLIC_RELEASE_REFERENCE_PATH, "utf8");
+  const ordered = [
+    "### 1. `STANDARD_FINAL`",
+    "### 2. `NPM`",
+    "### 3. `TAG`",
+    "### 4. `RELEASE`",
+    "### 5. `FINAL_PROOF`",
+  ];
+  let previous = publicRelease.indexOf("## Perform the ordered public release");
+  assert.ok(previous >= 0);
+  for (const marker of ordered) {
+    const index = publicRelease.indexOf(marker);
+    assert.ok(index > previous, `${marker} must appear in public-release order`);
+    previous = index;
+  }
+
+  assert.match(publicRelease, /dispatch `\.github\/workflows\/publish\.yml` once/);
+  assert.match(publicRelease, /npm publish \. --access public --ignore-scripts/);
+  assert.match(publicRelease, /`gitHead` equal to the target merge SHA/);
+  assert.match(publicRelease, /tarball raw bytes equal to expected bytes/);
+  assert.match(publicRelease, /registry signature identity/);
+  assert.match(publicRelease, /SLSA provenance/);
+  assert.match(publicRelease, /submit one GitHub ref-creation request/);
+  assert.match(publicRelease, /send one create request with the frozen deterministic fields/);
+  assert.match(publicRelease, /npm-success\/tag-failure[^.]*never republishes/);
+  assert.match(
+    publicRelease,
+    /npm-plus-tag-success\/Release-failure[^.]*never republishes or recreates the tag/,
+  );
+  assert.match(publicRelease, /never (?:grants )?retry, rerun, fallback/);
+});
+
+test("public completion uses canonical proof, redacts secrets, and preserves pair continuity", async () => {
+  const publicRelease = await readFile(PUBLIC_RELEASE_REFERENCE_PATH, "utf8");
+
+  assert.match(
+    publicRelease,
+    /`COMPLETE` requires[\s\S]*workflow run and authoritative successful attempt[\s\S]*npm metadata[\s\S]*tag direct\/peeled target[\s\S]*Release metadata/,
+  );
+  assert.match(publicRelease, /fresh cache-bypassed (?:npm )?registry reads/i);
+  assert.match(publicRelease, /selected pair[^.]*bytes throughout this procedure/);
+  assert.match(publicRelease, /continuity checkpoint is also read-only/);
+  for (const secret of [
+    "npm token",
+    "GitHub token",
+    "OIDC JWT",
+    "OTP",
+    "authentication URL",
+    "cookie",
+    "`Authorization` header",
+    "credential environment value",
+  ]) {
+    assert.ok(publicRelease.includes(secret), secret);
+  }
+  assert.match(publicRelease, /Sanitize before retaining or displaying any external error/);
+  assert.match(publicRelease, /injected clients, deterministic mocks, and owned loopback/);
+  assert.match(publicRelease, /never dispatch the live workflow, publish to npm, create a live tag or Release/);
 });
 
 test("the canonical delivery procedure fixes safe ordering and exact identities", async () => {

@@ -29,8 +29,9 @@ GitHub source repository
 ```
 
 There is no server, database, daemon, watcher, or telemetry component. After
-package acquisition, normal use requires no kyw-dev network service. GitHub is
-used only when a selected Task declares GitHub-backed `STANDARD` delivery.
+package acquisition, normal use requires no kyw-dev service. GitHub backs a
+selected Task's `STANDARD` delivery; only exact public-release opt-in also
+reads npm and permits the fixed npm/GitHub public mutation sequence.
 
 ## 2. Architectural principles
 
@@ -40,7 +41,7 @@ Skills own interviews, decisions, scoped inspection, document reasoning,
 evidence interpretation, and stop conditions. Dependency-free Node modules own
 operations that require exact and repeatable behavior: template validation,
 Task identity and dependency parsing, queue selection, transaction ownership,
-delivery classification, install containment, hashing, and CLI dispatch.
+delivery/public-state classification, install containment, hashing, and CLI dispatch.
 
 Permanent documents do not copy those algorithms. They state only stable
 product or architecture meaning and link to the canonical procedural owner.
@@ -52,11 +53,11 @@ digests, trust, coverage, and atomic replacement for both boundaries.
 ### A-02 — Explicit heavyweight workflows
 
 The six user-visible Skills—`kyw-grilling`, `kyw-init`, `kyw-task`,
-`kyw-impl`, `kyw-deliver`, and `kyw-audit`—disable implicit invocation. Only
-exact forms or the three implementation-only managed aliases activate kyw
-workflow guardrails. An inactive ordinary prompt never enters Task selection,
-warning, or redirection by resemblance; active aligned work continues, while a
-material change uses the bounded warning transition in SPEC Section 6.3.
+`kyw-impl`, `kyw-deliver`, and `kyw-audit`—disable implicit invocation. Exact
+forms or three implementation aliases activate guardrails. Delivery recognizes
+only plain exact STANDARD and exact `--public-release`; other suffixes do not
+route. Inactive prose never selects a Task by resemblance; aligned work
+continues and material change uses SPEC Section 6.3.
 
 ### A-03 — Progressive, fail-closed context loading
 
@@ -131,6 +132,7 @@ minimal projection needed before that owner can be loaded.
 | New Task/Test authoring | `skills/kyw-task/SKILL.md` | Invocation and outcome summaries only |
 | Existing-Task implementation through `DONE/PASSED` | `skills/kyw-impl/references/execution.md` | `kyw-impl/SKILL.md` handoff and concise projections |
 | Current `STANDARD` delivery and resume | `skills/kyw-deliver/references/delivery.md` | `kyw-deliver/SKILL.md` handoff and concise projections |
+| Exact opt-in public release and resume | `skills/kyw-deliver/references/public-release.md` | Conditional `kyw-deliver/SKILL.md` handoff and concise projections |
 | Independent audit and bounded repair | `skills/kyw-audit/references/audit.md` | Audit Skill handoff plus invocation summaries |
 | Exact Task/Test shape | Canonical Task and Test templates | Deterministic template validator and minimal state semantics |
 | Deterministic algorithms and exhaustive edge cases | Source and focused tests | Stable component/invariant descriptions here |
@@ -148,7 +150,8 @@ Skills
             ├─ canonical template contracts
             ├─ queue and production delivery evaluator
             ├─ bounded local-Git / GitHub hydration inputs
-            └─ fixed-bounded STANDARD continuity checkpoint
+            ├─ fixed-bounded STANDARD continuity checkpoint
+            └─ public-release tuple, five-state classifier, and injected clients
 
 CLI entry
   └─ installation facade and cohesive core modules
@@ -159,9 +162,9 @@ development validation
   └─ is never imported by runtime, CLI, or packaged Skills
 ```
 
-`kyw-task`, `kyw-impl`, and `kyw-deliver` share one packaged adapter/core graph.
+`kyw-task`, `kyw-impl`, and both `kyw-deliver` modes share one adapter/core graph.
 There is one deterministic Task/runtime/delivery engine; no Skill owns a copied
-parser, allocator, queue, transaction, or delivery classifier. Facades keep
+parser, allocator, queue, transaction, evaluator, or public classifier. Facades keep
 public imports stable while cohesive internals remain acyclic.
 
 ## 4. Component groups
@@ -176,8 +179,9 @@ public imports stable while cohesive internals remain acyclic.
   completion. It does not implement or deliver an existing Task.
 - `kyw-impl` owns existing-Task implementation through repository
   `DONE/PASSED`; it never allocates, authors, selects, or performs delivery.
-- `kyw-deliver` owns only exact-ID current `STANDARD` delivery/resume/report.
-  It has no bare, managed, implicit, continuous, chained, or background route.
+- `kyw-deliver` owns exact-ID `STANDARD` delivery and the sole exact
+  `--public-release` extension after `STANDARD FINAL`. Other suffixes and bare,
+  managed, implicit, continuous, chained, or background routes are absent.
 - `kyw-audit` independently compares one Task with established truth and
   evidence. Its bare mode has no mutation authority; exact repair mode remains
   bounded to demonstrated in-scope findings.
@@ -200,13 +204,15 @@ The Task runtime is grouped by responsibility:
   declarations;
 - queue logic validates the dependency graph and deterministic selection;
 - creation logic publishes complete authored sets under ownership proof;
-- delivery logic parses route-aware invocation, preflight, and exact-SHA evidence roles;
+- delivery logic parses route/mode, preflight, and exact-SHA evidence roles;
 - hydration binds a future terminal pair's canonical path, regular-file Git
   mode, and bytes to its first evaluator-satisfied hardened merge and rejects
   later history/worktree drift before dispatch;
 - continuity logic owns the canonical rolling checkpoint, ordered coverage and
   terminal-state digests, aligned-main trust, opaque transition, and atomic
   idempotent replacement;
+- public-release logic freezes canonical identity, classifies npm/workflow/tag/Release
+  state, derives a monotonic plan, limits writes, and redacts bounded results;
 - one facade and process adapter expose shared route-aware dispatch and a
   separate bootstrap entry without an ID-specific intercept.
 
@@ -284,6 +290,16 @@ Task/role for bounded redacted diagnostics.
 Command/query counters and cache/pagination/buffer bounds remain miss-based and
 fail closed. Credentials and raw logs are never persisted.
 `NONE` delivery stays local and records a reason.
+
+Exact public release adds no repository ledger. After the production evaluator
+proves the selected graph final, canonical npm package metadata, tarball,
+signature/provenance, and GitHub publication runs, tag refs, and Release-by-tag
+objects are the remote state. One frozen tuple binds those surfaces to Task, repository,
+base, workflow, package/plugin, registry, packed bytes/digests, merge SHA/tree,
+derived tag, and Release metadata. The shared classifier returns only `ABSENT`,
+`EXACT_ALREADY_COMPLETE`, `PENDING_PROOF`, `CONFLICT`, or `UNKNOWN`; orchestration
+may create only the first absent safe stage. Terminal pair and continuity bytes
+remain inputs, never public chronology storage.
 
 ## 5. Control and data flows
 
@@ -375,7 +391,7 @@ origin cannot self-confirm, redispatch, or chain Skills.
 
 ### 5.4 `STANDARD` delivery
 
-Exact `$kyw-deliver NNNN` alone enters after shared dispatch proves the selected
+Plain exact `$kyw-deliver NNNN` enters after shared dispatch proves the selected
 pair is `DONE/PASSED` with `STANDARD`. It revalidates state and resumes the first
 unfinished safe stage without repeats; satisfied contract-3 results are
 immutable report-only. Detailed ordering lives only in its delivery reference.
@@ -451,7 +467,39 @@ standard two-parent PR-merge source branch. Terminal worktree validation compare
 canonical path, type, mode, index, status, and raw bytes; its sole line-ending
 exception is narrowly product-defined. Ambiguous or other drift blocks.
 
-### 5.5 Independent audit
+### 5.5 Exact opt-in public release
+
+```text
+exact `$kyw-deliver NNNN --public-release`
+   → shared dispatch + unchanged STANDARD hydration/evaluator
+   ├─ pending STANDARD → existing delivery flow, without repeats
+   └─ exact expected-head/post-main FINAL
+        → freeze repository-owned public tuple
+        → fresh whole-state npm run/version + tag/ref + Release preflight
+        → STANDARD_FINAL → NPM → TAG → RELEASE → FINAL_PROOF
+        → COMPLETE | sanitized BLOCKED, with pair/continuity unchanged
+```
+
+The Skill loads its STANDARD reference first and the public-release reference
+only for this exact mode. The same adapter, evaluator, hydration, command cache,
+and continuity input feed one dependency-free public-release core; there is no
+seventh Skill, second dispatcher/evaluator, alternate checkpoint, or receipt
+ledger. Public orchestration depends on a frozen tuple and injected npm/GitHub
+clients, never the reverse. Development tests supply mocks or owned loopback
+clients, so implementation and verification issue zero live public writes.
+
+Before the first write and immediately before each eligible stage, all public
+surfaces are freshly read together. Exact state is skipped, absent state may
+create once, pending state is observed, and conflict/unknown or an out-of-order
+future object blocks. npm mutation is only one dispatch of the repository-owned
+OIDC workflow and its one checkout publication. Exact npm proof precedes one
+lightweight tag create; exact npm+tag proof precedes one asset-free published
+Release create. A lost/failed/ambiguous request consumes its boundary and allows
+bounded reads only—never retry, fallback, force, repair, delete, or later-stage
+write. Final proof is cache-bypassed registry state plus exact workflow attempt,
+tag target, and Release object, not command acceptance or logs.
+
+### 5.6 Independent audit
 
 ```text
 explicit Task audit
@@ -465,7 +513,7 @@ The audit reference owns command grammar, finding shape, repair eligibility,
 rerun, and verdict procedure. The deterministic Task validator is one evidence
 source, not an alternative audit engine.
 
-### 5.6 Progressive document loading
+### 5.7 Progressive document loading
 
 ```text
 always: applicable AGENTS
@@ -668,16 +716,14 @@ and no installation or publication lifecycle script.
 Package metadata may be publishable while publication remains unauthorized.
 Stable checking, one real candidate, composite Release verification, and
 credential-free exact-SHA CI are the required non-publishing evidence
-boundaries. The standard npm dry run is optional. Actual registry publication,
-version change, tag, GitHub Release, or public plugin submission must be
-requested as separate action- and attempt-specific bounds plus fresh
-public-registry, repository-owned publisher-expectation, and exact-workflow
-verification. An out-of-baseline request during an active Skill uses the shared
-warning transition. Routine release
-preflight does not authenticate to npm account/settings surfaces. Account-side
-authentication exists only for initial setup, an explicitly authorized
-security/configuration audit or change, or investigation after an actual
-OIDC/publisher failure.
+boundaries. The standard npm dry run is optional. Publication, tag, and GitHub
+Release have one compound exception: exact `$kyw-deliver NNNN --public-release`
+after selected `STANDARD FINAL`. It fixes one action/target/scope/attempt;
+version change, public plugin submission, retry/fallback, and recovery mutations
+stay separate. Fresh registry, publisher/workflow, ref, and Release facts gate
+every stage. Changed active bounds use the warning transition. Routine preflight
+does not authenticate to npm account/settings; that occurs only for setup, an
+explicit security/configuration audit/change, or actual OIDC failure inquiry.
 
 ### 8.5 Trusted publication workflow
 
@@ -687,18 +733,19 @@ owner/repository `kimyeongwoo/kyw-dev`, workflow
 action `npm publish`. Foundation and workflow validation project that tuple into
 the exact workflow bytes without querying authenticated npm account surfaces.
 The manual-only workflow is separate from credential-free CI; only its single
-GitHub-hosted job receives `contents: read` plus `id-token: write`. Exact event,
-repository, `main` ref, input/event/checkout SHA, package/plugin version,
-runtime, and public registry identity guards stop before publication on any
-mismatch.
+GitHub-hosted job receives `contents: read` plus `id-token: write`, with
+`actions: read` for exact run proof. Ten inputs bind current `main` SHA/version, exact packed
+bytes/digests/entry set, prior npm versions/`latest`, and the sole current
+registry signing-key identity.
 
 `release:candidate` uses the packed-release verifier to create and inspect one
 real archive, return bounded identity and digest fields, and remove its
 disposable owned temporary state. `release:ci` composes Stable and candidate
 verification outside the publication workflow. That workflow does not rerun
 Stable, create or retain a candidate, clean candidate state, or invoke the
-optional dry run. After its
-intrinsic identity and version-absence guards and final clean-checkout check, it
+optional dry run. Immediately before writing, it regenerates the bounded pack,
+rechecks complete prior registry state, its sole first target run, absent target
+tag/Release, and the clean exact checkout. It then
 publishes the exact real Git directory once with `npm publish .`. It introduces
 no token fallback, account-authentication branch, retry, second dispatch,
 dist-tag, tag, Release, or reusable trigger.
@@ -709,10 +756,15 @@ The actual successful publish is canonical runtime proof that npm accepted the
 configured Trusted Publisher identity; static policy or account inspection is
 not runtime proof. Successful trusted publication of the public package from
 the public repository creates npm provenance automatically. OIDC/publisher
-rejection has one path: the workflow fails and the executing Task records
-`BLOCKED`, with no automatic reauthentication or alternate publication.
+rejection has one path: the workflow fails and public release reports `BLOCKED`
+without changing the terminal Task, reauthenticating, or using another path.
 Source/candidate evidence, workflow registration, an authorized run, registry
 state, and later provenance proof remain separate evidence states.
+
+Tag and Release mutation stay outside the workflow. After canonical prerequisite
+proof, the public-release core may call the platform-authenticated GitHub API
+once for a lightweight exact-SHA tag and once for its exact non-draft,
+non-prerelease, asset-free Release. It has no update/delete/force or asset path.
 
 ## 9. Validation and CI architecture
 
@@ -819,7 +871,8 @@ and historical Task/Test evidence.
 
 - No telemetry or hosted project-data service exists.
 - Repository contents are not copied outside the user's requested scope.
-- Secrets and full sensitive file contents are not copied into reports.
+- Credentials, auth headers/URLs, JWTs, OTPs, cookies, environment values, and
+  unbounded logs are recursively redacted before bounded public reports.
 - Package, install metadata, journals, source trees, roots, and external
   evidence are treated as untrusted inputs.
 - Containment is lexical and physical; links and unsupported types fail closed.
@@ -832,10 +885,10 @@ and historical Task/Test evidence.
   stay within the established action/target/scope/attempt; changed or stale
   facts expire pending confirmation, and post-terminal prompts are ordinary
   rather than a hidden workflow continuation.
-- A selected Task's aligned GitHub delivery lifecycle does not imply
-  publication, retry/fallback, force, account change, deletion, or
-  administrative override. Reconfirmation cannot bypass system/platform
-  safety or immutable and truthful evidence.
+- Plain delivery implies no publication. Exact public release permits only its
+  frozen npm→tag→Release attempt after `STANDARD FINAL`; retry/fallback, force,
+  account change, deletion, or admin override remain separate. Reconfirmation
+  cannot bypass platform safety or immutable truthful evidence.
 
 ## 11. Portability and isolation trade-offs
 
@@ -865,7 +918,8 @@ The following exclusions are architectural decisions:
 - no generated permanent-document summary, search database, or fuzzy/LLM
   document grader;
 - no automatic registry publish, version/tag/Release creation, public
-  submission, force push, CI rerun, or branch-protection bypass;
+  submission, force push, CI rerun, or protection bypass; exact public release
+  remains invocation-local, ordered, and create-once;
 - no first-class non-Codex agent adapter in the current release.
 
 ## 13. Deferred architecture

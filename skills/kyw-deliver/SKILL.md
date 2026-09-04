@@ -1,44 +1,52 @@
 ---
 name: kyw-deliver
-description: Perform, resume, or report one existing kyw-dev Task's current STANDARD delivery. Use only when the user explicitly invokes $kyw-deliver with a four-digit ID; do not use for implementation, authoring, managed aliases, ordinary prompts, audits, publication, or unrelated external actions.
+description: Deliver an existing Task's current STANDARD lifecycle or public release only when the user explicitly invokes exact $kyw-deliver NNNN or $kyw-deliver NNNN --public-release; not for implementation, authoring, ordinary prompts, or audits.
 ---
 
 <!-- kyw-active-skill-guardrails:v1 -->
 
-# kyw STANDARD Delivery
+# kyw Delivery
 
-## Input and exact route
+## Input and exact routes
 
-Only exact `$kyw-deliver NNNN` selects a Task. It has no bare form, Korean alias, implicit invocation, suffix authority, next/continuous mode, chaining, or background behavior. A malformed, missing-ID, goal-style, appended-text, or ordinary-language request mutates nothing and reports the exact supported form without invoking another Skill.
+Only exact `$kyw-deliver NNNN` selects unchanged `STANDARD`-only delivery. Only exact `$kyw-deliver NNNN --public-release` adds one ordered npm publication → exact-SHA GitHub tag → GitHub Release attempt after `STANDARD FINAL`. No other suffix, bare form, Korean/managed alias, implicit request, next/continuous mode, chain, or background run has authority.
 
-Keep `allow_implicit_invocation: false`. This route activates only its current invocation; terminal report, cancellation, stop, or expiry ends it. It never implements, authors, promotes, audits, publishes, retries, force-pushes, deletes a branch, bypasses protection, changes an account, or performs an unrelated mutation.
+Keep `allow_implicit_invocation: false`. Other input mutates nothing, reports both forms; it invokes no Skill. Either exact route activates only its current invocation; terminal, cancel, stop, or expiry ends it. Neither implements, authors, audits, selects a version, submits a plugin, retries, forces, deletes, bypasses, changes an account, or mutates unrelated state.
 
-## Shared entry
+## Progressive shared entry
 
-Read [STANDARD Delivery and Resume](references/delivery.md) completely before inspection or action. It is the canonical detailed Git/GitHub delivery procedure. Use the sole packaged Task adapter in the sibling `kyw-task` Skill; this Skill owns no copied parser, queue, evaluator, hydration, continuity, or delivery engine.
+Read [STANDARD Delivery and Resume](references/delivery.md) completely before inspection or action. It remains the canonical detailed Git/GitHub delivery procedure. If and only if the invocation is exact `--public-release`, also read [Public Release and Resume](references/public-release.md) completely; plain delivery never loads or executes that procedure.
 
-Pass the exact invocation separately:
+Use the sole packaged Task adapter in sibling `kyw-task`; this Skill owns no copied parser, queue, evaluator, hydration, continuity, public classifier, or engine. Plain delivery calls:
 
 ```text
-node <kyw-deliver-skill-directory>/../kyw-task/scripts/task-artifacts.mjs dispatch --tasks-root <repository>/docs/tasks --invocation <exact invocation text> --managed-routing false [--execution-preflight-json <json>]
+node <kyw-deliver-skill-directory>/../kyw-task/scripts/task-artifacts.mjs dispatch --tasks-root <repository>/docs/tasks --invocation '$kyw-deliver NNNN' --managed-routing false
 ```
 
-Preflight verified conflict, unexplained user work, remote drift, and user-owned decisions. Ask for no delivery JSON, checkpoint content, transition token, evidence ID, credential, or mutable ledger snapshot. Dispatch reserves no Task ID and accepts no bootstrap/migration authority.
+Exact public release calls this command before STANDARD and, only after an initial `DELIVER` result completes, once more in the same invocation:
+
+```text
+node <kyw-deliver-skill-directory>/../kyw-task/scripts/task-artifacts.mjs public-release --tasks-root <repository>/docs/tasks --invocation '$kyw-deliver NNNN --public-release' --managed-routing false
+```
+
+After a terminal public result, do not call again. Preflight conflict/work/drift/decisions; ask for no state/client JSON, checkpoint, token, tuple, credential, or ledger. Neither accepts ID reservation or bootstrap/migration authority.
 
 ## Eligibility and handoff
 
-Only a repository-complete `DONE/PASSED` Task whose static policy is `STANDARD` may be selected for mutable delivery. Missing, duplicate, `DRAFT`, `READY`, `IN_PROGRESS`, `BLOCKED`, `CANCELLED`, reasoned `NONE`, dependency-blocked, multi-active, drifted, unsafe, malformed, or unsupported state stops with the adapter result and no implementation or pair mutation.
+Only a repository-complete `DONE/PASSED` Task with static `STANDARD` may be selected. Missing, duplicate, `DRAFT`, `READY`, `IN_PROGRESS`, `BLOCKED`, `CANCELLED`, reasoned `NONE`, dependency-blocked, multi-active, drifted, unsafe, malformed, or unsupported state stops with the adapter result and no implementation or pair mutation.
 
-A valid pending result is `DELIVER`; follow the reference from its revalidated first unfinished safe action. A complete result is terminal report-only. An unchanged satisfied contract-3 Task remains immutable and report-only; drift, redelivery, or correction intent stops with the Task/path and exact `$kyw-task "<correction outcome>"` guidance for a new hard-dependent pair.
+Plain `DELIVER` follows STANDARD from its first unfinished safe action; complete is report-only. An unchanged satisfied contract-3 Task stays immutable/report-only. Drift, redelivery, or correction stops with Task/path and exact `$kyw-task "<correction outcome>"` for a hard-dependent pair.
 
-If the result carries an opaque continuity transition token, apply it exactly once only at the terminal delivery boundary and exactly as the reference directs. Never construct, decode, edit, retain, or replay it after terminal.
+The public route reconstructs or resumes STANDARD first without repeats. No npm/tag/Release write precedes production-evaluator `FINAL` at the exact expected-head merge with post-main CI. It then freezes one tuple and applies the public reference's five-state preflight, create-once order, canonical proof, redaction, and resume. Only this route may take a satisfied Task into public preflight; pair and continuity stay unchanged.
+
+If a pending result carries an opaque predecessor continuity transition token, apply it once only at the STANDARD terminal boundary as that reference directs. Never construct, decode, edit, retain, or replay it after terminal.
 
 ## Activation-scoped guardrails
 
-Aligned delivery continues without duplicate confirmation. A baseline, Task, acceptance, scope, action, target, attempt, Skill, mode, or route change gets a concrete old/new warning naming implementation, mutable Task/Test, permanent-document, verification, and delivery impacts plus exact bounds, then a zero-mutation wait. Only the trusted current user's immediate next unambiguous explicit reconfirmation of that unchanged warning permits affected-owner synchronization and the bounded action. The originating or combined message cannot self-confirm, redispatch, or chain Skills.
+Either route supplies aligned bounds without duplicate confirmation. A changed baseline, Task, acceptance, scope, action, target, attempt, Skill, mode, route, or tuple gets the SPEC warning covering implementation, Task/Test, permanent-document, verification, and delivery impacts, then a zero-mutation wait. Only immediate exact reconfirmation on unchanged facts permits affected-owner synchronization and the bounded action; origin cannot self-confirm, redispatch, or chain Skills.
 
-Cancellation, decline, ambiguity, intervention, staleness, fact drift, or changed/added bounds clears or replaces the warning. Skill/mode/route identity replacement expires and requires its own exact route. System/platform safety, secrets, honest evidence, user-work preservation, terminal-pair immutability, exact routing, and separate external-action authority remain non-waivable.
+Cancellation, ambiguity, intervention, staleness, drift, or added bounds clears it; a Skill/mode/route change needs its own exact route. Safety, secrets, evidence, user work, immutable pairs, exact routing, and separate authorities remain non-waivable. Failure grants reads only, never retry, fallback, later write, or a new attempt.
 
 ## Stop and report
 
-Report Task ID, delivery disposition, exact completed and pending stage, bounded evidence identities or limitations, observed base-protection disposition or inspection limitation, preservation result, and residual risk. Never write mutable GitHub chronology into the terminal pair or a permanent document. Stop after the terminal report; never invoke `$kyw-impl`, `$kyw-task`, or `$kyw-audit`.
+Report Task, route, disposition, stage, bounded redacted evidence/limits, preservation, and risk. STANDARD includes protection disposition/limit; public release includes classification, recovery, resume point, and unchanged pair/continuity proof. Never persist external chronology. Stop after the report; do not invoke another Skill or continue in background.

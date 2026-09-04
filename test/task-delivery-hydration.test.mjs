@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, generateKeyPairSync, sign } from "node:crypto";
 import {
   chmod,
   mkdir,
@@ -24,14 +24,19 @@ import {
   createStandardDeliveryContinuityCheckpoint,
   createGitHubEvidenceClient,
   createInvocationCommandCache,
+  createPublicReleaseClients,
   discoverLocalDeliveryOutcomes,
   discoverRequiredStandardDeliveries,
   evaluateDeliveryEvidence,
+  freezePublicReleaseTuple,
   hydratePriorStandardDeliveries,
+  hydratePublicReleaseContext,
   inspectTaskQueue,
   normalizeHardenedDeliveryEvidence,
   parseStandardDeliveryContinuityTransitionToken,
   parseKywCiEvidence,
+  redactPublicReleaseDiagnostics,
+  runPublicRelease,
   STANDARD_DELIVERY_CONTINUITY_FILE,
 } from "../src/core/task-artifacts.mjs";
 import {
@@ -46,6 +51,13 @@ import {
   terminalArtifactGitModeClass,
   terminalArtifactNewlineEquivalent,
 } from "../src/core/task-artifact-hydration.mjs";
+import {
+  classifyGitHubRelease,
+  classifyGitTag,
+  classifyNpmPublication,
+  classifyPublicationWorkflow,
+  derivePublicReleaseWorkflowInputs,
+} from "../src/core/task-artifact-public-release.mjs";
 import { runTaskArtifactCommand } from "../skills/kyw-task/scripts/task-artifacts.mjs";
 import {
   createSyntheticStandardDeliveryProbe,
@@ -56,6 +68,633 @@ import {
 
 const REPOSITORY_ROOT = fileURLToPath(new URL("../", import.meta.url));
 const REPOSITORY_TASKS_ROOT = path.join(REPOSITORY_ROOT, "docs", "tasks");
+
+function retargetHardenedFixtureMerge(fixture, mergeSha) {
+  fixture.outcome.mergeSha = mergeSha;
+  fixture.snapshot.pullRequest.merge_commit_sha = mergeSha;
+  fixture.snapshot.postMergeRun.headSha = mergeSha;
+  for (const job of fixture.snapshot.postMergeJobs) {
+    job.headSha = mergeSha;
+    if (job.evidence) {
+      job.evidence.expected_sha = mergeSha;
+      job.evidence.actual_sha = mergeSha;
+    }
+  }
+  return fixture;
+}
+
+function publicReleaseLocalRunner(trace) {
+  return async ({ command, args, cwd, timeoutMs, maxBuffer }) => {
+    trace.push({ command, args: [...args], cwd });
+    const result = spawnSync(command, args, {
+      cwd,
+      encoding: "utf8",
+      windowsHide: true,
+      shell: false,
+      timeout: timeoutMs,
+      maxBuffer,
+    });
+    return {
+      status: result.status,
+      signal: result.signal,
+      stdout: result.stdout ?? "",
+      stderr: result.stderr ?? "",
+      error: result.error,
+    };
+  };
+}
+
+function publicClientTuple({ archive, keyId = "SHA256:fixture" }) {
+  const mergeSha = "d".repeat(40);
+  const treeSha = "e".repeat(40);
+  const sha256 = createHash("sha256").update(archive).digest("hex");
+  return freezePublicReleaseTuple({
+    schemaVersion: 1,
+    taskId: "0085",
+    repository: "owner/repository",
+    baseBranch: "main",
+    target: { mergeSha, treeSha },
+    publishWorkflow: {
+      id: 77,
+      name: "Publish npm package through OIDC",
+      path: ".github/workflows/publish.yml",
+      state: "active",
+      ref: "refs/heads/main",
+      event: "workflow_dispatch",
+      environment: "npm-production",
+      publisher: {
+        provider: "GitHub Actions",
+        authentication: "OIDC",
+        repository: "owner/repository",
+        workflow: "publish.yml",
+        environment: "npm-production",
+        action: "npm publish",
+      },
+    },
+    package: {
+      name: "kyw-dev",
+      version: "2.0.0",
+      repository: "git+https://github.com/owner/repository.git",
+      access: "public",
+      registry: "https://registry.npmjs.org/",
+      tarball: {
+        bytes: archive.length,
+        integrity: `sha512-${createHash("sha512").update(archive).digest("base64")}`,
+        shasum: createHash("sha1").update(archive).digest("hex"),
+        sha256,
+        entries: [".codex-plugin/plugin.json", "package.json", "src/index.mjs"],
+      },
+      signature: { required: true, keyId },
+      provenance: {
+        required: true,
+        sourceRepository: "owner/repository",
+        workflowPath: ".github/workflows/publish.yml",
+        workflowRef: "refs/heads/main",
+        sourceCommit: mergeSha,
+        subjectSha256: sha256,
+      },
+      priorVersions: ["1.0.0"],
+      priorLatest: "1.0.0",
+    },
+    plugin: { name: "kyw-dev", version: "2.0.0" },
+    tag: { name: "v2.0.0", ref: "refs/tags/v2.0.0" },
+    release: {
+      tagName: "v2.0.0",
+      title: "v2.0.0",
+      body: "",
+      draft: false,
+      prerelease: false,
+      generateReleaseNotes: false,
+      assets: [],
+    },
+  });
+}
+
+function publicClientStandardFinal(tuple) {
+  return {
+    satisfied: true,
+    classification: "HARDENED_EXACT_HEAD",
+    claim: "FINAL",
+    taskId: tuple.taskId,
+    repository: tuple.repository,
+    baseBranch: tuple.baseBranch,
+    mergeSha: tuple.target.mergeSha,
+    mergeTreeSha: tuple.target.treeSha,
+    postMainCi: "VERIFIED_EXACT_CHECKOUT",
+  };
+}
+
+async function publicClientHarness({
+  useDefaultProvenanceVerifier = false,
+  provenanceModuleLoader,
+} = {}) {
+  const archive = Buffer.from("exact fixture npm archive bytes", "utf8");
+  const { publicKey, privateKey } = generateKeyPairSync("ec", {
+    namedCurve: "P-256",
+  });
+  const keyId = "SHA256:fixture";
+  const tuple = publicClientTuple({ archive, keyId });
+  const workflowText = (await readFile(
+    path.join(REPOSITORY_ROOT, ".github", "workflows", "publish.yml"),
+    "utf8",
+  )).replaceAll("kimyeongwoo/kyw-dev", tuple.repository);
+  const packageJson = {
+    name: tuple.package.name,
+    version: tuple.package.version,
+    private: false,
+    repository: { type: "git", url: tuple.package.repository },
+    files: [".codex-plugin/", "src/"],
+    publishConfig: { access: "public", registry: tuple.package.registry },
+  };
+  const pluginJson = { name: tuple.plugin.name, version: tuple.plugin.version };
+  const state = {
+    remoteHeadSha: tuple.target.mergeSha,
+    workflow: "absent",
+    npm: "absent",
+    tag: "absent",
+    release: "absent",
+    runsIncomplete: false,
+    jobsIncomplete: false,
+    tagPageFull: false,
+    releasePageFull: false,
+    treeSha: tuple.target.treeSha,
+    tarballTampered: false,
+    compareStatus: "ahead",
+    provenanceThrows: false,
+    provenanceValid: true,
+    tarballOrigin: "https://registry.npmjs.org",
+    tarballPath: `/${tuple.package.name}/-/${tuple.package.name}-${tuple.package.version}.tgz`,
+    indexVersionConflict: false,
+    releaseByTagConflict: false,
+    releaseAssetsMissing: false,
+    workflowHeadSha: tuple.target.mergeSha,
+    workflowHeadBranch: tuple.baseBranch,
+    indexName: tuple.package.name,
+    malformedTagEntry: false,
+    malformedReleaseByTag: false,
+    malformedReleaseListEntry: false,
+    malformedSigningKey: false,
+    extraActiveSigningKey: false,
+    signingKeyMaterial: "valid",
+    registrySignatureSuffix: "",
+    malformedProvenance: false,
+    malformedUntypedAttestation: false,
+    duplicateProvenance: false,
+    signedStatementType: "https://in-toto.io/Statement/v1",
+    signedPredicateType: "https://slsa.dev/provenance/v1",
+    provenancePayloadType: "application/vnd.in-toto+json",
+    provenancePayloadSuffix: "",
+    provenanceSignatureSuffix: "",
+    duplicateProvenanceSubject: false,
+    dependencyField: undefined,
+    publishConfigExtra: undefined,
+    workflowId: tuple.publishWorkflow.id,
+    runId: 501,
+    runAttempt: 1,
+    jobId: 601,
+    releaseId: 701,
+  };
+  const trace = [];
+  const publicKeyBytes = publicKey.export({ type: "spki", format: "der" });
+  const signature = sign(
+    "sha256",
+    Buffer.from(
+      `${tuple.package.name}@${tuple.package.version}:${tuple.package.tarball.integrity}`,
+    ),
+    privateKey,
+  ).toString("base64");
+  const provenanceStatement = {
+    _type: "https://in-toto.io/Statement/v1",
+    predicateType: "https://slsa.dev/provenance/v1",
+    subject: [
+      {
+        name: `pkg:npm/${tuple.package.name}@${tuple.package.version}`,
+        digest: { sha512: createHash("sha512").update(archive).digest("hex") },
+      },
+    ],
+    predicate: {
+      buildDefinition: {
+        buildType:
+          "https://slsa-framework.github.io/github-actions-buildtypes/workflow/v1",
+        externalParameters: {
+          workflow: {
+            repository: `https://github.com/${tuple.repository}`,
+            path: tuple.publishWorkflow.path,
+            ref: tuple.publishWorkflow.ref,
+          },
+        },
+        resolvedDependencies: [
+          { digest: { gitCommit: tuple.target.mergeSha } },
+        ],
+        internalParameters: { github: { event_name: "workflow_dispatch" } },
+      },
+      runDetails: {
+        builder: { id: "https://github.com/actions/runner/github-hosted" },
+        metadata: {
+          invocationId: `https://github.com/${tuple.repository}/actions/runs/501/attempts/1`,
+        },
+      },
+    },
+  };
+  const attestationBundle = {
+    dsseEnvelope: {
+      payloadType: "application/vnd.in-toto+json",
+      payload: Buffer.from(JSON.stringify(provenanceStatement)).toString("base64"),
+      signatures: [
+        { sig: Buffer.from("fixture DSSE signature").toString("base64") },
+      ],
+    },
+    verificationMaterial: { tlogEntries: [{}] },
+  };
+  const currentAttestationBundle = () => {
+    const statement = structuredClone(provenanceStatement);
+    statement._type = state.signedStatementType;
+    statement.predicateType = state.signedPredicateType;
+    if (state.duplicateProvenanceSubject) {
+      statement.subject.push(structuredClone(statement.subject[0]));
+    }
+    const bundle = {
+      ...attestationBundle,
+      dsseEnvelope: {
+        ...attestationBundle.dsseEnvelope,
+        payloadType: state.provenancePayloadType,
+        payload: `${Buffer.from(JSON.stringify(statement)).toString("base64")}${state.provenancePayloadSuffix}`,
+        signatures: attestationBundle.dsseEnvelope.signatures.map(
+          (signatureEntry) => ({
+            ...signatureEntry,
+            sig: `${signatureEntry.sig}${state.provenanceSignatureSuffix}`,
+          }),
+        ),
+      },
+    };
+    if (state.provenancePayloadType === undefined) {
+      delete bundle.dsseEnvelope.payloadType;
+    }
+    return bundle;
+  };
+
+  const versionMetadata = () => ({
+    name: tuple.package.name,
+    version: tuple.package.version,
+    repository: { url: tuple.package.repository },
+    gitHead: state.indexVersionConflict ? "c".repeat(40) : tuple.target.mergeSha,
+    dist: {
+      tarball: `${state.tarballOrigin}${state.tarballPath}`,
+      integrity: tuple.package.tarball.integrity,
+      shasum: tuple.package.tarball.shasum,
+      signatures: [
+        { keyid: keyId, sig: `${signature}${state.registrySignatureSuffix}` },
+      ],
+    },
+  });
+
+  function jsonResult(value, status = 0, stderr = "") {
+    return { status, stdout: status === 0 ? JSON.stringify(value) : "", stderr };
+  }
+
+  const commandRunner = async ({ command, args, cwd }) => {
+    trace.push({ kind: "command", command, args: [...args], cwd });
+    if (command === "git") {
+      if (args[0] === "rev-parse") {
+        return { status: 0, stdout: `${state.treeSha}\n`, stderr: "" };
+      }
+      if (args[0] === "show" && args[1].endsWith(":package.json")) {
+        return {
+          status: 0,
+          stdout: JSON.stringify({
+            ...packageJson,
+            publishConfig: {
+              ...packageJson.publishConfig,
+              ...(state.publishConfigExtra
+                ? { [state.publishConfigExtra]: "fixture-extra" }
+                : {}),
+            },
+            ...(state.dependencyField
+              ? { [state.dependencyField]: {} }
+              : {}),
+          }),
+          stderr: "",
+        };
+      }
+      if (args[0] === "show" && args[1].endsWith(":.codex-plugin/plugin.json")) {
+        return { status: 0, stdout: JSON.stringify(pluginJson), stderr: "" };
+      }
+      if (args[0] === "show" && args[1].endsWith(`:${tuple.publishWorkflow.path}`)) {
+        return { status: 0, stdout: workflowText, stderr: "" };
+      }
+      if (args[0] === "cat-file") return { status: 1, stdout: "", stderr: "" };
+    }
+    if (command === "gh" && args[0] === "run") {
+      assert.equal(args[args.indexOf("--repo") + 1], `github.com/${tuple.repository}`);
+      const dispatchInputs = Object.entries(
+        derivePublicReleaseWorkflowInputs(tuple),
+      )
+        .map(([name, value]) => `${name}=${value}`)
+        .join(" ");
+      return {
+        status: 0,
+        stdout: [
+          `KYWPUBLISHEVIDENCE schema=1 stage=dispatch repository=${tuple.repository} event=workflow_dispatch ref=${tuple.publishWorkflow.ref} ${dispatchInputs}`,
+          `KYWPUBLISHEVIDENCE schema=1 stage=source expected_sha=${tuple.target.mergeSha} actual_sha=${tuple.target.mergeSha} package=${tuple.package.name} version=${tuple.package.version}`,
+        ].join("\n"),
+        stderr: "",
+      };
+    }
+    if (command !== "gh" || args[0] !== "api") {
+      throw new Error(`unexpected local fixture command ${command}`);
+    }
+    assert.equal(args[args.indexOf("--hostname") + 1], "github.com");
+    const methodIndex = args.indexOf("--method");
+    const method = args[methodIndex + 1];
+    const endpoint = method === "GET" ? args.at(-1) : args[methodIndex + 2];
+    if (method === "POST") {
+      trace.push({ kind: "post", endpoint, args: [...args] });
+      if (endpoint.endsWith("/dispatches")) state.workflow = "active";
+      else if (endpoint.endsWith("/git/refs")) state.tag = "exact";
+      else if (endpoint.endsWith("/releases")) state.release = "exact";
+      return jsonResult({ id: 9001 });
+    }
+    if (endpoint.includes("/git/ref/heads/main")) {
+      return jsonResult({
+        ref: tuple.publishWorkflow.ref,
+        object: { type: "commit", sha: state.remoteHeadSha },
+      });
+    }
+    if (endpoint.includes("/compare/")) {
+      return jsonResult({
+        status: state.compareStatus,
+        base_commit: { sha: tuple.target.mergeSha },
+        merge_base_commit: { sha: tuple.target.mergeSha },
+      });
+    }
+    if (endpoint.includes("/actions/workflows/publish.yml")) {
+      return jsonResult({
+        id: state.workflowId,
+        name: tuple.publishWorkflow.name,
+        path: tuple.publishWorkflow.path,
+        state: "active",
+      });
+    }
+    if (endpoint.includes("/actions/workflows/77/runs?")) {
+      const run = {
+        id: state.runId,
+        run_attempt: state.runAttempt,
+        event: "workflow_dispatch",
+        ...(state.workflowHeadBranch === undefined
+          ? {}
+          : { head_branch: state.workflowHeadBranch }),
+        ...(state.workflowHeadSha === undefined
+          ? {}
+          : { head_sha: state.workflowHeadSha }),
+        status: state.workflow === "active" ? "queued" : "completed",
+        conclusion: state.workflow === "success" ? "success" : null,
+      };
+      const runs = state.workflow === "absent" ? [] : [run];
+      return jsonResult({
+        total_count: state.runsIncomplete ? runs.length + 1 : runs.length,
+        workflow_runs: runs,
+      });
+    }
+    if (endpoint.includes("/actions/runs/501/attempts/1/jobs?")) {
+      const jobs = [
+        {
+          id: state.jobId,
+          steps: [
+            {
+              name: "Publish the exact checkout directory through OIDC",
+              conclusion: "success",
+            },
+          ],
+        },
+      ];
+      return jsonResult({
+        total_count: state.jobsIncomplete ? 2 : 1,
+        jobs,
+      });
+    }
+    if (endpoint.includes("/git/matching-refs/tags/")) {
+      if (state.tagPageFull) {
+        return jsonResult(
+          Array.from({ length: 100 }, (_, index) => ({
+            ref: `refs/tags/v2.0.0-prefix-${index}`,
+            object: { type: "commit", sha: tuple.target.mergeSha },
+          })),
+        );
+      }
+      return jsonResult([
+        ...(state.malformedTagEntry ? [{}] : []),
+        ...([
+          "exact",
+          "annotated",
+          "annotatedMissingIdentity",
+          "annotatedWrongName",
+          "nested",
+        ].includes(state.tag)
+          ? [
+              {
+                ref: tuple.tag.ref,
+                object:
+                  state.tag === "exact"
+                    ? { type: "commit", sha: tuple.target.mergeSha }
+                    : { type: "tag", sha: "9".repeat(40) },
+              },
+            ]
+          : []),
+        ...(state.tag === "namespace"
+          ? [
+              {
+                ref: `${tuple.tag.ref}/child`,
+                object: { type: "commit", sha: tuple.target.mergeSha },
+              },
+            ]
+          : []),
+        {
+          ref: "refs/tags/v2.0.00",
+          object: { type: "commit", sha: "f".repeat(40) },
+        },
+      ]);
+    }
+    if (endpoint.includes("/git/tags/")) {
+      if (state.tag === "annotatedMissingIdentity") {
+        return jsonResult({
+          object: { type: "commit", sha: tuple.target.mergeSha },
+        });
+      }
+      return jsonResult({
+        sha: "9".repeat(40),
+        tag:
+          state.tag === "annotatedWrongName" ? "v9.9.9" : tuple.tag.name,
+        object:
+          state.tag === "nested"
+            ? { type: "tag", sha: "8".repeat(40) }
+            : { type: "commit", sha: tuple.target.mergeSha },
+      });
+    }
+    if (endpoint.includes("/releases/tags/")) {
+      if (state.malformedReleaseByTag) return jsonResult({ id: 701 });
+      return state.release === "exact"
+        ? jsonResult({
+            id: state.releaseByTagConflict ? 702 : state.releaseId,
+            tag_name: tuple.release.tagName,
+            name: tuple.release.title,
+            body: "",
+            draft: false,
+            prerelease: false,
+            ...(!state.releaseAssetsMissing ? { assets: [] } : {}),
+          })
+        : jsonResult(null, 1, "HTTP 404 Not Found");
+    }
+    if (endpoint.includes("/releases?")) {
+      if (state.releasePageFull) {
+        return jsonResult(
+          Array.from({ length: 100 }, (_, index) => ({
+            id: index + 1,
+            tag_name: `other-${index}`,
+          })),
+        );
+      }
+      return jsonResult(
+        state.malformedReleaseListEntry
+          ? [{}]
+          : state.release === "exact"
+          ? [
+              {
+                id: state.releaseId,
+                tag_name: tuple.release.tagName,
+                name: tuple.release.title,
+                body: "",
+                draft: false,
+                prerelease: false,
+                ...(!state.releaseAssetsMissing ? { assets: [] } : {}),
+              },
+            ]
+          : [],
+      );
+    }
+    throw new Error(`unexpected fixture GitHub endpoint ${endpoint}`);
+  };
+
+  const index = (includeTarget) => ({
+    name: state.indexName,
+    versions: {
+      "1.0.0": {},
+      ...(includeTarget ? { [tuple.package.version]: versionMetadata() } : {}),
+    },
+    "dist-tags": { latest: includeTarget ? tuple.package.version : "1.0.0" },
+    time: { [tuple.package.version]: "2026-09-01T00:00:00.000Z" },
+  });
+  const fetchImpl = async (url, options) => {
+    trace.push({ kind: "fetch", url: String(url), options });
+    assert.equal(url.hostname, "registry.npmjs.org");
+    assert.equal(options.cache, "no-store");
+    assert.match(url.search, /kyw-public-read=/u);
+    const pathname = decodeURIComponent(url.pathname);
+    if (pathname === `/${tuple.package.name}/${tuple.package.version}`) {
+      if (state.npm === "absent") return new Response("", { status: 404 });
+      const metadata = versionMetadata();
+      if (state.indexVersionConflict) metadata.gitHead = tuple.target.mergeSha;
+      return Response.json(metadata);
+    }
+    if (pathname === `/${tuple.package.name}`) {
+      return Response.json(index(state.npm === "exact"));
+    }
+    if (pathname === "/-/npm/v1/keys") {
+      const keyMaterial =
+        state.signingKeyMaterial === "noncanonical"
+          ? "not canonical base64"
+          : state.signingKeyMaterial === "unsupported"
+            ? generateKeyPairSync("ed25519")
+                .publicKey.export({ type: "spki", format: "der" })
+                .toString("base64")
+            : publicKeyBytes.toString("base64");
+      return Response.json({
+        keys: [
+          {
+            keyid: keyId,
+            key: keyMaterial,
+            expires: null,
+          },
+          ...(state.malformedSigningKey ? [{}] : []),
+          ...(state.extraActiveSigningKey
+            ? [
+                {
+                  keyid: "SHA256:rotated",
+                  key: publicKeyBytes.toString("base64"),
+                  expires: null,
+                },
+              ]
+            : []),
+        ],
+      });
+    }
+    if (pathname.startsWith("/-/npm/v1/attestations/")) {
+      const currentBundle = currentAttestationBundle();
+      return Response.json({
+        attestations: [
+          {
+            predicateType: "https://slsa.dev/provenance/v1",
+            bundle: currentBundle,
+          },
+          ...(state.malformedProvenance
+            ? [
+                {
+                  predicateType: "https://slsa.dev/provenance/v1",
+                  bundle: { dsseEnvelope: { payload: "not-json" } },
+                },
+              ]
+            : []),
+          ...(state.malformedUntypedAttestation ? [{}] : []),
+          ...(state.duplicateProvenance
+            ? [
+                {
+                  predicateType: "https://slsa.dev/provenance/v1",
+                  bundle: currentBundle,
+                },
+              ]
+            : []),
+        ],
+      });
+    }
+    if (pathname.endsWith(`/${tuple.package.name}-${tuple.package.version}.tgz`)) {
+      return new Response(
+        state.tarballTampered
+          ? Buffer.concat([archive.subarray(0, -1), Buffer.from("X")])
+          : archive,
+      );
+    }
+    throw new Error(`unexpected fixture registry URL ${url}`);
+  };
+  let provenanceVerifications = 0;
+  const expectedTarball = {
+    archiveBytes: Buffer.from(archive),
+    entries: [...tuple.package.tarball.entries],
+  };
+  const clientOptions = {
+    repositoryRoot: REPOSITORY_ROOT,
+    commandRunner,
+    fetchImpl,
+    expectedTarball,
+    ...(useDefaultProvenanceVerifier
+      ? { provenanceModuleLoader }
+      : {
+          provenanceVerifier: async (bundle, candidate) => {
+            provenanceVerifications += 1;
+            if (state.provenanceThrows) {
+              const error = new Error("fixture verifier unavailable");
+              error.code = "PUBLIC_RELEASE_PROVENANCE_VERIFIER_UNAVAILABLE";
+              throw error;
+            }
+            assert.deepEqual(bundle, currentAttestationBundle());
+            assert.deepEqual(candidate, tuple);
+            return state.provenanceValid;
+          },
+        }),
+  };
+  const clients = createPublicReleaseClients(clientOptions);
+  return { archive, clients, expectedTarball, state, trace, tuple, get provenanceVerifications() {
+    return provenanceVerifications;
+  } };
+}
 
 function assertBoundedLiveQueryCounts(diagnostics) {
   const { queryCounts, queryPolicy } = diagnostics;
@@ -4256,6 +4895,93 @@ test("checkpoint-covered selected delivery remains durable report-only with prer
   );
 });
 
+test("public-release hydration freshly revalidates a checkpoint-covered selected delivery", async () => {
+  const prerequisite = task({ id: "0099", contractVersion: 3 });
+  const selected = task({
+    id: "0100",
+    dependencies: ["0099"],
+    contractVersion: 3,
+  });
+  const record = (taskId, digit) => ({
+    taskId,
+    taskSha256: digit.repeat(64),
+    testSha256: String(Number(digit) + 1).repeat(64),
+    taskStatus: "DONE",
+    testStatus: "PASSED",
+    classification: "HARDENED_EXACT_HEAD",
+    outcomeSha: digit.repeat(40),
+    mergeSha: String(Number(digit) + 1).repeat(40),
+    evidenceSha256: String(Number(digit) + 2).repeat(64),
+  });
+  const checkpoint = createStandardDeliveryContinuityCheckpoint({
+    repository: "owner/repository",
+    sourceMainSha: "f".repeat(40),
+    coveredRecords: [record("0099", "1"), record("0100", "4")],
+  }).checkpoint;
+  const freshEntry = Object.freeze({
+    schemaVersion: 2,
+    claim: "FINAL",
+    source: "FRESH_PUBLIC_RELEASE_FIXTURE",
+    taskId: "0100",
+  });
+  const freshExpectation = Object.freeze({
+    source: "FRESH_PUBLIC_RELEASE_FIXTURE",
+    taskId: "0100",
+  });
+  let currentCalls = 0;
+  const hydrated = await hydratePriorStandardDeliveries({
+    tasksRoot: "C:\\fixture\\docs\\tasks",
+    invocation: "$kyw-deliver 0100 --public-release",
+    queueInspector: async () => ({ tasks: [prerequisite, selected], errors: [] }),
+    continuityLoader: async () => ({
+      checkpoint,
+      partition: { coveredTasks: [prerequisite], uncoveredTasks: [] },
+      coveragePartition: {
+        coveredTasks: [prerequisite, selected],
+        uncoveredTasks: [],
+      },
+      coverageTasks: [prerequisite, selected],
+      recoveredImmutableTaskIds: [],
+      source: "ALIGNED_MAIN",
+      identity: {
+        repository: "owner/repository",
+        repositoryRoot: REPOSITORY_ROOT,
+        currentMainSha: "f".repeat(40),
+        upstreamSha: "f".repeat(40),
+        cachedMainSha: "f".repeat(40),
+        directRemoteSha: "f".repeat(40),
+        githubMainSha: "f".repeat(40),
+        githubClient: {},
+      },
+    }),
+    currentDeliveryHydrator: async ({ task: current }) => {
+      currentCalls += 1;
+      assert.equal(current.id, "0100");
+      return {
+        deliveryLedger: { "0100": freshEntry },
+        deliveryExpectations: { "0100": freshExpectation },
+        classifications: { "0100": "HARDENED_EXACT_HEAD" },
+        chronology: [],
+        diagnostics: {
+          taskId: "0100",
+          state: "SATISFIED",
+          source: "CANONICAL_DELIVERY_GRAPH",
+        },
+      };
+    },
+  });
+
+  assert.equal(currentCalls, 1);
+  assert.equal(hydrated.deliveryLedger["0100"], freshEntry);
+  assert.equal(hydrated.deliveryExpectations["0100"], freshExpectation);
+  assert.equal(
+    hydrated.deliveryLedger["0099"].classification,
+    "DURABLE_STANDARD_CONTINUITY",
+  );
+  assert.equal(hydrated.diagnostics.currentDelivery.source, "CANONICAL_DELIVERY_GRAPH");
+  assert.equal(hydrated.diagnostics.publicReleaseStandardRevalidation, true);
+});
+
 test("ordinary READY Task 0070 hydration is ID-isomorphic", async () => {
   const results = [];
   for (const id of ["0070", "0170"]) {
@@ -5232,6 +5958,52 @@ test("GitHub job adapter keeps all/latest and attempt-specific collection meanin
   );
 });
 
+test("GitHub adapters pin github.com despite hostile ambient host configuration", async (t) => {
+  const originalGitHubHost = process.env.GH_HOST;
+  process.env.GH_HOST = "attacker.invalid";
+  t.after(() => {
+    if (originalGitHubHost === undefined) delete process.env.GH_HOST;
+    else process.env.GH_HOST = originalGitHubHost;
+  });
+  const calls = [];
+  const cache = createInvocationCommandCache({
+    runner: ({ command, args }) => {
+      calls.push({ command, args: [...args] });
+      return {
+        status: 0,
+        stdout: args[0] === "api" ? "{}" : "bounded fixture log",
+        stderr: "",
+      };
+    },
+  });
+  const client = createGitHubEvidenceClient({
+    repository: "owner/repository",
+    repositoryRoot: REPOSITORY_ROOT,
+    commandCache: cache,
+  });
+  await client.getWorkflow({ taskId: "0058", role: "WORKFLOW" });
+  await client.getJobLog(501, 1, 601, {
+    taskId: "0058",
+    role: "JOB_LOG",
+  });
+  assert.deepEqual(calls[0].args.slice(0, 6), [
+    "api",
+    "--hostname",
+    "github.com",
+    "--method",
+    "GET",
+    "repos/owner/repository/actions/workflows/ci.yml",
+  ]);
+  assert.equal(
+    calls[1].args[calls[1].args.indexOf("--repo") + 1],
+    "github.com/owner/repository",
+  );
+  assert.equal(
+    calls.some(({ args }) => args.includes("attacker.invalid")),
+    false,
+  );
+});
+
 test("external command failure classes never expose raw GitHub diagnostics", async () => {
   for (const [stderr, pattern] of [
     ["gh is not logged into any GitHub hosts token=secret", /authentication failure/],
@@ -5682,3 +6454,1206 @@ test(
     );
   },
 );
+
+test("public-release tuple hydration packs only the immutable delivered tree", async (t) => {
+  const repositoryRoot = await mkdtemp(path.join(tmpdir(), "kyw-public-tuple-"));
+  t.after(() => rm(repositoryRoot, { recursive: true, force: true }));
+  const tasksRoot = path.join(repositoryRoot, "docs", "tasks");
+  await Promise.all([
+    mkdir(tasksRoot, { recursive: true }),
+    mkdir(path.join(repositoryRoot, ".github", "workflows"), { recursive: true }),
+    mkdir(path.join(repositoryRoot, ".codex-plugin"), { recursive: true }),
+    mkdir(path.join(repositoryRoot, "src"), { recursive: true }),
+  ]);
+  const repository = "owner/repository";
+  const packageJson = {
+    name: "kyw-dev",
+    version: "2.0.0",
+    private: false,
+    repository: {
+      type: "git",
+      url: `git+https://github.com/${repository}.git`,
+    },
+    type: "module",
+    files: [".codex-plugin/", "src/"],
+    publishConfig: {
+      access: "public",
+      registry: "https://registry.npmjs.org/",
+    },
+  };
+  const pluginJson = { name: "kyw-dev", version: "2.0.0" };
+  const workflowText = (await readFile(
+    path.join(REPOSITORY_ROOT, ".github", "workflows", "publish.yml"),
+    "utf8",
+  )).replaceAll("kimyeongwoo/kyw-dev", repository);
+  await Promise.all([
+    writeFile(
+      path.join(repositoryRoot, "package.json"),
+      `${JSON.stringify(packageJson, null, 2)}\n`,
+    ),
+    writeFile(
+      path.join(repositoryRoot, ".codex-plugin", "plugin.json"),
+      `${JSON.stringify(pluginJson, null, 2)}\n`,
+    ),
+    writeFile(
+      path.join(repositoryRoot, ".github", "workflows", "publish.yml"),
+      workflowText,
+    ),
+    writeFile(path.join(repositoryRoot, "src", "index.mjs"), "export const ok = true;\n"),
+  ]);
+  git(repositoryRoot, ["init", "-b", "main"]);
+  git(repositoryRoot, ["config", "user.email", "fixture@example.invalid"]);
+  git(repositoryRoot, ["config", "user.name", "Fixture"]);
+  git(repositoryRoot, ["add", "."]);
+  git(repositoryRoot, ["commit", "-m", "fixture"]);
+  const mergeSha = git(repositoryRoot, ["rev-parse", "HEAD"]);
+  const fixture = retargetHardenedFixtureMerge(hardenedFixture(), mergeSha);
+  const normalized = normalizeFixture(fixture);
+  assert.equal(
+    evaluateDeliveryEvidence(
+      fixture.outcome.taskId,
+      normalized.entry,
+      normalized.expectation,
+    ).satisfied,
+    true,
+  );
+
+  await writeFile(path.join(repositoryRoot, "later.txt"), "later main commit\n");
+  git(repositoryRoot, ["add", "later.txt"]);
+  git(repositoryRoot, ["commit", "-m", "advance main"]);
+  const advancedMainSha = git(repositoryRoot, ["rev-parse", "HEAD"]);
+
+  // A worktree-only npm config must not influence the exact archive checkout.
+  await writeFile(
+    path.join(repositoryRoot, ".npmrc"),
+    "registry=https://malicious.invalid/\n",
+  );
+  const commandTrace = [];
+  const tupleSigningPublicKey = generateKeyPairSync("ec", {
+    namedCurve: "P-256",
+  }).publicKey.export({ type: "spki", format: "der" });
+  const noMutation = async () => {
+    throw new Error("fixture public mutator must not run");
+  };
+  const suppliedClients = {
+    readPublishWorkflowIdentity: async () => ({
+      id: 77,
+      name: "Publish npm package through OIDC",
+      path: ".github/workflows/publish.yml",
+      state: "active",
+    }),
+    readPackageIndex: async (_identity, context) => {
+      assert.equal(context.fresh, true);
+      assert.equal(context.cacheBypass, true);
+      return {
+        versions: { "1.0.0": {} },
+        "dist-tags": { latest: "1.0.0" },
+      };
+    },
+    readSigningKeys: async (_registry, context) => {
+      assert.equal(context.purpose, "TUPLE_FREEZE");
+      return {
+        keys: [
+          {
+            keyid: "SHA256:fixture",
+            key: tupleSigningPublicKey.toString("base64"),
+            expires: null,
+          },
+        ],
+      };
+    },
+    readWorkflowRuns: async () => ({ runs: [], complete: true }),
+    readNpmVersion: async () => undefined,
+    readTag: async () => undefined,
+    readRelease: async () => undefined,
+    dispatchPublishWorkflow: noMutation,
+    createTag: noMutation,
+    createRelease: noMutation,
+  };
+  const hydrated = await hydratePublicReleaseContext({
+    tasksRoot,
+    taskId: fixture.outcome.taskId,
+    deliveryLedger: { [fixture.outcome.taskId]: normalized.entry },
+    deliveryExpectations: { [fixture.outcome.taskId]: normalized.expectation },
+    commandRunner: publicReleaseLocalRunner(commandTrace),
+    clients: suppliedClients,
+  });
+  assert.equal(Object.isFrozen(hydrated.tuple), true);
+  assert.equal(hydrated.tuple.target.mergeSha, mergeSha);
+  assert.deepEqual(hydrated.tuple.publishWorkflow.publisher, {
+    provider: "GitHub Actions",
+    authentication: "OIDC",
+    repository,
+    workflow: "publish.yml",
+    environment: "npm-production",
+    action: "npm publish",
+  });
+  assert.equal(hydrated.tuple.publishWorkflow.event, "workflow_dispatch");
+  assert.equal(hydrated.tuple.publishWorkflow.environment, "npm-production");
+  assert.equal(hydrated.diagnostics.baseHeadSha, advancedMainSha);
+  assert.equal(hydrated.diagnostics.baseHeadRelation, "DESCENDANT");
+  assert.equal(
+    hydrated.tuple.target.treeSha,
+    git(repositoryRoot, ["rev-parse", `${mergeSha}^{tree}`]),
+  );
+  assert.deepEqual(hydrated.tuple.package.priorVersions, ["1.0.0"]);
+  assert.equal(hydrated.tuple.package.priorLatest, "1.0.0");
+  assert.ok(hydrated.tuple.package.tarball.bytes > 0);
+  assert.deepEqual(
+    hydrated.tuple.package.tarball.entries,
+    [...hydrated.tuple.package.tarball.entries].sort(),
+  );
+  assert.equal(hydrated.diagnostics.repositoryMutation, false);
+  assert.equal(hydrated.diagnostics.externalMutation, false);
+  const archiveCall = commandTrace.find(
+    ({ command, args }) => command === "git" && args[0] === "archive",
+  );
+  const packCall = commandTrace.find(({ args }) => args.includes("pack"));
+  assert.equal(archiveCall.args.at(-1), mergeSha);
+  assert.notEqual(packCall.cwd, repositoryRoot);
+  assert.match(packCall.cwd, /kyw-public-release-pack-/u);
+  assert.equal(
+    commandTrace.some(({ command }) => command === "gh"),
+    false,
+  );
+
+  for (const publishConfigExtra of ["tag", "provenance", "extra"]) {
+    const sourceGuardTrace = [];
+    const sourceGuardRunner = publicReleaseLocalRunner(sourceGuardTrace);
+    await assert.rejects(
+      hydratePublicReleaseContext({
+        tasksRoot,
+        taskId: fixture.outcome.taskId,
+        deliveryLedger: { [fixture.outcome.taskId]: normalized.entry },
+        deliveryExpectations: {
+          [fixture.outcome.taskId]: normalized.expectation,
+        },
+        commandRunner: async (options) => {
+          if (
+            options.command === "git" &&
+            options.args[0] === "show" &&
+            options.args[1].endsWith(":package.json")
+          ) {
+            return {
+              status: 0,
+              stdout: JSON.stringify({
+                ...packageJson,
+                publishConfig: {
+                  ...packageJson.publishConfig,
+                  [publishConfigExtra]: "fixture-extra",
+                },
+              }),
+              stderr: "",
+            };
+          }
+          return sourceGuardRunner(options);
+        },
+        clients: suppliedClients,
+      }),
+      /repository\/access\/registry identity is not the expected public tuple/u,
+      publishConfigExtra,
+    );
+    assert.equal(
+      sourceGuardTrace.some(({ command, args }) =>
+        command === "gh" || args.includes("pack"),
+      ),
+      false,
+      publishConfigExtra,
+    );
+  }
+
+  const branchEntry = structuredClone(normalized.entry);
+  const branchExpectation = structuredClone(normalized.expectation);
+  branchEntry.merge.branch = "trunk";
+  branchEntry.pullRequest.baseRef = "trunk";
+  branchEntry.postMerge.branch = "trunk";
+  branchExpectation.baseRef = "trunk";
+  assert.equal(
+    evaluateDeliveryEvidence(
+      fixture.outcome.taskId,
+      branchEntry,
+      branchExpectation,
+    ).satisfied,
+    true,
+  );
+  await assert.rejects(
+    hydratePublicReleaseContext({
+      tasksRoot,
+      taskId: fixture.outcome.taskId,
+      deliveryLedger: { [fixture.outcome.taskId]: branchEntry },
+      deliveryExpectations: { [fixture.outcome.taskId]: branchExpectation },
+      commandRunner: publicReleaseLocalRunner([]),
+      clients: suppliedClients,
+    }),
+    /permits only the exact main base/u,
+  );
+
+  const oversizeTrace = [];
+  const localOversizeRunner = publicReleaseLocalRunner(oversizeTrace);
+  await assert.rejects(
+    hydratePublicReleaseContext({
+      tasksRoot,
+      taskId: fixture.outcome.taskId,
+      deliveryLedger: { [fixture.outcome.taskId]: normalized.entry },
+      deliveryExpectations: { [fixture.outcome.taskId]: normalized.expectation },
+      commandRunner: async (options) => {
+        if (options.args.includes("pack")) {
+          const packRoot = options.args[options.args.indexOf("--pack-destination") + 1];
+          await writeFile(
+            path.join(packRoot, "oversize.tgz"),
+            Buffer.alloc(8 * 1024 * 1024 + 1),
+          );
+          return {
+            status: 0,
+            stdout: JSON.stringify([
+              {
+                filename: "oversize.tgz",
+                files: [{ path: "package.json" }],
+              },
+            ]),
+            stderr: "",
+          };
+        }
+        return localOversizeRunner(options);
+      },
+      clients: suppliedClients,
+    }),
+    /generated archive must be a regular file between 1 and 8388608 bytes/u,
+  );
+});
+
+test("production public reads freeze terminal pair and continuity bytes, blobs, and modes", async (t) => {
+  const repositoryRoot = await mkdtemp(path.join(tmpdir(), "kyw-public-guard-"));
+  t.after(() => rm(repositoryRoot, { recursive: true, force: true }));
+  const tasksRoot = path.join(repositoryRoot, "docs", "tasks");
+  const pairRoot = path.join(tasksRoot, "0058-fixture");
+  const workflowRoot = path.join(repositoryRoot, ".github", "workflows");
+  const pluginRoot = path.join(repositoryRoot, ".codex-plugin");
+  const sourceRoot = path.join(repositoryRoot, "src");
+  await Promise.all([
+    mkdir(pairRoot, { recursive: true }),
+    mkdir(workflowRoot, { recursive: true }),
+    mkdir(pluginRoot, { recursive: true }),
+    mkdir(sourceRoot, { recursive: true }),
+  ]);
+  const repository = "owner/repository";
+  const taskPath = "docs/tasks/0058-fixture/TASK.md";
+  const testPath = "docs/tasks/0058-fixture/TEST.md";
+  const continuityPath = `docs/tasks/${STANDARD_DELIVERY_CONTINUITY_FILE}`;
+  const guardedBytes = new Map([
+    [
+      taskPath,
+      Buffer.from(
+        "# TASK 0058 — Fixture\n\n<!-- kyw-task-contract: 3 -->\n\n## Status\n\nDONE\n",
+      ),
+    ],
+    [
+      testPath,
+      Buffer.from(
+        "# TEST 0058 — Fixture\n\n<!-- kyw-task-contract: 3 -->\n\n## Status\n\nPASSED\n",
+      ),
+    ],
+    [continuityPath, Buffer.from('{"schemaVersion":1,"fixture":true}\n')],
+  ]);
+  const packageJson = {
+    name: "kyw-dev",
+    version: "2.0.0",
+    private: false,
+    repository: {
+      type: "git",
+      url: `git+https://github.com/${repository}.git`,
+    },
+    type: "module",
+    files: [".codex-plugin/", "src/"],
+    publishConfig: {
+      access: "public",
+      registry: "https://registry.npmjs.org/",
+    },
+  };
+  const workflowText = (await readFile(
+    path.join(REPOSITORY_ROOT, ".github", "workflows", "publish.yml"),
+    "utf8",
+  )).replaceAll("kimyeongwoo/kyw-dev", repository);
+  await Promise.all([
+    ...[...guardedBytes].map(([relativePath, bytes]) =>
+      writeFile(path.join(repositoryRoot, relativePath), bytes),
+    ),
+    writeFile(
+      path.join(repositoryRoot, "package.json"),
+      `${JSON.stringify(packageJson, null, 2)}\n`,
+    ),
+    writeFile(
+      path.join(pluginRoot, "plugin.json"),
+      `${JSON.stringify({ name: "kyw-dev", version: "2.0.0" }, null, 2)}\n`,
+    ),
+    writeFile(path.join(workflowRoot, "publish.yml"), workflowText),
+    writeFile(path.join(sourceRoot, "index.mjs"), "export const ok = true;\n"),
+  ]);
+  git(repositoryRoot, ["init", "-b", "main"]);
+  git(repositoryRoot, ["config", "user.email", "fixture@example.invalid"]);
+  git(repositoryRoot, ["config", "user.name", "Fixture"]);
+  git(repositoryRoot, ["config", "core.autocrlf", "false"]);
+  git(repositoryRoot, ["add", "."]);
+  git(repositoryRoot, ["commit", "-m", "freeze guarded publication source"]);
+  const mergeSha = git(repositoryRoot, ["rev-parse", "HEAD"]);
+  const fixture = retargetHardenedFixtureMerge(hardenedFixture(), mergeSha);
+  const normalized = normalizeFixture(fixture);
+  await writeFile(path.join(repositoryRoot, "later.txt"), "unrelated descendant\n");
+  git(repositoryRoot, ["add", "later.txt"]);
+  git(repositoryRoot, ["commit", "-m", "advance main without guarded drift"]);
+  const advancedMainSha = git(repositoryRoot, ["rev-parse", "HEAD"]);
+  const advancedTreeSha = git(repositoryRoot, [
+    "rev-parse",
+    `${advancedMainSha}^{tree}`,
+  ]);
+
+  const gitEntries = new Map(
+    [...guardedBytes.keys()].map((relativePath) => {
+      const line = git(repositoryRoot, ["ls-tree", advancedMainSha, "--", relativePath]);
+      const matched = /^(\d+) blob ([0-9a-f]{40})\t(.+)$/u.exec(line);
+      assert.ok(matched, relativePath);
+      return [relativePath, { mode: matched[1], sha: matched[2] }];
+    }),
+  );
+  const state = { remoteModePath: undefined };
+  const guardedSigningPublicKey = generateKeyPairSync("ec", {
+    namedCurve: "P-256",
+  }).publicKey.export({ type: "spki", format: "der" });
+  const trace = [];
+  const localRunner = publicReleaseLocalRunner(trace);
+  const commandRunner = async (options) => {
+    if (options.command !== "gh") return localRunner(options);
+    trace.push({ command: options.command, args: [...options.args], cwd: options.cwd });
+    const { args } = options;
+    assert.equal(args[args.indexOf("--hostname") + 1], "github.com");
+    assert.equal(args[args.indexOf("--method") + 1], "GET");
+    const endpoint = args.at(-1);
+    const result = (value) => ({
+      status: 0,
+      stdout: JSON.stringify(value),
+      stderr: "",
+    });
+    if (endpoint.includes("/actions/workflows/publish.yml")) {
+      return result({
+        id: 77,
+        name: "Publish npm package through OIDC",
+        path: ".github/workflows/publish.yml",
+        state: "active",
+      });
+    }
+    if (endpoint.includes("/git/ref/heads/main")) {
+      return result({
+        ref: "refs/heads/main",
+        object: { type: "commit", sha: advancedMainSha },
+      });
+    }
+    if (endpoint.includes("/compare/")) {
+      return result({
+        status: "ahead",
+        base_commit: { sha: mergeSha },
+        merge_base_commit: { sha: mergeSha },
+      });
+    }
+    if (endpoint.includes(`/git/commits/${advancedMainSha}`)) {
+      return result({ sha: advancedMainSha, tree: { sha: advancedTreeSha } });
+    }
+    if (endpoint.includes(`/git/trees/${advancedTreeSha}`)) {
+      return result({
+        sha: advancedTreeSha,
+        truncated: false,
+        tree: [...gitEntries].map(([relativePath, entry]) => ({
+          path: relativePath,
+          mode:
+            state.remoteModePath === relativePath ? "100755" : entry.mode,
+          type: "blob",
+          sha: entry.sha,
+        })),
+      });
+    }
+    if (endpoint.includes("/contents/")) {
+      const encodedPath = endpoint.split("/contents/")[1].split("?")[0];
+      const relativePath = decodeURIComponent(encodedPath);
+      const entry = gitEntries.get(relativePath);
+      const bytes = guardedBytes.get(relativePath);
+      assert.ok(entry && bytes, relativePath);
+      return result({
+        type: "file",
+        encoding: "base64",
+        content: bytes.toString("base64"),
+        sha: entry.sha,
+        size: bytes.length,
+      });
+    }
+    if (endpoint.includes("/actions/workflows/77/runs?")) {
+      return result({ total_count: 0, workflow_runs: [] });
+    }
+    throw new Error(`unexpected guarded fixture endpoint ${endpoint}`);
+  };
+  const fetchImpl = async (url) => {
+    const pathname = decodeURIComponent(url.pathname);
+    if (pathname === "/kyw-dev") {
+      return Response.json({
+        name: "kyw-dev",
+        versions: { "1.0.0": {} },
+        "dist-tags": { latest: "1.0.0" },
+      });
+    }
+    if (pathname === "/-/npm/v1/keys") {
+      return Response.json({
+        keys: [
+          {
+            keyid: "SHA256:fixture",
+            key: guardedSigningPublicKey.toString("base64"),
+            expires: null,
+          },
+        ],
+      });
+    }
+    throw new Error(`unexpected guarded fixture registry URL ${url}`);
+  };
+  const hydrated = await hydratePublicReleaseContext({
+    tasksRoot,
+    taskId: fixture.outcome.taskId,
+    deliveryLedger: { [fixture.outcome.taskId]: normalized.entry },
+    deliveryExpectations: { [fixture.outcome.taskId]: normalized.expectation },
+    commandRunner,
+    fetchImpl,
+  });
+  for (const purpose of [
+    "INITIAL_PREFLIGHT",
+    "PRE_TAG_WRITE",
+    "FINAL_PROOF",
+  ]) {
+    const snapshot = await hydrated.clients.readWorkflowRuns(hydrated.tuple, {
+      fresh: true,
+      cacheBypass: true,
+      purpose,
+      sequence: 1,
+    });
+    assert.deepEqual(snapshot.runs, []);
+    assert.equal(snapshot.baseHeadSha, advancedMainSha);
+  }
+  const githubEndpoints = trace
+    .filter(({ command }) => command === "gh")
+    .map(({ args }) => args.at(-1));
+  assert.ok(
+    githubEndpoints.findIndex((endpoint) =>
+      endpoint.includes(`/git/commits/${advancedMainSha}`),
+    ) <
+      githubEndpoints.findIndex((endpoint) =>
+        endpoint.includes(`/git/trees/${advancedTreeSha}`),
+      ),
+  );
+  state.remoteModePath = taskPath;
+  await assert.rejects(
+    hydrated.clients.readWorkflowRuns(hydrated.tuple, {
+      fresh: true,
+      cacheBypass: true,
+      purpose: "FINAL_PROOF",
+      sequence: 2,
+    }),
+    /mode or blob identity changed/u,
+  );
+  state.remoteModePath = undefined;
+  await writeFile(path.join(repositoryRoot, testPath), "worktree drift\n");
+  await assert.rejects(
+    hydrated.clients.readWorkflowRuns(hydrated.tuple, {
+      fresh: true,
+      cacheBypass: true,
+      purpose: "PRE_RELEASE_WRITE",
+      sequence: 3,
+    }),
+    /artifact bytes changed/u,
+  );
+  await writeFile(path.join(repositoryRoot, testPath), guardedBytes.get(testPath));
+  await writeFile(path.join(repositoryRoot, continuityPath), "continuity drift\n");
+  await assert.rejects(
+    hydrated.clients.readWorkflowRuns(hydrated.tuple, {
+      fresh: true,
+      cacheBypass: true,
+      purpose: "FINAL_PROOF",
+      sequence: 4,
+    }),
+    /artifact bytes changed/u,
+  );
+  assert.equal(
+    trace
+      .filter(({ command }) => command === "gh")
+      .some(({ args }) => args.includes("attacker.invalid")),
+    false,
+  );
+});
+
+test("production public clients use fresh bounded reads and one guarded POST per ordered stage", async (t) => {
+  const originalGitHubHost = process.env.GH_HOST;
+  process.env.GH_HOST = "attacker.invalid";
+  t.after(() => {
+    if (originalGitHubHost === undefined) delete process.env.GH_HOST;
+    else process.env.GH_HOST = originalGitHubHost;
+  });
+  const harness = await publicClientHarness();
+  const { clients, state, trace, tuple } = harness;
+  const context = {
+    fresh: true,
+    cacheBypass: true,
+    purpose: "FIXTURE_PREFLIGHT",
+    sequence: 7,
+  };
+  const workflowAbsent = await clients.readWorkflowRuns(tuple, context);
+  const npmAbsent = await clients.readNpmVersion(tuple, context);
+  const tagAbsent = await clients.readTag(tuple, context);
+  const releaseAbsent = await clients.readRelease(tuple, context);
+  assert.deepEqual(workflowAbsent.runs, []);
+  assert.equal(workflowAbsent.complete, true);
+  assert.equal(workflowAbsent.baseHeadSha, tuple.target.mergeSha);
+  assert.equal(npmAbsent.absent, true);
+  assert.equal(npmAbsent.indexComplete, true);
+  assert.deepEqual(npmAbsent.versions, tuple.package.priorVersions);
+  assert.equal(npmAbsent.signatureKeyId, tuple.package.signature.keyId);
+  assert.deepEqual(tagAbsent, { tags: [], complete: true });
+  assert.deepEqual(releaseAbsent, { releases: [], complete: true });
+
+  await clients.dispatchPublishWorkflow(tuple, { attempt: 1 });
+  assert.equal(state.workflow, "active");
+  const active = await clients.readWorkflowRuns(tuple, context);
+  assert.equal(active.runs[0].status, "queued");
+  assert.equal("publishAttempts" in active.runs[0], false);
+  assert.equal(
+    trace.some(
+      ({ kind, args = [] }) =>
+        kind === "command" &&
+        args.some((arg) => String(arg).includes("/attempts/1/jobs")) &&
+        state.workflow === "active",
+    ),
+    false,
+  );
+
+  state.workflow = "success";
+  state.npm = "exact";
+  state.remoteHeadSha = "a".repeat(40);
+  const workflowExact = await clients.readWorkflowRuns(tuple, context);
+  const npmExact = await clients.readNpmVersion(tuple, context);
+  assert.equal(workflowExact.runs[0].publishAttempts.length, 1);
+  assert.equal(workflowExact.runs[0].inputs.expectedSha, tuple.target.mergeSha);
+  assert.equal(npmExact.tarball.rawBytesVerified, true);
+  assert.deepEqual(npmExact.tarball.entries, tuple.package.tarball.entries);
+  assert.equal(npmExact.provenance.verified, true);
+  assert.equal(npmExact.provenance.runId, 501);
+  assert.equal(npmExact.provenance.runAttempt, 1);
+  assert.equal(harness.provenanceVerifications, 1);
+
+  await clients.createTag(tuple, { attempt: 1 });
+  assert.equal(state.tag, "exact");
+  const exactTag = await clients.readTag(tuple, context);
+  assert.equal(exactTag.tags.length, 1);
+  assert.equal(exactTag.tags[0].targetSha, tuple.target.mergeSha);
+  await clients.createRelease(tuple, { attempt: 1 });
+  assert.equal(state.release, "exact");
+  const exactRelease = await clients.readRelease(tuple, context);
+  assert.equal(exactRelease.releases.length, 1);
+  assert.equal(exactRelease.releases[0].tagTargetSha, tuple.target.mergeSha);
+
+  const posts = trace.filter(({ kind }) => kind === "post");
+  assert.equal(posts.length, 3);
+  assert.match(posts[0].endpoint, /\/dispatches$/u);
+  for (const [name, value] of Object.entries(
+    derivePublicReleaseWorkflowInputs(tuple),
+  )) {
+    assert.ok(
+      posts[0].args.includes(`inputs[${name}]=${value}`),
+      `missing workflow input ${name}`,
+    );
+  }
+  assert.match(posts[1].endpoint, /\/git\/refs$/u);
+  assert.ok(posts[1].args.includes(`sha=${tuple.target.mergeSha}`));
+  assert.match(posts[2].endpoint, /\/releases$/u);
+  assert.ok(posts[2].args.includes(`target_commitish=${tuple.target.mergeSha}`));
+  for (const read of trace.filter(
+    ({ kind, command, args = [] }) =>
+      kind === "command" &&
+      command === "gh" &&
+      args[args.indexOf("--method") + 1] === "GET",
+  )) {
+    assert.equal(read.args[read.args.indexOf("--hostname") + 1], "github.com");
+    assert.ok(read.args.includes("Cache-Control: no-cache, no-store, max-age=0"));
+    assert.ok(read.args.includes("Pragma: no-cache"));
+    assert.match(read.args.at(-1), /kyw-public-read=/u);
+  }
+  const runQuery = trace
+    .filter(
+      ({ kind, args = [] }) =>
+        kind === "command" && args[args.indexOf("--method") + 1] === "GET",
+    )
+    .map(({ args }) => args.at(-1))
+    .find((endpoint) => endpoint.includes("/actions/workflows/77/runs?"));
+  assert.match(runQuery, new RegExp(`head_sha=${tuple.target.mergeSha}`, "u"));
+  assert.doesNotMatch(runQuery, /(?:^|[?&])branch=/u);
+  assert.equal(
+    trace.some(({ kind, url = "" }) =>
+      kind === "fetch" && !url.startsWith("https://registry.npmjs.org/"),
+    ),
+    false,
+  );
+});
+
+test("shared runner over production clients blocks stale npm dispatch and resumes later stages after main advances", async () => {
+  const blockedNpm = await publicClientHarness();
+  blockedNpm.state.remoteHeadSha = "a".repeat(40);
+  const blocked = await runPublicRelease({
+    standardDelivery: publicClientStandardFinal(blockedNpm.tuple),
+    tuple: blockedNpm.tuple,
+    clients: blockedNpm.clients,
+    reconciliationReads: 1,
+  });
+  assert.equal(blocked.outcome, "BLOCKED");
+  assert.equal(blocked.blockingStage, "NPM");
+  assert.equal(blockedNpm.trace.some(({ kind }) => kind === "post"), false);
+
+  const tagResume = await publicClientHarness();
+  tagResume.state.remoteHeadSha = "a".repeat(40);
+  tagResume.state.workflow = "success";
+  tagResume.state.npm = "exact";
+  const resumedFromTag = await runPublicRelease({
+    standardDelivery: publicClientStandardFinal(tagResume.tuple),
+    tuple: tagResume.tuple,
+    clients: tagResume.clients,
+    reconciliationReads: 1,
+  });
+  assert.equal(
+    resumedFromTag.outcome,
+    "COMPLETE",
+    JSON.stringify(resumedFromTag),
+  );
+  assert.deepEqual(
+    tagResume.trace
+      .filter(({ kind }) => kind === "post")
+      .map(({ endpoint }) => endpoint),
+    [
+      `repos/${tagResume.tuple.repository}/git/refs`,
+      `repos/${tagResume.tuple.repository}/releases`,
+    ],
+  );
+
+  const releaseResume = await publicClientHarness();
+  releaseResume.state.remoteHeadSha = "a".repeat(40);
+  releaseResume.state.workflow = "success";
+  releaseResume.state.npm = "exact";
+  releaseResume.state.tag = "exact";
+  const resumedFromRelease = await runPublicRelease({
+    standardDelivery: publicClientStandardFinal(releaseResume.tuple),
+    tuple: releaseResume.tuple,
+    clients: releaseResume.clients,
+    reconciliationReads: 1,
+  });
+  assert.equal(resumedFromRelease.outcome, "COMPLETE");
+  assert.deepEqual(
+    releaseResume.trace
+      .filter(({ kind }) => kind === "post")
+      .map(({ endpoint }) => endpoint),
+    [`repos/${releaseResume.tuple.repository}/releases`],
+  );
+});
+
+test("production public clients fail closed on drift, partial pages, byte tamper, and malformed evidence", async () => {
+  const harness = await publicClientHarness();
+  const { clients, state, trace, tuple } = harness;
+  const context = {
+    fresh: true,
+    cacheBypass: true,
+    purpose: "FIXTURE_NEGATIVE",
+    sequence: 9,
+  };
+
+  state.remoteHeadSha = "a".repeat(40);
+  await assert.rejects(
+    clients.dispatchPublishWorkflow(tuple, { attempt: 1 }),
+    { code: "PUBLIC_RELEASE_PREWRITE_STATE_CHANGED" },
+  );
+  assert.equal(trace.some(({ kind }) => kind === "post"), false);
+
+  state.remoteHeadSha = tuple.target.mergeSha;
+  state.treeSha = "f".repeat(40);
+  await assert.rejects(
+    clients.readWorkflowRuns(tuple, context),
+    /exact delivered source drifted/u,
+  );
+  state.treeSha = tuple.target.treeSha;
+  state.remoteHeadSha = "a".repeat(40);
+  state.compareStatus = "diverged";
+  await assert.rejects(
+    clients.readWorkflowRuns(tuple, context),
+    /exact delivered source drifted/u,
+  );
+  state.remoteHeadSha = tuple.target.mergeSha;
+  state.compareStatus = "ahead";
+  state.runsIncomplete = true;
+  assert.deepEqual(await clients.readWorkflowRuns(tuple, context), {
+    runs: [],
+    complete: false,
+    baseHeadSha: tuple.target.mergeSha,
+  });
+  state.runsIncomplete = false;
+  state.workflow = "success";
+  state.jobsIncomplete = true;
+  await assert.rejects(
+    clients.readWorkflowRuns(tuple, context),
+    /workflow job collection is incomplete/u,
+  );
+  state.jobsIncomplete = false;
+
+  state.workflow = "active";
+  state.workflowHeadSha = "f".repeat(40);
+  const wrongHeadRun = await clients.readWorkflowRuns(tuple, context);
+  assert.equal(wrongHeadRun.runs[0].headSha, "f".repeat(40));
+  assert.equal(
+    classifyPublicationWorkflow(tuple, wrongHeadRun).classification,
+    "CONFLICT",
+  );
+  state.workflowHeadSha = undefined;
+  const missingHeadRun = await clients.readWorkflowRuns(tuple, context);
+  assert.equal(missingHeadRun.runs[0].headSha, undefined);
+  assert.equal(
+    classifyPublicationWorkflow(tuple, missingHeadRun).classification,
+    "UNKNOWN",
+  );
+  state.workflow = "absent";
+  state.workflowHeadSha = tuple.target.mergeSha;
+
+  state.workflowId = String(tuple.publishWorkflow.id);
+  await assert.rejects(
+    clients.readWorkflowRuns(tuple, context),
+    /workflow identity drifted/u,
+  );
+  state.workflowId = tuple.publishWorkflow.id;
+  state.workflow = "active";
+  state.runId = "501";
+  await assert.rejects(
+    clients.readWorkflowRuns(tuple, context),
+    /malformed numeric identifier/u,
+  );
+  state.runId = 501;
+  state.workflow = "success";
+  state.jobId = "601";
+  await assert.rejects(
+    clients.readWorkflowRuns(tuple, context),
+    /one-job contract/u,
+  );
+  state.jobId = 601;
+  state.workflow = "absent";
+
+  state.tagPageFull = true;
+  assert.deepEqual(await clients.readTag(tuple, context), {
+    tags: [],
+    complete: false,
+  });
+  state.tagPageFull = false;
+  state.malformedTagEntry = true;
+  assert.deepEqual(await clients.readTag(tuple, context), {
+    tags: [],
+    complete: false,
+  });
+  state.malformedTagEntry = false;
+  state.tag = "nested";
+  const nestedTag = await clients.readTag(tuple, context);
+  assert.equal(nestedTag.tags[0].objectType, "tag");
+  assert.equal(nestedTag.tags[0].peelComplete, false);
+  assert.equal(classifyGitTag(tuple, nestedTag).classification, "CONFLICT");
+  state.tag = "annotated";
+  const annotatedTag = await clients.readTag(tuple, context);
+  assert.equal(annotatedTag.tags[0].objectType, "tag");
+  assert.equal(annotatedTag.tags[0].peelComplete, true);
+  assert.equal(annotatedTag.tags[0].peeledSha, tuple.target.mergeSha);
+  state.tag = "annotatedWrongName";
+  const wrongEmbeddedTag = await clients.readTag(tuple, context);
+  assert.equal(wrongEmbeddedTag.tags[0].peelComplete, false);
+  assert.equal(
+    classifyGitTag(tuple, wrongEmbeddedTag).classification,
+    "CONFLICT",
+  );
+  state.tag = "annotatedMissingIdentity";
+  const unreadableAnnotatedTag = await clients.readTag(tuple, context);
+  assert.equal(unreadableAnnotatedTag.tags[0].peelComplete, undefined);
+  assert.equal(
+    classifyGitTag(tuple, unreadableAnnotatedTag).classification,
+    "UNKNOWN",
+  );
+  state.tag = "namespace";
+  const namespaceTag = await clients.readTag(tuple, context);
+  assert.equal(namespaceTag.tags[0].namespaceCollision, true);
+  state.tag = "absent";
+  state.releasePageFull = true;
+  assert.deepEqual(await clients.readRelease(tuple, context), {
+    releases: [],
+    complete: false,
+  });
+  state.releasePageFull = false;
+  state.malformedReleaseByTag = true;
+  assert.deepEqual(await clients.readRelease(tuple, context), {
+    releases: [],
+    complete: false,
+  });
+  state.malformedReleaseByTag = false;
+  state.malformedReleaseListEntry = true;
+  assert.deepEqual(await clients.readRelease(tuple, context), {
+    releases: [],
+    complete: false,
+  });
+  state.malformedReleaseListEntry = false;
+  state.release = "exact";
+  state.releaseId = "701";
+  assert.deepEqual(await clients.readRelease(tuple, context), {
+    releases: [],
+    complete: false,
+  });
+
+  const tampered = await publicClientHarness();
+  tampered.state.npm = "exact";
+  tampered.state.tarballTampered = true;
+  const exact = await tampered.clients.readNpmVersion(tampered.tuple, context);
+  assert.equal(exact.tarball.rawBytesVerified, false);
+  assert.deepEqual(exact.tarball.entries, []);
+  assert.ok(tampered.trace.some(({ kind }) => kind === "fetch"));
+
+  const wrongOrigin = await publicClientHarness();
+  wrongOrigin.state.npm = "exact";
+  wrongOrigin.state.tarballOrigin = "https://malicious.invalid";
+  const requestsBeforeWrongOrigin = wrongOrigin.trace.filter(
+    ({ kind }) => kind === "fetch",
+  ).length;
+  await assert.rejects(
+    wrongOrigin.clients.readNpmVersion(wrongOrigin.tuple, context),
+    /outside the exact canonical registry path/u,
+  );
+  assert.equal(
+    wrongOrigin.trace.filter(({ kind }) => kind === "fetch").length,
+    requestsBeforeWrongOrigin + 1,
+  );
+
+  const wrongPath = await publicClientHarness();
+  wrongPath.state.npm = "exact";
+  wrongPath.state.tarballPath = `/${wrongPath.tuple.package.name}/-/wrong-name.tgz`;
+  await assert.rejects(
+    wrongPath.clients.readNpmVersion(wrongPath.tuple, context),
+    /outside the exact canonical registry path/u,
+  );
+
+  const inconsistentIndex = await publicClientHarness();
+  inconsistentIndex.state.npm = "exact";
+  inconsistentIndex.state.indexVersionConflict = true;
+  await assert.rejects(
+    inconsistentIndex.clients.readNpmVersion(inconsistentIndex.tuple, context),
+    /do not expose one exact immutable target identity/u,
+  );
+  assert.equal(
+    inconsistentIndex.trace.some(({ kind }) => kind === "post"),
+    false,
+  );
+
+  const wrongAbsentIndex = await publicClientHarness();
+  wrongAbsentIndex.state.indexName = "wrong-package";
+  await assert.rejects(
+    wrongAbsentIndex.clients.readNpmVersion(wrongAbsentIndex.tuple, context),
+    /package index is malformed/u,
+  );
+
+  const malformedKeys = await publicClientHarness();
+  malformedKeys.state.malformedSigningKey = true;
+  await assert.rejects(
+    malformedKeys.clients.readNpmVersion(malformedKeys.tuple, context),
+    /unreadable key record/u,
+  );
+
+  const rotatedKeys = await publicClientHarness();
+  rotatedKeys.state.extraActiveSigningKey = true;
+  await assert.rejects(
+    rotatedKeys.clients.readNpmVersion(rotatedKeys.tuple, context),
+    /one exact current signing key/u,
+  );
+
+  for (const signingKeyMaterial of ["noncanonical", "unsupported"]) {
+    const invalidKey = await publicClientHarness();
+    invalidKey.state.signingKeyMaterial = signingKeyMaterial;
+    await assert.rejects(
+      invalidKey.clients.readNpmVersion(invalidKey.tuple, context),
+      /unreadable key record/u,
+      signingKeyMaterial,
+    );
+  }
+
+  const malformedImmutableSignature = await publicClientHarness();
+  malformedImmutableSignature.state.npm = "exact";
+  malformedImmutableSignature.state.registrySignatureSuffix = "!!";
+  const malformedSignatureSnapshot =
+    await malformedImmutableSignature.clients.readNpmVersion(
+      malformedImmutableSignature.tuple,
+      context,
+    );
+  assert.equal(malformedSignatureSnapshot.signature.verified, false);
+  assert.equal(
+    classifyNpmPublication(
+      malformedImmutableSignature.tuple,
+      malformedSignatureSnapshot,
+    ).classification,
+    "CONFLICT",
+  );
+
+  const releaseWithoutAssets = await publicClientHarness();
+  releaseWithoutAssets.state.tag = "exact";
+  releaseWithoutAssets.state.release = "exact";
+  releaseWithoutAssets.state.releaseAssetsMissing = true;
+  const unreadableAssetPolicy = await releaseWithoutAssets.clients.readRelease(
+    releaseWithoutAssets.tuple,
+    context,
+  );
+  assert.equal(unreadableAssetPolicy.releases[0].assets, undefined);
+  assert.equal(
+    classifyGitHubRelease(
+      releaseWithoutAssets.tuple,
+      unreadableAssetPolicy,
+    ).classification,
+    "UNKNOWN",
+  );
+
+  const divergentRelease = await publicClientHarness();
+  divergentRelease.state.tag = "exact";
+  divergentRelease.state.release = "exact";
+  divergentRelease.state.releaseByTagConflict = true;
+  const divergentEndpoints = await divergentRelease.clients.readRelease(
+    divergentRelease.tuple,
+    context,
+  );
+  assert.equal(divergentEndpoints.releases.length, 2);
+  assert.equal(
+    classifyGitHubRelease(
+      divergentRelease.tuple,
+      divergentEndpoints,
+    ).classification,
+    "CONFLICT",
+  );
+
+  const privateArtifact = await publicClientHarness();
+  privateArtifact.state.npm = "exact";
+  privateArtifact.expectedTarball.archiveBytes.fill(0);
+  privateArtifact.expectedTarball.entries.push("mutated-after-construction");
+  const privatelyFrozen = await privateArtifact.clients.readNpmVersion(
+    privateArtifact.tuple,
+    context,
+  );
+  assert.equal(privatelyFrozen.tarball.rawBytesVerified, true);
+  assert.deepEqual(
+    privatelyFrozen.tarball.entries,
+    privateArtifact.tuple.package.tarball.entries,
+  );
+
+  const unavailableVerifier = await publicClientHarness();
+  unavailableVerifier.state.npm = "exact";
+  unavailableVerifier.state.provenanceThrows = true;
+  const unavailable = await unavailableVerifier.clients.readNpmVersion(
+    unavailableVerifier.tuple,
+    context,
+  );
+  assert.equal(unavailable.provenance.verified, undefined);
+
+  const mismatchedProvenance = await publicClientHarness();
+  mismatchedProvenance.state.npm = "exact";
+  mismatchedProvenance.state.provenanceValid = false;
+  const mismatch = await mismatchedProvenance.clients.readNpmVersion(
+    mismatchedProvenance.tuple,
+    context,
+  );
+  assert.equal(mismatch.provenance.verified, false);
+
+  const ambiguousProvenance = await publicClientHarness();
+  ambiguousProvenance.state.npm = "exact";
+  ambiguousProvenance.state.malformedProvenance = true;
+  const ambiguous = await ambiguousProvenance.clients.readNpmVersion(
+    ambiguousProvenance.tuple,
+    context,
+  );
+  assert.equal(ambiguous.provenance.verified, undefined);
+
+  const untypedProvenance = await publicClientHarness();
+  untypedProvenance.state.npm = "exact";
+  untypedProvenance.state.malformedUntypedAttestation = true;
+  const untyped = await untypedProvenance.clients.readNpmVersion(
+    untypedProvenance.tuple,
+    context,
+  );
+  assert.equal(untyped.provenance.verified, undefined);
+
+  const duplicateProvenance = await publicClientHarness();
+  duplicateProvenance.state.npm = "exact";
+  duplicateProvenance.state.duplicateProvenance = true;
+  const duplicate = await duplicateProvenance.clients.readNpmVersion(
+    duplicateProvenance.tuple,
+    context,
+  );
+  assert.equal(duplicate.provenance.verified, false);
+
+  for (const [field, value] of [
+    ["provenancePayloadType", "application/vnd.attacker+json"],
+    ["signedStatementType", "https://attacker.invalid/Statement/v1"],
+    ["signedPredicateType", "https://attacker.invalid/provenance/v1"],
+    ["duplicateProvenanceSubject", true],
+  ]) {
+    const hostileStatement = await publicClientHarness();
+    hostileStatement.state.npm = "exact";
+    hostileStatement.state[field] = value;
+    const hostileSnapshot = await hostileStatement.clients.readNpmVersion(
+      hostileStatement.tuple,
+      context,
+    );
+    assert.equal(hostileSnapshot.provenance.verified, false, field);
+  }
+
+  const missingPayloadType = await publicClientHarness();
+  missingPayloadType.state.npm = "exact";
+  missingPayloadType.state.provenancePayloadType = undefined;
+  const missingPayloadTypeSnapshot =
+    await missingPayloadType.clients.readNpmVersion(
+      missingPayloadType.tuple,
+      context,
+    );
+  assert.equal(missingPayloadTypeSnapshot.provenance.verified, undefined);
+
+  for (const field of [
+    "provenancePayloadSuffix",
+    "provenanceSignatureSuffix",
+  ]) {
+    const malformedDsse = await publicClientHarness();
+    malformedDsse.state.npm = "exact";
+    malformedDsse.state[field] = "!!";
+    const malformedDsseSnapshot = await malformedDsse.clients.readNpmVersion(
+      malformedDsse.tuple,
+      context,
+    );
+    assert.equal(malformedDsseSnapshot.provenance.verified, undefined, field);
+  }
+
+  for (const dependencyField of [
+    "dependencies",
+    "devDependencies",
+    "optionalDependencies",
+    "bundledDependencies",
+    "bundleDependencies",
+    "peerDependencies",
+  ]) {
+    const dependency = await publicClientHarness();
+    dependency.state.dependencyField = dependencyField;
+    await assert.rejects(
+      dependency.clients.readWorkflowRuns(dependency.tuple, context),
+      /dependencies or lifecycle scripts violate/u,
+      dependencyField,
+    );
+    assert.equal(
+      dependency.trace.some(({ kind }) => kind === "post"),
+      false,
+      dependencyField,
+    );
+  }
+
+  for (const publishConfigExtra of ["tag", "provenance", "extra"]) {
+    const publishConfig = await publicClientHarness();
+    publishConfig.state.publishConfigExtra = publishConfigExtra;
+    await assert.rejects(
+      publishConfig.clients.readWorkflowRuns(publishConfig.tuple, context),
+      /repository\/access\/registry identity is not the expected public tuple/u,
+      publishConfigExtra,
+    );
+    assert.equal(
+      publishConfig.trace.some(({ kind }) => kind === "post"),
+      false,
+      publishConfigExtra,
+    );
+  }
+
+  const sanitized = redactPublicReleaseDiagnostics(
+    new Error(
+      "Bearer ghp_abcdefghijklmnopqrstuvwxyz012345 token=npm_secret_abcdefghijklmnopqrstuvwxyz https://user:password@example.invalid/x",
+    ),
+  );
+  assert.doesNotMatch(JSON.stringify(sanitized), /ghp_|npm_secret_|password/u);
+});
+
+test("production provenance discovery ignores hostile npm_execpath", async (t) => {
+  const originalNpmExecPath = process.env.npm_execpath;
+  process.env.npm_execpath = path.join(
+    REPOSITORY_ROOT,
+    "attacker-controlled",
+    "npm-cli.js",
+  );
+  t.after(() => {
+    if (originalNpmExecPath === undefined) delete process.env.npm_execpath;
+    else process.env.npm_execpath = originalNpmExecPath;
+  });
+  const requestedModules = [];
+  const harness = await publicClientHarness({
+    useDefaultProvenanceVerifier: true,
+    provenanceModuleLoader: (modulePath) => {
+      requestedModules.push(modulePath);
+      throw new Error("fixture module unavailable");
+    },
+  });
+  harness.state.npm = "exact";
+  const snapshot = await harness.clients.readNpmVersion(harness.tuple, {
+    fresh: true,
+    cacheBypass: true,
+    purpose: "FIXTURE_PROVENANCE_DISCOVERY",
+    sequence: 1,
+  });
+  assert.equal(snapshot.provenance.verified, undefined);
+  assert.equal(requestedModules.length, 3);
+  assert.equal(
+    requestedModules.some((modulePath) =>
+      modulePath.includes("attacker-controlled"),
+    ),
+    false,
+  );
+  assert.equal(
+    requestedModules.every((modulePath) =>
+      path.isAbsolute(modulePath),
+    ),
+    true,
+  );
+});
+
+test("production public registry reads enforce the byte bound while streaming chunked bodies", async () => {
+  const chunk = new Uint8Array(1024 * 1024);
+  let reads = 0;
+  let cancellations = 0;
+  let arrayBufferCalls = 0;
+  const clients = createPublicReleaseClients({
+    repositoryRoot: REPOSITORY_ROOT,
+    fetchImpl: async () => ({
+      status: 200,
+      ok: true,
+      headers: { get: () => null },
+      body: {
+        getReader: () => ({
+          read: async () => {
+            reads += 1;
+            return { done: false, value: chunk };
+          },
+          cancel: async () => {
+            cancellations += 1;
+          },
+          releaseLock: () => {},
+        }),
+      },
+      arrayBuffer: async () => {
+        arrayBufferCalls += 1;
+        throw new Error("unbounded arrayBuffer path must not run");
+      },
+    }),
+  });
+  await assert.rejects(
+    clients.readPackageIndex(
+      { name: "kyw-dev", registry: "https://registry.npmjs.org/" },
+      { fresh: true, cacheBypass: true, purpose: "FIXTURE_STREAM", sequence: 1 },
+    ),
+    { code: "PUBLIC_RELEASE_RESPONSE_BOUND_EXCEEDED" },
+  );
+  assert.equal(reads, 9);
+  assert.equal(cancellations, 1);
+  assert.equal(arrayBufferCalls, 0);
+});

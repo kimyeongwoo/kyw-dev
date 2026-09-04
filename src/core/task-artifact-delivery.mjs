@@ -1,3 +1,5 @@
+import { parsePublicReleaseInvocation } from "./task-artifact-public-release.mjs";
+
 const exactInvocationPattern = /^\$kyw-impl\s+(\d{4})(?:\s+([\s\S]*\S))?\s*$/u;
 const exactDeliveryInvocationPattern = /^\$kyw-deliver\s+(\d{4})\s*$/u;
 const managedExactAliasPattern = /^task\s+(\d{4})\s+실행해줘(?:\s+([\s\S]*\S))?\s*$/iu;
@@ -29,6 +31,9 @@ export function parseTaskInvocation(invocation, { managedRoutingAvailable = fals
   if (typeof invocation !== "string") {
     throw new TypeError("Task invocation must be a string");
   }
+  const publicRelease = parsePublicReleaseInvocation(invocation);
+  if (publicRelease) return publicRelease;
+
   const exact = exactInvocationPattern.exec(invocation);
   if (exact) {
     return Object.freeze({

@@ -199,6 +199,7 @@ test("instruction surfaces retain one canonical owner and minimal projections", 
     execution,
     deliverySkill,
     delivery,
+    publicRelease,
     prompts,
     plugin,
   ] = await Promise.all([
@@ -212,6 +213,7 @@ test("instruction surfaces retain one canonical owner and minimal projections", 
     read("skills/kyw-impl/references/execution.md"),
     read("skills/kyw-deliver/SKILL.md"),
     read("skills/kyw-deliver/references/delivery.md"),
+    read("skills/kyw-deliver/references/public-release.md"),
     read("CODEX_PROMPTS.md"),
     read(".codex-plugin/plugin.json").then(JSON.parse),
   ]);
@@ -246,6 +248,7 @@ test("instruction surfaces retain one canonical owner and minimal projections", 
     }
     assert.match(projection, /`\$kyw-impl NNNN` is portable for (?:existing )?implementation/);
     assert.match(projection, /Only exact `\$kyw-deliver NNNN`/);
+    assert.match(projection, /exact `\$kyw-deliver NNNN --public-release`/i);
   }
 
   assert.match(authoring, /author/i);
@@ -282,6 +285,13 @@ test("instruction surfaces retain one canonical owner and minimal projections", 
   assert.match(execution, /canonical detailed repository implementation procedure/);
   assert.match(deliverySkill, /\[STANDARD Delivery and Resume\]\(references\/delivery\.md\)/);
   assert.match(delivery, /canonical detailed Git\/GitHub delivery procedure/);
+  assert.match(
+    deliverySkill,
+    /\[Public Release and Resume\]\(references\/public-release\.md\)/,
+  );
+  assert.match(publicRelease, /canonical detailed public-release procedure/);
+  assert.match(publicRelease, /^## Perform the ordered public release$/m);
+  assert.doesNotMatch(delivery, /^## Perform the ordered public release$/m);
   assert.doesNotMatch(implementation, /create-batch --tasks-root/);
 
   for (const surface of [readme, spec]) {
@@ -296,7 +306,8 @@ test("instruction surfaces retain one canonical owner and minimal projections", 
   assert.match(readme, /\$kyw-task "goal"[\s\S]*authors[\s\S]*stops/i);
   assert.match(readme, /stops, including continuous mode/);
   assert.match(readme, /Pending delivery blocks with exact `\$kyw-deliver NNNN`/);
-  assert.match(readme, /Only exact `\$kyw-deliver NNNN` owns current `STANDARD` delivery/);
+  assert.match(readme, /Exact `\$kyw-deliver NNNN` retains `STANDARD`-only behavior/);
+  assert.match(readme, /exact `\$kyw-deliver NNNN --public-release`/);
   assert.match(readme, /fixed-bounded checkpoint in exact aligned `main`/);
   assert.match(readme, /at most one freshly reconstructed uncovered predecessor/);
   assert.match(spec, /before (?:its )?one dispatcher call/);
@@ -306,7 +317,7 @@ test("instruction surfaces retain one canonical owner and minimal projections", 
   assert.match(readme, /selected delivery owns only its separate aligned GitHub lifecycle/i);
   assert.match(
     architecture,
-    /no automatic registry publish, version\/tag\/Release creation, public[\s\S]*submission, force push, CI rerun, or branch-protection bypass/,
+    /no automatic registry publish, version\/tag\/Release creation, public[\s\S]*submission, force push, CI rerun, or (?:branch-)?protection bypass/,
   );
   for (const surface of [readme, spec, architecture]) {
     assert.match(surface, /actual PR[- ]head|actual[- ]head/i);
@@ -358,11 +369,13 @@ test("instruction surfaces retain one canonical owner and minimal projections", 
   assert.match(plugin.interface.defaultPrompt[2], /\$kyw-impl 0001/);
   assert.match(plugin.interface.defaultPrompt[2], /repository completion[\s\S]*stop/i);
   assert.match(plugin.interface.defaultPrompt[3], /\$kyw-deliver 0001/);
+  assert.match(plugin.interface.defaultPrompt[3], /--public-release/);
   assert.match(plugin.interface.defaultPrompt[4], /\$kyw-audit 0001/);
   for (const invocation of [
     '$kyw-task "<outcome>"',
     "$kyw-impl 0001",
     "$kyw-deliver 0001",
+    "$kyw-deliver 0001 --public-release",
     "task 0001 실행해줘",
     "task 진행해줘",
     "남은 task 계속 실행해줘",
@@ -377,8 +390,11 @@ test("instruction surfaces retain one canonical owner and minimal projections", 
     assert.match(spec, alias);
     assert.match(implementation, alias);
   }
-  for (const surface of [deliverySkill, delivery, readme, spec]) {
+  for (const surface of [deliverySkill, delivery, publicRelease, readme, spec]) {
     assert.match(surface, /\$kyw-deliver NNNN/);
+  }
+  for (const surface of [deliverySkill, publicRelease, readme, spec, architecture]) {
+    assert.match(surface, /\$kyw-deliver NNNN --public-release/);
   }
 });
 
@@ -396,6 +412,7 @@ test("activation-scoped guardrails have one canonical contract and every require
     "skills/kyw-impl/references/execution.md",
     "skills/kyw-deliver/SKILL.md",
     "skills/kyw-deliver/references/delivery.md",
+    "skills/kyw-deliver/references/public-release.md",
     "skills/kyw-audit/SKILL.md",
     "skills/kyw-audit/references/audit.md",
   ];
@@ -2636,7 +2653,7 @@ test("README puts installation, explicit Skills, first use, and current status b
   );
   assert.match(readme, /No public plugin submission has occurred/);
   assert.match(readme, /npx --yes kyw-dev@0\.1\.4 install --scope user/);
-  assert.match(readme, /remain separate action\/target\/scope\/attempt bounds/);
+  assert.match(readme, /Version change[\s\S]{0,180}remain separate bounds/);
   assert.doesNotMatch(readme, /\bTask 0\d{3}\b|READY_FOR_APPROVAL|UNCHANGED at the audited point/);
   assert.doesNotMatch(readme, /^### Grilling evaluation harness$/m);
   assert.doesNotMatch(readme, /^### Audit behavior smoke$/m);
@@ -2670,7 +2687,7 @@ test("permanent truth separates credential-free CI, manual OIDC publication, and
   assert.match(readme, /public repository receives npm provenance automatically/);
   assert.match(
     readme,
-    /Routine release preflight[\s\S]*(?:without|Neither needs) `npm login`, OTP, security-key authentication, account-settings inspection, or `npm trust list`[\s\S]*initial setup[\s\S]*security\/configuration audit or change[\s\S]*actual OIDC\/publisher failure/,
+    /Routine release preflight[\s\S]*(?:without|Neither needs) `npm login`, OTP, security-key authentication, account-settings inspection, or `npm trust list`[\s\S]*setup[\s\S]*security\/configuration audit\/change[\s\S]*actual OIDC failure/,
   );
   assert.match(
     readme,
@@ -2695,11 +2712,11 @@ test("permanent truth separates credential-free CI, manual OIDC publication, and
 
   assert.match(
     specification,
-    /One repository-owned expectation[\s\S]*GitHub Actions[\s\S]*kimyeongwoo\/kyw-dev[\s\S]*\.github\/workflows\/publish\.yml[\s\S]*npm-production[\s\S]*allowed action `npm publish`/,
+    /One owned expectation defines `GitHub Actions`[\s\S]*`kimyeongwoo\/kyw-dev`[\s\S]*\.github\/workflows\/publish\.yml[\s\S]*npm-production[\s\S]*npm publish/,
   );
   assert.match(
     specification,
-    /no automatic trigger, long-lived npm token, interactive authentication, account-inspection, retry, second-dispatch, or fallback path/,
+    /without automatic trigger[\s\S]*token\/interactive\/account inspection[\s\S]*retry\/second dispatch\/fallback/,
   );
   assert.match(
     specification,
@@ -2707,19 +2724,19 @@ test("permanent truth separates credential-free CI, manual OIDC publication, and
   );
   assert.match(
     specification,
-    /repository, manual event, `refs\/heads\/main`, literal expected SHA, actual checkout SHA, expected package\/plugin version, runtime, public-registry identity, target-version absence, and final clean exact-SHA checkout[\s\S]*does not rerun Stable or candidate verification[\s\S]*`npm publish \.`[\s\S]*exactly once without retry/,
+    /workflow requires current `main`, exact SHA, and package\/plugin version[\s\S]*Repository\/event\/ref\/input\/checkout\/runtime\/registry\/version-absence\/clean-tree mismatch[\s\S]*npm publish \. --ignore-scripts` once/,
   );
   assert.match(
     specification,
-    /published version `0\.1\.4`[\s\S]*public npm registry serves `kyw-dev@0\.1\.4`[\s\S]*canonical npm metadata exposes `gitHead` matching the published source commit[\s\S]*`v0\.1\.4` Git tag identifies the published source commit[\s\S]*corresponding GitHub Release uses that tag[\s\S]*Historical `0\.1\.2`[\s\S]*still lacks `gitHead`/,
+    /published version `0\.1\.4`[\s\S]*public npm registry serves `kyw-dev@0\.1\.4`[\s\S]*canonical metadata exposes matching `gitHead`[\s\S]*Tag `v0\.1\.4` and its GitHub Release identify it[\s\S]*Historical `0\.1\.2`[\s\S]*lacks `gitHead`/,
   );
   assert.match(
     specification,
-    /Routine release preflight does not require npm account\/settings inspection[\s\S]*Account-side authentication is limited to initial setup[\s\S]*actual OIDC\/publisher failure/,
+    /Routine release preflight does not require npm account\/settings inspection[\s\S]*account auth is limited to setup[\s\S]*actual OIDC failure investigation/,
   );
   assert.match(
     specification,
-    /Successful publication is canonical runtime proof[\s\S]*OIDC\/publisher rejection fails the workflow and blocks the executing Task/,
+    /Success proves npm accepted the OIDC identity[\s\S]*rejection blocks public release without demoting the Task/,
   );
 
   assert.match(architecture, /### 8\.5 Trusted publication workflow/);
@@ -2741,7 +2758,7 @@ test("permanent truth separates credential-free CI, manual OIDC publication, and
   );
   assert.match(
     architecture,
-    /actual successful publish[\s\S]*canonical runtime proof[\s\S]*OIDC\/publisher[\s\S]*rejection has one path[\s\S]*executing Task[\s\S]*records[\s\S]*BLOCKED/,
+    /actual successful publish[\s\S]*canonical runtime proof[\s\S]*OIDC\/publisher[\s\S]*rejection has one path[\s\S]*public release reports `BLOCKED`[\s\S]*without changing the terminal Task/,
   );
   assert.match(
     architecture,
@@ -2751,6 +2768,18 @@ test("permanent truth separates credential-free CI, manual OIDC publication, and
     [readme, specification, architecture].join("\n"),
     /release-evidence-manual-runner|release-evidence-harness|release-gate-isolation|retained candidate|registry dry-run|isolated lifecycle verification/i,
   );
+
+  for (const projection of [readme, specification, architecture]) {
+    assert.match(projection, /\$kyw-deliver NNNN --public-release/);
+    assert.match(projection, /STANDARD(?:`)? FINAL|STANDARD` graph is\s+final/i);
+    assert.match(projection, /npm[^\n]{0,80}(?:→|then)[^\n]{0,80}tag[^\n]{0,80}(?:→|then)[^\n]{0,80}Release/i);
+    assert.match(projection, /(?:terminal )?Task\/Test|terminal Task/i);
+  }
+  assert.match(
+    specification,
+    /`ABSENT`[\s\S]*`EXACT_ALREADY_COMPLETE`[\s\S]*`PENDING_PROOF`[\s\S]*`CONFLICT`[\s\S]*`UNKNOWN`/,
+  );
+  assert.match(architecture, /Development tests supply mocks or owned loopback[\s\S]*zero live public writes/);
 });
 
 test("permanent-document inventory and deliberate scope boundaries stay explicit", async () => {
@@ -2879,7 +2908,17 @@ test("route-specific representative instruction bundles stay concise with one pr
   const deliveryReferenceLinks = [
     ...deliverySkill.matchAll(/\]\((references\/[^)]+\.md)\)/g),
   ].map((match) => match[1]);
-  assert.deepEqual([...new Set(deliveryReferenceLinks)], ["references/delivery.md"]);
+  assert.deepEqual([...new Set(deliveryReferenceLinks)], [
+    "references/delivery.md",
+    "references/public-release.md",
+  ]);
+  assert.equal(
+    DELIVERY_INSTRUCTION_PATHS.includes(
+      "skills/kyw-deliver/references/public-release.md",
+    ),
+    false,
+    "plain STANDARD representative context must not load the public-release procedure",
+  );
 });
 
 test("routine Task workflows index owners before targeted reads and escalate only when required", async () => {

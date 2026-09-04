@@ -231,6 +231,9 @@ function focusedSkillTests(paths) {
         return undefined;
       }
       tests.add(testPath);
+      if (skillMatch[1] === "kyw-deliver") {
+        tests.add("test/task-public-release.test.mjs");
+      }
     }
     if (path.startsWith("templates/task/")) {
       tests.add("test/template-contracts.test.mjs");
