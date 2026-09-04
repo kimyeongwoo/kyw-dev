@@ -236,6 +236,8 @@ async function publicClientHarness({
     malformedSigningKey: false,
     extraActiveSigningKey: false,
     signingKeyMaterial: "valid",
+    registrySignatureMode: "single",
+    indexSignatureMode: undefined,
     registrySignatureSuffix: "",
     malformedProvenance: false,
     malformedUntypedAttestation: false,
@@ -256,13 +258,58 @@ async function publicClientHarness({
   };
   const trace = [];
   const publicKeyBytes = publicKey.export({ type: "spki", format: "der" });
-  const signature = sign(
+  const primarySignature = sign(
     "sha256",
     Buffer.from(
       `${tuple.package.name}@${tuple.package.version}:${tuple.package.tarball.integrity}`,
     ),
     privateKey,
   ).toString("base64");
+  const secondarySignature = sign(
+    "sha256",
+    Buffer.from(
+      `${tuple.package.name}@${tuple.package.version}:${tuple.package.tarball.integrity}`,
+    ),
+    privateKey,
+  ).toString("base64");
+  const wrongMessageSignature = sign(
+    "sha256",
+    Buffer.from(
+      `${tuple.package.name}@${tuple.package.version}:sha512-${Buffer.alloc(64, 9).toString("base64")}`,
+    ),
+    privateKey,
+  ).toString("base64");
+  const registrySignatures = (mode = state.registrySignatureMode) => {
+    const primary = {
+      keyid: keyId,
+      sig: `${primarySignature}${state.registrySignatureSuffix}`,
+    };
+    const secondary = { keyid: keyId, sig: secondarySignature };
+    if (mode === "empty") return [];
+    if (mode === "two-valid") return [primary, secondary];
+    if (mode === "mixed-key") {
+      return [primary, { ...secondary, keyid: "SHA256:other-key" }];
+    }
+    if (mode === "wrong-first") {
+      return [{ ...primary, keyid: "SHA256:other-key" }, secondary];
+    }
+    if (mode === "wrong-message") {
+      return [{ keyid: keyId, sig: wrongMessageSignature }];
+    }
+    if (mode === "invalid-first") {
+      return [
+        { keyid: keyId, sig: Buffer.from("invalid first signature").toString("base64") },
+        secondary,
+      ];
+    }
+    if (mode === "invalid-second") {
+      return [
+        primary,
+        { keyid: keyId, sig: Buffer.from("invalid second signature").toString("base64") },
+      ];
+    }
+    return [primary];
+  };
   const provenanceStatement = {
     _type: "https://in-toto.io/Statement/v1",
     predicateType: "https://slsa.dev/provenance/v1",
@@ -333,7 +380,7 @@ async function publicClientHarness({
     return bundle;
   };
 
-  const versionMetadata = () => ({
+  const versionMetadata = (signatureMode = state.registrySignatureMode) => ({
     name: tuple.package.name,
     version: tuple.package.version,
     repository: { url: tuple.package.repository },
@@ -342,9 +389,7 @@ async function publicClientHarness({
       tarball: `${state.tarballOrigin}${state.tarballPath}`,
       integrity: tuple.package.tarball.integrity,
       shasum: tuple.package.tarball.shasum,
-      signatures: [
-        { keyid: keyId, sig: `${signature}${state.registrySignatureSuffix}` },
-      ],
+      signatures: registrySignatures(signatureMode),
     },
   });
 
@@ -578,7 +623,13 @@ async function publicClientHarness({
     name: state.indexName,
     versions: {
       "1.0.0": {},
-      ...(includeTarget ? { [tuple.package.version]: versionMetadata() } : {}),
+      ...(includeTarget
+        ? {
+            [tuple.package.version]: versionMetadata(
+              state.indexSignatureMode ?? state.registrySignatureMode,
+            ),
+          }
+        : {}),
     },
     "dist-tags": { latest: includeTarget ? tuple.package.version : "1.0.0" },
     time: { [tuple.package.version]: "2026-09-01T00:00:00.000Z" },
@@ -6921,9 +6972,13 @@ test("public-release tuple hydration packs only the immutable delivered tree", a
     "registry=https://malicious.invalid/\n",
   );
   const commandTrace = [];
-  const tupleSigningPublicKey = generateKeyPairSync("ec", {
+  const tupleSigningKeyPair = generateKeyPairSync("ec", {
     namedCurve: "P-256",
-  }).publicKey.export({ type: "spki", format: "der" });
+  });
+  const tupleSigningPublicKey = tupleSigningKeyPair.publicKey.export({
+    type: "spki",
+    format: "der",
+  });
   const noMutation = async () => {
     throw new Error("fixture public mutator must not run");
   };
@@ -7008,6 +7063,133 @@ test("public-release tuple hydration packs only the immutable delivered tree", a
     commandTrace.some(({ command }) => command === "gh"),
     false,
   );
+
+  const registryMessage = Buffer.from(
+    `${packageJson.name}@${packageJson.version}:${hydrated.tuple.package.tarball.integrity}`,
+  );
+  const targetSignatureA = sign(
+    "sha256",
+    registryMessage,
+    tupleSigningKeyPair.privateKey,
+  ).toString("base64");
+  const targetSignatureB = sign(
+    "sha256",
+    registryMessage,
+    tupleSigningKeyPair.privateKey,
+  ).toString("base64");
+  const targetWrongMessageSignature = sign(
+    "sha256",
+    Buffer.from(
+      `${packageJson.name}@${packageJson.version}:sha512-${Buffer.alloc(64, 9).toString("base64")}`,
+    ),
+    tupleSigningKeyPair.privateKey,
+  ).toString("base64");
+  const targetSignatureSets = {
+    single: [{ keyid: "SHA256:fixture", sig: targetSignatureA }],
+    "two-valid": [
+      { keyid: "SHA256:fixture", sig: targetSignatureA },
+      { keyid: "SHA256:fixture", sig: targetSignatureB },
+    ],
+    empty: [],
+    "mixed-key": [
+      { keyid: "SHA256:fixture", sig: targetSignatureA },
+      { keyid: "SHA256:other-key", sig: targetSignatureB },
+    ],
+    "wrong-first": [
+      { keyid: "SHA256:other-key", sig: targetSignatureA },
+      { keyid: "SHA256:fixture", sig: targetSignatureB },
+    ],
+    "wrong-message": [
+      { keyid: "SHA256:fixture", sig: targetWrongMessageSignature },
+    ],
+    "invalid-first": [
+      {
+        keyid: "SHA256:fixture",
+        sig: Buffer.from("invalid first signature").toString("base64"),
+      },
+      { keyid: "SHA256:fixture", sig: targetSignatureB },
+    ],
+    "invalid-second": [
+      { keyid: "SHA256:fixture", sig: targetSignatureA },
+      {
+        keyid: "SHA256:fixture",
+        sig: Buffer.from("invalid second signature").toString("base64"),
+      },
+    ],
+    "malformed-second": [
+      { keyid: "SHA256:fixture", sig: targetSignatureA },
+      { keyid: "SHA256:fixture", sig: "!!" },
+    ],
+  };
+  const targetPresentClients = (signatureMode) => ({
+    ...suppliedClients,
+    readPackageIndex: async (_identity, context) => {
+      assert.equal(context.fresh, true);
+      assert.equal(context.cacheBypass, true);
+      return {
+        versions: {
+          "1.0.0": {},
+          [packageJson.version]: {
+            dist: { signatures: targetSignatureSets[signatureMode] },
+          },
+        },
+        "dist-tags": { latest: packageJson.version },
+        time: { [packageJson.version]: "2026-09-04T00:00:00.000Z" },
+      };
+    },
+  });
+  for (const signatureMode of ["single", "two-valid"]) {
+    const targetPresent = await hydratePublicReleaseContext({
+      tasksRoot,
+      taskId: fixture.outcome.taskId,
+      deliveryLedger: { [fixture.outcome.taskId]: normalized.entry },
+      deliveryExpectations: { [fixture.outcome.taskId]: normalized.expectation },
+      commandRunner: publicReleaseLocalRunner([]),
+      clients: targetPresentClients(signatureMode),
+    });
+    assert.equal(
+      targetPresent.tuple.package.signature.keyId,
+      "SHA256:fixture",
+      signatureMode,
+    );
+    assert.deepEqual(
+      targetPresent.tuple.package.priorVersions,
+      ["1.0.0"],
+      signatureMode,
+    );
+  }
+  for (const signatureMode of [
+    "empty",
+    "mixed-key",
+    "wrong-first",
+    "wrong-message",
+    "invalid-first",
+    "invalid-second",
+    "malformed-second",
+  ]) {
+    const mutationTrace = [];
+    const guardedClients = {
+      ...targetPresentClients(signatureMode),
+      dispatchPublishWorkflow: async () => mutationTrace.push("dispatch"),
+      createTag: async () => mutationTrace.push("tag"),
+      createRelease: async () => mutationTrace.push("release"),
+    };
+    await assert.rejects(
+      hydratePublicReleaseContext({
+        tasksRoot,
+        taskId: fixture.outcome.taskId,
+        deliveryLedger: { [fixture.outcome.taskId]: normalized.entry },
+        deliveryExpectations: {
+          [fixture.outcome.taskId]: normalized.expectation,
+        },
+        commandRunner: publicReleaseLocalRunner([]),
+        clients: guardedClients,
+      }),
+      /nonempty registry signature set|entirely valid registry signature set|frozen signing key does not map/u,
+      signatureMode,
+    );
+    assert.deepEqual(mutationTrace, [], signatureMode);
+  }
 
   for (const publishConfigExtra of ["tag", "provenance", "extra"]) {
     const sourceGuardTrace = [];
@@ -7431,6 +7613,32 @@ test("production public clients use fresh bounded reads and one guarded POST per
   assert.equal(npmExact.provenance.runAttempt, 1);
   assert.equal(harness.provenanceVerifications, 1);
 
+  const repeatedValidSignatures = await publicClientHarness();
+  repeatedValidSignatures.state.workflow = "success";
+  repeatedValidSignatures.state.npm = "exact";
+  repeatedValidSignatures.state.remoteHeadSha = "a".repeat(40);
+  repeatedValidSignatures.state.registrySignatureMode = "two-valid";
+  const repeatedValidSnapshot =
+    await repeatedValidSignatures.clients.readNpmVersion(
+      repeatedValidSignatures.tuple,
+      context,
+    );
+  assert.deepEqual(repeatedValidSnapshot.signature, {
+    keyId: repeatedValidSignatures.tuple.package.signature.keyId,
+    verified: true,
+  });
+  assert.equal(
+    classifyNpmPublication(
+      repeatedValidSignatures.tuple,
+      repeatedValidSnapshot,
+    ).classification,
+    "EXACT_ALREADY_COMPLETE",
+  );
+  assert.equal(
+    repeatedValidSignatures.trace.some(({ kind }) => kind === "post"),
+    false,
+  );
+
   await clients.createTag(tuple, { attempt: 1 });
   assert.equal(state.tag, "exact");
   const exactTag = await clients.readTag(tuple, context);
@@ -7498,10 +7706,29 @@ test("shared runner over production clients blocks stale npm dispatch and resume
   assert.equal(blocked.blockingStage, "NPM");
   assert.equal(blockedNpm.trace.some(({ kind }) => kind === "post"), false);
 
+  const invalidAggregate = await publicClientHarness();
+  invalidAggregate.state.remoteHeadSha = "a".repeat(40);
+  invalidAggregate.state.workflow = "success";
+  invalidAggregate.state.npm = "exact";
+  invalidAggregate.state.registrySignatureMode = "invalid-second";
+  const blockedInvalidAggregate = await runPublicRelease({
+    standardDelivery: publicClientStandardFinal(invalidAggregate.tuple),
+    tuple: invalidAggregate.tuple,
+    clients: invalidAggregate.clients,
+    reconciliationReads: 1,
+  });
+  assert.equal(blockedInvalidAggregate.outcome, "BLOCKED");
+  assert.equal(blockedInvalidAggregate.blockingStage, "NPM");
+  assert.equal(
+    invalidAggregate.trace.some(({ kind }) => kind === "post"),
+    false,
+  );
+
   const tagResume = await publicClientHarness();
   tagResume.state.remoteHeadSha = "a".repeat(40);
   tagResume.state.workflow = "success";
   tagResume.state.npm = "exact";
+  tagResume.state.registrySignatureMode = "two-valid";
   const resumedFromTag = await runPublicRelease({
     standardDelivery: publicClientStandardFinal(tagResume.tuple),
     tuple: tagResume.tuple,
@@ -7768,6 +7995,58 @@ test("production public clients fail closed on drift, partial pages, byte tamper
       signingKeyMaterial,
     );
   }
+
+  for (const registrySignatureMode of [
+    "empty",
+    "mixed-key",
+    "wrong-first",
+    "wrong-message",
+    "invalid-first",
+    "invalid-second",
+  ]) {
+    const invalidSignatureSet = await publicClientHarness();
+    invalidSignatureSet.state.npm = "exact";
+    invalidSignatureSet.state.registrySignatureMode = registrySignatureMode;
+    const invalidSignatureSnapshot =
+      await invalidSignatureSet.clients.readNpmVersion(
+        invalidSignatureSet.tuple,
+        context,
+      );
+    assert.equal(
+      invalidSignatureSnapshot.signature.verified,
+      false,
+      registrySignatureMode,
+    );
+    assert.equal(
+      classifyNpmPublication(
+        invalidSignatureSet.tuple,
+        invalidSignatureSnapshot,
+      ).classification,
+      "CONFLICT",
+      registrySignatureMode,
+    );
+    assert.equal(
+      invalidSignatureSet.trace.some(({ kind }) => kind === "post"),
+      false,
+      registrySignatureMode,
+    );
+  }
+
+  const divergentSignatureArrays = await publicClientHarness();
+  divergentSignatureArrays.state.npm = "exact";
+  divergentSignatureArrays.state.registrySignatureMode = "two-valid";
+  divergentSignatureArrays.state.indexSignatureMode = "single";
+  await assert.rejects(
+    divergentSignatureArrays.clients.readNpmVersion(
+      divergentSignatureArrays.tuple,
+      context,
+    ),
+    /do not expose one exact immutable target identity/u,
+  );
+  assert.equal(
+    divergentSignatureArrays.trace.some(({ kind }) => kind === "post"),
+    false,
+  );
 
   const malformedImmutableSignature = await publicClientHarness();
   malformedImmutableSignature.state.npm = "exact";

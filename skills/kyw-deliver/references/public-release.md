@@ -98,7 +98,7 @@ Dispatch acceptance and successful workflow prose are not publication proof. Obs
 - exact package, version, registry, public access, and `latest` state, with preserved expected prior versions;
 - `gitHead` equal to the target merge SHA;
 - fetched tarball raw bytes equal to expected bytes and its shasum/integrity/digests exact;
-- valid expected registry signature identity;
+- a nonempty registry signature array whose every entry uses the frozen signing-key identity and cryptographically verifies the exact package/version/integrity message; one or multiple valid entries under that key are accepted and cardinality alone is not a conflict, while any mixed, malformed, or invalid entry fails the aggregate proof;
 - SLSA provenance whose subject digest, repository, `.github/workflows/publish.yml`, `refs/heads/<base>`, run/attempt, and source commit bind the same target.
 
 Missing or different immutable registry data is `CONFLICT`; evidence that cannot yet be read or verified is `PENDING_PROOF` only when bounded facts prove an exact in-flight/recent action, otherwise `UNKNOWN`. Never republish, unpublish, deprecate, retag, repair metadata, or dispatch again.

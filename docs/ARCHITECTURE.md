@@ -516,6 +516,14 @@ bounded reads only—never retry, fallback, force, repair, delete, or later-stag
 write. Final proof is cache-bypassed registry state plus exact workflow attempt,
 tag target, and Release object, not command acceptance or logs.
 
+Existing-target tuple reconstruction selects one canonical registry key identity
+from a nonempty signature array and requires every entry to use that identity and
+verify the exact delivered package/version/integrity message. Every later
+canonical npm read reuses the frozen key, verifies the complete array, and folds
+the result into the existing aggregate `keyId`/`verified` snapshot for the
+unchanged public classifier. One valid entry cannot mask an empty, mixed-key,
+malformed, or partially invalid set.
+
 ### 5.6 Independent audit
 
 ```text

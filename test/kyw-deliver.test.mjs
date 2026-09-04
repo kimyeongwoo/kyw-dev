@@ -202,7 +202,9 @@ test("public release performs create-once npm, tag, and Release stages with mono
   assert.match(publicRelease, /npm publish \. --access public --ignore-scripts/);
   assert.match(publicRelease, /`gitHead` equal to the target merge SHA/);
   assert.match(publicRelease, /tarball raw bytes equal to expected bytes/);
-  assert.match(publicRelease, /registry signature identity/);
+  assert.match(publicRelease, /nonempty registry signature array/);
+  assert.match(publicRelease, /every entry uses the frozen signing-key identity/);
+  assert.match(publicRelease, /cardinality alone is not a conflict/);
   assert.match(publicRelease, /SLSA provenance/);
   assert.match(publicRelease, /submit one GitHub ref-creation request/);
   assert.match(publicRelease, /send one create request with the frozen deterministic fields/);

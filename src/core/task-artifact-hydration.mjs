@@ -8919,9 +8919,7 @@ export function createPublicReleaseClients({
         },
       );
       const signatures = metadata.dist.signatures ?? [];
-      const signature = signatures.find(
-        (candidate) => candidate?.keyid === tuple.package.signature.keyId,
-      );
+      const signature = signatures[0];
       return Object.freeze({
         status: 200,
         name: metadata.name,
@@ -8947,14 +8945,18 @@ export function createPublicReleaseClients({
           keyId: signature?.keyid,
           verified:
             activeKey.keyid === tuple.package.signature.keyId &&
-            signatures.length === 1 &&
-            verifyRegistrySignature({
-              name: metadata.name,
-              version: metadata.version,
-              integrity: metadata.dist.integrity,
-              signature,
-              key: activeKey,
-            }),
+            signatures.length >= 1 &&
+            signatures.every(
+              (candidate) =>
+                candidate?.keyid === tuple.package.signature.keyId &&
+                verifyRegistrySignature({
+                  name: metadata.name,
+                  version: metadata.version,
+                  integrity: metadata.dist.integrity,
+                  signature: candidate,
+                  key: activeKey,
+                }),
+            ),
         }),
         provenance: await parseSlsaProvenance({
           tuple,
@@ -9389,12 +9391,12 @@ export async function hydratePublicReleaseContext({
     const targetSignatures = targetRegistryMetadata?.dist?.signatures;
     if (
       !Array.isArray(targetSignatures) ||
-      targetSignatures.length !== 1 ||
+      targetSignatures.length < 1 ||
       typeof targetSignatures[0]?.keyid !== "string"
     ) {
       throw publicReleaseHydrationError(
         "REGISTRY_PACKAGE",
-        "existing target metadata does not expose one exact registry signature identity",
+        "existing target metadata does not expose a nonempty registry signature set",
       );
     }
     const publishedAt = Date.parse(packageIndex?.time?.[releaseVersion]);
@@ -9403,6 +9405,24 @@ export async function hydratePublicReleaseContext({
       targetSignatures[0].keyid,
       { validAt: Number.isFinite(publishedAt) ? publishedAt : Date.now() },
     );
+    if (
+      !targetSignatures.every(
+        (signature) =>
+          signature?.keyid === tupleSigningKey.keyid &&
+          verifyRegistrySignature({
+            name: packageIdentity.name,
+            version: releaseVersion,
+            integrity: tarball.identity.integrity,
+            signature,
+            key: tupleSigningKey,
+          }),
+      )
+    ) {
+      throw publicReleaseHydrationError(
+        "REGISTRY_PACKAGE",
+        "existing target metadata does not expose an entirely valid registry signature set for one exact key identity",
+      );
+    }
   } else {
     tupleSigningKey = selectCurrentRegistrySigningKey(registryKeys);
     if ((packageIndex?.["dist-tags"]?.latest ?? null) !== priorLatest) {
