@@ -119,16 +119,16 @@ test("release metadata stays unchanged while PR and public release are separate 
   assert.equal(pluginJson.interface.defaultPrompt.length, 5);
   assert.match(
     pluginJson.interface.defaultPrompt[2],
-    /\$kyw-impl 0001.*implement an existing Task through repository completion.*stop/,
+    /\$kyw-impl "goal".*without a Task.*\$kyw-impl 0001.*resume/,
   );
   assert.match(
     pluginJson.interface.defaultPrompt[3],
-    /\$kyw-deliver 0001.*PR/,
+    /\$kyw-deliver.*PR.*Task ID is optional/,
   );
   assert.doesNotMatch(JSON.stringify(pluginJson.interface), /--public-release/);
   assert.match(
     pluginJson.interface.defaultPrompt[4],
-    /\$kyw-audit 0001.*without modifying the repository/,
+    /\$kyw-audit.*without modifying the repository.*Task ID is optional/,
   );
 });
 

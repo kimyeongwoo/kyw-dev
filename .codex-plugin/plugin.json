@@ -29,9 +29,9 @@
     "defaultPrompt": [
       "Use $kyw-init to initialize this repository's durable documents.",
       "Use $kyw-task \"goal\" to author a minimal ready Task record.",
-      "Use $kyw-impl 0001 to implement an existing Task through repository completion, then stop.",
-      "Use $kyw-deliver 0001 to prepare relevant commits, push, and one PR.",
-      "Use $kyw-audit 0001 to audit Task 0001 without modifying the repository."
+      "Use $kyw-impl \"goal\" to implement and verify without a Task, or $kyw-impl 0001 to resume one.",
+      "Use $kyw-deliver to prepare relevant commits, push, and one PR for the current changes; an existing Task ID is optional.",
+      "Use $kyw-audit to audit the current changes without modifying the repository; an existing Task ID is optional."
     ]
   }
 }

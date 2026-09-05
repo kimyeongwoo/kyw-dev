@@ -30,6 +30,7 @@ import {
   commandShellForPlatform,
   inspectReadOnlyCommand,
 } from "./audit-readonly-boundary.mjs";
+import { buildManagedSourceInventory } from "../src/core/skill-installation-inventory.mjs";
 
 export { commandShellForPlatform, inspectReadOnlyCommand };
 
@@ -46,7 +47,7 @@ const HELP = `kyw-audit fresh-session behavior smoke
 Usage:
   node ./scripts/audit-smoke.mjs --allow-model --mode <readonly|fix> --model <model> --reasoning-effort <effort> --auth-file <path>
 
-The runner uses one temporary Git repository, one repository-local kyw-audit Skill,
+The runner uses one temporary Git repository, the audit Skill and shared adapter/runtime,
 an isolated HOME/CODEX_HOME, and no retained result artifact. Read-only mode uses
 an outer read-only OS sandbox plus a strict literal inspection-command boundary;
 fix mode gives that outer sandbox write access only to the synthetic fixture and
@@ -253,12 +254,20 @@ function writeFixtureFile(repository, relativePath, content) {
   writeFileSync(target, content, "utf8");
 }
 
-function prepareFixture(temporaryRoot) {
+export function prepareFixture(temporaryRoot) {
   const repository = join(temporaryRoot, "repository");
   copyTree(FIXTURE_PROJECT, repository, "audit fixture");
   const installedSkill = join(repository, ".agents", "skills", "kyw-audit");
-  mkdirSync(dirname(installedSkill), { recursive: true });
-  copyTree(SKILL_ROOT, installedSkill, "kyw-audit Skill");
+  const installedRoot = dirname(installedSkill);
+  const inventory = buildManagedSourceInventory({ sourceRoot: REPOSITORY_ROOT });
+  for (const file of inventory.files) {
+    if (!file.path.startsWith("kyw-audit/") && !file.path.startsWith("kyw-task/") &&
+      !file.path.startsWith(".kyw-dev/runtime/")) continue;
+    const destination = join(installedRoot, ...file.path.split("/"));
+    mkdirSync(dirname(destination), { recursive: true });
+    copyFileSync(file.sourcePath, destination);
+    chmodSync(destination, file.mode);
+  }
 
   runGit(repository, ["init", "--quiet"]);
   runGit(repository, ["config", "user.name", "kyw-audit-smoke"]);

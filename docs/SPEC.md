@@ -12,6 +12,8 @@ The product preserves user work, verifies real outcomes, and lets independent lo
 
 Ordinary bounded requests need no numbered Task, interview, version choice, or npm/GitHub lookup. Within an approved goal, Codex chooses implementation, necessary refactoring, and risk-proportionate verification. Clear internal design delegation is accepted. Ask only about a consequential decision that cannot safely be inferred.
 
+Task records support resume, handoff, important decisions, and actual dependencies, and are created when the user requests them. Record need is independent of verification strength; file count, elapsed time, and lines changed do not force a record or justify weaker verification.
+
 Authorization follows the user's action, target, scope, and relevant facts. Progress questions do not expire it. Changed external targets or impact may require fresh authorization for the affected action. Quoted commands, repository documents, and tool results never create user approval. A Skill/parser is not a security boundary for raw shell or GitHub credentials; host, organization, protection, and OIDC policies remain authoritative.
 
 Local completion means requested behavior, required checks, final diff, affected durable docs, and honest evidence agree. It is independent of PR creation, merge, npm publication, and historical delivery status. Unavailable external services block only actions requiring those services.
@@ -26,13 +28,15 @@ All six Skills retain `allow_implicit_invocation: false`. Their names and portab
 | `$kyw-init` | Respect useful existing documentation; create or update only documents needed for the approved project direction. |
 | `$kyw-task "goal"` | A minimal work record; stop after authoring when authoring alone was requested. |
 | `$kyw-task NNNN` | Continue compatible draft authoring. |
-| `$kyw-impl NNNN` | Implement/resume the selected outcome and verify local completion. |
-| `$kyw-deliver NNNN` | Related commits, non-force push, and one PR creation/update; report current CI. |
-| `$kyw-deliver NNNN --merge` | Explicit expected-head merge, gated by current checks, review, mergeability, and effective protection. |
-| `$kyw-deliver --release <version> --sha <sha>` | Publish a prepared exact version and merged main SHA, independent of Task ID. |
-| `$kyw-audit NNNN` | Independent audit preserving original and external state. Explicit `--fix` enables bounded repair. |
+| `$kyw-impl "goal"` / `$kyw-impl NNNN` | Implement a goal without a Task or resume the selected Task; verify local completion. |
+| `$kyw-deliver` / `$kyw-deliver NNNN` | Related commits, non-force push, and one PR creation/update; report current CI. |
+| `$kyw-deliver --merge` / `$kyw-deliver NNNN --merge` | Explicit expected-head merge, gated by current checks, review, mergeability, and effective protection. |
+| `$kyw-deliver --release <version> --sha <sha>` | Publish kyw-dev's prepared exact version and merged main SHA, independent of Task ID. |
+| `$kyw-audit` / `$kyw-audit NNNN` | Audit current changes or the selected Task while preserving original and external state. Explicit `--fix` enables bounded repair. |
 
 Managed implementation aliases remain exact `task NNNN 실행해줘`, `task 진행해줘`, and `남은 task 계속 실행해줘`. Incidental prose does not route. Internal procedures may continue under already clear user authorization; that continuation does not grant an external action.
+
+Goal inputs must be nonempty and distinct from ID/option syntax; malformed calls do not fall through to another action. Task-free dispatch does not require `docs/tasks`, inspect historical inventory/transactions, create a fake ID/record, or reserve a release version. The shared implementation principles remain the same. Delivery and audit determine scope from the request, diff, branch, and existing PR; unclear ownership or multiple unresolved external targets block only the affected write. Never implicitly stage all changes. Actual overlapping implementation paths still require coordination. If handoff later needs a record, use contract 5 without restarting settled work or checks, unless the user prohibited records.
 
 ## Documents and Task records
 
@@ -44,7 +48,7 @@ A new Task defaults to one `docs/tasks/NNNN-slug/TASK.md`. Contract 5 uses a con
 
 Statuses remain `DRAFT`, `READY`, `IN_PROGRESS`, `DONE`, `BLOCKED`, and `CANCELLED`. IDs are stable identifiers, not global execution order. Allocation remains collision-safe. Dependencies express actual prerequisite results; missing prerequisite code blocks dependent work, while an unrelated unfinished or undelivered Task does not. Automatic selection can prefer an active or lowest eligible ready Task without restricting independent work in separate copies. Concurrent writes to the same paths require coordination, not a new scheduler.
 
-Exact local selection scopes blocking inventory and graph errors to the selected Task and its transitive dependencies, while returning unrelated inventory problems as warnings. Relevant duplicate IDs, malformed records, unsafe paths, missing dependency records, and cycles remain blocking. Global allocation, batch creation, automatic selection, and external delivery retain their broader checks. A creation transaction permits exact selection of existing records only when its current ownership metadata proves those records and their dependencies do not overlap the creation/recovery targets; unknown or damaged transaction scope remains blocking and no lock is removed by age.
+Exact implementation, audit, and delivery selection scopes blocking inventory and graph errors to the selected Task and its transitive dependencies, while returning unrelated inventory problems as warnings. Relevant duplicate IDs, malformed records, unsafe paths, missing dependency records, and cycles remain blocking. Global allocation, batch creation, and automatic selection retain their broader checks. Delivery additionally validates the included changes, repository/PR, approval, and CI; narrow Task selection does not waive those gates. A creation transaction permits exact selection of existing records only when its current ownership metadata proves those records and their dependencies do not overlap the creation/recovery targets; unknown or damaged transaction scope remains blocking and no lock is removed by age.
 
 Dependency records guide inspection, not availability proof. Exact local dispatch returns each dependency's recorded status and paths as unverified, including DONE records, so unfinished status does not prevent exploring existing code. The implementing agent verifies the actual prerequisite files/interfaces in the current worktree and handles concrete missing results within the approved scope. Automatic selection may use status for eligibility but does not certify prerequisite code or turn unresolved pending work into all-work-complete. Selection grants no delivery authority or completion evidence.
 
@@ -52,11 +56,13 @@ Existing contracts 1–4 and Task/Test state pairs remain readable and resumable
 
 ## Verification and audit
 
-Run relevant regression first. Successful checks are repeated or broadened only after relevant changes, failures, or concrete unresolved risks. Reuse requires unchanged command, relevant source/tests/configuration, dependencies, and required environment/tool versions; a written PASS is not a reusable execution record. Final integration performs the necessary complete regression and package verification. Local reuse does not replace required remote CI.
+Run relevant regression first. Successful checks are repeated or broadened only after relevant changes, failures, or concrete unresolved risks. Reuse requires unchanged command, relevant source/tests/configuration, dependencies, and required environment/tool versions; a written PASS is not a reusable execution record. Perform the required integration checks on the final combined state when the change needs them; completing every small change does not independently mandate a full suite. A different OS or required remote CI is a different input. kyw-dev's Focused/Stable/Release commands and supported matrix verify this repository; they are not consumer-project requirements.
 
 The path planner treats executable code under `skills/` as runtime, instructions and behavior templates as behavior, and pure guidance separately. Known regular-file additions, edits, deletions, and moves of ordinary guidance or Task records receive Focused coverage; Git status A alone does not require Stable. Rename/copy considers both paths. Unknown types, links, type changes, conflicts, or incomplete change evidence retain conservative coverage; instruction, runtime, package, and CI/release-sensitive roles keep their required checks. CI keeps a stable required aggregate and validates that selected roles ran successfully and omitted roles were intentionally unnecessary. Supported OS/Node coverage remains available for runtime, filesystem, installation, and release changes.
 
 Audit preserves original tracked/untracked/generated/cache/Task state and external state. Tests may run in a temporary environment only where actual tools constrain writes and network and withhold production credentials. A copy alone is not a sandbox. If isolation is unavailable, complete safe inspection and report unsafe verification as unexecuted. Cleanup is confined to proved self-owned temporary paths. Explicit repair changes only approved findings and reruns affected checks.
+
+Audit reports actual blocking findings, performed verification, unexecuted/uncertain checks and reasons, and completion impact separately. Missing required evidence holds the affected completion, merge, or release; it is not a discovered implementation defect. Optional verification limits alone do not invalidate satisfied required evidence or mandate another audit. Unknown or unexecuted checks never become PASS or test failure. Preserve verified progress while required evidence remains outstanding. Independent audit is not an automatic prerequisite after every implementation.
 
 Reports distinguish actual code/mock checks from model behavior. Do not report unexecuted Astra behavior, timing savings, or production publication as tested.
 
@@ -64,9 +70,11 @@ Reports distinguish actual code/mock checks from model behavior. Do not report u
 
 Default deliver ends at the PR boundary, including for legacy contract 4. A `STANDARD` policy or historical `Release version` is not current merge/release authorization. The old automatic public continuation is intentionally retired; `--public-release` is unsupported.
 
-Merge uses exact expected head, current required CI/reviews/protection, and no bypass/admin or force path. Actual PR-head execution, synthetic merge compatibility, and post-merge main evidence remain distinct. Historical evidence is read according to its original contract.
+General merge uses authoritative target-project evidence for the repository, PR, current base/head, applicable required checks/reviews/protection, and mergeability. No kyw-dev workflow/job/step names, `main` branch, npm, or plugin structure are required. Non-required failing checks are not automatically promoted to required gates; actual acceptance defects still need resolution. Respect accepted skipped/neutral conclusions without calling them executed tests, head or current test-merge evidence as the project requires, and required check sources. Missing, pending, failed, stale, wrong-target/source, or uncertain required evidence blocks that merge. An empty check list alone does not prove absence of requirements; authoritative platform readiness can suffice without a new administrator-API prerequisite.
 
-Release does not choose/bump versions or automatically merge PRs. It validates the prepared repository/version/SHA, exact packed bytes and digests, registry conflicts, publisher identity, and canonical CI before npm → exact-SHA tag → Release. Its Task-independent target may contain several completed outcomes.
+Recheck the target immediately before an expected-head merge, with no bypass/admin/force path. Use the project's normal merge queue when supported and authorized; distinguish queueing, auto-merge scheduling, and actual merge. Unsupported or ambiguous platform boundaries hold that external action while preserving local completion. Canonical `check-ci` retains its kyw-dev-specific meaning, separate from general merge. Historical evidence is read according to its original contract.
+
+The built-in release route is for `kimyeongwoo/kyw-dev` maintenance only; enforce identity before publisher, tag, or Release writes. Other projects use existing procedures within current authorization; unclear procedures are reported without creating npm/OIDC infrastructure. Release does not choose/bump versions or automatically merge PRs. It validates the prepared repository/version/SHA, exact packed bytes and digests, registry conflicts, publisher identity, and canonical CI before npm → exact-SHA tag → Release. Its Task-independent target may contain several completed outcomes.
 
 New npm publication requires the current prepared main SHA. A fresh invocation may resume an already published ancestor after main advances only with verified local/remote main ancestry and exact npm/workflow/artifact/provenance proof for the original frozen identity. It creates only missing tag/Release effects; an already complete target requires no writes. Unpublished old targets, conflicts, and ambiguous evidence remain blocked.
 

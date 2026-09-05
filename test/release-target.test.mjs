@@ -21,16 +21,16 @@ test("explicit release hydration inspects an exact prepared tree without a tasks
   await mkdir(path.join(repositoryRoot, ".github/workflows"), { recursive: true });
   await mkdir(path.join(repositoryRoot, ".codex-plugin"));
   const packageJson = { name: "kyw-dev", version: "2.0.0", private: false, type: "module",
-    repository: { type: "git", url: "git+https://github.com/owner/repository.git" },
+    repository: { type: "git", url: "git+https://github.com/kimyeongwoo/kyw-dev.git" },
     files: [".codex-plugin/"], publishConfig: { access: "public", registry: "https://registry.npmjs.org/" } };
   await writeFile(path.join(repositoryRoot, "package.json"), JSON.stringify(packageJson));
   await writeFile(path.join(repositoryRoot, ".codex-plugin/plugin.json"), JSON.stringify({ name: "kyw-dev", version: "2.0.0" }));
   const workflow = await readFile(new URL("../.github/workflows/publish.yml", import.meta.url), "utf8");
-  await writeFile(path.join(repositoryRoot, ".github/workflows/publish.yml"), workflow.replaceAll("kimyeongwoo/kyw-dev", "owner/repository"));
+  await writeFile(path.join(repositoryRoot, ".github/workflows/publish.yml"), workflow.replaceAll("kimyeongwoo/kyw-dev", "kimyeongwoo/kyw-dev"));
   git(repositoryRoot, ["init", "-b", "main"]);
   git(repositoryRoot, ["config", "user.email", "fixture@example.invalid"]);
   git(repositoryRoot, ["config", "user.name", "Fixture"]);
-  git(repositoryRoot, ["remote", "add", "origin", "https://github.com/owner/repository.git"]);
+  git(repositoryRoot, ["remote", "add", "origin", "https://github.com/kimyeongwoo/kyw-dev.git"]);
   git(repositoryRoot, ["add", "."]);
   git(repositoryRoot, ["commit", "-m", "prepared source"]);
   const releaseSha = git(repositoryRoot, ["rev-parse", "HEAD"]);
@@ -76,7 +76,7 @@ test("GitHub read retries are bounded and do not retry authentication or invalid
       calls += 1;
       return { status: 1, stdout: "", stderr: `HTTP ${status}` };
     } });
-    await assert.rejects(clients.readPublishWorkflowIdentity({ repository: "owner/repository", path: ".github/workflows/publish.yml" }));
+    await assert.rejects(clients.readPublishWorkflowIdentity({ repository: "kimyeongwoo/kyw-dev", path: ".github/workflows/publish.yml" }));
     assert.equal(calls, expectedCalls);
   }
   let calls = 0;
@@ -85,7 +85,7 @@ test("GitHub read retries are bounded and do not retry authentication or invalid
     return calls < 3 ? { status: 1, stdout: "", stderr: "HTTP 503" }
       : { status: 0, stdout: JSON.stringify({ id: 1, name: "Publish npm package through OIDC", path: ".github/workflows/publish.yml", state: "active" }), stderr: "" };
   } });
-  assert.equal((await clients.readPublishWorkflowIdentity({ repository: "owner/repository", path: ".github/workflows/publish.yml" })).id, 1);
+  assert.equal((await clients.readPublishWorkflowIdentity({ repository: "kimyeongwoo/kyw-dev", path: ".github/workflows/publish.yml" })).id, 1);
   assert.equal(calls, 3);
 });
 
@@ -94,7 +94,7 @@ async function standaloneResumeFixture(t, { legacyWorkflow = false } = {}) {
   t.after(() => rm(repositoryRoot, { recursive: true, force: true }));
   await mkdir(path.join(repositoryRoot, ".github/workflows"), { recursive: true });
   await mkdir(path.join(repositoryRoot, ".codex-plugin"));
-  const repository = "owner/repository";
+  const repository = "kimyeongwoo/kyw-dev";
   const packageJson = { name: "kyw-dev", version: "2.0.0", private: false, type: "module",
     repository: { type: "git", url: `git+https://github.com/${repository}.git` },
     files: [".codex-plugin/"], publishConfig: { access: "public", registry: "https://registry.npmjs.org/" } };
@@ -252,7 +252,7 @@ test("new standalone invocation hydrates published ancestors and resumes only mi
     assert.equal(result.publicReleaseHydration.baseHeadSha, fixture.advancedMainSha);
     assert.equal(result.publicReleaseHydration.baseHeadRelation, "DESCENDANT");
     assert.deepEqual(result.publicReleaseTuple.package.signature, fixture.originalTuple.package.signature);
-    assert.deepEqual(fixture.trace.writes.map(({ endpoint }) => endpoint.replace("repos/owner/repository/", "")), expectedWrites);
+    assert.deepEqual(fixture.trace.writes.map(({ endpoint }) => endpoint.replace("repos/kimyeongwoo/kyw-dev/", "")), expectedWrites);
     assert.equal(fixture.trace.npmPublish, 0);
     assert.ok(fixture.trace.provenance > 0);
     assert.ok(fixture.trace.reads.some((endpoint) => endpoint.includes(`/compare/${fixture.releaseSha}...${fixture.advancedMainSha}`)));
@@ -283,6 +283,17 @@ test("a new invocation resumes a published ancestor with the historical combined
   assert.equal(result.outcome, "COMPLETE", JSON.stringify(result));
   assert.equal(result.publicReleaseHydration.baseHeadSha, fixture.advancedMainSha);
   assert.deepEqual(result.publicReleaseTuple.package.signature, fixture.originalTuple.package.signature);
-  assert.deepEqual(fixture.trace.writes.map(({ endpoint }) => endpoint.replace("repos/owner/repository/", "")), ["git/refs", "releases"]);
+  assert.deepEqual(fixture.trace.writes.map(({ endpoint }) => endpoint.replace("repos/kimyeongwoo/kyw-dev/", "")), ["git/refs", "releases"]);
+  assert.equal(fixture.trace.npmPublish, 0);
+});
+
+test("standalone public-release adapter rejects another origin without publisher, tag or Release effects", async (t) => {
+  const fixture = await standaloneResumeFixture(t);
+  git(fixture.repositoryRoot, ["remote", "set-url", "origin", "https://github.com/other/project.git"]);
+  const result = await fixture.invoke();
+  assert.equal(result.outcome, "BLOCKED");
+  assert.equal(result.code, "PUBLIC_RELEASE_REPOSITORY_UNSUPPORTED");
+  assert.deepEqual(fixture.trace.writes, []);
+  assert.deepEqual(fixture.trace.reads, []);
   assert.equal(fixture.trace.npmPublish, 0);
 });
