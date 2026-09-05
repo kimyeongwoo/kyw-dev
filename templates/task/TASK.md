@@ -1,74 +1,24 @@
 # TASK {{TASK_ID}} — {{TASK_TITLE}}
 
-<!-- kyw-task-contract: 4 -->
-
-## Status
-
-DRAFT
+<!-- kyw-task-contract: 5 -->
+<!-- kyw-task: {"id":"{{TASK_ID}}","status":"DRAFT","dependencies":[]} -->
 
 ## Goal
 
-<!-- State one independently testable outcome. -->
-
-## Dependencies
-
-- Not applicable — no hard dependency is required for this outcome.
-
-## In Scope
-
-<!-- List the changes required for this outcome. Use `Not applicable — <reason>` only when this section genuinely does not apply. -->
-
-## Out of Scope
-
-<!-- Name nearby work that this Task must not absorb, or use `Not applicable — <reason>`. -->
+Describe the requested outcome.
 
 ## Acceptance Criteria
 
-<!-- Add checklist entries such as "- [ ] AC-01: observable result". -->
-
-## Plan
-
-<!-- Add implementation steps and keep their completion state current. -->
+Record observable completion conditions.
 
 ## Decisions
 
-<!-- Record Task-level choices that affect the implementation, or use `Not applicable — <reason>`. -->
+Record only important choices and constraints.
 
-## Risks
+## Verification
 
-<!-- Record meaningful failure, compatibility, migration, or verification risks, or use `Not applicable — <reason>`. -->
-
-## Discoveries and Changes
-
-<!-- Update this section when facts, design, scope, or expected behavior change, or use `Not applicable — <reason>`. -->
-
-## Documentation Impact
-
-- SPEC: <!-- changed meaning or why unaffected -->
-- ARCHITECTURE: <!-- changed meaning or why unaffected -->
-- README: <!-- changed meaning or why unaffected -->
-- AGENTS: <!-- changed meaning or why unaffected -->
-
-## Delivery
-
-- Requirement: NONE — release-bearing STANDARD delivery has not been selected for this draft.
-
-<!-- Before READY, use either `- Requirement: STANDARD`, exactly one `- Release version: x.y.z`, and `- Canonical ledger: GitHub PR/Actions exact-SHA state.`; or reasoned `NONE` with no release-version/ledger field. Record policy only, never future delivery state. -->
-
-## Completed
-
-- Not applicable — implementation has not started.
+Record commands actually run, their results, and any unverified limits.
 
 ## Remaining
 
-<!-- List the work still needed to satisfy the Task. -->
-<!-- For DONE, use `- None — repository outcome complete.` -->
-
-## Resume Point
-
-<!-- Give the next concrete action and the minimum context needed to continue. -->
-<!-- For DONE, use `- None — repository outcome complete.` -->
-
-## Blockers
-
-- Not applicable — no blocker is known.
+Record unfinished work and the next useful resume point; update at handoff or completion.

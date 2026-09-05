@@ -13,7 +13,7 @@ import {
   CURRENT_TASK_CONTRACT_VERSION,
   DOCUMENT_CONTRACTS,
   MODEL_PROVENANCE_FIELDS,
-  TASK_CONTRACT_MARKER,
+  TASK_CONTRACT_MARKER as CURRENT_TASK_CONTRACT_MARKER,
   TASK_TEST_STATUS_PAIRS,
   isImmutableTerminalTaskContractVersion,
   readCanonicalTemplate,
@@ -23,6 +23,7 @@ import {
   validateTaskTestContract,
 } from "../src/core/template-contracts.mjs";
 
+const TASK_CONTRACT_MARKER = "<!-- kyw-task-contract: 4 -->";
 const fixturesRoot = fileURLToPath(new URL("./fixtures/task-repositories/", import.meta.url));
 const ergonomicsFixturesRoot = path.join(fixturesRoot, "ergonomics");
 
@@ -32,19 +33,9 @@ test("template contracts cover every canonical project, Task, and Test document"
     assert.deepEqual(validateCanonicalTemplate(kind, template), [], kind);
   }
 
-  const readme = await readCanonicalTemplate("README");
-  const missingPurpose = readme.replace(/^## Purpose[\s\S]*?(?=^## )/m, "");
-  assert.match(validateCanonicalTemplate("README", missingPurpose).join("\n"), /missing required section "Purpose"/);
+  assert.deepEqual(validateCanonicalTemplate("README", "# {{PROJECT_NAME}}\nProject-specific guidance."), []);
+  assert.deepEqual(validateCanonicalTemplate("AGENTS", "# Local rules\n{{VERIFY_COMMANDS}}"), []);
 
-  const agents = await readCanonicalTemplate("AGENTS");
-  const missingLoadingContract = agents.replace(
-    /^## Truth and context loading[\s\S]*?(?=^## )/m,
-    "",
-  );
-  assert.match(
-    validateCanonicalTemplate("AGENTS", missingLoadingContract).join("\n"),
-    /missing required section "Truth and context loading"/,
-  );
 });
 
 test("rendered Task templates form a valid DRAFT pair without unresolved tokens", async () => {
@@ -55,9 +46,10 @@ test("rendered Task templates form a valid DRAFT pair without unresolved tokens"
   assert.doesNotMatch(taskMarkdown, /\{\{[A-Z_]+\}\}/);
   assert.doesNotMatch(testMarkdown, /\{\{[A-Z_]+\}\}/);
   assert.deepEqual(validateTaskTestContract({ taskMarkdown, testMarkdown }), []);
-  assert.equal(CURRENT_TASK_CONTRACT_VERSION, 4);
-  assert.match(taskMarkdown, /<!-- kyw-task-contract: 4 -->/);
-  assert.match(taskMarkdown, /- Requirement: NONE —/);
+  assert.equal(CURRENT_TASK_CONTRACT_VERSION, 5);
+  assert.equal(CURRENT_TASK_CONTRACT_MARKER, "<!-- kyw-task-contract: 5 -->");
+  assert.match(taskMarkdown, /<!-- kyw-task-contract: 5 -->/);
+  assert.deepEqual(validateTaskTestContract({ taskMarkdown }), []);
   assert.doesNotMatch(
     stripMarkdownComments(taskMarkdown),
     /- Release version:|- Canonical ledger:/,
@@ -173,12 +165,6 @@ test("current Task ergonomics accept reasoned N/A, reject empty ambiguity, and r
 });
 
 test("model provenance records observed and unavailable values without inference", async () => {
-  const unavailable = await readCanonicalTemplate("TEST");
-  assert.deepEqual(validateModelProvenance(unavailable, { required: true }), []);
-  for (const field of MODEL_PROVENANCE_FIELDS) {
-    assert.match(unavailable, new RegExp(`^- ${field}:`, "m"));
-  }
-
   const observedValues = new Map([
     ["Model identifier", "gpt-example-1"],
     ["Requested model alias", "example-alias"],
@@ -304,11 +290,7 @@ test("model provenance records observed and unavailable values without inference
     /fields must use the canonical order/,
   );
 
-  const withoutBlock = unavailable.replace(/^## Model Provenance[\s\S]*?(?=^## )/m, "");
-  assert.match(
-    validateCanonicalTemplate("TEST", withoutBlock).join("\n"),
-    /missing required section "Model Provenance"/,
-  );
+
 });
 
 test("validator accepts a complete fixture and reports actionable malformed-state errors", async () => {
@@ -535,14 +517,14 @@ test("current contract validates static delivery policy and repository-only term
     validateTaskTestContract({
       taskMarkdown: currentTask.replace(
         TASK_CONTRACT_MARKER,
-        "<!-- kyw-task-contract: 5 -->",
+        "<!-- kyw-task-contract: 99 -->",
       ),
       testMarkdown: currentTest.replace(
         TASK_CONTRACT_MARKER,
-        "<!-- kyw-task-contract: 5 -->",
+        "<!-- kyw-task-contract: 99 -->",
       ),
     }).join("\n"),
-    /unsupported Task contract version 5/,
+    /unsupported Task contract version 99/,
   );
 
   assert.deepEqual(parseDeliveryRequirement(currentTask, 4), {

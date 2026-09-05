@@ -1,7 +1,6 @@
 interface:
-  display_name: "kyw Grilling"
-  short_description: "Resolve design decisions one at a time"
-  default_prompt: "Use $kyw-grilling to stress-test this plan one decision at a time."
-
+  display_name: "kyw grilling"
+  short_description: "Decision interview with delegated choices"
+  default_prompt: "Use $kyw-grilling to resolve this design’s important decisions."
 policy:
   allow_implicit_invocation: false

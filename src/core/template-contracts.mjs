@@ -18,10 +18,12 @@ export const LEGACY_TASK_CONTRACT_VERSION = 1;
 export const PREVIOUS_TASK_CONTRACT_VERSION = 2;
 export const IMMUTABLE_TERMINAL_TASK_CONTRACT_VERSION = 3;
 export const RELEASE_BEARING_TASK_CONTRACT_VERSION = 4;
-export const CURRENT_TASK_CONTRACT_VERSION = RELEASE_BEARING_TASK_CONTRACT_VERSION;
+export const SINGLE_TASK_CONTRACT_VERSION = 5;
+export const CURRENT_TASK_CONTRACT_VERSION = SINGLE_TASK_CONTRACT_VERSION;
 export const QUEUE_AWARE_TASK_CONTRACT_VERSIONS = Object.freeze([
   PREVIOUS_TASK_CONTRACT_VERSION,
   IMMUTABLE_TERMINAL_TASK_CONTRACT_VERSION,
+  RELEASE_BEARING_TASK_CONTRACT_VERSION,
   CURRENT_TASK_CONTRACT_VERSION,
 ]);
 export const SUPPORTED_TASK_CONTRACT_VERSIONS = Object.freeze([
@@ -70,93 +72,22 @@ export function isStableReleaseVersion(version) {
   );
 }
 
-export const DOCUMENT_CONTRACTS = Object.freeze({
-  README: Object.freeze({
-    relativePath: "project/README.md",
-    requiredSections: Object.freeze([
-      "Purpose",
-      "Prerequisites",
-      "Installation and Setup",
-      "Commands",
-      "Configuration",
-      "Usage",
-      "Repository Map",
-      "Project Documents",
-    ]),
-    requiredTokens: Object.freeze(["PROJECT_NAME"]),
-  }),
-  AGENTS: Object.freeze({
-    relativePath: "project/AGENTS.md",
-    requiredSections: Object.freeze([
-      "Truth and context loading",
-      "Scope and routing",
-      "Change and documentation discipline",
-      "Evidence and completion",
-    ]),
-    requiredTokens: Object.freeze(["VERIFY_COMMANDS"]),
-  }),
-  SPEC: Object.freeze({
-    relativePath: "project/SPEC.md",
-    requiredSections: Object.freeze([
-      "Goals",
-      "Non-goals",
-      "User-visible Behavior",
-      "Business and Domain Rules",
-      "Functional Requirements",
-      "Quality Requirements",
-      "Acceptance Criteria",
-      "Unresolved Decisions",
-    ]),
-    requiredTokens: Object.freeze(["PROJECT_NAME"]),
-  }),
-  ARCHITECTURE: Object.freeze({
-    relativePath: "project/ARCHITECTURE.md",
-    requiredSections: Object.freeze([
-      "System Context",
-      "Components and Responsibilities",
-      "Module and Dependency Boundaries",
-      "Data and Control Flow",
-      "Storage and External Interfaces",
-      "Cross-cutting Constraints",
-      "Trade-offs",
-    ]),
-    requiredTokens: Object.freeze(["PROJECT_NAME"]),
-  }),
-  TASK: Object.freeze({
-    relativePath: "task/TASK.md",
-    requiredSections: Object.freeze([
-      "Status",
-      "Goal",
-      "Dependencies",
-      "In Scope",
-      "Out of Scope",
-      "Acceptance Criteria",
-      "Plan",
-      "Decisions",
-      "Discoveries and Changes",
-      "Documentation Impact",
-      "Completed",
-      "Remaining",
-      "Resume Point",
-      "Blockers",
-    ]),
-    requiredTokens: Object.freeze(["TASK_ID", "TASK_TITLE"]),
-  }),
-  TEST: Object.freeze({
-    relativePath: "task/TEST.md",
-    requiredSections: Object.freeze([
-      "Status",
-      "Test Basis",
-      "Intent-to-Test Matrix",
-      "Regression Coverage",
-      "Commands",
-      "Results",
-      "Unverified",
-      "Final Coverage Review",
-    ]),
-    requiredTokens: Object.freeze(["TASK_ID", "TASK_TITLE"]),
-  }),
+const LEGACY_RECORD_SECTIONS = Object.freeze({
+  TASK: Object.freeze(["Status", "Goal", "Dependencies", "In Scope", "Out of Scope", "Acceptance Criteria", "Plan", "Decisions", "Discoveries and Changes", "Documentation Impact", "Completed", "Remaining", "Resume Point", "Blockers"]),
+  TEST: Object.freeze(["Status", "Test Basis", "Intent-to-Test Matrix", "Regression Coverage", "Commands", "Results", "Unverified", "Final Coverage Review"]),
 });
+
+// These templates are optional starting points, not a project-document database.
+export const DOCUMENT_CONTRACTS = Object.freeze(Object.fromEntries([
+  ["README", "project/README.md", ["PROJECT_NAME"]],
+  ["AGENTS", "project/AGENTS.md", ["VERIFY_COMMANDS"]],
+  ["SPEC", "project/SPEC.md", ["PROJECT_NAME"]],
+  ["ARCHITECTURE", "project/ARCHITECTURE.md", ["PROJECT_NAME"]],
+  ["TASK", "task/TASK.md", ["TASK_ID", "TASK_TITLE"]],
+  ["TEST", "task/TEST.md", ["TASK_ID", "TASK_TITLE"]],
+].map(([kind, relativePath, requiredTokens]) => [kind, Object.freeze({
+  relativePath, requiredTokens: Object.freeze(requiredTokens), requiredSections: Object.freeze([]),
+})])));
 
 const matrixHeaders = ["ID", "Intent / acceptance criterion", "Method", "Level", "Status", "Evidence"];
 const unsupportedEvidence = /^(?:-|none|n\/a|not run(?: yet)?|todo|pending)[.!]?$/i;
@@ -496,8 +427,9 @@ export function validateDocumentSections(kind, markdown) {
     return [`${normalizedKind}.md: content must be a string`];
   }
 
+  if (!["TASK", "TEST"].includes(normalizedKind) || getTaskContractVersion(markdown) === SINGLE_TASK_CONTRACT_VERSION) return [];
   const sections = parseSections(markdown);
-  return DOCUMENT_CONTRACTS[normalizedKind].requiredSections
+  return LEGACY_RECORD_SECTIONS[normalizedKind]
     .filter((heading) => !sections.has(normalizeHeading(heading)))
     .map((heading) => `${normalizedKind}.md: missing required section "${heading}"`);
 }
@@ -589,16 +521,41 @@ export function validateCanonicalTemplate(kind, markdown) {
   if (["TASK", "TEST"].includes(normalizedKind) && !markdown.includes(TASK_CONTRACT_MARKER)) {
     errors.push(`${normalizedKind}.md: missing current Task contract marker`);
   }
-  if (normalizedKind === "TASK" && !parseSections(markdown).has(normalizeHeading("Delivery"))) {
-    errors.push('TASK.md: canonical template is missing required section "Delivery"');
-  }
-  if (normalizedKind === "TEST") {
-    errors.push(...validateModelProvenance(markdown, { required: true }));
-  }
   return errors;
 }
 
+export function parseTaskMetadata(markdown) {
+  const matches = typeof markdown === "string"
+    ? [...markdown.matchAll(/<!--\s*kyw-task:\s*([\s\S]*?)-->/g)] : [];
+  if (matches.length !== 1) throw new Error("TASK.md requires one kyw-task JSON metadata block");
+  let metadata;
+  try { metadata = JSON.parse(matches[0][1]); }
+  catch { throw new Error("TASK.md kyw-task metadata must be valid JSON"); }
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata) ||
+      Object.keys(metadata).sort().join(",") !== "dependencies,id,status" ||
+      !/^\d{4}$/.test(metadata.id) || metadata.id === "0000" || !TASK_STATUSES.includes(metadata.status) ||
+      !Array.isArray(metadata.dependencies) ||
+      metadata.dependencies.some((id) => typeof id !== "string" || !/^\d{4}$/.test(id) || id === "0000" || id === metadata.id) ||
+      new Set(metadata.dependencies).size !== metadata.dependencies.length) {
+    throw new Error("TASK.md metadata requires id, status, and unique dependency IDs excluding itself");
+  }
+  return Object.freeze({ ...metadata, dependencies: Object.freeze(metadata.dependencies) });
+}
+
 export function validateTaskTestContract({ taskMarkdown, testMarkdown }) {
+  if (getTaskContractVersion(taskMarkdown) === SINGLE_TASK_CONTRACT_VERSION) {
+    const errors = [];
+    try {
+      const metadata = parseTaskMetadata(taskMarkdown);
+      const headerId = /^# TASK (\d{4}) — .+$/m.exec(taskMarkdown)?.[1];
+      if (headerId !== metadata.id) errors.push("TASK.md header ID must match metadata id");
+    } catch (error) { errors.push(error.message); }
+    if (contractMarkers(taskMarkdown).length !== 1) errors.push("TASK.md requires one contract marker");
+    if (testMarkdown !== undefined && (typeof testMarkdown !== "string" || !testMarkdown.trim())) {
+      errors.push("Optional TEST.md must contain readable text");
+    }
+    return errors;
+  }
   const errors = [
     ...validateDocumentSections("TASK", taskMarkdown),
     ...validateDocumentSections("TEST", testMarkdown),
@@ -666,8 +623,8 @@ export function validateTaskTestContract({ taskMarkdown, testMarkdown }) {
   }
 
   if (isQueueAwareTaskContractVersion(taskContractVersion)) {
-    const taskHeadings = [...DOCUMENT_CONTRACTS.TASK.requiredSections, "Risks", "Delivery"];
-    const testHeadings = DOCUMENT_CONTRACTS.TEST.requiredSections;
+    const taskHeadings = [...LEGACY_RECORD_SECTIONS.TASK, "Risks", "Delivery"];
+    const testHeadings = LEGACY_RECORD_SECTIONS.TEST;
     for (const heading of taskHeadings) {
       if (taskSectionCounts.get(normalizeHeading(heading)) !== 1) {
         errors.push(`TASK.md: current contract requires exactly one section "${heading}"`);

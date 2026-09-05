@@ -18,8 +18,15 @@ import {
   freezePublicReleaseTuple,
   parsePublicReleaseInvocation,
   redactPublicReleaseDiagnostics,
-  runPublicRelease,
+  recoverPublicReleaseSigningTuple,
+  runPublicRelease as executePublicRelease,
 } from "../src/core/task-artifact-public-release.mjs";
+
+// Fixtures explicitly authorize only the frozen public target.
+const runPublicRelease = (options) => executePublicRelease({
+  invocation: `$kyw-deliver --release ${options.tuple.package.version} --sha ${options.tuple.target.mergeSha}`,
+  ...options,
+});
 
 const mergeSha = "a".repeat(40);
 const treeSha = "b".repeat(40);
@@ -257,17 +264,21 @@ function createStateClients(tuple, initial = {}) {
   return { clients, trace, state: () => state, setState };
 }
 
-test("public-release routing recognizes only the exact plain delivery form", () => {
-  assert.deepEqual(parsePublicReleaseInvocation("$kyw-deliver 0085"), {
+test("public-release routing requires the explicit version and SHA action", () => {
+  assert.deepEqual(parsePublicReleaseInvocation(`$kyw-deliver --release 1.2.3 --sha ${mergeSha}`), {
     recognized: true,
-    route: "DELIVERY",
-    mode: "EXACT",
+    route: "RELEASE",
+    mode: "RELEASE",
     source: "PORTABLE_SKILL",
-    taskId: "0085",
+    taskId: null,
+    releaseVersion: "1.2.3",
+    releaseSha: mergeSha,
     overrideText: "",
     overrideScope: "NONE",
   });
   for (const invocation of [
+    "$kyw-deliver 0085",
+    "$kyw-deliver 0085 --merge",
     "$kyw-deliver 0085 --public-release",
     "$kyw-deliver 85 --public-release",
     "$kyw-deliver 0085 --public-release now",
@@ -985,7 +996,7 @@ test("supply-chain, tag peel, Release asset, run ambiguity, and future-stage con
     },
     {
       ...exactNpm(tuple),
-      provenance: { ...exactNpm(tuple).provenance, runAttempt: 2 },
+      provenance: { ...exactNpm(tuple).provenance, runAttempt: 11 },
     },
     { ...exactNpm(tuple), distTags: { latest: "1.1.0" } },
     { ...exactNpm(tuple), versions: [tuple.package.version] },
@@ -1867,4 +1878,112 @@ test("diagnostics deterministically redact credentials and bound hostile logs", 
   }
   assert.match(serialized, /REDACTED/);
   assert.match(serialized, /TRUNCATED|DIAGNOSTIC_LIMIT/);
+});
+
+test("plain delivery and mismatched release targets make zero public calls even for legacy contract 4", async () => {
+  const tuple = releaseTuple();
+  for (const invocation of [undefined, "$kyw-deliver 0085", "$kyw-deliver 0085 --merge",
+    `$kyw-deliver --release 1.2.4 --sha ${mergeSha}`,
+    `$kyw-deliver --release 1.2.3 --sha ${"f".repeat(40)}`]) {
+    const state = createStateClients(tuple);
+    const result = await executePublicRelease({ invocation, tuple, standardDelivery: standardFinal(tuple), clients: state.clients });
+    assert.equal(result.code, "PUBLIC_RELEASE_AUTHORITY_REQUIRED");
+    assert.deepEqual(state.trace, []);
+  }
+});
+
+test("an explicit prepared release works without any Task identity or delivery history", async () => {
+  const tuple = releaseTuple({ taskId: null });
+  const state = createStateClients(tuple);
+  const standardDelivery = { releaseTarget: { repository: tuple.repository, baseBranch: "main",
+    sha: mergeSha, treeSha, currentMainSha: mergeSha } };
+  const result = await runPublicRelease({ tuple, standardDelivery, clients: state.clients });
+  assert.equal(result.outcome, "COMPLETE");
+  assert.deepEqual(state.trace.filter((item) => item.kind === "WRITE").map((item) => item.stage), ["NPM", "TAG", "RELEASE"]);
+  const invalid = createStateClients(tuple);
+  const blocked = await runPublicRelease({ tuple, standardDelivery: { releaseTarget: {
+    ...standardDelivery.releaseTarget, currentMainSha: "f".repeat(40) } }, clients: invalid.clients });
+  assert.equal(blocked.outcome, "BLOCKED");
+  assert.deepEqual(invalid.trace, []);
+});
+
+test("proven pre-publication failures permit a new attempt, ambiguous failures never do", async () => {
+  const tuple = releaseTuple();
+  const failed = { ...exactWorkflow(tuple), conclusion: "failure", publishBoundary: "NOT_EXECUTED", publishAttempts: [] };
+  const safe = createStateClients(tuple, { workflow: [failed] });
+  const result = await runPublicRelease({ tuple, standardDelivery: standardFinal(tuple), clients: safe.clients });
+  assert.equal(result.outcome, "COMPLETE");
+  assert.equal(safe.trace.filter((item) => item.kind === "WRITE" && item.stage === "NPM").length, 1);
+  for (const prior of [ { ...failed, publishBoundary: undefined },
+    { ...failed, publishAttempts: exactWorkflow(tuple).publishAttempts }, { ...failed, headSha: "f".repeat(40) } ]) {
+    const state = createStateClients(tuple, { workflow: [prior] });
+    const blocked = await runPublicRelease({ tuple, standardDelivery: standardFinal(tuple), clients: state.clients });
+    assert.equal(blocked.outcome, "BLOCKED");
+    assert.equal(state.trace.filter((item) => item.kind === "WRITE").length, 0);
+  }
+  const complete = classifyPublicationWorkflow(tuple, [failed, { ...exactWorkflow(tuple), runId: 102 }]);
+  assert.equal(complete.classification, "EXACT_ALREADY_COMPLETE");
+});
+
+test("canonical dispatch recovery preserves multi-key and historical signing identities after publication", async () => {
+  const frozen = releaseTuple();
+  frozen.package.signature = { required: true, keyId: "SHA256:A", keyIds: ["SHA256:A", "SHA256:B"] };
+  const original = freezePublicReleaseTuple(frozen);
+  const publishedCandidate = structuredClone(original);
+  publishedCandidate.package.signature = { required: true, keyId: "SHA256:B", keyIds: ["SHA256:B"] };
+  const recordedRun = exactWorkflow(original);
+  const recovered = recoverPublicReleaseSigningTuple(publishedCandidate, { runs: [recordedRun], complete: true });
+  assert.deepEqual(recovered, original);
+  const npm = exactNpm(recovered);
+  npm.signature.keyIds = ["SHA256:B"];
+  const state = createStateClients(recovered, { workflow: [recordedRun], npm });
+  const completed = await runPublicRelease({ tuple: recovered, standardDelivery: standardFinal(recovered), clients: state.clients });
+  assert.equal(completed.outcome, "COMPLETE");
+  assert.deepEqual(state.trace.filter((item) => item.kind === "WRITE").map((item) => item.stage), ["TAG", "RELEASE"]);
+
+  const historical = releaseTuple();
+  const legacyRecovered = recoverPublicReleaseSigningTuple(publishedCandidate, [exactWorkflow(historical)]);
+  assert.deepEqual(legacyRecovered.package.signature, historical.package.signature);
+  assert.equal(derivePublicReleaseWorkflowInputs(legacyRecovered).expected_signing_key_ids, undefined);
+  for (const mutate of [
+    (run) => { run.inputs.expected_sha = "f".repeat(40); },
+    (run) => { run.inputs.expected_tarball_sha256 = "e".repeat(64); },
+    (run) => { run.inputs.expected_signing_key_ids = '["SHA256:B","SHA256:A"]'; },
+    (run) => { run.inputs.expectedSigningKeyId = "SHA256:B"; },
+  ]) {
+    const wrong = structuredClone(recordedRun);
+    mutate(wrong);
+    assert.throws(() => recoverPublicReleaseSigningTuple(publishedCandidate, [wrong]));
+  }
+  assert.throws(() => recoverPublicReleaseSigningTuple(publishedCandidate, {
+    runs: [recordedRun], complete: false,
+  }));
+  assert.throws(() => recoverPublicReleaseSigningTuple(publishedCandidate, [recordedRun, exactWorkflow(publishedCandidate)]), /conflicting/);
+});
+
+test("safe rerun completion requires every earlier attempt unexecuted and matching provenance attempt", async () => {
+  const tuple = releaseTuple();
+  const workflow = { ...exactWorkflow(tuple), runAttempt: 3, priorAttempts: [
+    { attempt: 1, publishBoundary: "NOT_EXECUTED" }, { attempt: 2, publishBoundary: "NOT_EXECUTED" },
+  ] };
+  const npm = exactNpm(tuple);
+  npm.provenance.runAttempt = 3;
+  const state = createStateClients(tuple, { workflow: [workflow], npm });
+  const completed = await runPublicRelease({ tuple, standardDelivery: standardFinal(tuple), clients: state.clients });
+  assert.equal(completed.outcome, "COMPLETE");
+  assert.deepEqual(state.trace.filter((item) => item.kind === "WRITE").map((item) => item.stage), ["TAG", "RELEASE"]);
+  for (const priorAttempts of [undefined, [], workflow.priorAttempts.slice(1),
+    [{ attempt: 1, publishBoundary: "NOT_EXECUTED" }, { attempt: 2, publishBoundary: "UNKNOWN" }]]) {
+    const blockedState = createStateClients(tuple, { workflow: [{ ...workflow, priorAttempts }], npm });
+    const blocked = await runPublicRelease({ tuple, standardDelivery: standardFinal(tuple), clients: blockedState.clients });
+    assert.equal(blocked.outcome, "BLOCKED");
+    assert.equal(blockedState.trace.filter((item) => item.kind === "WRITE").length, 0);
+  }
+  const mismatch = classifyPublicReleaseState(tuple, { workflow: [workflow], npm: exactNpm(tuple), tag: null, release: null });
+  assert.equal(mismatch.classifications.npm, "CONFLICT");
+  const unexecuted = { ...workflow, conclusion: "failure", publishBoundary: "NOT_EXECUTED", publishAttempts: [] };
+  const retry = createStateClients(tuple, { workflow: [unexecuted] });
+  const retried = await runPublicRelease({ tuple, standardDelivery: standardFinal(tuple), clients: retry.clients });
+  assert.equal(retried.outcome, "COMPLETE");
+  assert.equal(retry.trace.filter((item) => item.kind === "WRITE" && item.stage === "NPM").length, 1);
 });

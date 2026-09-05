@@ -1,5 +1,7 @@
 # {{PROJECT_NAME}} Architecture
 
+<!-- Optional guide: retain only sections this project needs; preserve useful existing documentation. -->
+
 ## System Context
 
 <!-- Identify users, the system boundary, and external systems. -->

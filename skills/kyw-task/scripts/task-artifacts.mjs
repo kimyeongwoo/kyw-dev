@@ -18,26 +18,24 @@ if (!existsSync(fileURLToPath(coreUrl))) {
   );
 }
 
-const {
-  MAX_TASK_BATCH_PAYLOAD_BYTES,
-  TaskArtifactError,
-  applyStandardDeliveryContinuityTransition,
-  bootstrapStandardDeliveryContinuity,
-  createTaskArtifactBatch,
-  createTaskArtifacts,
-  derivePublicReleasePlan,
-  hydratePriorStandardDeliveries,
-  hydratePublicReleaseContext,
-  inspectTaskBatchTransaction,
-  recoverTaskBatchTransaction,
-  parseTaskInvocation,
-  resolveTaskDispatch,
-  redactPublicReleaseDiagnostics,
-  runPublicRelease,
-  validateTaskDirectory,
-} = await import(coreUrl);
+const [shared, creation, contract, queue, delivery, publicRelease] = await Promise.all([
+  import(new URL("task-artifact-shared.mjs", coreUrl)),
+  import(new URL("task-artifact-creation.mjs", coreUrl)),
+  import(new URL("task-artifact-contract.mjs", coreUrl)),
+  import(new URL("task-artifact-queue.mjs", coreUrl)),
+  import(new URL("task-artifact-delivery.mjs", coreUrl)),
+  import(new URL("task-artifact-public-release.mjs", coreUrl)),
+]);
+const { MAX_TASK_BATCH_PAYLOAD_BYTES, TaskArtifactError } = shared;
+const { createTaskArtifactBatch, createTaskArtifacts, inspectTaskBatchTransaction, recoverTaskBatchTransaction } = creation;
+const { validateTaskDirectory } = contract;
+const { resolveTaskDispatch } = queue;
+const { parseTaskInvocation } = delivery;
+const { derivePublicReleasePlan, redactPublicReleaseDiagnostics, runPublicRelease } = publicRelease;
+const loadExternalEvidence = () => import(new URL("task-artifact-hydration.mjs", coreUrl));
 
 const usage =
+  "Usage: task-artifacts.mjs check-ci --repository <owner/name> --sha <sha> [--branch <branch> --event <push|pull_request> --head-repository <owner/name>]\n" +
   "Usage: task-artifacts.mjs create --tasks-root <path> --title <title>\n" +
   "   or: task-artifacts.mjs create-batch --tasks-root <path> " +
   "(--batch-json <json> | --batch-file <path>)\n" +
@@ -50,8 +48,8 @@ const usage =
   "   or: task-artifacts.mjs dispatch --tasks-root <path> --invocation <text> " +
   "--managed-routing <true|false> " +
   "[--execution-preflight <json-path> | --execution-preflight-json <json>]\n" +
-  "   or: task-artifacts.mjs public-release --tasks-root <path> " +
-  "--invocation '$kyw-deliver NNNN' " +
+  "   or: task-artifacts.mjs public-release [--repository-root <path>] " +
+  "--invocation '$kyw-deliver --release <version> --sha <sha>' " +
   "--managed-routing <true|false>";
 
 function parseOptions(args, requiredNames, optionalNames = []) {
@@ -280,27 +278,19 @@ function publicReleaseDispatchResult({
 
 export async function runTaskArtifactCommand(argv, runtime = {}) {
   const [command, ...args] = argv;
-  const hydrateDeliveries =
-    runtime.hydratePriorStandardDeliveries ?? hydratePriorStandardDeliveries;
   const dispatchTask = runtime.resolveTaskDispatch ?? resolveTaskDispatch;
-  const bootstrapContinuity =
-    runtime.bootstrapStandardDeliveryContinuity ??
-    bootstrapStandardDeliveryContinuity;
-  const applyContinuity =
-    runtime.applyStandardDeliveryContinuityTransition ??
-    applyStandardDeliveryContinuityTransition;
-  const hydratePublicContext =
-    runtime.hydratePublicReleaseContext ?? hydratePublicReleaseContext;
   const derivePublicPlan =
     runtime.derivePublicReleasePlan ?? derivePublicReleasePlan;
   const runAuthorizedPublicRelease =
     runtime.runPublicRelease ?? runPublicRelease;
 
   if (command === "create") {
-    const options = parseOptions(args, ["--tasks-root", "--title"]);
+    const options = parseOptions(args, ["--tasks-root", "--title"], ["--detailed-tests"]);
+    if (options.has("--detailed-tests") && !["true", "false"].includes(options.get("--detailed-tests"))) throw new TaskArtifactError("INVALID_TASK_ADAPTER_ARGUMENTS", "--detailed-tests must be true or false");
     const created = await createTaskArtifacts({
       tasksRoot: resolve(options.get("--tasks-root")),
       title: options.get("--title"),
+      detailedTests: options.get("--detailed-tests") === "true",
     });
     return { command, ...created };
   }
@@ -387,6 +377,7 @@ export async function runTaskArtifactCommand(argv, runtime = {}) {
         "continuity bootstrap requires explicit migration/rebaseline authority",
       );
     }
+    const bootstrapContinuity = runtime.bootstrapStandardDeliveryContinuity ?? (await loadExternalEvidence()).bootstrapStandardDeliveryContinuity;
     const bootstrapped = await bootstrapContinuity({
       tasksRoot: resolve(options.get("--tasks-root")),
       invocation: options.get("--invocation"),
@@ -400,246 +391,86 @@ export async function runTaskArtifactCommand(argv, runtime = {}) {
     };
   }
 
+  if (command === "check-ci") {
+    const options = parseOptions(args, ["--repository", "--sha"], ["--repository-root", "--branch", "--event", "--head-repository"]);
+    const repositoryRoot = resolve(options.get("--repository-root") ?? process.cwd());
+    const { requireCanonicalCi } = await import(new URL("ci-evidence.mjs", coreUrl));
+    const read = runtime.readCi ?? (async (apiPath) => {
+      const request = { command: "gh", args: ["api", "--hostname", "github.com", "--method", "GET", apiPath], cwd: repositoryRoot, timeoutMs: 30_000, maxBuffer: 2 * 1024 * 1024 };
+      let stdout;
+      for (let attempt = 1; attempt <= 3; attempt += 1) {
+        let response;
+        try {
+          if (runtime.commandRunner) response = await runtime.commandRunner(request);
+          else {
+            const { execFile } = await import("node:child_process");
+            response = await new Promise((accept) => execFile(request.command, request.args, {
+              cwd: request.cwd, timeout: request.timeoutMs, maxBuffer: request.maxBuffer, encoding: "utf8", windowsHide: true,
+            }, (error, output, stderr) => accept({ status: error ? 1 : 0, stdout: output, stderr, error })));
+          }
+        } catch (error) { response = { status: 1, error, stderr: error?.stderr }; }
+        if (response?.status === 0) { stdout = response.stdout; break; }
+        const httpStatus = /\bHTTP(?:\/\d(?:\.\d)?)?\s+(\d{3})\b/i.exec(String(response?.stderr ?? response?.error?.message ?? ""))?.[1];
+        const transient = httpStatus
+          ? [408, 429, 500, 502, 503, 504].includes(Number(httpStatus))
+          : ["ETIMEDOUT", "ECONNRESET", "EAI_AGAIN", "ENETUNREACH"].includes(response?.error?.code);
+        if (!transient || attempt === 3) throw new TaskArtifactError("CI_READ_FAILED", "Canonical CI API read failed");
+        const delay = runtime.delay ?? ((milliseconds) => new Promise((accept) => setTimeout(accept, milliseconds)));
+        await delay(attempt * 100);
+      }
+      if (Buffer.byteLength(stdout ?? "", "utf8") > request.maxBuffer) throw new TaskArtifactError("CI_READ_FAILED", "Canonical CI response exceeds its bound");
+      try { return JSON.parse(stdout); } catch { throw new TaskArtifactError("CI_READ_FAILED", "Canonical CI API returned malformed JSON"); }
+    });
+    const proof = await requireCanonicalCi({ read, repositoryFullName: options.get("--repository"), sha: options.get("--sha"), branch: options.get("--branch") ?? "main", event: options.get("--event") ?? "push", expectedHeadRepository: options.get("--head-repository") });
+    return { command, valid: true, proof };
+  }
+
   if (command === "dispatch" || command === "public-release") {
-    const options = parseOptions(
-      args,
-      ["--tasks-root", "--invocation", "--managed-routing"],
-      command === "dispatch"
-        ? [
-            "--delivery-ledger",
-            "--delivery-ledger-json",
-            "--delivery-expectations",
-            "--delivery-expectations-json",
-            "--execution-preflight",
-            "--execution-preflight-json",
-          ]
-        : [],
-    );
-    const managedRoutingValue = options.get("--managed-routing");
-    if (!["true", "false"].includes(managedRoutingValue)) {
-      throw new TaskArtifactError(
-        "INVALID_TASK_ADAPTER_ARGUMENTS",
-        "--managed-routing must be true or false",
-      );
-    }
-
-    const executionPreflight = await readJsonObjectOption(options, {
-      pathOption: "--execution-preflight",
-      jsonOption: "--execution-preflight-json",
-      label: "execution preflight",
-      errorCode: "INVALID_EXECUTION_PREFLIGHT",
-    });
-
-    const tasksRoot = resolve(options.get("--tasks-root"));
+    const options = parseOptions(args, ["--invocation"], [
+      "--tasks-root", "--repository-root", "--managed-routing", "--execution-preflight", "--execution-preflight-json",
+    ]);
+    const managedRoutingValue = options.get("--managed-routing") ?? "false";
+    if (!["true", "false"].includes(managedRoutingValue)) throw new TaskArtifactError("INVALID_TASK_ADAPTER_ARGUMENTS", "--managed-routing must be true or false");
     const invocation = options.get("--invocation");
-    const managedRoutingAvailable = managedRoutingValue === "true";
-    const parsedInvocation = parseTaskInvocation(invocation, {
-      managedRoutingAvailable,
+    const parsedInvocation = parseTaskInvocation(invocation, { managedRoutingAvailable: managedRoutingValue === "true" });
+    if (command === "public-release" && parsedInvocation.action !== "PUBLIC_RELEASE") {
+      throw new TaskArtifactError("PUBLIC_RELEASE_EXACT_INVOCATION_REQUIRED", "public-release requires $kyw-deliver --release <version> --sha <sha>");
+    }
+    const repositoryRoot = resolve(options.get("--repository-root") ?? (options.get("--tasks-root") ? resolve(options.get("--tasks-root"), "../..") : process.cwd()));
+    const tasksRoot = resolve(options.get("--tasks-root") ?? resolve(repositoryRoot, "docs/tasks"));
+    const executionPreflight = await readJsonObjectOption(options, {
+      pathOption: "--execution-preflight", jsonOption: "--execution-preflight-json",
+      label: "execution preflight", errorCode: "INVALID_EXECUTION_PREFLIGHT",
     });
-    if (
-      command === "public-release" &&
-      (!parsedInvocation?.recognized ||
-        parsedInvocation.route !== "DELIVERY" ||
-        parsedInvocation.mode !== "EXACT" ||
-        parsedInvocation.source !== "PORTABLE_SKILL")
-    ) {
-      throw new TaskArtifactError(
-        "PUBLIC_RELEASE_EXACT_INVOCATION_REQUIRED",
-        "public-release requires exactly $kyw-deliver NNNN",
-      );
-    }
-    const manualDeliveryInput = [
-      "--delivery-ledger",
-      "--delivery-ledger-json",
-      "--delivery-expectations",
-      "--delivery-expectations-json",
-    ].some((name) => options.has(name));
-    let deliveryLedger;
-    let deliveryExpectations;
-    let hydrationDiagnostics;
-    let preparedCheckpoint;
-    if (manualDeliveryInput) {
-      deliveryLedger = await readJsonObjectOption(options, {
-        pathOption: "--delivery-ledger",
-        jsonOption: "--delivery-ledger-json",
-        label: "delivery ledger",
-        errorCode: "INVALID_DELIVERY_LEDGER",
-      });
-      deliveryExpectations = await readJsonObjectOption(options, {
-        pathOption: "--delivery-expectations",
-        jsonOption: "--delivery-expectations-json",
-        label: "delivery expectations",
-        errorCode: "INVALID_DELIVERY_EXPECTATIONS",
-      });
-    } else {
-      const hydrated = await hydrateDeliveries({
-        tasksRoot,
-        invocation,
-        managedRoutingAvailable,
-        parsedInvocation,
-      });
-      deliveryLedger = hydrated.deliveryLedger;
-      deliveryExpectations = hydrated.deliveryExpectations;
-      hydrationDiagnostics = hydrated.diagnostics;
-      preparedCheckpoint = hydrated.preparedCheckpoint;
-    }
-
-    const result = await dispatchTask({
-      tasksRoot,
-      invocation,
-      managedRoutingAvailable,
-      deliveryLedger,
-      deliveryExpectations,
-      executionPreflight,
-      parsedInvocation,
-    });
-    if (
-      manualDeliveryInput &&
-      (result.deliveryMode === "PUBLIC_RELEASE" ||
-        result.action === "PUBLIC_RELEASE")
-    ) {
-      throw new TaskArtifactError(
-        "PUBLIC_RELEASE_CANONICAL_HYDRATION_REQUIRED",
-        "public-release does not accept caller-supplied STANDARD ledger or expectation JSON",
-      );
-    }
-    if (
-      command === "public-release" &&
-      (result.outcome !== "SELECTED" || result.action !== "PUBLIC_RELEASE")
-    ) {
-      throw new TaskArtifactError(
-        "PUBLIC_RELEASE_STANDARD_FINAL_REQUIRED",
-        "public-release requires a fresh contract-4 STANDARD FINAL result from exact $kyw-deliver NNNN dispatch",
-      );
-    }
-    const selectedDelivery =
-      parsedInvocation.route === "DELIVERY" &&
-      result.outcome === "SELECTED" &&
-      result.action === "DELIVER";
-    if (
-      selectedDelivery &&
-      (!/^\d{4}$/u.test(result.task?.id ?? "") ||
-        result.task.id !== parsedInvocation.taskId ||
-        result.task.taskStatus !== "DONE" ||
-        result.task.testStatus !== "PASSED" ||
-        result.task.deliveryRequirement?.kind !== "STANDARD")
-    ) {
-      throw new TaskArtifactError(
-        "INVALID_DELIVERY_SELECTION",
-        "selected delivery result is missing its exact terminal STANDARD identity",
-      );
-    }
-    if (selectedDelivery && preparedCheckpoint !== undefined) {
-      await applyContinuity({
-        tasksRoot,
-        selectedTaskId: result.task.id,
-        preparedCheckpoint,
-        commandRunner: runtime.commandRunner,
-        queueInspector: runtime.queueInspector,
-        githubClient: runtime.githubClient,
-      });
-    }
-    const baseResult = {
-      command,
-      ...result,
-      ...(hydrationDiagnostics ? { hydration: hydrationDiagnostics } : {}),
-    };
-    if (
-      result.outcome !== "SELECTED" ||
-      result.action !== "PUBLIC_RELEASE"
-    ) {
-      return baseResult;
-    }
-
+    const result = await dispatchTask({ tasksRoot, invocation, parsedInvocation, executionPreflight });
+    if (result.outcome !== "SELECTED" || result.action !== "PUBLIC_RELEASE") return { command, ...result };
     let publicContext;
     try {
+      const hydratePublicContext = runtime.hydratePublicReleaseContext ?? (await loadExternalEvidence()).hydratePublicReleaseContext;
       publicContext = await hydratePublicContext({
-        tasksRoot,
-        taskId: parsedInvocation.taskId,
-        deliveryLedger,
-        deliveryExpectations,
-        commandRunner: runtime.commandRunner,
-        fetchImpl: runtime.fetchImpl,
-        provenanceVerifier: runtime.provenanceVerifier,
-        clients: runtime.publicReleaseClients,
+        repositoryRoot, releaseVersion: parsedInvocation.releaseVersion, releaseSha: parsedInvocation.releaseSha,
+        commandRunner: runtime.commandRunner, fetchImpl: runtime.fetchImpl,
+        provenanceVerifier: runtime.provenanceVerifier, clients: runtime.publicReleaseClients,
       });
-    } catch (error) {
-      return publicReleaseHydrationBlocked(
-        command,
-        result,
-        error,
-        hydrationDiagnostics,
-      );
-    }
-    const { snapshot, readErrors } = await readPublicReleaseSnapshot(
-      publicContext.tuple,
-      publicContext.clients,
-    );
-    const publicPlan = derivePublicPlan({
-      standardDelivery: publicContext.standardDelivery,
-      tuple: publicContext.tuple,
-      snapshot,
-    });
-    const dispatched = publicReleaseDispatchResult({
-      command,
-      result,
-      context: publicContext,
-      plan: publicPlan,
-      snapshot,
-      readErrors,
-      hydrationDiagnostics,
-    });
-    if (
-      command !== "public-release" ||
-      !["READY", "OBSERVE"].includes(publicPlan.outcome)
-    ) {
-      return dispatched;
-    }
-
-    let publicResult;
+    } catch (error) { return publicReleaseHydrationBlocked(command, result, error); }
+    const { snapshot, readErrors } = await readPublicReleaseSnapshot(publicContext.tuple, publicContext.clients);
+    const publicPlan = derivePublicPlan({ standardDelivery: publicContext.standardDelivery, tuple: publicContext.tuple, snapshot });
+    const dispatched = publicReleaseDispatchResult({ command, result, context: publicContext, plan: publicPlan, snapshot, readErrors });
+    if (command !== "public-release" || !["READY", "OBSERVE"].includes(publicPlan.outcome)) return dispatched;
     try {
-      publicResult = await runAuthorizedPublicRelease({
-        standardDelivery: publicContext.standardDelivery,
-        tuple: publicContext.tuple,
-        clients: publicContext.clients,
-        reconciliationReads: runtime.reconciliationReads,
+      const publicResult = await runAuthorizedPublicRelease({
+        invocation, standardDelivery: publicContext.standardDelivery, tuple: publicContext.tuple,
+        clients: publicContext.clients, reconciliationReads: runtime.reconciliationReads,
       });
-    } catch (error) {
-      return Object.freeze({
-        ...dispatched,
-        outcome: "BLOCKED",
-        code: "PUBLIC_RELEASE_RUNNER_FAILED",
-        publicReleaseState: "BLOCKED",
-        publicReleaseNextStage: publicPlan.nextStage ?? publicPlan.resumePoint,
-        classification: "UNKNOWN",
-        publicWriteAuthorized: false,
-        mutationRequired: false,
-        completedStage: publicPlan.completedStage,
-        blockingStage: publicPlan.nextStage ?? publicPlan.resumePoint,
-        resumePoint: publicPlan.nextStage ?? publicPlan.resumePoint,
-        recoveryCondition:
-          "Restore the canonical public-release runner boundary and resume without retrying an ambiguous mutator.",
-        publicReleaseDiagnostics: redactPublicReleaseDiagnostics(error),
-      });
-    }
-    return Object.freeze({
-      ...dispatched,
-      outcome: publicResult.outcome,
-      code: publicResult.code,
-      publicReleaseState: publicResult.outcome,
-      publicReleaseNextStage: publicResult.resumePoint ?? null,
-      ...(publicResult.classification
-        ? { classification: publicResult.classification }
-        : {}),
-      publicWriteAuthorized: false,
-      mutationRequired: false,
-      publicReleaseResult: publicResult,
-    });
+      return { ...dispatched, outcome: publicResult.outcome, code: publicResult.code,
+        publicReleaseState: publicResult.outcome, publicReleaseNextStage: publicResult.resumePoint ?? null,
+        publicWriteAuthorized: false, mutationRequired: false, publicReleaseResult: publicResult };
+    } catch (error) { return publicReleaseHydrationBlocked(command, result, error); }
   }
 
   throw new TaskArtifactError(
     "INVALID_TASK_ADAPTER_ARGUMENTS",
-    `Expected create, create-batch, inspect-transaction, recover-transaction, validate, bootstrap-continuity, dispatch, or public-release, received ${command ?? "<missing>"}\n${usage}`,
+    `Expected create, create-batch, inspect-transaction, recover-transaction, validate, bootstrap-continuity, check-ci, dispatch, or public-release, received ${command ?? "<missing>"}\n${usage}`,
   );
 }
 

@@ -21,43 +21,37 @@ export const FIXTURE_ROOT = join(
 );
 export const DIRECT_EVIDENCE_METHOD = "CURRENT_SESSION_DIRECT";
 
-const PERMANENT_DOCUMENTS = Object.freeze([
-  "README.md",
-  "AGENTS.md",
-  "docs/SPEC.md",
-  "docs/ARCHITECTURE.md",
-]);
+const NEEDED_DOCUMENTATION = Object.freeze(["needed project documentation only"]);
 
 export const SCENARIO_CONTRACTS = Object.freeze([
   Object.freeze({
     id: "S-01",
     acceptance: "SPEC AC-04",
     fixture: "s01-empty",
-    intent: "Initialize an empty project only after shared-understanding confirmation.",
-    expectedMutations: PERMANENT_DOCUMENTS,
+    intent: "Initialize only the documentation needed for the approved project direction.",
+    expectedMutations: NEEDED_DOCUMENTATION,
   }),
   Object.freeze({
     id: "S-02",
     acceptance: "SPEC AC-04",
     fixture: "s02-adopt",
     intent: "Adopt an existing project without replacing preserved user or application bytes.",
-    expectedMutations: PERMANENT_DOCUMENTS,
+    expectedMutations: NEEDED_DOCUMENTATION,
   }),
   Object.freeze({
     id: "S-03",
     acceptance: "SPEC AC-05 / AC-06",
     fixture: "s03-task",
-    intent: "Author the exact next READY Task/Test pair, report one exact kyw-impl command, and stop.",
+    intent: "Author a minimal READY Task record and stop when only authoring was requested.",
     expectedMutations: Object.freeze([
       "docs/tasks/0004-<allocated-slug>/TASK.md",
-      "docs/tasks/0004-<allocated-slug>/TEST.md",
     ]),
   }),
   Object.freeze({
     id: "S-04",
     acceptance: "SPEC AC-05",
     fixture: "S-03 resulting-state copy",
-    intent: "Select the existing READY pair through kyw-impl without allocating or recreating a pair.",
+    intent: "Select the existing READY record through kyw-impl without allocating or recreating it.",
     expectedMutations: Object.freeze([]),
   }),
   Object.freeze({
@@ -378,23 +372,18 @@ export function validateDirectScenarioEvidence(record) {
 
   if (record.id === "S-01") {
     for (const name of [
-      "interviewProtocol",
-      "confirmationRequested",
-      "documentsComplete",
-      "agentsThin",
+      "neededDocumentationComplete",
       "noTask",
       "noApplication",
       "sentinelPreserved",
     ]) {
       requireCheck(name);
     }
-    requireCheck("preConfirmationDurableWrites", false);
+    requireCheck("unauthorizedWrites", false);
   }
   if (record.id === "S-02") {
     for (const name of [
-      "interviewProtocol",
-      "confirmationRequested",
-      "documentsComplete",
+      "neededDocumentationComplete",
       "adoptMode",
       "preservationSection",
       "applicationPreserved",
@@ -402,14 +391,14 @@ export function validateDirectScenarioEvidence(record) {
     ]) {
       requireCheck(name);
     }
-    requireCheck("preConfirmationDurableWrites", false);
+    requireCheck("unauthorizedWrites", false);
   }
   if (record.id === "S-03") {
     for (const name of [
       "singleTaskCreated",
-      "pairComplete",
+      "taskComplete",
       "traceability",
-      "readyPair",
+      "readyTask",
       "authoringStop",
       "oneNextImplCommand",
       "applicationUnchanged",
@@ -422,11 +411,11 @@ export function validateDirectScenarioEvidence(record) {
   if (record.id === "S-04") {
     for (const name of [
       "existingTaskPreserved",
-      "permanentDocsRead",
-      "taskPairRead",
+      "relevantDocsRead",
+      "taskRead",
       "gitStateRead",
       "handoffFieldsRead",
-      "readyPair",
+      "readyTask",
       "implementationInvocation",
     ]) {
       requireCheck(name);

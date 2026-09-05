@@ -26,6 +26,10 @@ import {
   classifyPublicReleaseState,
   derivePublicReleaseWorkflowInputs,
   freezePublicReleaseTuple,
+  recoverPublicReleaseSigningTuple,
+  publicationWasSkipped,
+  PUBLIC_RELEASE_PUBLISH_JOB,
+  PUBLIC_RELEASE_PUBLISH_STEP,
 } from "./task-artifact-public-release.mjs";
 import {
   inspectTaskQueue,
@@ -6745,8 +6749,7 @@ export async function hydratePriorStandardDeliveries({
 
 const PUBLIC_RELEASE_WORKFLOW_PATH = ".github/workflows/publish.yml";
 const PUBLIC_RELEASE_WORKFLOW_NAME = "Publish npm package through OIDC";
-const PUBLIC_RELEASE_WORKFLOW_CONTRACT_SHA256 =
-  "0342dd6ce165b80f4dffa343b2e014d10adece67db23c94fbc7be44f507600ee";
+
 const PUBLIC_REGISTRY = "https://registry.npmjs.org/";
 const PUBLIC_RELEASE_MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
 const PUBLIC_RELEASE_MAX_TARBALL_BYTES = PUBLIC_RELEASE_MAX_RESPONSE_BYTES;
@@ -6844,8 +6847,9 @@ async function fetchPublicReleaseBytes({
     );
   }
   let response;
-  try {
-    response = await fetchImpl(url, {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      response = await fetchImpl(url, {
       method: "GET",
       cache: "no-store",
       redirect: "error",
@@ -6855,13 +6859,19 @@ async function fetchPublicReleaseBytes({
         "cache-control": "no-cache, no-store, max-age=0",
         pragma: "no-cache",
       }),
-    });
-  } catch {
-    throw publicReleaseHydrationError(
+      });
+      if (![408, 429, 500, 502, 503, 504].includes(response?.status) || attempt === 2) break;
+      await response.body?.cancel?.();
+    } catch (error) {
+      if (attempt === 2 || !["TypeError", "TimeoutError", "AbortError"].includes(error?.name)) {
+        throw publicReleaseHydrationError(
       role,
       "canonical read failed",
       "PUBLIC_RELEASE_EXTERNAL_FAILURE",
-    );
+        );
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100 * (attempt + 1)));
   }
   if (response?.status === 404 && allowNotFound) {
     return Object.freeze({ status: 404, bytes: undefined });
@@ -7028,7 +7038,6 @@ function selectCurrentRegistrySigningKey(
   expectedKeyId,
   {
     validAt = Date.now(),
-    requireSoleActive = expectedKeyId === undefined,
   } = {},
 ) {
   if (!Array.isArray(rawKeys?.keys)) {
@@ -7055,6 +7064,9 @@ function selectCurrentRegistrySigningKey(
       "signing-key response contains an unreadable key record",
     );
   }
+  if (new Set(rawKeys.keys.map((key) => key.keyid)).size !== rawKeys.keys.length) {
+    throw publicReleaseHydrationError("REGISTRY_KEYS", "duplicate signing key identity");
+  }
   const allActive = rawKeys.keys.filter(
     (key) => key.expires === null || Date.parse(key.expires) > validAt,
   );
@@ -7062,25 +7074,28 @@ function selectCurrentRegistrySigningKey(
     expectedKeyId === undefined
       ? allActive
       : allActive.filter((key) => key.keyid === expectedKeyId);
-  if (
-    requireSoleActive &&
-    (allActive.length !== 1 ||
-      (expectedKeyId !== undefined && allActive[0]?.keyid !== expectedKeyId))
-  ) {
-    throw publicReleaseHydrationError(
-      "REGISTRY_KEYS",
-      "the canonical registry does not expose one exact current signing key",
-    );
-  }
-  if (active.length !== 1) {
+  if (active.length === 0 || (expectedKeyId !== undefined && active.length !== 1)) {
     throw publicReleaseHydrationError(
       "REGISTRY_KEYS",
       expectedKeyId === undefined
-        ? "the canonical registry does not expose exactly one unambiguous current signing key"
+        ? "the canonical registry does not expose a current signing key"
         : "the frozen signing key does not map to exactly one active canonical registry key",
     );
   }
-  return active[0];
+  return [...active].sort((left, right) => left.keyid.localeCompare(right.keyid))[0];
+}
+
+function verifyRegistrySignatures({ signatures, keys, name, version, integrity, validAt, requiredKeyId }) {
+  if (!Array.isArray(signatures) || signatures.length === 0) return false;
+  if (requiredKeyId && !signatures.some((signature) => signature?.keyid === requiredKeyId)) return false;
+  return signatures.every((signature) => {
+    try {
+      const key = selectCurrentRegistrySigningKey(keys, signature?.keyid, { validAt });
+      return verifyRegistrySignature({ name, version, integrity, signature, key });
+    } catch {
+      return false;
+    }
+  });
 }
 
 function assertPublicReleaseSourceContract({
@@ -7144,43 +7159,13 @@ function assertPublicReleaseSourceContract({
     );
   }
   const requiredWorkflowFragments = [
-    `name: ${PUBLIC_RELEASE_WORKFLOW_NAME}`,
-    "  workflow_dispatch:",
-    "      expected_sha:",
-    "      expected_version:",
-    "      expected_tarball_bytes:",
-    "      expected_tarball_sha256:",
-    "      expected_tarball_shasum:",
-    "      expected_tarball_integrity:",
-    "      expected_packed_entries_sha256:",
-    "      expected_prior_versions_sha256:",
-    "      expected_prior_latest:",
-    "      expected_signing_key_id:",
-    "permissions: {}",
-    "  cancel-in-progress: false",
-    "    timeout-minutes: 30",
-    "    environment: npm-production",
-    "      actions: read",
-    "      contents: read",
-    "      id-token: write",
-    "          persist-credentials: false",
-    "          ref: ${{ inputs.expected_sha }}",
-    '          test "$ACTUAL_EVENT" = "workflow_dispatch"',
-    '          test "$ACTUAL_REPOSITORY" = "' + repository + '"',
-    '          test "$ACTUAL_REF" = "refs/heads/main"',
-    '          test "$ACTUAL_SHA" = "$EXPECTED_SHA"',
-    '          test "$(git rev-parse HEAD)" = "${{ inputs.expected_sha }}"',
-    '          test -z "$(git status --porcelain --untracked-files=all)"',
-    "      - name: Guard checkout, runtime, and package identity",
-    "      - name: Require frozen packed artifact and registry preconditions",
+    `name: ${PUBLIC_RELEASE_WORKFLOW_NAME}`, "  workflow_dispatch:",
+    "      expected_sha:", "      expected_version:", "permissions: {}",
+    "  cancel-in-progress: false", "    environment: npm-production",
+    "      actions: read", "      contents: read", "      id-token: write",
+    "          persist-credentials: false", "          ref: ${{ inputs.expected_sha }}",
     "      - name: Publish the exact checkout directory through OIDC",
-    '          const keysUrl = new URL("-/npm/v1/keys", "https://registry.npmjs.org/");',
-    '          const packageName = JSON.parse(readFileSync("package.json", "utf8")).name;',
-    '            typeof packageJson.name !== "string" ||',
-    "              `git+https://github.com/${expectedRepository}.git` ||",
-    "            JSON.stringify(Object.keys(packageJson.publishConfig).sort()) !==",
-    "              '[\"access\",\"registry\"]' ||",
-    `run: ${PUBLIC_RELEASE_COMMAND}`,
+    "run: node ./scripts/publish-gate.mjs",
   ];
   const triggerBlock = /^on:\s*\r?\n([\s\S]*?)(?=^[^\s#])/mu.exec(workflowText)?.[1];
   const triggerKeys = triggerBlock
@@ -7196,6 +7181,19 @@ function assertPublicReleaseSourceContract({
     /^actions\/checkout@[0-9a-f]{40}$/u.test(uses[0]) &&
     /^actions\/setup-node@[0-9a-f]{40}$/u.test(uses[1]);
   const publishCommands = workflowText.match(/\bnpm\s+publish\b/gu) ?? [];
+  const stepBlocks = workflowText.replaceAll("\r\n", "\n").split(/^      - name: /mu).slice(1);
+  const publisherBlock = stepBlocks.at(-1) ?? "";
+  const gateBlock = stepBlocks.at(-2) ?? "";
+  const gateCommand = "        run: node ./scripts/publish-gate.mjs";
+  // Keep the historical combined boundary readable for already fixed targets.
+  // Its failed step is never reinterpreted as proof that npm was not called.
+  const combinedBoundary = publishCommands.length === 0 &&
+    publisherBlock.startsWith(`${PUBLIC_RELEASE_PUBLISH_STEP}\n`) &&
+    publisherBlock.split("\n").includes(gateCommand) && !/^\s+if:/mu.test(publisherBlock);
+  const splitBoundary = publishCommands.length === 1 &&
+    gateBlock.startsWith("Require latest canonical CI before publication\n") &&
+    gateBlock.split("\n").includes(gateCommand) && !/^\s+if:/mu.test(gateBlock) &&
+    publisherBlock.trimEnd() === `${PUBLIC_RELEASE_PUBLISH_STEP}\n        run: ${PUBLIC_RELEASE_COMMAND}`;
   const forbiddenWorkflowPatterns = [
     /\b(?:npm\s+(?:login|adduser)|NODE_AUTH_TOKEN|NPM_TOKEN|_authToken|always-auth)\b/iu,
     /\bsecrets\.[A-Za-z0-9_]+\b/u,
@@ -7205,21 +7203,13 @@ function assertPublicReleaseSourceContract({
     /^\s*strategy\s*:/mu,
     /\b(?:curl|wget)\b[^\r\n]*(?:npmjs|registry)/iu,
   ];
-  const workflowContractDigest = createHash("sha256")
-    .update(
-      workflowText
-        .replaceAll("\r\n", "\n")
-        .replaceAll(repository, "<REPOSITORY>"),
-    )
-    .digest("hex");
   if (
     requiredWorkflowFragments.some((fragment) => !workflowText.includes(fragment)) ||
-    workflowText.split(`run: ${PUBLIC_RELEASE_COMMAND}`).length !== 2 ||
+    workflowText.split("run: node ./scripts/publish-gate.mjs").length !== 2 ||
     triggerKeys.length !== 1 ||
     triggerKeys[0] !== "workflow_dispatch" ||
     !exactPinnedUses ||
-    publishCommands.length !== 1 ||
-    workflowContractDigest !== PUBLIC_RELEASE_WORKFLOW_CONTRACT_SHA256 ||
+    !(combinedBoundary || splitBoundary) ||
     forbiddenWorkflowPatterns.some((pattern) => pattern.test(workflowText))
   ) {
     throw publicReleaseHydrationError(
@@ -7435,14 +7425,16 @@ async function parseGitHubJsonCommand({
   role,
   allowNotFound = false,
 }) {
-  const result = await runPublicReleaseCommand({
-    runner,
-    command: "gh",
-    args,
-    cwd: repositoryRoot,
-    role,
-    allowFailure: allowNotFound,
-  });
+  const isRead = args[0] === "api" && args[args.indexOf("--method") + 1] === "GET";
+  let result;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    result = await runPublicReleaseCommand({
+      runner, command: "gh", args, cwd: repositoryRoot, role, allowFailure: true,
+    });
+    if (!isRead || result.status === 0 || attempt === 2 ||
+      !/(?:HTTP|status)\s+(?:408|429|500|502|503|504)\b/iu.test(result.stderr)) break;
+    await new Promise((resolve) => setTimeout(resolve, 100 * (attempt + 1)));
+  }
   if (allowNotFound && isGitHubNotFound(result)) return null;
   if (result.status !== 0) {
     throw publicReleaseHydrationError(
@@ -7466,7 +7458,7 @@ async function parseGitHubJsonCommand({
 function publishEvidenceFromLog(log) {
   const dispatchMatches = [
     ...log.matchAll(
-      /KYWPUBLISHEVIDENCE schema=1 stage=dispatch repository=(\S+) event=(\S+) ref=(\S+) expected_sha=([0-9a-f]{40}) expected_version=(\S+) expected_tarball_bytes=(\d+) expected_tarball_sha256=([0-9a-f]{64}) expected_tarball_shasum=([0-9a-f]{40}) expected_tarball_integrity=(sha512-\S+) expected_packed_entries_sha256=([0-9a-f]{64}) expected_prior_versions_sha256=([0-9a-f]{64}) expected_prior_latest=(\S+) expected_signing_key_id=(\S+)/gu,
+      /KYWPUBLISHEVIDENCE schema=1 stage=dispatch repository=(\S+) event=(\S+) ref=(\S+) expected_sha=([0-9a-f]{40}) expected_version=(\S+) expected_tarball_bytes=(\d+) expected_tarball_sha256=([0-9a-f]{64}) expected_tarball_shasum=([0-9a-f]{40}) expected_tarball_integrity=(sha512-\S+) expected_packed_entries_sha256=([0-9a-f]{64}) expected_prior_versions_sha256=([0-9a-f]{64}) expected_prior_latest=(\S+) expected_signing_key_id=(\S+)(?: expected_signing_key_ids=(\S+))?/gu,
     ),
   ];
   const sourceMatches = [
@@ -7489,6 +7481,7 @@ function publishEvidenceFromLog(log) {
           expectedPriorVersionsSha256: dispatch[11],
           expectedPriorLatest: dispatch[12],
           expectedSigningKeyId: dispatch[13],
+          ...(dispatch[14] === undefined ? {} : { expectedSigningKeyIds: dispatch[14] }),
         })
       : undefined,
     checkoutSha: source?.[2],
@@ -7818,7 +7811,7 @@ async function parseSlsaProvenance({
         runDetails?.builder?.id ===
           "https://github.com/actions/runner/github-hosted" &&
         invocation &&
-        invocation.runAttempt === 1 &&
+        invocation.runAttempt >= 1 && invocation.runAttempt <= 10 &&
         subject?.digest?.sha512 === tarballSha512 &&
         parseRepositorySlug(workflow?.repository) === tuple.repository &&
         workflow?.path === tuple.publishWorkflow.path &&
@@ -8704,31 +8697,31 @@ export function createPublicReleaseClients({
           ["queued", "in_progress", "waiting", "requested", "pending"].includes(
             run.status,
           ) ||
-          run.status !== "completed" ||
-          run.conclusion !== "success"
+          run.status !== "completed"
         ) {
           runs.push(Object.freeze(normalizedRun));
           continue;
         }
-        const jobsResponse = await githubGet(
-          `repos/${tuple.repository}/actions/runs/${run.id}/attempts/${run.run_attempt}/jobs?per_page=${MAX_GITHUB_RESULTS}&page=1`,
-          "PUBLISH_WORKFLOW_JOBS",
-          { context },
-        );
-        if (
-          !Array.isArray(jobsResponse?.jobs) ||
-          !Number.isInteger(jobsResponse.total_count) ||
-          jobsResponse.total_count !== jobsResponse.jobs.length ||
-          jobsResponse.jobs.length !== 1 ||
-          jobsResponse.jobs.some(
-            (job) => !isRecord(job) || !positiveInteger(job.id),
-          )
-        ) {
-          throw publicReleaseHydrationError(
-            "PUBLISH_WORKFLOW_JOBS",
-            "workflow job collection is incomplete or violates the exact one-job contract",
+        if (run.run_attempt > 10) throw publicReleaseHydrationError("PUBLISH_WORKFLOW_JOBS", "publish attempts exceed bounded history");
+        let jobsResponse;
+        const priorAttempts = [];
+        for (let attempt = 1; attempt <= run.run_attempt; attempt += 1) {
+          const response = await githubGet(
+            `repos/${tuple.repository}/actions/runs/${run.id}/attempts/${attempt}/jobs?per_page=${MAX_GITHUB_RESULTS}&page=1`,
+            "PUBLISH_WORKFLOW_JOBS", { context },
           );
+          if (!Array.isArray(response?.jobs) || response.total_count !== 1 || response.jobs.length !== 1 ||
+              response.jobs.some((job) => !isRecord(job) || !positiveInteger(job.id) || job.run_id !== run.id ||
+                job.head_sha !== tuple.target.mergeSha || job.name !== PUBLIC_RELEASE_PUBLISH_JOB ||
+                (job.run_attempt !== undefined && job.run_attempt !== attempt))) {
+            throw publicReleaseHydrationError("PUBLISH_WORKFLOW_JOBS", "workflow job collection is incomplete or has the wrong run/attempt/checkout identity");
+          }
+          const skipped = publicationWasSkipped(response.jobs);
+          if (attempt < run.run_attempt) priorAttempts.push(Object.freeze({ attempt,
+            publishBoundary: skipped ? "NOT_EXECUTED" : "UNKNOWN" }));
+          else jobsResponse = response;
         }
+        normalizedRun.priorAttempts = Object.freeze(priorAttempts);
         const jobEvidence = [];
         for (const job of jobsResponse.jobs) {
           const logResult = await runPublicReleaseCommand({
@@ -8756,9 +8749,17 @@ export function createPublicReleaseClients({
         }
         const evidence =
           jobEvidence.length === 1 ? jobEvidence[0] : Object.freeze({});
+        if (run.conclusion !== "success") {
+          const unexecuted = priorAttempts.every((attempt) => attempt.publishBoundary === "NOT_EXECUTED") &&
+            publicationWasSkipped(jobsResponse.jobs);
+          runs.push(Object.freeze({ ...normalizedRun, inputs: evidence.inputs ?? run.inputs,
+            ...(unexecuted ? { publishBoundary: "NOT_EXECUTED", publishAttempts: [] } : {}),
+          }));
+          continue;
+        }
         const publishSteps = jobsResponse.jobs.flatMap((job) =>
           (job.steps ?? []).filter(
-            (step) => step?.name === "Publish the exact checkout directory through OIDC",
+            (step) => step?.name === PUBLIC_RELEASE_PUBLISH_STEP,
           ),
         );
         runs.push(
@@ -8909,17 +8910,10 @@ export function createPublicReleaseClients({
         archive.equals(privateExpectedTarball.archiveBytes);
       const sha512Hex = createHash("sha512").update(archive).digest("hex");
       const sha256 = createHash("sha256").update(archive).digest("hex");
-      const activeKey = selectCurrentRegistrySigningKey(
-        keys,
-        tuple.package.signature.keyId,
-        {
-          validAt: Number.isFinite(Date.parse(index?.time?.[tuple.package.version]))
-            ? Date.parse(index.time[tuple.package.version])
-            : Date.now(),
-        },
-      );
+      const validAt = Number.isFinite(Date.parse(index?.time?.[tuple.package.version]))
+        ? Date.parse(index.time[tuple.package.version]) : Date.now();
       const signatures = metadata.dist.signatures ?? [];
-      const signature = signatures[0];
+      const allowedKeyIds = tuple.package.signature.keyIds ?? [tuple.package.signature.keyId];
       return Object.freeze({
         status: 200,
         name: metadata.name,
@@ -8942,21 +8936,12 @@ export function createPublicReleaseClients({
           ),
         }),
         signature: Object.freeze({
-          keyId: signature?.keyid,
-          verified:
-            activeKey.keyid === tuple.package.signature.keyId &&
-            signatures.length >= 1 &&
-            signatures.every(
-              (candidate) =>
-                candidate?.keyid === tuple.package.signature.keyId &&
-                verifyRegistrySignature({
-                  name: metadata.name,
-                  version: metadata.version,
-                  integrity: metadata.dist.integrity,
-                  signature: candidate,
-                  key: activeKey,
-                }),
-            ),
+          keyId: tuple.package.signature.keyId,
+          keyIds: signatures.map((signature) => signature?.keyid),
+          verified: signatures.every((signature) => allowedKeyIds.includes(signature?.keyid)) &&
+            verifyRegistrySignatures({ signatures, keys, name: metadata.name,
+              version: metadata.version, integrity: metadata.dist.integrity, validAt,
+              requiredKeyId: tuple.package.signature.keyIds ? undefined : tuple.package.signature.keyId }),
         }),
         provenance: await parseSlsaProvenance({
           tuple,
@@ -9095,6 +9080,9 @@ export function createPublicReleaseClients({
 
 export async function hydratePublicReleaseContext({
   tasksRoot,
+  repositoryRoot: requestedRepositoryRoot,
+  releaseVersion: requestedVersion,
+  releaseSha,
   taskId,
   deliveryLedger,
   deliveryExpectations,
@@ -9103,6 +9091,39 @@ export async function hydratePublicReleaseContext({
   provenanceVerifier,
   clients: suppliedClients,
 } = {}) {
+  const commandCache = createInvocationCommandCache({ runner: commandRunner });
+  let releaseVersion, repositoryRoot, repository, mergeSha, mainSha, treeSha;
+  let packageText, pluginText, workflowText, evaluation, entry;
+  const independentRelease = requestedVersion !== undefined || releaseSha !== undefined;
+  if (independentRelease) {
+    if (!stableVersionParts(requestedVersion) || !SHA_PATTERN.test(releaseSha ?? "")) {
+      throw publicReleaseHydrationError("RELEASE_TARGET", "release requires a stable version and exact SHA");
+    }
+    taskId = null;
+    releaseVersion = requestedVersion;
+    mergeSha = releaseSha;
+    repositoryRoot = await gitText(commandCache, path.resolve(requestedRepositoryRoot ?? process.cwd()),
+      ["rev-parse", "--show-toplevel"], { role: "PUBLIC_RELEASE_REPOSITORY" });
+    const remote = await gitText(commandCache, repositoryRoot, ["remote", "get-url", "origin"],
+      { role: "PUBLIC_RELEASE_REPOSITORY" });
+    const matched = /^(?:https:\/\/github\.com\/|git@github\.com:)([^/\s]+\/[^/\s]+?)(?:\.git)?$/u.exec(remote);
+    if (!matched) throw publicReleaseHydrationError("SOURCE_IDENTITY", "origin must identify one GitHub repository");
+    repository = matched[1];
+    [mainSha, treeSha, packageText, pluginText, workflowText] = await Promise.all([
+      gitText(commandCache, repositoryRoot, ["rev-parse", "refs/heads/main"], { role: "PUBLIC_RELEASE_MAIN" }),
+      gitText(commandCache, repositoryRoot, ["rev-parse", `${mergeSha}^{tree}`], { role: "PUBLIC_RELEASE_TREE" }),
+      readCommitFile(commandCache, repositoryRoot, mergeSha, "package.json", "PUBLIC_RELEASE_PACKAGE"),
+      readCommitFile(commandCache, repositoryRoot, mergeSha, ".codex-plugin/plugin.json", "PUBLIC_RELEASE_PLUGIN"),
+      readCommitFile(commandCache, repositoryRoot, mergeSha, PUBLIC_RELEASE_WORKFLOW_PATH, "PUBLIC_RELEASE_WORKFLOW"),
+    ]);
+    requireSha(mainSha, taskId, "PUBLIC_RELEASE_MAIN", "local main");
+    // An already published target can outlive the main tip. Keep the real tip
+    // and prove ancestry here; canonical publication proof gates later writes.
+    if (mainSha !== mergeSha && !(await gitIsAncestor(commandCache, repositoryRoot, mergeSha, mainSha))) {
+      throw publicReleaseHydrationError("RELEASE_TARGET", "release SHA must be prepared main or its proven ancestor");
+    }
+    entry = { repository, merge: { sha: mergeSha, branch: "main" } };
+  } else {
   if (!/^\d{4}$/u.test(taskId ?? "")) {
     throw publicReleaseHydrationError(
       "STANDARD_FINAL",
@@ -9134,10 +9155,10 @@ export async function hydratePublicReleaseContext({
       "PUBLIC_RELEASE_TASK_INELIGIBLE",
     );
   }
-  const releaseVersion = selectedTask.deliveryRequirement.releaseVersion;
-  const entry = deliveryLedger?.[taskId];
+  releaseVersion = selectedTask.deliveryRequirement.releaseVersion;
+  entry = deliveryLedger?.[taskId];
   const expectation = deliveryExpectations?.[taskId];
-  const evaluation = evaluateDeliveryEvidence(taskId, entry, expectation);
+  evaluation = evaluateDeliveryEvidence(taskId, entry, expectation);
   if (
     !evaluation.satisfied ||
     evaluation.classification !== "HARDENED_EXACT_HEAD" ||
@@ -9152,8 +9173,7 @@ export async function hydratePublicReleaseContext({
     );
   }
 
-  const commandCache = createInvocationCommandCache({ runner: commandRunner });
-  const repositoryRoot = await gitText(
+  repositoryRoot = await gitText(
     commandCache,
     resolvedTasksRoot,
     ["rev-parse", "--show-toplevel"],
@@ -9165,8 +9185,8 @@ export async function hydratePublicReleaseContext({
       "tasks root is not the canonical repository docs/tasks directory",
     );
   }
-  const repository = entry.repository;
-  const mergeSha = entry.merge?.sha;
+  repository = entry.repository;
+  mergeSha = entry.merge?.sha;
   if (entry.merge?.branch !== "main") {
     throw publicReleaseHydrationError(
       "PUBLISH_WORKFLOW",
@@ -9193,7 +9213,8 @@ export async function hydratePublicReleaseContext({
     "docs/tasks",
     ...taskPathWithinTasksRoot.split(path.sep),
   );
-  const [mainSha, treeSha, taskText, packageText, pluginText, workflowText] = await Promise.all([
+  let taskText;
+  [mainSha, treeSha, taskText, packageText, pluginText, workflowText] = await Promise.all([
     gitText(commandCache, repositoryRoot, ["rev-parse", "refs/heads/main"], {
       taskId,
       role: "PUBLIC_RELEASE_MAIN",
@@ -9264,6 +9285,7 @@ export async function hydratePublicReleaseContext({
       "PUBLIC_RELEASE_TASK_VERSION_MISMATCH",
     );
   }
+  }
   const packageJson = parseJsonBlob(packageText, "SOURCE_PACKAGE");
   const pluginJson = parseJsonBlob(pluginText, "SOURCE_PLUGIN");
   assertPublicReleaseSourceContract({
@@ -9278,11 +9300,11 @@ export async function hydratePublicReleaseContext({
   ) {
     throw publicReleaseHydrationError(
       "SOURCE_IDENTITY",
-      "the exact delivered package and plugin versions must equal the Task-owned Release version",
+      "the exact delivered package and plugin versions must equal the explicitly selected release version",
       "PUBLIC_RELEASE_TASK_VERSION_MISMATCH",
     );
   }
-  const guardedRepositoryState = suppliedClients
+  const guardedRepositoryState = suppliedClients || independentRelease
     ? undefined
     : await freezePublicReleaseRepositoryState({
         commandCache,
@@ -9386,6 +9408,9 @@ export async function hydratePublicReleaseContext({
     );
   }
   const targetRegistryMetadata = packageIndex?.versions?.[releaseVersion];
+  if (independentRelease && mainSha !== mergeSha && targetRegistryMetadata === undefined) {
+    throw publicReleaseHydrationError("RELEASE_TARGET", "new npm publication requires the exact prepared main SHA; an older target requires existing exact publication proof");
+  }
   let tupleSigningKey;
   if (targetRegistryMetadata !== undefined) {
     const targetSignatures = targetRegistryMetadata?.dist?.signatures;
@@ -9405,22 +9430,12 @@ export async function hydratePublicReleaseContext({
       targetSignatures[0].keyid,
       { validAt: Number.isFinite(publishedAt) ? publishedAt : Date.now() },
     );
-    if (
-      !targetSignatures.every(
-        (signature) =>
-          signature?.keyid === tupleSigningKey.keyid &&
-          verifyRegistrySignature({
-            name: packageIdentity.name,
-            version: releaseVersion,
-            integrity: tarball.identity.integrity,
-            signature,
-            key: tupleSigningKey,
-          }),
-      )
-    ) {
+    if (!verifyRegistrySignatures({ signatures: targetSignatures, keys: registryKeys,
+      name: packageIdentity.name, version: releaseVersion, integrity: tarball.identity.integrity,
+      validAt: Number.isFinite(publishedAt) ? publishedAt : Date.now() })) {
       throw publicReleaseHydrationError(
         "REGISTRY_PACKAGE",
-        "existing target metadata does not expose an entirely valid registry signature set for one exact key identity",
+        "existing target metadata does not expose an entirely valid trusted registry signature set",
       );
     }
   } else {
@@ -9434,7 +9449,7 @@ export async function hydratePublicReleaseContext({
   }
   const tagName = `v${releaseVersion}`;
   const workflowRef = `refs/heads/${entry.merge.branch}`;
-  const tuple = freezePublicReleaseTuple({
+  let tuple = freezePublicReleaseTuple({
     schemaVersion: 1,
     taskId,
     repository,
@@ -9460,7 +9475,12 @@ export async function hydratePublicReleaseContext({
     package: {
       ...packageIdentity,
       tarball: tarball.identity,
-      signature: { required: true, keyId: tupleSigningKey.keyid },
+      signature: { required: true, keyId: tupleSigningKey.keyid,
+        keyIds: targetRegistryMetadata
+          ? [...new Set(targetRegistryMetadata.dist.signatures.map((signature) => signature.keyid))].sort()
+          : registryKeys.keys.filter((key) => key.expires === null || Date.parse(key.expires) > Date.now())
+            .map((key) => key.keyid).sort(),
+      },
       provenance: {
         required: true,
         sourceRepository: repository,
@@ -9484,6 +9504,12 @@ export async function hydratePublicReleaseContext({
       assets: [],
     },
   });
+  if (typeof bootstrapClients.readWorkflowRuns === "function") {
+    const dispatchHistory = await bootstrapClients.readWorkflowRuns(tuple, {
+      fresh: true, cacheBypass: true, purpose: "FROZEN_SIGNING_RECOVERY", sequence: 1,
+    });
+    tuple = recoverPublicReleaseSigningTuple(tuple, dispatchHistory);
+  }
   const clients =
     suppliedClients ??
     createPublicReleaseClients({
@@ -9496,11 +9522,10 @@ export async function hydratePublicReleaseContext({
     });
   return Object.freeze({
     tuple,
-    standardDelivery: Object.freeze({
-      evaluation,
-      evidence: entry,
-      mergeTreeSha: treeSha,
-    }),
+    standardDelivery: Object.freeze(independentRelease ? {
+      releaseTarget: Object.freeze({ repository, baseBranch: "main", sha: mergeSha,
+        treeSha, currentMainSha: mainSha, mainContainsTarget: true }),
+    } : { evaluation, evidence: entry, mergeTreeSha: treeSha }),
     clients,
     diagnostics: Object.freeze({
       taskId,

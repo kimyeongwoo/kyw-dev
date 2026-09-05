@@ -1,5 +1,7 @@
 # {{PROJECT_NAME}}
 
+<!-- Optional guide: retain only sections this project needs; preserve useful existing documentation. -->
+
 <!-- Explain what the project is and who it is for. -->
 
 ## Purpose
@@ -32,5 +34,4 @@
 
 ## Project Documents
 
-- [Product specification](docs/SPEC.md)
-- [Architecture](docs/ARCHITECTURE.md)
+<!-- Link existing product/architecture documents only when present. -->

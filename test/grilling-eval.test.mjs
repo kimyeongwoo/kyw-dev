@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -71,11 +71,6 @@ test("pinned upstream baseline, rubric, schemas, and eight scenarios validate of
     sha256File(join(REPOSITORY_ROOT, definition.baseline.license.licensePath)),
     definition.baseline.license.sha256,
   );
-  assert.equal(
-    sha256File(join(REPOSITORY_ROOT, "skills", "kyw-grilling", "SKILL.md")),
-    "f5677ef38b43a03b3ad55e00edac5623b720bc9e296e2f483caa090de518f164",
-    "Task 0083 kyw-grilling bytes must remain explicit and reviewable",
-  );
   const notice = readFileSync(join(REPOSITORY_ROOT, "THIRD_PARTY_NOTICES.md"), "utf8");
   assert.match(notice, new RegExp(definition.baseline.commit));
   assert.match(notice, new RegExp(definition.baseline.sourcePath.replaceAll("/", "\\/")));
@@ -115,10 +110,11 @@ test("Task 0083 benchmark v11 preserves every frozen v10 condition except the ex
   const evalRoot = join(REPOSITORY_ROOT, "eval", "grilling");
   const benchmarkV10 = JSON.parse(readFileSync(join(evalRoot, "benchmark.v10.json"), "utf8"));
   const benchmarkV11 = JSON.parse(readFileSync(join(evalRoot, "benchmark.v11.json"), "utf8"));
-  const skillSha256 = sha256File(join(REPOSITORY_ROOT, "skills", "kyw-grilling", "SKILL.md"));
-
-  assert.equal(skillSha256, "f5677ef38b43a03b3ad55e00edac5623b720bc9e296e2f483caa090de518f164");
-  assert.equal(benchmarkV11.kywSkillSha256ForScoredRun, skillSha256);
+  assert.equal(
+    benchmarkV11.kywSkillSha256ForScoredRun,
+    "f5677ef38b43a03b3ad55e00edac5623b720bc9e296e2f483caa090de518f164",
+    "the historical benchmark retains the Skill identity used by its scored run",
+  );
   assert.notEqual(benchmarkV10.kywSkillSha256ForScoredRun, benchmarkV11.kywSkillSha256ForScoredRun);
 
   const frozenV10 = { ...benchmarkV10 };
@@ -451,6 +447,24 @@ test("comparison runs both variants and atomically writes a descriptive summary"
   assert.equal(reported.report.aggregate.kyw.medianAssistantTurns, 4);
   assert.equal(reported.report.runs.every((run) => run.artifactCount === 9), true);
   assert.match(reported.reportSha256, /^[0-9a-f]{64}$/);
+
+  const mismatchedBenchmark = JSON.parse(readFileSync(benchmarkPath, "utf8"));
+  mismatchedBenchmark.kywSkillSha256ForScoredRun = "0".repeat(64);
+  const mismatchedBenchmarkPath = join(root, "different-skill-benchmark.json");
+  writeFileSync(mismatchedBenchmarkPath, JSON.stringify(mismatchedBenchmark), "utf8");
+  const mismatchedComparisonDirectory = join(outputRoot, "different-skill-comparison");
+  mkdirSync(mismatchedComparisonDirectory);
+  writeFileSync(
+    join(mismatchedComparisonDirectory, "comparison.json"),
+    readFileSync(join(completed.comparisonDirectory, "comparison.json")),
+  );
+  const mismatched = writeBenchmarkReport(mismatchedComparisonDirectory, {
+    benchmarkPath: mismatchedBenchmarkPath,
+  });
+  assert.equal(mismatched.report.conditionChecks.expectedKywSkillBytes, false);
+  assert.equal(mismatched.report.gateChecks.identicalConditions, false);
+  assert.equal(mismatched.report.gateResult, "fail");
+  assert.equal(mismatched.report.runs[0].model, "fake-model");
 });
 
 test("model-backed CLI requires explicit opt-in before creating output", (t) => {

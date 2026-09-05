@@ -3,13 +3,13 @@
     "fixture": "empty-project",
     "expectedMode": "new",
     "invocation": "$kyw-init initialize Queue Lens from the inspected project brief",
-    "requiredDocuments": [
+    "allowedMutations": [
       "README.md",
       "AGENTS.md",
       "docs/SPEC.md",
       "docs/ARCHITECTURE.md"
     ],
-    "allowedMutations": [
+    "suggestedDocuments": [
       "README.md",
       "AGENTS.md",
       "docs/SPEC.md",

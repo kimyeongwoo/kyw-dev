@@ -18,7 +18,7 @@
   "interface": {
     "displayName": "kyw-dev",
     "shortDescription": "Plan, implement, deliver, and audit spec-driven work.",
-    "longDescription": "Provides six explicit workflows to initialize durable truth, author dependency-aware Task sets, implement one Task through repository completion, deliver release-bearing STANDARD work through GitHub and public release in one exact command, and independently audit the result.",
+    "longDescription": "Provides six explicit workflows for decisions, useful project documentation, minimal Task records, implementation, independent audit, and separate PR, merge, and release actions.",
     "developerName": "Kim Yeongwoo",
     "category": "Productivity",
     "capabilities": [
@@ -28,9 +28,9 @@
     "websiteURL": "https://github.com/kimyeongwoo/kyw-dev",
     "defaultPrompt": [
       "Use $kyw-init to initialize this repository's durable documents.",
-      "Use $kyw-task \"goal\" to author the smallest ready Task set and stop.",
+      "Use $kyw-task \"goal\" to author a minimal ready Task record.",
       "Use $kyw-impl 0001 to implement an existing Task through repository completion, then stop.",
-      "Use $kyw-deliver 0001 to finish STANDARD, then continue in the same invocation through npm→tag→Release for eligible contract 4.",
+      "Use $kyw-deliver 0001 to prepare relevant commits, push, and one PR.",
       "Use $kyw-audit 0001 to audit Task 0001 without modifying the repository."
     ]
   }

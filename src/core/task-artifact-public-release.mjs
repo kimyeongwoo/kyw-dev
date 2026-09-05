@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
 const exactPublicReleaseInvocationPattern =
-  /^\$kyw-deliver\s+(\d{4})\s*$/u;
+  /^\$kyw-deliver\s+--release\s+((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))\s+--sha\s+([0-9a-f]{40})\s*$/u;
 const gitShaPattern = /^[0-9a-f]{40}$/u;
 const sha256Pattern = /^[0-9a-f]{64}$/u;
 const sha1Pattern = /^[0-9a-f]{40}$/u;
@@ -35,6 +35,18 @@ export const PUBLIC_RELEASE_STAGES = Object.freeze([
 ]);
 
 export const PUBLIC_RELEASE_ATTEMPT_SCOPE = "EXACT_AUTHORIZED_INVOCATION";
+export const PUBLIC_RELEASE_PUBLISH_JOB = "Publish exact npm checkout";
+export const PUBLIC_RELEASE_PUBLISH_STEP = "Publish the exact checkout directory through OIDC";
+
+// Actions step evidence, after the caller validates run/attempt/checkout identity.
+// The adjacent CI gate can fail while this actual npm step is skipped. A failed
+// publication step (including the historical combined gate) stays ambiguous.
+export function publicationWasSkipped(jobs) {
+  if (!Array.isArray(jobs) || jobs.length !== 1 || jobs[0]?.name !== PUBLIC_RELEASE_PUBLISH_JOB ||
+      !Array.isArray(jobs[0].steps)) return false;
+  const steps = jobs[0].steps.filter((step) => step?.name === PUBLIC_RELEASE_PUBLISH_STEP);
+  return steps.length === 1 && steps[0].status === "completed" && steps[0].conclusion === "skipped";
+}
 
 const DEFAULT_RECONCILIATION_READS = 2;
 const MAX_RECONCILIATION_READS = 3;
@@ -194,10 +206,12 @@ export function parsePublicReleaseInvocation(invocation) {
   if (!match) return null;
   return Object.freeze({
     recognized: true,
-    route: "DELIVERY",
-    mode: "EXACT",
+    route: "RELEASE",
+    mode: "RELEASE",
     source: "PORTABLE_SKILL",
-    taskId: match[1],
+    taskId: null,
+    releaseVersion: match[1],
+    releaseSha: match[2],
     overrideText: "",
     overrideScope: "NONE",
   });
@@ -223,7 +237,7 @@ function validateTupleTopLevel(candidate, issues) {
     issues,
   );
   requireExact("public release tuple.schemaVersion", candidate.schemaVersion, 1, issues);
-  requirePattern(
+  if (candidate.taskId !== null) requirePattern(
     "public release tuple.taskId",
     candidate.taskId,
     /^\d{4}$/u,
@@ -407,7 +421,7 @@ function validateTupleSupplyChain(candidate, issues) {
     unknownFields(
       "public release tuple.package.signature",
       signature,
-      ["required", "keyId"],
+      ["required", "keyId", "keyIds"],
       issues,
     );
     requireExact(
@@ -416,6 +430,12 @@ function validateTupleSupplyChain(candidate, issues) {
       true,
       issues,
     );
+    if (signature.keyIds !== undefined && (
+      !Array.isArray(signature.keyIds) || signature.keyIds.length < 1 || signature.keyIds.length > 32 ||
+      new Set(signature.keyIds).size !== signature.keyIds.length ||
+      !signature.keyIds.includes(signature.keyId) ||
+      signature.keyIds.some((id) => typeof id !== "string" || !id || /\s/u.test(id) || Buffer.byteLength(id, "utf8") > MAX_SIGNING_KEY_ID_BYTES)
+    )) issues.push("public release tuple.package.signature.keyIds must be a bounded unique frozen key set containing keyId");
     if (
       typeof signature.keyId !== "string" ||
       !signature.keyId ||
@@ -683,6 +703,9 @@ export function derivePublicReleaseWorkflowInputs(tupleCandidate) {
     expected_prior_latest:
       tuple.package.priorLatest === null ? "null" : tuple.package.priorLatest,
     expected_signing_key_id: tuple.package.signature.keyId,
+    ...(tuple.package.signature.keyIds ? {
+      expected_signing_key_ids: JSON.stringify([...tuple.package.signature.keyIds].sort()),
+    } : {}),
   });
 }
 
@@ -733,6 +756,9 @@ function workflowInputSpecs(expectedInputs) {
       "expectedSigningKeyId",
       expectedInputs.expected_signing_key_id,
     ],
+    ...(expectedInputs.expected_signing_key_ids === undefined ? [] : [[
+      "expected_signing_key_ids", "expectedSigningKeyIds", expectedInputs.expected_signing_key_ids,
+    ]]),
   ];
 }
 
@@ -793,10 +819,54 @@ function workflowRunIdentityIssues(tuple, run) {
   }
   if (!Number.isInteger(run?.runAttempt) || run.runAttempt < 1) {
     missing.push("workflow run attempt is missing or malformed");
-  } else if (run.runAttempt !== 1) {
-    conflicts.push("workflow run attempt proves a forbidden rerun");
+  } else if (run.runAttempt > 10 || (run.runAttempt > 1 && (
+    !Array.isArray(run.priorAttempts) || run.priorAttempts.length !== run.runAttempt - 1 ||
+    run.priorAttempts.some((attempt, index) => attempt?.attempt !== index + 1 ||
+      attempt.publishBoundary !== "NOT_EXECUTED")
+  ))) {
+    conflicts.push("workflow rerun lacks complete proof that every prior attempt did not publish");
   }
   return { missing, successProofMissing, conflicts };
+}
+
+// Recover only the signing fields of the original dispatch from canonical run
+// evidence. Every other input must still match the prepared package/SHA tuple.
+// Legacy keyId-only evidence remains legacy; no registry rotation rewrites it.
+export function recoverPublicReleaseSigningTuple(tupleCandidate, rawWorkflow) {
+  const tuple = freezePublicReleaseTuple(tupleCandidate);
+  const collection = normalizeCollection(rawWorkflow, "runs");
+  if (!collection?.complete) throw publicReleaseError("PUBLIC_RELEASE_SIGNING_RECOVERY", "Canonical dispatch history is incomplete");
+  let recovered;
+  let identity;
+  for (const run of collection.values) {
+    if (!isRecord(run?.inputs)) continue;
+    const keyId = run.inputs.expected_signing_key_id ?? run.inputs.expectedSigningKeyId;
+    const encoded = run.inputs.expected_signing_key_ids ?? run.inputs.expectedSigningKeyIds;
+    let keyIds;
+    if (encoded !== undefined) {
+      try {
+        keyIds = JSON.parse(encoded);
+        if (!Array.isArray(keyIds) || JSON.stringify([...keyIds].sort()) !== encoded) throw new Error("noncanonical");
+      } catch {
+        throw publicReleaseError("PUBLIC_RELEASE_SIGNING_RECOVERY", "Frozen dispatch key set is malformed");
+      }
+    }
+    const candidate = freezePublicReleaseTuple({ ...tuple, package: { ...tuple.package,
+      signature: { required: true, keyId, ...(keyIds ? { keyIds } : {}) },
+    } });
+    const issues = workflowRunIdentityIssues(candidate, run);
+    if (issues.conflicts.length || issues.missing.length || issues.successProofMissing.length) {
+      throw publicReleaseError("PUBLIC_RELEASE_SIGNING_RECOVERY", "Canonical dispatch inputs differ from the prepared release target",
+        [...issues.conflicts, ...issues.missing, ...issues.successProofMissing]);
+    }
+    const candidateIdentity = JSON.stringify(candidate.package.signature);
+    if (identity !== undefined && identity !== candidateIdentity) {
+      throw publicReleaseError("PUBLIC_RELEASE_SIGNING_RECOVERY", "Canonical dispatches contain conflicting frozen signing identities");
+    }
+    identity = candidateIdentity;
+    recovered = candidate;
+  }
+  return recovered ?? tuple;
 }
 
 function publishAttemptIssues(tuple, run) {
@@ -838,11 +908,24 @@ export function classifyPublicationWorkflow(tupleCandidate, rawWorkflow) {
   if (!collection || !collection.complete) {
     return classification("UNKNOWN", ["publication workflow pagination is incomplete"]);
   }
-  if (collection.values.length === 0) return classification("ABSENT");
-  if (collection.values.length !== 1) {
+  const unresolvedRuns = [];
+  for (const candidate of collection.values) {
+    const identity = workflowRunIdentityIssues(tuple, candidate);
+    // NOT_EXECUTED is normalized only from the actual publisher step being
+    // skipped in every attempt; a gate error or absent registry version alone
+    // cannot supply this evidence.
+    const provedUnexecuted = identity.conflicts.length === 0 && identity.missing.length === 0 &&
+      candidate.status === "completed" && ["failure", "cancelled", "timed_out"].includes(candidate.conclusion) &&
+      candidate.publishBoundary === "NOT_EXECUTED" && Array.isArray(candidate.publishAttempts) && candidate.publishAttempts.length === 0;
+    if (!provedUnexecuted) unresolvedRuns.push(candidate);
+  }
+  if (unresolvedRuns.length === 0) return classification("ABSENT", [], {
+    unexecutedRunIds: collection.values.map((run) => run.runId),
+  });
+  if (unresolvedRuns.length !== 1) {
     return classification("CONFLICT", ["multiple matching publication workflow runs exist"]);
   }
-  const run = collection.values[0];
+  const run = unresolvedRuns[0];
   if (!isRecord(run)) {
     return classification("UNKNOWN", ["publication workflow run is malformed"]);
   }
@@ -1016,13 +1099,9 @@ export function classifyNpmPublication(tupleCandidate, rawNpm) {
   } else if (!Number.isInteger(rawNpm.provenance.runId) || rawNpm.provenance.runId < 1) {
     conflicts.push("npm provenance workflow run ID is malformed");
   }
-  fieldComparison(
-    "npm provenance workflow run attempt",
-    rawNpm.provenance?.runAttempt,
-    1,
-    missing,
-    conflicts,
-  );
+  if (rawNpm.provenance?.runAttempt === undefined) missing.push("npm provenance workflow run attempt is missing");
+  else if (!Number.isInteger(rawNpm.provenance.runAttempt) || rawNpm.provenance.runAttempt < 1 ||
+      rawNpm.provenance.runAttempt > 10) conflicts.push("npm provenance workflow run attempt is invalid");
   const expectedVersions = [...tuple.package.priorVersions, tuple.package.version];
   if (!Array.isArray(rawNpm.versions)) missing.push("npm version history is missing");
   else if (!sameStringSet(rawNpm.versions, expectedVersions)) {
@@ -1328,6 +1407,16 @@ function standardDeliveryValues(standardDelivery) {
 }
 
 function standardDeliveryIssues(standardDelivery, tuple) {
+  if (tuple.taskId === null) {
+    const target = standardDelivery?.releaseTarget;
+    return target?.repository === tuple.repository &&
+      target?.baseBranch === tuple.baseBranch &&
+      target?.sha === tuple.target.mergeSha &&
+      target?.treeSha === tuple.target.treeSha &&
+      (target?.currentMainSha === tuple.target.mergeSha ||
+        (gitShaPattern.test(target?.currentMainSha ?? "") && target?.mainContainsTarget === true))
+      ? [] : ["explicit release requires the exact target tree and proven main ancestry"];
+  }
   if (!isRecord(standardDelivery)) return ["STANDARD delivery proof is missing"];
   const values = standardDeliveryValues(standardDelivery);
   const issues = [];
@@ -1422,6 +1511,21 @@ export function derivePublicReleasePlan({ standardDelivery, tuple: tupleCandidat
     });
   }
   const state = classifyPublicReleaseState(tuple, snapshot);
+  // Older standalone targets may only resume after both npm and its workflow
+  // are exact. Recheck each snapshot so lost proof can never enable dispatch.
+  if (tuple.taskId === null &&
+      standardDelivery.releaseTarget.currentMainSha !== tuple.target.mergeSha &&
+      state.stageClassifications.NPM !== "EXACT_ALREADY_COMPLETE") {
+    return blockedPlan({
+      code: "PUBLIC_RELEASE_PREVIOUS_TARGET_UNPROVEN",
+      completedStage: "STANDARD_FINAL",
+      blockingStage: "NPM",
+      classification: state.stageClassifications.NPM === "ABSENT" ? "CONFLICT" : state.stageClassifications.NPM,
+      diagnostics: { issues: state.issues, readErrors: snapshot?.readErrors ?? {} },
+      resumePoint: "NPM",
+      recoveryCondition: "An older main target requires exact existing npm and workflow proof; new npm publication requires the current prepared main SHA.",
+    });
+  }
   if (state.disposition === "BLOCKED") {
     const stageClassification = state.stageClassifications[state.blockingStage];
     return blockedPlan({
@@ -1846,6 +1950,7 @@ async function reconcileWithoutMutation({
 // duplicate mutator requests inside that attempt; canonical remote state is the
 // only cross-invocation arbiter, not a distributed lock or durable retry ledger.
 export async function runPublicRelease({
+  invocation,
   standardDelivery,
   tuple: tupleCandidate,
   clients,
@@ -1863,6 +1968,16 @@ export async function runPublicRelease({
       diagnostics: error?.issues ?? [error?.message],
       resumePoint: "STANDARD_FINAL",
       recoveryCondition: "Rebuild and cross-check the exact public-release tuple before resuming.",
+    });
+  }
+  const route = parsePublicReleaseInvocation(invocation);
+  if (!route || route.releaseVersion !== tuple.package.version ||
+      route.releaseSha !== tuple.target.mergeSha) {
+    return blockedPlan({
+      code: "PUBLIC_RELEASE_AUTHORITY_REQUIRED", completedStage: null,
+      blockingStage: "STANDARD_FINAL", classification: "CONFLICT",
+      diagnostics: ["An explicit release action must match the frozen version and SHA."],
+      resumePoint: "STANDARD_FINAL", recoveryCondition: "Obtain the user's release action for this target.",
     });
   }
   const gateIssues = standardDeliveryIssues(standardDelivery, tuple);

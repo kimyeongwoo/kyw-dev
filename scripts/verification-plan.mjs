@@ -155,6 +155,9 @@ const releaseSensitiveExactPaths = new Set([
   "THIRD_PARTY_NOTICES.md",
   "package.json",
   "scripts/lib/validate-foundation.mjs",
+  "scripts/ci-plan.mjs",
+  "scripts/publish-gate.mjs",
+  "src/core/ci-evidence.mjs",
   "scripts/pack-check.mjs",
   "scripts/packed-release-check.mjs",
   "test/continuous-integration.test.mjs",
@@ -163,8 +166,6 @@ const releaseSensitiveExactPaths = new Set([
 ]);
 
 const documentationExactPaths = new Set([
-  "AGENTS.md",
-  "CODEX_PROMPTS.md",
   "README.md",
   "docs/ARCHITECTURE.md",
   "docs/SPEC.md",
@@ -206,9 +207,15 @@ function classifyPath(path) {
   ) {
     return "release";
   }
-  if (path.startsWith("skills/") || path.startsWith("templates/")) {
+  // Executable adapters and unknown assets must never inherit a Markdown plan.
+  if ((path.startsWith("skills/") || path.startsWith("templates/")) && !path.endsWith(".md")) {
+    return "runtime";
+  }
+  if (path === "AGENTS.md" || path === "CODEX_PROMPTS.md" ||
+      path.startsWith("skills/") || path.startsWith("templates/")) {
     return "skill";
   }
+  if (path.endsWith("/AGENTS.md")) return "runtime";
   if (
     documentationExactPaths.has(path) ||
     (path.startsWith("docs/") && path.endsWith(".md"))
@@ -224,6 +231,9 @@ function focusedSkillTests(paths) {
     "test/instruction-surfaces.test.mjs",
   ]);
   for (const path of paths) {
+    if (path === "AGENTS.md" || path === "CODEX_PROMPTS.md") {
+      for (const testPath of skillTestNames.values()) tests.add(testPath);
+    }
     const skillMatch = /^skills\/([^/]+)\//.exec(path);
     if (skillMatch) {
       const testPath = skillTestNames.get(skillMatch[1]);
@@ -264,10 +274,23 @@ export function planVerification({ changedPaths, releaseCandidate = false } = {}
   if (!Array.isArray(changedPaths) || changedPaths.length === 0) {
     throw new Error("At least one changed path is required");
   }
-  const paths = [...new Set(changedPaths.map(normalizeChangedPath))].sort();
+  const changes = changedPaths.map((entry) => {
+    if (typeof entry === "string") return { path: normalizeChangedPath(entry), status: "M" };
+    if (!entry || typeof entry !== "object" || !/^(?:[AMDTUXB]|[RC]\d{0,3})$/.test(entry.status)) {
+      throw new Error("Changed entries require a path and a valid Git status");
+    }
+    if (/^[RC]/.test(entry.status) && !entry.previousPath) {
+      throw new Error("Renamed/copied entries require their previous path");
+    }
+    return { ...entry, path: normalizeChangedPath(entry.path),
+      previousPath: entry.previousPath ? normalizeChangedPath(entry.previousPath) : undefined };
+  });
+  const paths = [...new Set(changes.flatMap(({ path, previousPath }) =>
+    previousPath ? [previousPath, path] : [path]))].sort();
   const evidencePaths = paths.filter((path) => taskEvidencePattern.test(path));
   const riskPaths = paths.filter((path) => !taskEvidencePattern.test(path));
   const classes = new Set(riskPaths.map(classifyPath));
+  if (changes.some(({ status }) => status !== "M")) classes.add("runtime");
   let changeClass = highestChangeClass(classes);
   let commands;
 
@@ -320,19 +343,10 @@ export function planVerification({ changedPaths, releaseCandidate = false } = {}
     leafCommandCount,
     hosted: Object.freeze({
       required: true,
-      behavioralLanes: 7,
-      commandsPerBehavioralLane: 1,
-      qualityJobs: 1,
-      commandsPerQualityJob: 3,
-      candidateJobs: 1,
-      commandsPerCandidateJob: 1,
-      mergeCompatibilityJobs: 1,
-      commandsPerMergeCompatibilityJob: 4,
-      requiredJobs: 1,
-      pullRequestJobInstances: 11,
-      pullRequestLeafCommandCount: 15,
-      mainJobInstances: 10,
-      mainLeafCommandCount: 11,
+      profile: changeClass === "skill" ? "instruction" : changeClass,
+      behavioralLanes: ["runtime", "release"].includes(changeClass) ? 7 : 0,
+      candidateJobs: ["runtime", "release"].includes(changeClass) ? 1 : 0,
+      mergeCompatibilityJobs: ["runtime", "release"].includes(changeClass) ? 1 : 0,
       pullRequest: "GitHub PR CI at the exact head SHA",
       main: "GitHub main CI at the exact merge SHA",
     }),
@@ -362,7 +376,7 @@ function formatText(plan) {
     lines.push(`${index + 1}. [${command.tier}] ${command.command}`);
   });
   lines.push(
-    `Hosted exact-SHA CI remains required: PR ${plan.hosted.pullRequestJobInstances} jobs / ${plan.hosted.pullRequestLeafCommandCount} leaf commands; main ${plan.hosted.mainJobInstances} jobs / ${plan.hosted.mainLeafCommandCount} leaf commands.`,
+    `Hosted exact-SHA CI remains required; selected profile: ${plan.hosted.profile}.`,
   );
   return lines.join("\n");
 }
