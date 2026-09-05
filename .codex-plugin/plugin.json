@@ -1,6 +1,6 @@
 {
   "name": "kyw-dev",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Spec-driven development workflows for durable docs, verified Tasks, and audits.",
   "author": {
     "name": "Kim Yeongwoo"

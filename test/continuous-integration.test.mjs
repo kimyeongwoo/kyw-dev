@@ -91,6 +91,10 @@ test("real Git regular documentation additions select focused CI and aggregate f
 });
 
 test("real Git roles, modes, and both move/copy paths reach hosted selection and aggregation", async (t) => {
+  const original = Array.from({ length: 100 }, (_, index) =>
+    `Unique line ${String(index).padStart(3, "0")}: original reference material and enough text.\n`).join("");
+  const edited = original.replace("Unique line 000: original reference material and enough text.",
+    "Changed opening line for a normal documentation move.");
   const cases = [
     {
       name: "ordinary document move and deletion", profile: "documentation", statuses: ["D", "R100"],
@@ -99,6 +103,19 @@ test("real Git roles, modes, and both move/copy paths reach hosted selection and
         fixture.git("mv", "docs/old.md", "docs/new.md");
         fixture.git("rm", "docs/removed.md");
       },
+    },
+    {
+      name: "ordinary document move with content edit", profile: "documentation", statuses: ["R099"],
+      files: { "docs/old.md": original },
+      change(fixture) {
+        fixture.git("mv", "docs/old.md", "docs/new.md");
+        fixture.write("docs/new.md", edited);
+      },
+    },
+    {
+      name: "Task record copy with content edit", profile: "documentation", statuses: ["C099"],
+      files: { "docs/tasks/0098-old/TASK.md": original },
+      change(fixture) { fixture.write("docs/tasks/0099-new/TASK.md", edited); },
     },
     {
       name: "instruction addition", profile: "instruction", statuses: ["A"],

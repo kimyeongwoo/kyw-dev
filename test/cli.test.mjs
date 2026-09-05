@@ -12,8 +12,8 @@ const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 const executable = join(repositoryRoot, "bin", "kyw-dev.mjs");
 
 test("CLI projects the selected repository version", () => {
-  assert.equal(VERSION, "0.2.2");
-  assert.match(HELP_TEXT, /^kyw-dev 0\.2\.2\n/);
+  assert.equal(VERSION, "0.2.3");
+  assert.match(HELP_TEXT, /^kyw-dev 0\.2\.3\n/);
 });
 
 function runInCleanDirectory(args) {
