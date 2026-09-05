@@ -27,6 +27,9 @@ import {
   derivePublicReleaseWorkflowInputs,
   freezePublicReleaseTuple,
   recoverPublicReleaseSigningTuple,
+  publicationWasSkipped,
+  PUBLIC_RELEASE_PUBLISH_JOB,
+  PUBLIC_RELEASE_PUBLISH_STEP,
 } from "./task-artifact-public-release.mjs";
 import {
   inspectTaskQueue,
@@ -7178,6 +7181,19 @@ function assertPublicReleaseSourceContract({
     /^actions\/checkout@[0-9a-f]{40}$/u.test(uses[0]) &&
     /^actions\/setup-node@[0-9a-f]{40}$/u.test(uses[1]);
   const publishCommands = workflowText.match(/\bnpm\s+publish\b/gu) ?? [];
+  const stepBlocks = workflowText.replaceAll("\r\n", "\n").split(/^      - name: /mu).slice(1);
+  const publisherBlock = stepBlocks.at(-1) ?? "";
+  const gateBlock = stepBlocks.at(-2) ?? "";
+  const gateCommand = "        run: node ./scripts/publish-gate.mjs";
+  // Keep the historical combined boundary readable for already fixed targets.
+  // Its failed step is never reinterpreted as proof that npm was not called.
+  const combinedBoundary = publishCommands.length === 0 &&
+    publisherBlock.startsWith(`${PUBLIC_RELEASE_PUBLISH_STEP}\n`) &&
+    publisherBlock.split("\n").includes(gateCommand) && !/^\s+if:/mu.test(publisherBlock);
+  const splitBoundary = publishCommands.length === 1 &&
+    gateBlock.startsWith("Require latest canonical CI before publication\n") &&
+    gateBlock.split("\n").includes(gateCommand) && !/^\s+if:/mu.test(gateBlock) &&
+    publisherBlock.trimEnd() === `${PUBLIC_RELEASE_PUBLISH_STEP}\n        run: ${PUBLIC_RELEASE_COMMAND}`;
   const forbiddenWorkflowPatterns = [
     /\b(?:npm\s+(?:login|adduser)|NODE_AUTH_TOKEN|NPM_TOKEN|_authToken|always-auth)\b/iu,
     /\bsecrets\.[A-Za-z0-9_]+\b/u,
@@ -7193,7 +7209,7 @@ function assertPublicReleaseSourceContract({
     triggerKeys.length !== 1 ||
     triggerKeys[0] !== "workflow_dispatch" ||
     !exactPinnedUses ||
-    publishCommands.length !== 0 ||
+    !(combinedBoundary || splitBoundary) ||
     forbiddenWorkflowPatterns.some((pattern) => pattern.test(workflowText))
   ) {
     throw publicReleaseHydrationError(
@@ -8696,12 +8712,11 @@ export function createPublicReleaseClients({
           );
           if (!Array.isArray(response?.jobs) || response.total_count !== 1 || response.jobs.length !== 1 ||
               response.jobs.some((job) => !isRecord(job) || !positiveInteger(job.id) || job.run_id !== run.id ||
-                job.head_sha !== tuple.target.mergeSha || job.name !== "Publish exact npm checkout" ||
+                job.head_sha !== tuple.target.mergeSha || job.name !== PUBLIC_RELEASE_PUBLISH_JOB ||
                 (job.run_attempt !== undefined && job.run_attempt !== attempt))) {
             throw publicReleaseHydrationError("PUBLISH_WORKFLOW_JOBS", "workflow job collection is incomplete or has the wrong run/attempt/checkout identity");
           }
-          const steps = response.jobs[0].steps?.filter((step) => step?.name === "Publish the exact checkout directory through OIDC");
-          const skipped = steps?.length === 1 && steps[0].status === "completed" && steps[0].conclusion === "skipped";
+          const skipped = publicationWasSkipped(response.jobs);
           if (attempt < run.run_attempt) priorAttempts.push(Object.freeze({ attempt,
             publishBoundary: skipped ? "NOT_EXECUTED" : "UNKNOWN" }));
           else jobsResponse = response;
@@ -8735,9 +8750,8 @@ export function createPublicReleaseClients({
         const evidence =
           jobEvidence.length === 1 ? jobEvidence[0] : Object.freeze({});
         if (run.conclusion !== "success") {
-          const steps = jobsResponse.jobs[0].steps?.filter((step) => step?.name === "Publish the exact checkout directory through OIDC");
           const unexecuted = priorAttempts.every((attempt) => attempt.publishBoundary === "NOT_EXECUTED") &&
-            steps?.length === 1 && steps[0].status === "completed" && steps[0].conclusion === "skipped";
+            publicationWasSkipped(jobsResponse.jobs);
           runs.push(Object.freeze({ ...normalizedRun, inputs: evidence.inputs ?? run.inputs,
             ...(unexecuted ? { publishBoundary: "NOT_EXECUTED", publishAttempts: [] } : {}),
           }));
@@ -8745,7 +8759,7 @@ export function createPublicReleaseClients({
         }
         const publishSteps = jobsResponse.jobs.flatMap((job) =>
           (job.steps ?? []).filter(
-            (step) => step?.name === "Publish the exact checkout directory through OIDC",
+            (step) => step?.name === PUBLIC_RELEASE_PUBLISH_STEP,
           ),
         );
         runs.push(
@@ -9102,7 +9116,12 @@ export async function hydratePublicReleaseContext({
       readCommitFile(commandCache, repositoryRoot, mergeSha, ".codex-plugin/plugin.json", "PUBLIC_RELEASE_PLUGIN"),
       readCommitFile(commandCache, repositoryRoot, mergeSha, PUBLIC_RELEASE_WORKFLOW_PATH, "PUBLIC_RELEASE_WORKFLOW"),
     ]);
-    if (mainSha !== mergeSha) throw publicReleaseHydrationError("RELEASE_TARGET", "release SHA must equal prepared main; no branch or version changes are performed");
+    requireSha(mainSha, taskId, "PUBLIC_RELEASE_MAIN", "local main");
+    // An already published target can outlive the main tip. Keep the real tip
+    // and prove ancestry here; canonical publication proof gates later writes.
+    if (mainSha !== mergeSha && !(await gitIsAncestor(commandCache, repositoryRoot, mergeSha, mainSha))) {
+      throw publicReleaseHydrationError("RELEASE_TARGET", "release SHA must be prepared main or its proven ancestor");
+    }
     entry = { repository, merge: { sha: mergeSha, branch: "main" } };
   } else {
   if (!/^\d{4}$/u.test(taskId ?? "")) {
@@ -9389,6 +9408,9 @@ export async function hydratePublicReleaseContext({
     );
   }
   const targetRegistryMetadata = packageIndex?.versions?.[releaseVersion];
+  if (independentRelease && mainSha !== mergeSha && targetRegistryMetadata === undefined) {
+    throw publicReleaseHydrationError("RELEASE_TARGET", "new npm publication requires the exact prepared main SHA; an older target requires existing exact publication proof");
+  }
   let tupleSigningKey;
   if (targetRegistryMetadata !== undefined) {
     const targetSignatures = targetRegistryMetadata?.dist?.signatures;
@@ -9502,7 +9524,7 @@ export async function hydratePublicReleaseContext({
     tuple,
     standardDelivery: Object.freeze(independentRelease ? {
       releaseTarget: Object.freeze({ repository, baseBranch: "main", sha: mergeSha,
-        treeSha, currentMainSha: mainSha }),
+        treeSha, currentMainSha: mainSha, mainContainsTarget: true }),
     } : { evaluation, evidence: entry, mergeTreeSha: treeSha }),
     clients,
     diagnostics: Object.freeze({

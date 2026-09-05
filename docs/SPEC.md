@@ -64,7 +64,11 @@ Merge uses exact expected head, current required CI/reviews/protection, and no b
 
 Release does not choose/bump versions or automatically merge PRs. It validates the prepared repository/version/SHA, exact packed bytes and digests, registry conflicts, publisher identity, and canonical CI before npm → exact-SHA tag → Release. Its Task-independent target may contain several completed outcomes.
 
+New npm publication requires the current prepared main SHA. A fresh invocation may resume an already published ancestor after main advances only with verified local/remote main ancestry and exact npm/workflow/artifact/provenance proof for the original frozen identity. It creates only missing tag/Release effects; an already complete target requires no writes. Unpublished old targets, conflicts, and ambiguous evidence remain blocked.
+
 The actual npm publish boundary checks trusted GitHub API evidence for the correct repository, canonical workflow, exact main-push SHA, authoritative latest run/attempt, and successful required aggregate coverage. Other SHA, PR synthetic merge, incomplete/failed/cancelled/missing/ambiguous evidence, permission errors, or incomplete queries block publication. Older success never substitutes for a later failure or running attempt.
+
+The final CI check and actual npm invocation occupy adjacent Actions steps. CI rejection skips the npm step. A new run or rerun is safe only when complete canonical history proves that actual step was skipped in every previous attempt. A failed npm step, including a historical combined CI/publish step, remains ambiguous and does not authorize republication.
 
 Preserve OIDC, least privilege, concurrency, package identity/digests, prior registry history, and signature/provenance verification. Multiple valid official signing keys are supported through keyid resolution; malformed, unknown, or invalid signatures do not pass. Previously frozen historical key identities are not silently replaced.
 

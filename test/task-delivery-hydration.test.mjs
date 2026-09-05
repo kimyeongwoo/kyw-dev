@@ -60,6 +60,8 @@ import {
   recoverPublicReleaseSigningTuple,
 } from "../src/core/task-artifact-public-release.mjs";
 import { runTaskArtifactCommand } from "../skills/kyw-task/scripts/task-artifacts.mjs";
+import { executePublicationBoundary } from "./fixtures/publication-workflow.mjs";
+import { requireSafePublishAttempt } from "../scripts/publish-gate.mjs";
 import {
   createSyntheticStandardDeliveryProbe,
   deriveStandardDeliveryFrontier,
@@ -110,14 +112,14 @@ function publicReleaseLocalRunner(trace) {
   };
 }
 
-function publicClientTuple({ archive, keyId = "SHA256:fixture", keyIds }) {
+function publicClientTuple({ archive, keyId = "SHA256:fixture", keyIds, repository = "owner/repository" }) {
   const mergeSha = "d".repeat(40);
   const treeSha = "e".repeat(40);
   const sha256 = createHash("sha256").update(archive).digest("hex");
   return freezePublicReleaseTuple({
     schemaVersion: 1,
     taskId: "0085",
-    repository: "owner/repository",
+    repository,
     baseBranch: "main",
     target: { mergeSha, treeSha },
     publishWorkflow: {
@@ -131,7 +133,7 @@ function publicClientTuple({ archive, keyId = "SHA256:fixture", keyIds }) {
       publisher: {
         provider: "GitHub Actions",
         authentication: "OIDC",
-        repository: "owner/repository",
+        repository,
         workflow: "publish.yml",
         environment: "npm-production",
         action: "npm publish",
@@ -140,7 +142,7 @@ function publicClientTuple({ archive, keyId = "SHA256:fixture", keyIds }) {
     package: {
       name: "kyw-dev",
       version: "2.0.0",
-      repository: "git+https://github.com/owner/repository.git",
+      repository: `git+https://github.com/${repository}.git`,
       access: "public",
       registry: "https://registry.npmjs.org/",
       tarball: {
@@ -153,7 +155,7 @@ function publicClientTuple({ archive, keyId = "SHA256:fixture", keyIds }) {
       signature: { required: true, keyId, ...(keyIds ? { keyIds } : {}) },
       provenance: {
         required: true,
-        sourceRepository: "owner/repository",
+        sourceRepository: repository,
         workflowPath: ".github/workflows/publish.yml",
         workflowRef: "refs/heads/main",
         sourceCommit: mergeSha,
@@ -194,6 +196,7 @@ async function publicClientHarness({
   useDefaultProvenanceVerifier = false,
   provenanceModuleLoader,
   multipleSigningKeys = false,
+  repository,
 } = {}) {
   const archive = Buffer.from("exact fixture npm archive bytes", "utf8");
   const { publicKey, privateKey } = generateKeyPairSync("ec", {
@@ -201,7 +204,7 @@ async function publicClientHarness({
   });
   const keyId = "SHA256:fixture";
   const rotatedKeyPair = generateKeyPairSync("ec", { namedCurve: "P-256" });
-  const tuple = publicClientTuple({ archive, keyId,
+  const tuple = publicClientTuple({ archive, keyId, repository,
     ...(multipleSigningKeys ? { keyIds: [keyId, "SHA256:rotated"] } : {}) });
   const workflowText = (await readFile(
     path.join(REPOSITORY_ROOT, ".github", "workflows", "publish.yml"),
@@ -264,6 +267,8 @@ async function publicClientHarness({
     runAttempt: 1,
     priorPublishConclusions: {},
     latestPublishConclusion: "success",
+    workflowRuns: undefined,
+    attemptSteps: {},
     jobRunId: undefined,
     jobId: 601,
     releaseId: 701,
@@ -501,7 +506,11 @@ async function publicClientHarness({
     if (endpoint.includes("/actions/workflows/77/runs?")) {
       const run = {
         id: state.runId,
+        run_number: state.runId,
         run_attempt: state.runAttempt,
+        workflow_id: state.workflowId,
+        repository: { full_name: tuple.repository },
+        head_repository: { full_name: tuple.repository },
         event: "workflow_dispatch",
         ...(state.workflowHeadBranch === undefined
           ? {}
@@ -512,23 +521,24 @@ async function publicClientHarness({
         status: state.workflow === "active" ? "queued" : "completed",
         conclusion: state.workflow === "success" ? "success" : state.workflow === "failed" ? "failure" : null,
       };
-      const runs = state.workflow === "absent" ? [] : [run];
+      const runs = state.workflowRuns ?? (state.workflow === "absent" ? [] : [run]);
       return jsonResult({
         total_count: state.runsIncomplete ? runs.length + 1 : runs.length,
         workflow_runs: runs,
       });
     }
-    const attemptMatch = /\/actions\/runs\/501\/attempts\/(\d+)\/jobs\?/.exec(endpoint);
+    const attemptMatch = /\/actions\/runs\/(\d+)\/attempts\/(\d+)\/jobs\?/.exec(endpoint);
     if (attemptMatch) {
-      const attempt = Number(attemptMatch[1]);
+      const runId = Number(attemptMatch[1]);
+      const attempt = Number(attemptMatch[2]);
       const jobs = [
         {
           id: state.jobId,
-          run_id: state.jobRunId ?? state.runId,
+          run_id: state.jobRunId ?? runId,
           head_sha: tuple.target.mergeSha,
           name: "Publish exact npm checkout",
           run_attempt: attempt,
-          steps: [
+          steps: state.attemptSteps[`${runId}/${attempt}`] ?? [
             {
               name: "Publish the exact checkout directory through OIDC",
               status: "completed",
@@ -769,7 +779,7 @@ async function publicClientHarness({
         }),
   };
   const clients = createPublicReleaseClients(clientOptions);
-  return { archive, clients, expectedTarball, state, trace, tuple, get provenanceVerifications() {
+  return { archive, clients, commandRunner, expectedTarball, state, trace, tuple, get provenanceVerifications() {
     return provenanceVerifications;
   } };
 }
@@ -8228,6 +8238,86 @@ test("production public signature verification accepts distinct trusted keys and
   assert.equal(historical.tuple.package.signature.keyId, "SHA256:fixture");
   assert.equal(historical.tuple.package.signature.keyIds, undefined);
   assert.equal(harness.trace.some(({ kind }) => kind === "post"), false);
+});
+
+test("workflow CI rejection resumes through production history for a new run and a rerun", async () => {
+  for (const retry of ["new run", "rerun"]) {
+    const harness = await publicClientHarness({ repository: "kimyeongwoo/kyw-dev" });
+    const { clients, tuple, state } = harness;
+    const sha = tuple.target.mergeSha;
+    const context = { fresh: true, cacheBypass: true, purpose: "WORKFLOW_BOUNDARY", sequence: 1 };
+    const first = await executePublicationBoundary({ sha, ciStatus: "in_progress", ciConclusion: null });
+    assert.equal(first.publisherCalls, 0, retry);
+    assert.equal(first.gateResult.status, 1);
+    assert.deepEqual(first.steps.map((step) => step.conclusion), ["failure", "skipped"]);
+    state.workflow = "failed";
+    state.attemptSteps["501/1"] = first.steps;
+    const preEffect = await clients.readWorkflowRuns(tuple, context);
+    assert.equal(preEffect.runs[0].publishBoundary, "NOT_EXECUTED");
+    assert.equal(classifyPublicationWorkflow(tuple, preEffect).classification, "ABSENT");
+
+    const oldRun = { id: 501, run_number: 501, run_attempt: 1, workflow_id: 77,
+      repository: { full_name: tuple.repository }, head_repository: { full_name: tuple.repository },
+      event: "workflow_dispatch", head_branch: "main", head_sha: sha, status: "completed", conclusion: "failure" };
+    state.runId = retry === "new run" ? 502 : 501;
+    state.runAttempt = retry === "rerun" ? 2 : 1;
+    const current = { ...oldRun, id: state.runId, run_number: state.runId,
+      run_attempt: state.runAttempt, status: "in_progress", conclusion: null };
+    state.workflowRuns = retry === "new run" ? [oldRun, current] : [current];
+    const read = async (endpoint) => JSON.parse((await harness.commandRunner({ command: "gh",
+      args: ["api", "--hostname", "github.com", "--method", "GET", endpoint], cwd: REPOSITORY_ROOT })).stdout);
+    await requireSafePublishAttempt({ read, sha, runId: state.runId, runAttempt: state.runAttempt });
+    const second = await executePublicationBoundary({ sha, publisher: () => {
+      state.npm = "exact";
+      current.status = "completed";
+      current.conclusion = "success";
+    } });
+    state.attemptSteps[`${state.runId}/${state.runAttempt}`] = second.steps;
+    assert.equal(second.publisherCalls, 1, retry);
+    const completed = await clients.readWorkflowRuns(tuple, context);
+    assert.equal(classifyPublicationWorkflow(tuple, completed).classification, "EXACT_ALREADY_COMPLETE", retry);
+    const result = await runPublicRelease({ tuple, clients, standardDelivery: publicClientStandardFinal(tuple) });
+    assert.equal(result.outcome, "COMPLETE", `${retry}: ${JSON.stringify(result)}`);
+    const writes = harness.trace.filter(({ kind }) => kind === "post");
+    assert.equal(writes.filter(({ endpoint }) => endpoint.endsWith("/dispatches")).length, 0);
+    assert.deepEqual(writes.map(({ endpoint }) => endpoint.split("/").at(-1)), ["refs", "releases"]);
+  }
+});
+
+test("workflow publisher failure and incomplete Actions proof never authorize another production write", async () => {
+  for (const failure of ["response lost", "historical combined failure", "missing step", "duplicate step", "incomplete history"]) {
+    const harness = await publicClientHarness({ repository: "kimyeongwoo/kyw-dev" });
+    const { clients, tuple, state } = harness;
+    const sha = tuple.target.mergeSha;
+    const outcome = await executePublicationBoundary({ sha,
+      ...(failure === "response lost" ? { publisher: () => { throw new Error("response lost after npm call"); } }
+        : { ciStatus: "in_progress", ciConclusion: null }),
+    });
+    assert.equal(outcome.publisherCalls, failure === "response lost" ? 1 : 0, failure);
+    state.workflow = "failed";
+    state.attemptSteps["501/1"] = outcome.steps;
+    if (failure === "historical combined failure") state.attemptSteps["501/1"] = [{ ...outcome.steps[1], conclusion: "failure" }];
+    if (failure === "missing step") state.attemptSteps["501/1"] = [outcome.steps[0]];
+    if (failure === "duplicate step") state.attemptSteps["501/1"].push({ ...outcome.steps[1] });
+    if (failure === "incomplete history") state.runsIncomplete = true;
+    const history = await clients.readWorkflowRuns(tuple, { fresh: true, cacheBypass: true, sequence: 1 });
+    assert.ok(["CONFLICT", "UNKNOWN"].includes(classifyPublicationWorkflow(tuple, history).classification), failure);
+    const result = await runPublicRelease({ tuple, clients, standardDelivery: publicClientStandardFinal(tuple) });
+    assert.equal(result.outcome, "BLOCKED", failure);
+    assert.equal(harness.trace.filter(({ kind }) => kind === "post").length, 0, failure);
+    const prior = { id: 501, run_number: 501, run_attempt: 1, workflow_id: 77,
+      repository: { full_name: tuple.repository }, head_repository: { full_name: tuple.repository },
+      event: "workflow_dispatch", head_branch: "main", head_sha: sha, status: "completed", conclusion: "failure" };
+    const read = async (endpoint) => JSON.parse((await harness.commandRunner({ command: "gh",
+      args: ["api", "--hostname", "github.com", "--method", "GET", endpoint], cwd: REPOSITORY_ROOT })).stdout);
+    for (const retry of ["new run", "rerun"]) {
+      const current = { ...prior, id: retry === "new run" ? 502 : 501,
+        run_number: retry === "new run" ? 502 : 501, run_attempt: retry === "rerun" ? 2 : 1,
+        status: "in_progress", conclusion: null };
+      state.workflowRuns = retry === "new run" ? [prior, current] : [current];
+      await assert.rejects(requireSafePublishAttempt({ read, sha, runId: current.id, runAttempt: current.run_attempt }), `${failure}: ${retry}`);
+    }
+  }
 });
 
 test("production publication reads prove all prior attempts skipped before accepting rerun or redispatch", async () => {

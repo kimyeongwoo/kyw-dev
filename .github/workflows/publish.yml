@@ -642,8 +642,11 @@ jobs:
           test -z "$(git status --porcelain --untracked-files=all)"
           test ! -e .npmrc
 
-      - name: Publish the exact checkout directory through OIDC
+      - name: Require latest canonical CI before publication
         env:
           GITHUB_TOKEN: ${{ github.token }}
           EXPECTED_SHA: ${{ inputs.expected_sha }}
         run: node ./scripts/publish-gate.mjs
+
+      - name: Publish the exact checkout directory through OIDC
+        run: npm publish . --access public --ignore-scripts --registry=https://registry.npmjs.org/

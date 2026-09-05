@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { fetchRead, githubReader, publishWithCiGate, requireSafePublishAttempt, requireFrozenSigningKeys, PUBLISH_STEP } from "../scripts/publish-gate.mjs";
+import { fetchRead, githubReader, requireCanonicalCi, requireSafePublishAttempt, requireFrozenSigningKeys, PUBLISH_STEP } from "../scripts/publish-gate.mjs";
+import { executePublicationBoundary } from "./fixtures/publication-workflow.mjs";
 
 const sha = "a".repeat(40);
 const repository = "kimyeongwoo/kyw-dev";
@@ -38,26 +39,22 @@ function fixture() {
   return state;
 }
 
-test("only authoritative canonical main push success reaches the publisher", async () => {
+test("only authoritative canonical main push success approves the read-only gate", async () => {
   const state = fixture();
-  let calls = 0;
-  const proof = await publishWithCiGate({ read: state.read, sha }, () => { calls += 1; });
-  assert.equal(calls, 1);
+  const proof = await requireCanonicalCi({ read: state.read, sha });
   assert.deepEqual(proof, { runId: 20, runAttempt: 1, sha, repository,
     branch: "main", event: "push", workflowId: 10 });
   // GitHub's documented job response omits run_attempt; the scoped API and
   // current-attempt chronology supply it, without inventing a required field.
   delete state.jobs[0].run_attempt;
-  await publishWithCiGate({ read: state.read, sha }, () => { calls += 1; });
-  assert.equal(calls, 2);
+  await requireCanonicalCi({ read: state.read, sha });
   state.run.run_attempt = 2;
   state.jobs[0].run_attempt = 2;
-  const rerunProof = await publishWithCiGate({ read: state.read, sha }, () => { calls += 1; });
+  const rerunProof = await requireCanonicalCi({ read: state.read, sha });
   assert.equal(rerunProof.runAttempt, 2);
-  assert.equal(calls, 3);
 });
 
-test("wrong identities, newer failures, missing/ambiguous evidence and read errors call publisher zero times", async () => {
+test("wrong identities, newer failures, missing/ambiguous evidence and read errors reject CI approval", async () => {
   const mutations = [
     (s) => { s.metadata.path = ".github/workflows/lookalike.yml"; },
     (s) => { s.metadata.state = "disabled_manually"; },
@@ -94,19 +91,8 @@ test("wrong identities, newer failures, missing/ambiguous evidence and read erro
   for (const [index, mutate] of mutations.entries()) {
     const state = fixture();
     mutate(state);
-    let calls = 0;
-    await assert.rejects(publishWithCiGate({ read: state.read, sha }, () => { calls += 1; }), `case ${index}`);
-    assert.equal(calls, 0, `case ${index}`);
+    await assert.rejects(requireCanonicalCi({ read: state.read, sha }), `case ${index}`);
   }
-});
-
-test("publisher response loss or failure is never automatically republished", async () => {
-  let calls = 0;
-  await assert.rejects(publishWithCiGate({ read: fixture().read, sha }, () => {
-    calls += 1;
-    throw new Error("response lost after write");
-  }));
-  assert.equal(calls, 1);
 });
 
 test("read retries are bounded and distinguish transient errors from authentication or bad requests", async () => {
@@ -163,15 +149,88 @@ test("a new approved run can follow proven pre-publish failure, but unknown or e
   await assert.rejects(requireSafePublishAttempt({ read: publishFixture("skipped", 11), sha, runId: 50, runAttempt: 1 }), /bound/);
 });
 
-test("the actual workflow calls the gate as its sole publisher and does not ignore gate failure", () => {
+test("the workflow separates the read-only gate from its sole publication step", () => {
   const workflow = readFileSync(new URL("../.github/workflows/publish.yml", import.meta.url), "utf8");
   const helper = readFileSync(new URL("../scripts/publish-gate.mjs", import.meta.url), "utf8");
   assert.equal((workflow.match(/run: node \.\/scripts\/publish-gate.mjs/g) ?? []).length, 1);
-  assert.doesNotMatch(workflow, /run: npm publish|continue-on-error|if:.*always|\|\|\s*true/);
+  assert.equal((workflow.match(/run: npm publish /g) ?? []).length, 1);
+  assert.doesNotMatch(workflow, /continue-on-error|if:.*always|\|\|\s*true/);
   assert.match(workflow, /await requireSafePublishAttempt\(\{/);
-  assert.match(helper, /const proof = await publishWithCiGate/);
-  assert.match(helper, /execFileSync\("npm", \["publish", "\."/);
-  assert.match(helper, /const proof = await requireCanonicalCi\(options\);\s+await publisher\(\)/);
+  assert.match(helper, /const proof = await requireCanonicalCi/);
+  assert.doesNotMatch(helper, /execFileSync|publishWithCiGate|await publisher/);
+});
+
+function boundaryHistory(steps, rerun) {
+  const current = { ...fixture().run, id: 50, run_number: 10, workflow_id: 40,
+    run_attempt: rerun ? 2 : 1, event: "workflow_dispatch", status: "in_progress", conclusion: null };
+  const prior = { ...current, id: 49, run_number: 9, run_attempt: 1,
+    status: "completed", conclusion: "failure" };
+  const inspectedId = rerun ? current.id : prior.id;
+  return { current, read: async (path) => {
+    if (path.endsWith("/workflows/publish.yml")) return { id: 40, path: ".github/workflows/publish.yml", state: "active" };
+    if (path.includes("/workflows/40/runs?")) return {
+      total_count: rerun ? 1 : 2, workflow_runs: rerun ? [current] : [current, prior],
+    };
+    if (path === `repos/${repository}/actions/runs/${inspectedId}/attempts/1/jobs?per_page=100&page=1`) {
+      return { total_count: 1, jobs: [{ id: 60, run_id: inspectedId, run_attempt: 1,
+        head_sha: sha, name: "Publish exact npm checkout", steps }] };
+    }
+    throw new Error(`unexpected history query ${path}`);
+  } };
+}
+
+test("declared workflow CI rejection leaves npm skipped and permits exactly one safe new run or rerun", async () => {
+  for (const rerun of [false, true]) {
+    let totalPublisherCalls = 0;
+    const publisher = ({ command, args }) => {
+      assert.equal(command, "npm");
+      assert.deepEqual(args, ["publish", ".", "--access", "public", "--ignore-scripts", "--registry=https://registry.npmjs.org/"]);
+      totalPublisherCalls += 1;
+    };
+    const stopped = await executePublicationBoundary({ ciStatus: "in_progress", ciConclusion: null, publisher });
+    assert.equal(stopped.gateResult.status, 1);
+    assert.equal(stopped.publisherCalls, 0);
+    assert.deepEqual(stopped.steps.map((step) => step.conclusion), ["failure", "skipped"]);
+    const history = boundaryHistory(stopped.steps, rerun);
+    await requireSafePublishAttempt({ read: history.read, sha,
+      runId: history.current.id, runAttempt: history.current.run_attempt });
+    const resumed = await executePublicationBoundary({ publisher });
+    assert.equal(resumed.gateResult.status, 0);
+    assert.equal(resumed.publisherCalls, 1);
+    assert.equal(totalPublisherCalls, 1);
+    assert.deepEqual(resumed.steps.map((step) => step.conclusion), ["success", "success"]);
+  }
+});
+
+test("the declared gate keeps failed, running, wrong-SHA CI and read errors before npm", async () => {
+  for (const options of [
+    { ciConclusion: "failure" }, { ciStatus: "in_progress", ciConclusion: null },
+    { ciSha: "b".repeat(40) }, { ciReadStatus: 403 },
+  ]) {
+    const result = await executePublicationBoundary(options);
+    assert.equal(result.gateResult.status, 1);
+    assert.equal(result.publisherCalls, 0);
+    assert.deepEqual(result.steps.map((step) => step.conclusion), ["failure", "skipped"]);
+  }
+});
+
+test("actual publisher response loss and incomplete workflow step history block both retry forms", async () => {
+  const lost = await executePublicationBoundary({ publisher: () => { throw new Error("response lost after write"); } });
+  assert.equal(lost.publisherCalls, 1);
+  assert.match(lost.error.message, /response lost/);
+  assert.deepEqual(lost.steps.map((step) => step.conclusion), ["success", "failure"]);
+  for (const rerun of [false, true]) {
+    for (const steps of [
+      lost.steps,
+      lost.steps.slice(0, 1),
+      [...lost.steps, { ...lost.steps[1], conclusion: "skipped" }],
+      [lost.steps[0], { ...lost.steps[1], status: "in_progress", conclusion: "skipped" }],
+    ]) {
+      const history = boundaryHistory(steps, rerun);
+      await assert.rejects(requireSafePublishAttempt({ read: history.read, sha,
+        runId: history.current.id, runAttempt: history.current.run_attempt }), /side effect/);
+    }
+  }
 });
 
 test("new dispatches freeze the complete active key set while historical inputs remain valid", () => {

@@ -1,9 +1,9 @@
-import { execFileSync } from "node:child_process";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { requireCanonicalCi as requireExactCi, readWorkflowRuns, readAttemptJobs } from "../src/core/ci-evidence.mjs";
+import { publicationWasSkipped, PUBLIC_RELEASE_PUBLISH_STEP } from "../src/core/task-artifact-public-release.mjs";
 
-export const PUBLISH_STEP = "Publish the exact checkout directory through OIDC";
+export const PUBLISH_STEP = PUBLIC_RELEASE_PUBLISH_STEP;
 const repository = "kimyeongwoo/kyw-dev";
 const transientStatus = new Set([408, 429, 500, 502, 503, 504]);
 
@@ -80,9 +80,7 @@ export async function requireSafePublishAttempt({ read, sha, runId, runAttempt }
     const last = run === current ? run.run_attempt - 1 : run.run_attempt;
     for (let attempt = 1; attempt <= last; attempt += 1) {
       const jobs = await readAttemptJobs(read, run, attempt, repository);
-      const publishers = jobs.filter((job) => job.name === "Publish exact npm checkout");
-      const steps = publishers[0]?.steps?.filter((step) => step.name === PUBLISH_STEP);
-      if (publishers.length !== 1 || steps?.length !== 1 || steps[0].status !== "completed" || steps[0].conclusion !== "skipped") {
+      if (!publicationWasSkipped(jobs)) {
         throw new Error("Prior publication was not proven to stop before its side effect");
       }
     }
@@ -90,24 +88,16 @@ export async function requireSafePublishAttempt({ read, sha, runId, runAttempt }
   return current;
 }
 
-export async function publishWithCiGate(options, publisher) {
-  if (typeof publisher !== "function") throw new Error("Publisher is missing");
-  const proof = await requireCanonicalCi(options);
-  await publisher();
-  return proof;
-}
-
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
     const read = githubReader(process.env.GITHUB_TOKEN);
-    const proof = await publishWithCiGate({ read, sha: process.env.EXPECTED_SHA,
-      repositoryFullName: process.env.GITHUB_REPOSITORY }, () => {
-      execFileSync("npm", ["publish", ".", "--access", "public", "--ignore-scripts", "--registry=https://registry.npmjs.org/"],
-        { stdio: "inherit" });
-    });
-    console.log(JSON.stringify({ stage: "published", ci: proof }));
+    // Keep this entry point read-only: its failure must skip the distinct npm
+    // step so Actions history can prove that publication never started.
+    const proof = await requireCanonicalCi({ read, sha: process.env.EXPECTED_SHA,
+      repositoryFullName: process.env.GITHUB_REPOSITORY });
+    console.log(JSON.stringify({ stage: "ci-approved", ci: proof }));
   } catch (error) {
-    console.error(`Publication stopped: ${error.message}`);
+    console.error(`Publication preflight stopped: ${error.message}`);
     process.exitCode = 1;
   }
 }

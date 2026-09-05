@@ -35,6 +35,18 @@ export const PUBLIC_RELEASE_STAGES = Object.freeze([
 ]);
 
 export const PUBLIC_RELEASE_ATTEMPT_SCOPE = "EXACT_AUTHORIZED_INVOCATION";
+export const PUBLIC_RELEASE_PUBLISH_JOB = "Publish exact npm checkout";
+export const PUBLIC_RELEASE_PUBLISH_STEP = "Publish the exact checkout directory through OIDC";
+
+// Actions step evidence, after the caller validates run/attempt/checkout identity.
+// The adjacent CI gate can fail while this actual npm step is skipped. A failed
+// publication step (including the historical combined gate) stays ambiguous.
+export function publicationWasSkipped(jobs) {
+  if (!Array.isArray(jobs) || jobs.length !== 1 || jobs[0]?.name !== PUBLIC_RELEASE_PUBLISH_JOB ||
+      !Array.isArray(jobs[0].steps)) return false;
+  const steps = jobs[0].steps.filter((step) => step?.name === PUBLIC_RELEASE_PUBLISH_STEP);
+  return steps.length === 1 && steps[0].status === "completed" && steps[0].conclusion === "skipped";
+}
 
 const DEFAULT_RECONCILIATION_READS = 2;
 const MAX_RECONCILIATION_READS = 3;
@@ -899,6 +911,9 @@ export function classifyPublicationWorkflow(tupleCandidate, rawWorkflow) {
   const unresolvedRuns = [];
   for (const candidate of collection.values) {
     const identity = workflowRunIdentityIssues(tuple, candidate);
+    // NOT_EXECUTED is normalized only from the actual publisher step being
+    // skipped in every attempt; a gate error or absent registry version alone
+    // cannot supply this evidence.
     const provedUnexecuted = identity.conflicts.length === 0 && identity.missing.length === 0 &&
       candidate.status === "completed" && ["failure", "cancelled", "timed_out"].includes(candidate.conclusion) &&
       candidate.publishBoundary === "NOT_EXECUTED" && Array.isArray(candidate.publishAttempts) && candidate.publishAttempts.length === 0;
@@ -1398,8 +1413,9 @@ function standardDeliveryIssues(standardDelivery, tuple) {
       target?.baseBranch === tuple.baseBranch &&
       target?.sha === tuple.target.mergeSha &&
       target?.treeSha === tuple.target.treeSha &&
-      target?.currentMainSha === tuple.target.mergeSha
-      ? [] : ["explicit release requires the exact prepared main SHA and tree identity"];
+      (target?.currentMainSha === tuple.target.mergeSha ||
+        (gitShaPattern.test(target?.currentMainSha ?? "") && target?.mainContainsTarget === true))
+      ? [] : ["explicit release requires the exact target tree and proven main ancestry"];
   }
   if (!isRecord(standardDelivery)) return ["STANDARD delivery proof is missing"];
   const values = standardDeliveryValues(standardDelivery);
@@ -1495,6 +1511,21 @@ export function derivePublicReleasePlan({ standardDelivery, tuple: tupleCandidat
     });
   }
   const state = classifyPublicReleaseState(tuple, snapshot);
+  // Older standalone targets may only resume after both npm and its workflow
+  // are exact. Recheck each snapshot so lost proof can never enable dispatch.
+  if (tuple.taskId === null &&
+      standardDelivery.releaseTarget.currentMainSha !== tuple.target.mergeSha &&
+      state.stageClassifications.NPM !== "EXACT_ALREADY_COMPLETE") {
+    return blockedPlan({
+      code: "PUBLIC_RELEASE_PREVIOUS_TARGET_UNPROVEN",
+      completedStage: "STANDARD_FINAL",
+      blockingStage: "NPM",
+      classification: state.stageClassifications.NPM === "ABSENT" ? "CONFLICT" : state.stageClassifications.NPM,
+      diagnostics: { issues: state.issues, readErrors: snapshot?.readErrors ?? {} },
+      resumePoint: "NPM",
+      recoveryCondition: "An older main target requires exact existing npm and workflow proof; new npm publication requires the current prepared main SHA.",
+    });
+  }
   if (state.disposition === "BLOCKED") {
     const stageClassification = state.stageClassifications[state.blockingStage];
     return blockedPlan({
