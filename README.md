@@ -31,7 +31,7 @@ Audit can run tests only in a genuinely constrained temporary environment withou
 
 ## Release status
 
-Source package/plugin metadata remains `kyw-dev@0.2.1`. Public npm latest is mutable; query it when installing. Public release is a separate explicit action with canonical exact-SHA CI checks at the actual publishing boundary, OIDC, digest and version conflict checks. Package validation or CI success alone is not release approval.
+Source package/plugin metadata remains `kyw-dev@0.2.2`. Public npm latest is mutable; query it when installing. Public release is a separate explicit action with canonical exact-SHA CI checks at the actual publishing boundary, OIDC, digest and version conflict checks. Package validation or CI success alone is not release approval.
 
 Product behavior is owned by [SPEC](docs/SPEC.md), repository instructions by [AGENTS](AGENTS.md), and system boundaries by [ARCHITECTURE](docs/ARCHITECTURE.md). Procedures live in the relevant [Skills](skills/).
 

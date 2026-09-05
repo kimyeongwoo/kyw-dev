@@ -358,7 +358,7 @@ export async function inspectTaskDirectories(tasksRoot) {
     directoryEntries = await readdir(tasksRoot, { withFileTypes: true });
   } catch (error) {
     if (error.code === "ENOENT") {
-      return Object.freeze({ entries: [], malformed: [], conflicts: [], maxId: 0 });
+      return Object.freeze({ entries: [], malformed: [], malformedEntries: [], conflicts: [], maxId: 0 });
     }
     throw new TaskArtifactError("TASK_ROOT_READ_FAILED", `Cannot read tasks root ${tasksRoot}: ${error.message}`, {
       cause: error,
@@ -367,6 +367,11 @@ export async function inspectTaskDirectories(tasksRoot) {
 
   const entries = [];
   const malformed = [];
+  const malformedEntries = [];
+  function recordMalformed(name, message) {
+    malformed.push(message);
+    malformedEntries.push(Object.freeze({ name, id: /^(\d{4})/.exec(name)?.[1], message }));
+  }
   for (const entry of directoryEntries) {
     if (entry.name.startsWith(stagingPrefix) || entry.name === creationLockName) {
       continue;
@@ -374,16 +379,16 @@ export async function inspectTaskDirectories(tasksRoot) {
     const parsed = parseTaskDirectoryName(entry.name);
     if (entry.isSymbolicLink()) {
       if (parsed || /^\d{4}-/.test(entry.name)) {
-        malformed.push(`${entry.name} is a symbolic link, not a Task directory`);
+        recordMalformed(entry.name, `${entry.name} is a symbolic link, not a Task directory`);
       }
     } else if (entry.isDirectory()) {
       if (parsed) {
         entries.push(parsed);
       } else {
-        malformed.push(`${entry.name} is not a valid NNNN-ascii-kebab Task directory`);
+        recordMalformed(entry.name, `${entry.name} is not a valid NNNN-ascii-kebab Task directory`);
       }
     } else if (parsed) {
-      malformed.push(`${entry.name} uses a Task directory name but is not a directory`);
+      recordMalformed(entry.name, `${entry.name} uses a Task directory name but is not a directory`);
     }
   }
 
@@ -402,6 +407,7 @@ export async function inspectTaskDirectories(tasksRoot) {
   return Object.freeze({
     entries: Object.freeze(entries),
     malformed: Object.freeze(malformed),
+    malformedEntries: Object.freeze(malformedEntries),
     conflicts: Object.freeze(conflicts),
     maxId,
   });

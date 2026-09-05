@@ -14,8 +14,10 @@ import test from "node:test";
 
 import {
   ALL_TASKS_COMPLETE_MESSAGE,
+  allocateNextTaskId,
   classifyDeliveryEvidence,
   evaluateDeliveryEvidence,
+  inspectTaskQueue,
   parseTaskInvocation,
   resolveTaskDispatch,
 } from "../src/core/task-artifacts.mjs";
@@ -394,18 +396,108 @@ test("local dispatch ignores unrelated undelivered tasks, external outages, and 
   assert.equal(next.task.id, "0002");
 });
 
-test("only actual dependencies block selection and exact independent work can coexist", async (t) => {
+test("exact local dependency checks keep record status separate from worktree availability", async (t) => {
   const root = await createQueue(t, [
     { id: "0001", status: "IN_PROGRESS" },
     { id: "0002", status: "READY", dependencies: "- Task 0001." },
     { id: "0003", status: "READY" },
   ]);
-  assert.equal((await resolveTaskDispatch({ tasksRoot: root, invocation: "$kyw-impl 0002" })).code, "UNSATISFIED_DEPENDENCY");
+  const implementationPath = path.join(root, "foundation.mjs");
+  await writeFile(implementationPath, "export const foundation = true;\n");
+  const selected = await runTaskArtifactCommand(["dispatch", "--tasks-root", root, "--invocation", "$kyw-impl 0002"], {
+    hydratePriorStandardDeliveries() { throw new Error("Local selection must not read external state"); },
+  });
+  assert.equal(selected.outcome, "SELECTED");
+  assert.deepEqual(selected.dependencyChecks, [{
+    taskId: "0001", taskPath: path.join(root, "0001-task-0001", "TASK.md"),
+    taskStatus: "IN_PROGRESS", availability: "UNVERIFIED",
+  }]);
+  assert.match(selected.dependencyGuidance, /Inspect.*current worktree/);
+  assert.equal(selected.mergeAuthorized, false);
+  assert.equal(selected.publicWriteAuthorized, false);
   assert.equal((await resolveTaskDispatch({ tasksRoot: root, invocation: "$kyw-impl 0003" })).outcome, "SELECTED");
   await writePair(root, { id: "0001", status: "DONE" });
-  assert.equal((await resolveTaskDispatch({ tasksRoot: root, invocation: "$kyw-impl 0002" })).outcome, "SELECTED");
-  const present = await resolveTaskDispatch({ tasksRoot: root, invocation: "$kyw-impl 0002", availableDependencyTaskIds: ["0001"] });
-  assert.equal(present.outcome, "SELECTED");
+  await rm(implementationPath);
+  const doneRecord = await resolveTaskDispatch({ tasksRoot: root, invocation: "$kyw-impl 0002" });
+  assert.equal(doneRecord.outcome, "SELECTED");
+  assert.equal(doneRecord.dependencyChecks[0].taskStatus, "DONE");
+  assert.equal(doneRecord.dependencyChecks[0].availability, "UNVERIFIED");
+});
+
+test("automatic dispatch retains status eligibility without trusting free-form dependency IDs", async (t) => {
+  const root = await createQueue(t, [
+    { id: "0001", status: "BLOCKED" },
+    { id: "0002", status: "READY", dependencies: "- Task 0001." },
+  ]);
+  for (const invocation of ["task 진행해줘", "남은 task 계속 실행해줘"]) {
+    const result = await resolveTaskDispatch({ tasksRoot: root, invocation, managedRoutingAvailable: true, availableDependencyTaskIds: ["0001"] });
+    assert.equal(result.code, "NO_SELECTABLE_TASK");
+    assert.notEqual(result.outcome, "NO_WORK");
+  }
+  await writePair(root, { id: "0001", status: "IN_PROGRESS" });
+  await writePair(root, { id: "0002", status: "IN_PROGRESS", dependencies: "- Task 0001." });
+  const ambiguous = await resolveTaskDispatch({ tasksRoot: root, invocation: "task 진행해줘", managedRoutingAvailable: true });
+  assert.equal(ambiguous.code, "AMBIGUOUS_ACTIVE_TASK");
+});
+
+test("exact local selection reports unrelated layout errors while global and delivery checks retain them", async (t) => {
+  const root = await createQueue(t, [
+    { id: "0001", status: "READY" },
+    { id: "0002", status: "DONE" },
+  ]);
+  await mkdir(path.join(root, "archive"));
+  await mkdir(path.join(root, "0009-first"));
+  await mkdir(path.join(root, "0009-second"));
+  await mkdir(path.join(root, "0010-INVALID"));
+  const selected = await runTaskArtifactCommand(["dispatch", "--tasks-root", root, "--invocation", "$kyw-impl 0001"]);
+  assert.equal(selected.outcome, "SELECTED");
+  assert.match(selected.warnings.join("\n"), /archive/);
+  assert.match(selected.warnings.join("\n"), /Task ID 0009/);
+  assert.match(selected.warnings.join("\n"), /0010-INVALID/);
+  assert.match((await inspectTaskQueue(root)).errors.join("\n"), /archive/);
+  await assert.rejects(allocateNextTaskId(root), /archive/);
+  assert.equal((await resolveTaskDispatch({ tasksRoot: root, invocation: "task 진행해줘", managedRoutingAvailable: true })).code, "INVALID_TASK_QUEUE");
+  assert.equal((await resolveTaskDispatch({ tasksRoot: root, invocation: "$kyw-deliver 0002" })).code, "INVALID_TASK_QUEUE");
+});
+
+test("exact selection rejects ambiguity and unsafe entries throughout its dependency closure", async (t) => {
+  for (const relatedId of ["0001", "0002"]) {
+    const root = await createQueue(t, [
+      { id: "0001", status: "READY", dependencies: "- Task 0002." },
+      { id: "0002", status: "DONE" },
+    ]);
+    const duplicate = path.join(root, `${relatedId}-duplicate`);
+    await mkdir(duplicate);
+    let result = await resolveTaskDispatch({ tasksRoot: root, invocation: "$kyw-impl 0001" });
+    assert.equal(result.code, "INVALID_TASK_QUEUE");
+    assert.match(result.message, new RegExp(`Task ID ${relatedId} is used by`));
+    await rm(duplicate, { recursive: true });
+    await mkdir(path.join(root, `${relatedId}-INVALID`));
+    result = await resolveTaskDispatch({ tasksRoot: root, invocation: "$kyw-impl 0001" });
+    assert.equal(result.code, "INVALID_TASK_QUEUE");
+    assert.match(result.message, /INVALID is not a valid/);
+  }
+});
+
+test("unrelated linked task paths are diagnostic while related links and cycles stay blocked", async (t) => {
+  const root = await createQueue(t, [
+    { id: "0001", status: "READY" },
+    { id: "0002", status: "READY", dependencies: "- Task 0003." },
+    { id: "0003", status: "READY", dependencies: "- Task 0002." },
+  ]);
+  const link = path.join(root, "0009-linked");
+  await symlink(path.join(root, "0001-task-0001"), link, process.platform === "win32" ? "junction" : "dir");
+  const selected = await resolveTaskDispatch({ tasksRoot: root, invocation: "$kyw-impl 0001" });
+  assert.equal(selected.outcome, "SELECTED");
+  assert.match(selected.warnings.join("\n"), /0009-linked is a symbolic link/);
+  assert.equal((await resolveTaskDispatch({ tasksRoot: root, invocation: "$kyw-impl 0009" })).code, "INVALID_TASK_QUEUE");
+  const cyclic = await resolveTaskDispatch({ tasksRoot: root, invocation: "$kyw-impl 0002" });
+  assert.equal(cyclic.code, "INVALID_TASK_QUEUE");
+  assert.match(cyclic.message, /Hard dependency cycle/);
+  await writePair(root, { id: "0003", status: "READY", dependencies: "- Task 0004." });
+  const missing = await resolveTaskDispatch({ tasksRoot: root, invocation: "$kyw-impl 0002" });
+  assert.equal(missing.code, "INVALID_TASK_QUEUE");
+  assert.match(missing.message, /Task 0003 references missing hard dependency Task 0004/);
 });
 
 test("exact selection loads only its dependency closure and preserves legacy record bytes", async (t) => {

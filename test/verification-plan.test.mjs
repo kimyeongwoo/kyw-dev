@@ -15,6 +15,12 @@ const scriptPath = fileURLToPath(new URL("../scripts/verification-plan.mjs", imp
 const readRepositoryText = (relativePath) =>
   readFileSync(fileURLToPath(new URL(`../${relativePath}`, import.meta.url)), "utf8");
 
+function regularChange(path, status = "M", previousPath) {
+  return { path, status, ...(previousPath ? { previousPath } : {}),
+    oldMode: status === "A" ? "000000" : "100644",
+    newMode: status === "D" ? "000000" : "100644" };
+}
+
 function assertCommandRegistryContract(registry) {
   const ids = new Set();
   const commands = new Set();
@@ -162,6 +168,80 @@ test("documentation and Skill changes receive smaller focused plans", () => {
   );
 });
 
+test("observed regular documentation additions, deletions, moves, and copies stay focused", () => {
+  for (const change of [
+    regularChange("README.md"),
+    regularChange("docs/new.md", "A"),
+    regularChange("docs/tasks/0099-new/TASK.md", "A"),
+    regularChange("docs/tasks/0099-new/TEST.md", "A"),
+    regularChange("docs/old.md", "D"),
+    regularChange("docs/new.md", "R100", "docs/old.md"),
+    regularChange("docs/new.md", "C100", "docs/old.md"),
+    regularChange("docs/tasks/0099-new/TEST.md", "R100", "docs/notes.md"),
+  ]) {
+    const plan = planVerification({ changedPaths: [change] });
+    assert.equal(plan.changeClass, "documentation", JSON.stringify(change));
+    assert.equal(plan.highestTier, "FOCUSED");
+    assert.equal(plan.hosted.profile, "documentation");
+    assert.equal(plan.leafCommandCount, 2);
+    assert.match(plan.commands[0].command, /foundation\.test\.mjs.*instruction-surfaces\.test\.mjs/);
+  }
+});
+
+test("regular instruction changes preserve owner tests and package selection for both paths", () => {
+  for (const change of [
+    regularChange("AGENTS.md", "A"),
+    regularChange("skills/kyw-task/SKILL.md", "A"),
+    regularChange("skills/kyw-task/SKILL.md", "D"),
+    regularChange("docs/instructions.md", "R100", "skills/kyw-task/SKILL.md"),
+    regularChange("skills/kyw-task/SKILL.md", "C100", "docs/instructions.md"),
+    regularChange("templates/task/TASK.md", "A"),
+  ]) {
+    const plan = planVerification({ changedPaths: [change] });
+    assert.equal(plan.changeClass, "skill", JSON.stringify(change));
+    assert.equal(plan.hosted.profile, "instruction");
+    assert.match(plan.commands[0].command, /test\/kyw-task\.test\.mjs/);
+    assert.equal(plan.commands.at(-1).command, "npm run pack:check");
+  }
+});
+
+test("statuses, modes, and both rename/copy paths cannot hide risk behind Markdown", () => {
+  for (const change of [
+    regularChange("docs/code.md", "R100", "src/core/code.mjs"),
+    regularChange("src/core/code.mjs", "R100", "docs/code.md"),
+    regularChange("docs/code.md", "C100", "src/core/code.mjs"),
+    regularChange("src/core/code.mjs", "C100", "docs/code.md"),
+    regularChange("docs/component/AGENTS.md", "A"),
+    regularChange("docs/component/SKILL.md", "A"),
+    regularChange("skills/unknown/SKILL.md", "A"),
+    { ...regularChange("docs/new.md", "A"), newMode: "100755" },
+    { ...regularChange("docs/new.md", "A"), newMode: "120000" },
+    { ...regularChange("docs/tasks/0099-new/TASK.md", "A"), newMode: "120000" },
+    { ...regularChange("docs/old.md", "D"), oldMode: "120000" },
+    { ...regularChange("docs/new.md"), oldMode: "100755" },
+    { ...regularChange("docs/new.md"), newMode: "160000" },
+    { ...regularChange("docs/new.md"), newMode: "invalid" },
+    ...["T", "U", "X", "B"].map((status) => regularChange("docs/new.md", status)),
+    ...["M", "A", "D", "R100", "C100"].flatMap((status) => {
+      const change = regularChange("docs/new.md", status,
+        /^[RC]/.test(status) ? "docs/old.md" : undefined);
+      return [{ ...change, oldMode: undefined }, { ...change, newMode: undefined }];
+    }),
+  ]) {
+    const plan = planVerification({ changedPaths: [change] });
+    assert.equal(plan.changeClass, "runtime", JSON.stringify(change));
+    assert.equal(plan.highestTier, "STABLE");
+  }
+  for (const change of [
+    regularChange("docs/old-policy.md", "R100", ".github/workflows/ci.yml"),
+    regularChange("package.json", "C100", "docs/package.md"),
+  ]) {
+    assert.equal(planVerification({ changedPaths: [change] }).highestTier, "RELEASE");
+  }
+  assert.equal(planVerification({ changedPaths: [regularChange("docs/new.md", "A"),
+    regularChange("src/core/code.mjs")] }).highestTier, "STABLE");
+});
+
 test("runtime, mixed, unknown, and release-sensitive paths escalate conservatively", () => {
   for (const changedPaths of [
     ["src/core/task-artifacts.mjs"],
@@ -210,6 +290,7 @@ test("runtime, mixed, unknown, and release-sensitive paths escalate conservative
     ".github/workflows/publish.yml",
     "scripts/publish-gate.mjs",
     "scripts/ci-plan.mjs",
+    "scripts/verification-plan.mjs",
     "src/core/ci-evidence.mjs",
     "scripts/packed-release-check.mjs",
     "test/continuous-integration.test.mjs",

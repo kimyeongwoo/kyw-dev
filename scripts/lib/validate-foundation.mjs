@@ -21,7 +21,7 @@ export const SKILL_NAMES = [
 
 export const RELEASE_METADATA = Object.freeze({
   name: "kyw-dev",
-  version: "0.2.1",
+  version: "0.2.2",
   authorName: "Kim Yeongwoo",
   homepage: "https://github.com/kimyeongwoo/kyw-dev#readme",
   repositoryWebUrl: "https://github.com/kimyeongwoo/kyw-dev",
@@ -219,7 +219,7 @@ export function validateFoundation(
 
   if (packageJson && pluginJson) {
     expect(packageJson.name === RELEASE_METADATA.name, "package name must be kyw-dev", errors);
-    expect(packageJson.version === RELEASE_METADATA.version, "package version must be 0.2.1", errors);
+    expect(packageJson.version === RELEASE_METADATA.version, "package version must be 0.2.2", errors);
     expect(packageJson.private === false, "release package must be publishable only through the explicit approval gate", errors);
     expect(sameJson(packageJson.keywords, releaseKeywords), "package release keywords changed", errors);
     expect(packageJson.homepage === RELEASE_METADATA.homepage, "package homepage must be the public repository README", errors);

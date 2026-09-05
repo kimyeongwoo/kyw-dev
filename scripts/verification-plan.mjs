@@ -156,6 +156,7 @@ const releaseSensitiveExactPaths = new Set([
   "package.json",
   "scripts/lib/validate-foundation.mjs",
   "scripts/ci-plan.mjs",
+  "scripts/verification-plan.mjs",
   "scripts/publish-gate.mjs",
   "src/core/ci-evidence.mjs",
   "scripts/pack-check.mjs",
@@ -215,7 +216,7 @@ function classifyPath(path) {
       path.startsWith("skills/") || path.startsWith("templates/")) {
     return "skill";
   }
-  if (path.endsWith("/AGENTS.md")) return "runtime";
+  if (path.endsWith("/AGENTS.md") || path.endsWith("/SKILL.md")) return "runtime";
   if (
     documentationExactPaths.has(path) ||
     (path.startsWith("docs/") && path.endsWith(".md"))
@@ -270,13 +271,24 @@ function highestChangeClass(classes) {
   return "documentation";
 }
 
+function isRegularFileChange({ status, oldMode, newMode }) {
+  // Executable bits, symlinks, type changes, and missing modes retain Stable coverage.
+  if (status === "A") return oldMode === "000000" && newMode === "100644";
+  if (status === "D") return oldMode === "100644" && newMode === "000000";
+  if (status === "M" || /^[RC]/.test(status)) {
+    return oldMode === "100644" && newMode === "100644";
+  }
+  return false;
+}
+
 export function planVerification({ changedPaths, releaseCandidate = false } = {}) {
   if (!Array.isArray(changedPaths) || changedPaths.length === 0) {
     throw new Error("At least one changed path is required");
   }
   const changes = changedPaths.map((entry) => {
+    // Path-only callers request a role estimate; observed Git entries also need file modes.
     if (typeof entry === "string") return { path: normalizeChangedPath(entry), status: "M" };
-    if (!entry || typeof entry !== "object" || !/^(?:[AMDTUXB]|[RC]\d{0,3})$/.test(entry.status)) {
+    if (!entry || typeof entry !== "object" || !/^(?:[AMDTUXB]|[RC](?:100|[1-9]?\d))$/.test(entry.status)) {
       throw new Error("Changed entries require a path and a valid Git status");
     }
     if (/^[RC]/.test(entry.status) && !entry.previousPath) {
@@ -290,7 +302,8 @@ export function planVerification({ changedPaths, releaseCandidate = false } = {}
   const evidencePaths = paths.filter((path) => taskEvidencePattern.test(path));
   const riskPaths = paths.filter((path) => !taskEvidencePattern.test(path));
   const classes = new Set(riskPaths.map(classifyPath));
-  if (changes.some(({ status }) => status !== "M")) classes.add("runtime");
+  if (changes.some((change, index) =>
+    typeof changedPaths[index] !== "string" && !isRegularFileChange(change))) classes.add("runtime");
   let changeClass = highestChangeClass(classes);
   let commands;
 
@@ -357,7 +370,7 @@ function usage() {
   return [
     "Usage: node ./scripts/verification-plan.mjs [--json] [--candidate] <changed-path>...",
     "",
-    "Prints a conservative local verification plan; it does not execute commands or inspect Git.",
+    "Estimates verification from file roles; it does not execute commands or inspect Git statuses/types.",
   ].join("\n");
 }
 
@@ -369,7 +382,7 @@ function formatText(plan) {
     `Changed paths: ${plan.changedPaths.join(", ")}`,
   ];
   if (plan.evidencePaths.length > 0) {
-    lines.push(`Task evidence paths ignored for risk classification: ${plan.evidencePaths.join(", ")}`);
+    lines.push(`Task evidence paths use documentation risk unless Git change/type information requires more: ${plan.evidencePaths.join(", ")}`);
   }
   lines.push("Run in order:");
   plan.commands.forEach((command, index) => {

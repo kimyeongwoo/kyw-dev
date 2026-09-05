@@ -11,11 +11,15 @@ export function parseGitChanges(output) {
   if (fields.pop() !== "") throw new Error("Incomplete Git change listing");
   const changes = [];
   while (fields.length) {
-    const status = fields.shift();
+    const header = fields.shift();
+    const raw = /^:([0-7]{6}) ([0-7]{6}) (?:[0-9a-f]{40}|[0-9a-f]{64}) (?:[0-9a-f]{40}|[0-9a-f]{64}) ([A-Z]\d{0,3})$/.exec(header);
+    if (header.startsWith(":") && !raw) throw new Error("Invalid Git raw change metadata");
+    const status = raw ? raw[3] : header;
     const previousPath = /^[RC]/.test(status) ? fields.shift() : undefined;
     const path = fields.shift();
     if (!path) throw new Error("Incomplete Git change entry");
-    changes.push({ path, status, ...(previousPath ? { previousPath } : {}) });
+    changes.push({ path, status, ...(previousPath ? { previousPath } : {}),
+      ...(raw ? { oldMode: raw[1], newMode: raw[2] } : {}) });
   }
   return changes;
 }
@@ -76,7 +80,8 @@ function currentPlan() {
   }
   let diff;
   try {
-    diff = execFileSync("git", ["diff", "--name-status", "-z", "--find-renames", BASE_SHA, EXPECTED_SHA, "--"],
+    diff = execFileSync("git", ["diff", "--raw", "-z", "--no-abbrev", "--find-renames",
+      "--find-copies", "--find-copies-harder", BASE_SHA, EXPECTED_SHA, "--"],
       { encoding: "utf8", maxBuffer: 1024 * 1024 });
   } catch {
     return planHostedCi(["unknown-base"], GITHUB_EVENT_NAME);

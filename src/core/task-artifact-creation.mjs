@@ -2319,6 +2319,31 @@ async function loadBatchTransaction(tasksRoot) {
   });
 }
 
+// Read only the existing transaction's immutable target scope. This does not
+// authorize recovery, unlock allocation, or prove independent source-file writes.
+export async function inspectTaskBatchSelectionScope({ tasksRoot }) {
+  try {
+    const root = await resolveExistingTaskRoot(tasksRoot);
+    const loaded = root.exists ? await loadBatchTransaction(root.resolved) : undefined;
+    if (!loaded?.exists) {
+      return Object.freeze({ state: "NONE", taskIds: Object.freeze([]) });
+    }
+    const taskIds = Object.freeze(loaded.parsed.state.initial.tasks.map((task) => task.id));
+    return Object.freeze({
+      state: "SCOPED",
+      taskIds,
+      message: `Batch transaction evidence protects Task ${taskIds.join(", ")}; unrelated existing Task records may be selected. Creation remains locked and recovery requires ownership proof. Coordinate concurrent source-file changes separately.`,
+    });
+  } catch (error) {
+    return Object.freeze({
+      state: "UNKNOWN",
+      taskIds: Object.freeze([]),
+      category: error instanceof TaskArtifactError ? error.code : "TASK_BATCH_DIAGNOSTIC_FAILED",
+      message: `Cannot determine batch transaction scope: ${error.message}. Inspect the preserved transaction evidence before selecting a Task.`,
+    });
+  }
+}
+
 async function openLoadedBatchTransaction(tasksRoot, loaded, hooks) {
   const handle = await open(loaded.markerPath, "r+");
   try {
