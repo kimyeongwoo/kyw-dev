@@ -206,12 +206,21 @@ export function dependencyGraphErrors(tasks, byId) {
   return errors;
 }
 
-export async function inspectTaskQueueContents(tasksRoot, { selectedTaskId, selectedTaskIds } = {}) {
+export async function inspectTaskQueueContents(tasksRoot, {
+  selectedTaskId, selectedTaskIds, localSelection = false, protectedTaskIds = [],
+} = {}) {
   const inventory = await inspectTaskDirectories(tasksRoot);
-  const errors = [...inventory.malformed];
-  for (const conflict of inventory.conflicts) {
-    errors.push(`Task ID ${conflict.id} is used by: ${conflict.names.join(", ")}`);
-  }
+  // Only an exact local implementation may narrow inventory errors. Batch
+  // snapshots also bound record reads, but must retain global layout checks.
+  const scoped = localSelection && selectedTaskId !== undefined && selectedTaskIds === undefined;
+  const inventoryIssues = [
+    ...inventory.malformedEntries,
+    ...inventory.conflicts.map((conflict) => ({
+      id: conflict.id, message: `Task ID ${conflict.id} is used by: ${conflict.names.join(", ")}`,
+    })),
+  ];
+  const errors = scoped ? [] : inventoryIssues.map((issue) => issue.message);
+  const protectedIds = new Set(protectedTaskIds);
 
   const records = [];
   const targeted = selectedTaskId !== undefined || selectedTaskIds !== undefined;
@@ -221,6 +230,14 @@ export async function inspectTaskQueueContents(tasksRoot, { selectedTaskId, sele
     const id = pending.shift();
     if (inspected.has(id)) continue;
     inspected.add(id);
+    const relatedIssues = inventoryIssues.filter((issue) => issue.id === id);
+    if (scoped) errors.push(...relatedIssues.map((issue) => issue.message));
+    if (protectedIds.has(id)) {
+      errors.push(`Task ${id} is a target of the active batch creation or recovery transaction`);
+      continue;
+    }
+    // Never choose the first duplicate or read through a malformed ID alias.
+    if (relatedIssues.length > 0) continue;
     const entry = inventory.entries.find((candidate) => candidate.id === id);
     if (!entry) continue;
     const record = await readTaskQueueEntry(tasksRoot, entry);
@@ -239,6 +256,7 @@ export async function inspectTaskQueueContents(tasksRoot, { selectedTaskId, sele
   return Object.freeze({
     tasks: Object.freeze(tasks),
     errors: Object.freeze(errors),
+    warnings: Object.freeze(scoped ? inventoryIssues.filter((issue) => !inspected.has(issue.id)).map((issue) => issue.message) : []),
     currentTasks: Object.freeze(
       tasks.filter((task) => isQueueAwareTaskContractVersion(task.contractVersion)),
     ),
@@ -274,6 +292,25 @@ export async function inspectTaskQueue(tasksRoot, options = {}) {
 
   const transactionArtifacts = await listBatchTransactionArtifacts(path.resolve(tasksRoot));
   if (transactionArtifacts.length > 0) {
+    if (options.localSelection && options.selectedTaskId !== undefined && options.selectedTaskIds === undefined) {
+      // Creation imports the queue for snapshots; load its existing transaction
+      // reader only when an exact local selection needs the reserved IDs.
+      const { inspectTaskBatchSelectionScope } = await import("./task-artifact-creation.mjs");
+      const scope = await inspectTaskBatchSelectionScope({ tasksRoot });
+      if (scope.state !== "UNKNOWN") {
+        const queue = await inspectTaskQueueContents(tasksRoot, { ...options, protectedTaskIds: scope.taskIds });
+        return Object.freeze({
+          ...queue,
+          warnings: Object.freeze([...queue.warnings, ...(scope.message ? [scope.message] : [])]),
+        });
+      }
+      return Object.freeze({
+        tasks: Object.freeze([]),
+        errors: Object.freeze([`Task queue creation is locked by batch transaction evidence: ${scope.message}`]),
+        warnings: Object.freeze([]),
+        currentTasks: Object.freeze([]),
+      });
+    }
     return Object.freeze({
       tasks: Object.freeze([]),
       errors: Object.freeze([
@@ -289,33 +326,48 @@ function blockedResult(code, message, details = {}) {
   return Object.freeze({ outcome: "BLOCKED", code, message, ...details });
 }
 
-function dependencyBlockers(task, byId, present, visited = new Set()) {
+function dependencyBlockers(task, byId, visited = new Set()) {
   const blockers = [];
   if (visited.has(task.id)) return blockers;
   visited.add(task.id);
   for (const id of task.dependencies) {
-    if (present.has(id)) continue;
     const dependency = byId.get(id);
     if (!dependency || !completeTask(dependency)) {
-      blockers.push(`Required result from Task ${id} is not available in this worktree`);
-    } else blockers.push(...dependencyBlockers(dependency, byId, present, visited));
+      blockers.push(`Task ${id} records ${dependency?.taskStatus ?? "a missing record"}; automatic selection requires completed dependency records`);
+    } else blockers.push(...dependencyBlockers(dependency, byId, visited));
   }
   return blockers;
 }
 
-function selectedResult(task, invocation) {
+function dependencyChecks(task, byId, visited = new Set()) {
+  const checks = [];
+  for (const id of task.dependencies) {
+    if (visited.has(id)) continue;
+    visited.add(id);
+    const dependency = byId.get(id);
+    checks.push(Object.freeze({
+      taskId: id, taskPath: dependency.taskPath,
+      taskStatus: dependency.taskStatus, availability: "UNVERIFIED",
+    }));
+    checks.push(...dependencyChecks(dependency, byId, visited));
+  }
+  return checks;
+}
+
+function selectedResult(task, invocation, details = {}) {
   return Object.freeze({
     outcome: "SELECTED", route: invocation.route, mode: invocation.mode, continuous: invocation.mode === "CONTINUOUS",
     action: invocation.route === "DELIVERY" ? invocation.action : activeTask(task) || blockedTask(task) ? "RESUME" : "IMPLEMENT",
     task: taskSummary(task), mutationRequired: true,
     overrideText: invocation.overrideText, overrideScope: invocation.overrideScope,
     mergeAuthorized: invocation.action === "MERGE", publicWriteAuthorized: false,
+    ...details,
   });
 }
 
 export async function resolveTaskDispatch({
   tasksRoot, invocation, managedRoutingAvailable = false, executionPreflight = {},
-  availableDependencyTaskIds = [], parsedInvocation: suppliedParsedInvocation,
+  parsedInvocation: suppliedParsedInvocation,
 }) {
   const parsed = suppliedParsedInvocation ?? parseTaskInvocation(invocation, { managedRoutingAvailable });
   if (!parsed.recognized) return Object.freeze({
@@ -332,21 +384,25 @@ export async function resolveTaskDispatch({
     releaseVersion: parsed.releaseVersion, releaseSha: parsed.releaseSha,
     publicWriteAuthorized: false, mutationRequired: false,
   });
-  const queue = await inspectTaskQueue(tasksRoot, { selectedTaskId: parsed.mode === "EXACT" ? parsed.taskId : undefined });
-  if (queue.errors.length) return blockedResult("INVALID_TASK_QUEUE", queue.errors.join("\n"), { errors: queue.errors });
+  const exactLocal = parsed.route === "IMPLEMENTATION" && parsed.mode === "EXACT";
+  const queue = await inspectTaskQueue(tasksRoot, {
+    selectedTaskId: parsed.mode === "EXACT" ? parsed.taskId : undefined,
+    localSelection: exactLocal,
+  });
+  const diagnostics = queue.warnings?.length ? { warnings: queue.warnings } : {};
+  if (queue.errors.length) return blockedResult("INVALID_TASK_QUEUE", queue.errors.join("\n"), { errors: queue.errors, ...diagnostics });
   const byId = new Map(queue.tasks.map((task) => [task.id, task]));
-  const present = new Set(availableDependencyTaskIds);
   const active = queue.tasks.filter(activeTask);
   let task;
   if (parsed.mode === "EXACT") {
     task = byId.get(parsed.taskId);
-    if (!task) return blockedResult("TASK_NOT_FOUND", `Task ${parsed.taskId} does not exist`);
+    if (!task) return blockedResult("TASK_NOT_FOUND", `Task ${parsed.taskId} does not exist`, diagnostics);
   } else {
     if (active.length > 1) return blockedResult("AMBIGUOUS_ACTIVE_TASK", "Select the intended Task explicitly", { taskIds: active.map((entry) => entry.id) });
-    task = active[0] ?? queue.tasks.find((candidate) => readyTask(candidate) && dependencyBlockers(candidate, byId, present).length === 0);
+    task = active[0] ?? queue.tasks.find((candidate) => readyTask(candidate) && dependencyBlockers(candidate, byId).length === 0);
     if (!task) {
       const pending = queue.tasks.filter((entry) => !completeTask(entry) && !cancelledTask(entry));
-      return pending.length ? blockedResult("NO_SELECTABLE_TASK", "No ready Task has its required results available") : Object.freeze({
+      return pending.length ? blockedResult("NO_SELECTABLE_TASK", "No ready Task has completed dependency records; exact local selection can inspect the required worktree results") : Object.freeze({
         outcome: "NO_WORK", code: "ALL_TASKS_COMPLETE", message: ALL_TASKS_COMPLETE_MESSAGE, mutationRequired: false,
       });
     }
@@ -357,11 +413,16 @@ export async function resolveTaskDispatch({
   }
   if (completeTask(task) || cancelledTask(task)) return Object.freeze({
     outcome: "TERMINAL", route: "IMPLEMENTATION", code: completeTask(task) ? "TASK_COMPLETE" : "TASK_CANCELLED",
-    task: taskSummary(task), message: `Task ${task.id} is ${task.taskStatus}; delivery is independent`, mutationRequired: false,
+    task: taskSummary(task), message: `Task ${task.id} is ${task.taskStatus}; delivery is independent`, mutationRequired: false, ...diagnostics,
   });
-  if (draftTask(task)) return blockedResult("DRAFT_AUTHORING_REQUIRED", `Complete Task ${task.id} before implementation`, { task: taskSummary(task) });
-  const blockers = dependencyBlockers(task, byId, present);
-  return blockers.length ? blockedResult("UNSATISFIED_DEPENDENCY", blockers.join("; "), { task: taskSummary(task), blockers }) : selectedResult(task, parsed);
+  if (draftTask(task)) return blockedResult("DRAFT_AUTHORING_REQUIRED", `Complete Task ${task.id} before implementation`, { task: taskSummary(task), ...diagnostics });
+  const checks = Object.freeze(dependencyChecks(task, byId));
+  const details = {
+    ...diagnostics, dependencyChecks: checks,
+    ...(checks.length ? { dependencyGuidance: "Inspect the required code, files, and interfaces in the current worktree before consuming dependency results. Task status, including DONE, does not verify availability; report absent results as concrete blockers or implement prerequisites within the approved goal." } : {}),
+  };
+  const blockers = exactLocal ? [] : dependencyBlockers(task, byId);
+  return blockers.length ? blockedResult("UNSATISFIED_DEPENDENCY", blockers.join("; "), { task: taskSummary(task), blockers, ...details }) : selectedResult(task, parsed, details);
 }
 
 export async function allocateNextTaskId(tasksRoot) {

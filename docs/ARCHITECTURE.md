@@ -2,7 +2,7 @@
 
 ## System context and ownership
 
-`kyw-dev` packages six explicit Codex Skills and a dependency-free Node ESM support runtime. Codex owns exploration, planning, conversation state, model selection, and compaction. There is no additional LLM engine, database, server, daemon, authority broker, or telemetry service.
+`kyw-dev` packages six explicit Codex Skills and a dependency-free Node ESM support runtime. Codex owns exploration, planning, conversation state, model selection, and compaction. Session context uses the host's available features, including its optional experimental context management; kyw-dev neither requires activation nor changes Codex configuration. There is no additional LLM engine, database, server, daemon, authority broker, or telemetry service.
 
 [Specification](SPEC.md) owns observable behavior; [README](../README.md) owns usage; [AGENTS](../AGENTS.md) owns repository instructions. Skill references contain mode-specific procedures. Source/tests own deterministic mechanics and legacy contracts. Current Task records retain local evidence; GitHub/npm own external state.
 
@@ -40,6 +40,8 @@ Contract 5 defaults to one TASK with `<!-- kyw-task-contract: 5 -->` and one `<!
 
 Legacy contracts 1–4 retain readers, state pairs, and historical evidence semantics. Local selection depends on actual prerequisite results, not task number or prior release. Automatic convenience selection does not prohibit independent work in separate copies. Historical continuity and immutable byte checks remain isolated to explicit compatibility/history paths; they are not repeated prerequisites for unrelated development.
 
+The queue separates global inventory diagnostics from exact local selection errors. Exact traversal reads only the selected record and its dependency graph, and returns unverified dependency records through the shared adapter; the implementing agent checks actual worktree results. Global and delivery callers retain inventory validation. Existing batch transaction ownership metadata bounds reserved Task IDs/paths so unrelated existing records can be inspected without recovering or deleting the transaction. Unknown scope still blocks selection, and record non-overlap does not authorize concurrent writes to shared implementation files.
+
 Artifact creation and installation use separate narrow transactions: validate intended state first, prove physical containment and ownership, reject links/unknown types, publish only exact intended entries, and retain recoverable state when rollback safety is uncertain. Task allocation preserves existing IDs and unknown files. No broad Task or Skills root is a recursive cleanup target.
 
 ## External actions and evidence flow
@@ -60,7 +62,7 @@ Read retries are bounded and exclude authentication/invalid requests. Ambiguous 
 
 ## Verification and CI
 
-The path planner distinguishes pure guidance, behavior instructions/templates, and executable code. Runtime scripts under Skills use conservative Stable coverage; unknown/mixed inputs fail upward. It returns commands without executing them. Final Release verification is `npm run release:ci`, already composed of Stable checks and one real candidate inspection.
+The path planner distinguishes pure guidance, behavior instructions/templates, and executable code. Hosted selection reads Git changes with before/after file modes and both rename/copy paths, allowing known regular guidance and Task records to stay Focused while unsafe or incomplete type evidence fails upward. Runtime scripts under Skills use conservative Stable coverage; unknown/mixed inputs fail upward. The local path-only planner remains a planning convenience, not a filesystem type check. It returns commands without executing them. Final Release verification is `npm run release:ci`, already composed of Stable checks and one real candidate inspection.
 
 CI has no workflow-wide path filter that could leave required checks permanently pending. Its stable aggregate validates selected jobs and reasons for omission. Pure guidance uses lighter checks, instructions use related behavior checks, and common runtime, filesystem/installation, and release changes retain required platform/integration coverage. Node.js 22/24 across Linux/macOS/Windows and the bounded Node.js 26 Linux lane remain supported. Actual-head and synthetic compatibility are different roles.
 

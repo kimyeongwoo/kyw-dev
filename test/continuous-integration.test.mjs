@@ -1,14 +1,178 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import { assertSelectedCiResults, parseGitChanges, planHostedCi } from "../scripts/ci-plan.mjs";
 
 const workflow = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
+const ciScript = fileURLToPath(new URL("../scripts/ci-plan.mjs", import.meta.url));
+
+function gitFixture(t, initialFiles = {}) {
+  const root = mkdtempSync(join(tmpdir(), "kyw-ci-selection-"));
+  const repository = join(root, "repository");
+  mkdirSync(repository);
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const git = (...args) => execFileSync("git", [
+    "-c", "core.autocrlf=false", "-c", `core.hooksPath=${join(root, "no-hooks")}`,
+    "-c", "user.name=CI fixture", "-c", "user.email=ci-fixture@example.invalid",
+    "-c", "commit.gpgsign=false", ...args,
+  ], { cwd: repository, encoding: "utf8" }).trim();
+  const write = (path, text) => {
+    mkdirSync(dirname(join(repository, path)), { recursive: true });
+    writeFileSync(join(repository, path), text);
+  };
+  const commit = (prepareIndex) => {
+    git("add", "--all");
+    prepareIndex?.();
+    git("commit", "--quiet", "-m", "fixture");
+    return git("rev-parse", "HEAD");
+  };
+  git("init", "--quiet");
+  write("README.md", "# Fixture\n");
+  for (const [path, text] of Object.entries(initialFiles)) write(path, text);
+  const base = commit();
+  const select = (head, eventName = "pull_request", overrides = {}) => spawnSync(
+    process.execPath, [ciScript, "select"], {
+      cwd: repository, encoding: "utf8",
+      env: { ...process.env, BASE_SHA: base, EXPECTED_SHA: head,
+        GITHUB_EVENT_NAME: eventName, GITHUB_OUTPUT: join(root, "outputs"), ...overrides },
+    },
+  );
+  const changes = (head) => parseGitChanges(git("diff", "--raw", "-z", "--no-abbrev",
+    "--find-renames", "--find-copies", "--find-copies-harder", base, head, "--"));
+  return { git, write, commit, base, select, changes };
+}
+
 function job(name) {
   const match = new RegExp("^  " + name + ":\\n([\\s\\S]*?)(?=^  [a-z-]+:|$(?![\\s\\S]))", "m").exec(workflow);
   assert.ok(match, name);
   return match[0];
 }
+
+test("real Git regular documentation additions select focused CI and aggregate fixture results", (t) => {
+  const fixture = gitFixture(t);
+  fixture.write("docs/new.md", "# New guidance\n");
+  fixture.write("docs/tasks/0099-new/TASK.md", "# New Task record\n");
+  const head = fixture.commit();
+  assert.deepEqual(fixture.changes(head).map(({ status, oldMode, newMode }) =>
+    ({ status, oldMode, newMode })), [
+    { status: "A", oldMode: "000000", newMode: "100644" },
+    { status: "A", oldMode: "000000", newMode: "100644" },
+  ]);
+  const selection = fixture.select(head);
+  assert.equal(selection.status, 0, selection.stderr);
+  const plan = JSON.parse(selection.stdout);
+  assert.equal(plan.profile, "documentation");
+  assert.equal(plan.focused, true);
+  assert.equal(plan.behavioral, false);
+  const needs = needsFor(plan.profile, "pull_request");
+  needs.plan.outputs = { profile: plan.profile, reason: plan.reason };
+  const aggregate = spawnSync(process.execPath, [ciScript, "aggregate"], {
+    encoding: "utf8", env: { ...process.env, GITHUB_EVENT_NAME: "pull_request",
+      NEEDS_JSON: JSON.stringify(needs) },
+  });
+  assert.equal(aggregate.status, 0, aggregate.stderr);
+  assert.equal(JSON.parse(aggregate.stdout).profile, "documentation");
+
+  const manual = fixture.select(head, "workflow_dispatch");
+  assert.equal(manual.status, 0, manual.stderr);
+  assert.equal(JSON.parse(manual.stdout).profile, "release");
+  const wrongHead = fixture.select(fixture.base);
+  assert.equal(wrongHead.status, 1);
+  assert.match(wrongHead.stderr, /checkout differs from exact event head/);
+  for (const BASE_SHA of ["0".repeat(40), "f".repeat(40)]) {
+    const unknownBase = fixture.select(head, "pull_request", { BASE_SHA });
+    assert.equal(unknownBase.status, 0, unknownBase.stderr);
+    assert.equal(JSON.parse(unknownBase.stdout).profile, "runtime");
+  }
+});
+
+test("real Git roles, modes, and both move/copy paths reach hosted selection and aggregation", async (t) => {
+  const cases = [
+    {
+      name: "ordinary document move and deletion", profile: "documentation", statuses: ["D", "R100"],
+      files: { "docs/old.md": "# Prior guidance\n", "docs/removed.md": "# Removed guidance\n" },
+      change(fixture) {
+        fixture.git("mv", "docs/old.md", "docs/new.md");
+        fixture.git("rm", "docs/removed.md");
+      },
+    },
+    {
+      name: "instruction addition", profile: "instruction", statuses: ["A"],
+      change(fixture) { fixture.write("skills/kyw-task/references/new.md", "# Task instructions\n"); },
+    },
+    {
+      name: "runtime copied to documentation", profile: "runtime", statuses: ["C100"],
+      files: { "src/code.mjs": "export const marker = 'runtime';\n" },
+      change(fixture) { fixture.write("docs/copied.md", "export const marker = 'runtime';\n"); },
+    },
+    {
+      name: "documentation moved to runtime", profile: "runtime", statuses: ["R100"],
+      files: { "docs/old.md": "# Old document\n", "src/placeholder.mjs": "export {};\n" },
+      change(fixture) { fixture.git("mv", "docs/old.md", "src/code.mjs"); },
+    },
+    {
+      name: "document becomes a Git symlink", profile: "runtime", statuses: ["T"],
+      files: { "docs/type.md": "# Regular document\n" },
+      change(fixture) {
+        fixture.write("docs/type.md", "README.md");
+        return () => fixture.git("update-index", "--cacheinfo",
+          `120000,${fixture.git("hash-object", "-w", "docs/type.md")},docs/type.md`);
+      },
+    },
+    {
+      name: "new executable Task record", profile: "runtime", statuses: ["A"],
+      change(fixture) {
+        fixture.write("docs/tasks/0099-new/TASK.md", "# Executable record\n");
+        return () => fixture.git("update-index", "--chmod=+x", "docs/tasks/0099-new/TASK.md");
+      },
+    },
+    {
+      name: "CI policy addition", profile: "release", statuses: ["A"],
+      change(fixture) { fixture.write(".github/workflows/new.yml", "name: Fixture\n"); },
+    },
+  ];
+  for (const scenario of cases) await t.test(scenario.name, (context) => {
+    const fixture = gitFixture(context, scenario.files);
+    const head = fixture.commit(scenario.change(fixture));
+    assert.deepEqual(fixture.changes(head).map(({ status }) => status).sort(), scenario.statuses);
+    const result = fixture.select(head);
+    assert.equal(result.status, 0, result.stderr);
+    const plan = JSON.parse(result.stdout);
+    assert.equal(plan.profile, scenario.profile);
+    if (scenario.profile === "instruction") assert.ok(plan.focusedTests.includes("test/kyw-task.test.mjs"));
+    const needs = needsFor(plan.profile, "pull_request");
+    needs.plan.outputs = { profile: plan.profile, reason: plan.reason };
+    assert.equal(assertSelectedCiResults(needs, "pull_request").profile, scenario.profile);
+    const required = plan.focused ? "focused" : "behavioral";
+    needs[required].result = "skipped";
+    assert.throws(() => assertSelectedCiResults(needs, "pull_request"), /expected success/);
+  });
+});
+
+test("raw Git parsing retains file modes and rejects incomplete metadata", () => {
+  const objectId = "1".repeat(40);
+  const header = (oldMode, newMode, status) => `:${oldMode} ${newMode} ${objectId} ${objectId} ${status}\0`;
+  assert.deepEqual(parseGitChanges(
+    `${header("000000", "100644", "A")}docs/new.md\0` +
+    `${header("100644", "100644", "C100")}src/old.mjs\0docs/copied.md\0`), [
+    { path: "docs/new.md", status: "A", oldMode: "000000", newMode: "100644" },
+    { path: "docs/copied.md", status: "C100", previousPath: "src/old.mjs", oldMode: "100644", newMode: "100644" },
+  ]);
+  for (const output of [
+    `${header("100644", "100644", "R100")}docs/old.md\0`,
+    `${header("100644", "100644", "M")}docs/new.md`,
+    ":100644 invalid metadata\0docs/new.md\0",
+    `:${header("100644", "100644", "M")}docs/new.md\0`,
+  ]) assert.throws(() => parseGitChanges(output), /Incomplete|Invalid/);
+  // Legacy name-status input remains readable, but lacks the modes needed for lighter CI.
+  for (const status of ["M", "A", "D"]) {
+    assert.equal(planHostedCi(parseGitChanges(`${status}\0docs/new.md\0`), "pull_request").profile, "runtime");
+  }
+});
 function needsFor(profile, eventName) {
   const full = ["runtime", "release"].includes(profile);
   return {

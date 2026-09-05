@@ -13,7 +13,7 @@ Record observable completion conditions.
 
 ## Decisions
 
-Record only important choices and constraints.
+Record important choices and constraints with their reasons, distinguishing observed facts, delegated decisions, and provisional assumptions.
 
 ## Verification
 

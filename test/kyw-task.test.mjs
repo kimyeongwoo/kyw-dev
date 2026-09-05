@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -47,10 +47,16 @@ test("batch resolves actual dependencies without release versions or duplicate v
   ] });
   assert.deepEqual(parseTaskMetadata(await readFile(created.tasks[1].taskPath, "utf8")).dependencies, ["0001"]);
   assert.deepEqual((await inspectTaskQueue(root)).errors, []);
-  assert.equal((await resolveTaskDispatch({ tasksRoot: root, invocation: "$kyw-impl 0002" })).code, "UNSATISFIED_DEPENDENCY");
+  const pending = await resolveTaskDispatch({ tasksRoot: root, invocation: "$kyw-impl 0002" });
+  assert.equal(pending.outcome, "SELECTED");
+  assert.equal(pending.dependencyChecks[0].taskStatus, "READY");
+  assert.equal(pending.dependencyChecks[0].availability, "UNVERIFIED");
   const first = await readFile(created.tasks[0].taskPath, "utf8");
   await writeFile(created.tasks[0].taskPath, first.replace('"status":"READY"', '"status":"DONE"') + "\nVerification: actual command passed.\n");
-  assert.equal((await resolveTaskDispatch({ tasksRoot: root, invocation: "$kyw-impl 0002" })).outcome, "SELECTED");
+  const completed = await resolveTaskDispatch({ tasksRoot: root, invocation: "$kyw-impl 0002" });
+  assert.equal(completed.outcome, "SELECTED");
+  assert.equal(completed.dependencyChecks[0].taskStatus, "DONE");
+  assert.equal(completed.dependencyChecks[0].availability, "UNVERIFIED");
 });
 
 test("small machine fields reject malformed identity and dependency graphs while prose remains free", () => {
@@ -84,5 +90,15 @@ test("batch never silently drops prefilled dependency metadata", async (t) => {
   await assert.rejects(createTaskArtifactBatch({ tasksRoot: root, tasks: [{
     title: "Requires foundation", taskMarkdown: record.replace('"dependencies":[]', '"dependencies":["0001"]'),
   }] }), /metadata dependencies conflict/);
+  assert.deepEqual(await readdir(root), before);
+});
+
+test("batch creation keeps global inventory validation even when exact local selection can proceed", async (t) => {
+  const root = await temporaryRoot(t);
+  await createTaskArtifactBatch({ tasksRoot: root, tasks: [{ title: "Foundation", taskMarkdown: record }] });
+  await mkdir(path.join(root, "archive"));
+  const before = await readdir(root);
+  assert.equal((await resolveTaskDispatch({ tasksRoot: root, invocation: "$kyw-impl 0001" })).outcome, "SELECTED");
+  await assert.rejects(createTaskArtifactBatch({ tasksRoot: root, tasks: [{ title: "Next", taskMarkdown: record }] }), /archive/);
   assert.deepEqual(await readdir(root), before);
 });

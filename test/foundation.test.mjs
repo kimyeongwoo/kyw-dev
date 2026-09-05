@@ -7,7 +7,7 @@ import { REPOSITORY_ROOT, RELEASE_METADATA, TRUSTED_PUBLISHER_EXPECTATION, valid
 import { assertSupportedRuntime } from "../src/core/skill-installation.mjs";
 
 test("package, plugin, Skills, and legal metadata satisfy the foundation contract", () => {
-  assert.equal(RELEASE_METADATA.version, "0.2.1");
+  assert.equal(RELEASE_METADATA.version, "0.2.2");
   assert.deepEqual(validateFoundation(), []);
   assert.deepEqual(TRUSTED_PUBLISHER_EXPECTATION, {
     provider: "GitHub Actions",
