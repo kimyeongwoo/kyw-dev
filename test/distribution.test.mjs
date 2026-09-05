@@ -54,7 +54,7 @@ test("release metadata stays unchanged while PR and public release are separate 
   );
 
   assert.equal(packageJson.private, false);
-  assert.equal(RELEASE_METADATA.version, "0.2.2");
+  assert.equal(RELEASE_METADATA.version, "0.2.3");
   assert.equal(packageJson.name, RELEASE_METADATA.name);
   assert.equal(packageJson.version, RELEASE_METADATA.version);
   assert.equal(packageJson.author.name, RELEASE_METADATA.authorName);

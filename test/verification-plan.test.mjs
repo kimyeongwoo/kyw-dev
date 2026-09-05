@@ -193,8 +193,8 @@ test("regular instruction changes preserve owner tests and package selection for
     regularChange("AGENTS.md", "A"),
     regularChange("skills/kyw-task/SKILL.md", "A"),
     regularChange("skills/kyw-task/SKILL.md", "D"),
-    regularChange("docs/instructions.md", "R100", "skills/kyw-task/SKILL.md"),
-    regularChange("skills/kyw-task/SKILL.md", "C100", "docs/instructions.md"),
+    regularChange("docs/instructions.md", "R099", "skills/kyw-task/SKILL.md"),
+    regularChange("skills/kyw-task/SKILL.md", "C099", "docs/instructions.md"),
     regularChange("templates/task/TASK.md", "A"),
   ]) {
     const plan = planVerification({ changedPaths: [change] });
@@ -207,10 +207,10 @@ test("regular instruction changes preserve owner tests and package selection for
 
 test("statuses, modes, and both rename/copy paths cannot hide risk behind Markdown", () => {
   for (const change of [
-    regularChange("docs/code.md", "R100", "src/core/code.mjs"),
-    regularChange("src/core/code.mjs", "R100", "docs/code.md"),
-    regularChange("docs/code.md", "C100", "src/core/code.mjs"),
-    regularChange("src/core/code.mjs", "C100", "docs/code.md"),
+    regularChange("docs/code.md", "R099", "src/core/code.mjs"),
+    regularChange("src/core/code.mjs", "R099", "docs/code.md"),
+    regularChange("docs/code.md", "C099", "src/core/code.mjs"),
+    regularChange("src/core/code.mjs", "C099", "docs/code.md"),
     regularChange("docs/component/AGENTS.md", "A"),
     regularChange("docs/component/SKILL.md", "A"),
     regularChange("skills/unknown/SKILL.md", "A"),
@@ -221,8 +221,10 @@ test("statuses, modes, and both rename/copy paths cannot hide risk behind Markdo
     { ...regularChange("docs/new.md"), oldMode: "100755" },
     { ...regularChange("docs/new.md"), newMode: "160000" },
     { ...regularChange("docs/new.md"), newMode: "invalid" },
+    { ...regularChange("docs/new.md", "R099", "docs/old.md"), oldMode: "100755" },
+    { ...regularChange("docs/new.md", "C099", "docs/old.md"), newMode: "120000" },
     ...["T", "U", "X", "B"].map((status) => regularChange("docs/new.md", status)),
-    ...["M", "A", "D", "R100", "C100"].flatMap((status) => {
+    ...["M", "A", "D", "R100", "C100", "R099", "C099"].flatMap((status) => {
       const change = regularChange("docs/new.md", status,
         /^[RC]/.test(status) ? "docs/old.md" : undefined);
       return [{ ...change, oldMode: undefined }, { ...change, newMode: undefined }];
@@ -233,13 +235,36 @@ test("statuses, modes, and both rename/copy paths cannot hide risk behind Markdo
     assert.equal(plan.highestTier, "STABLE");
   }
   for (const change of [
-    regularChange("docs/old-policy.md", "R100", ".github/workflows/ci.yml"),
-    regularChange("package.json", "C100", "docs/package.md"),
+    regularChange("docs/old-policy.md", "R099", ".github/workflows/ci.yml"),
+    regularChange("package.json", "C099", "docs/package.md"),
   ]) {
     assert.equal(planVerification({ changedPaths: [change] }).highestTier, "RELEASE");
   }
   assert.equal(planVerification({ changedPaths: [regularChange("docs/new.md", "A"),
     regularChange("src/core/code.mjs")] }).highestTier, "STABLE");
+});
+
+test("rename/copy scores accept Git padding and legacy inputs but reject invalid scores", () => {
+  const previousPath = "docs/notes.md";
+  const path = "docs/tasks/0099-new/TASK.md";
+  for (const kind of ["R", "C"]) {
+    for (const score of ["0", "000", "7", "07", "007", "99", "099", "100"]) {
+      const status = `${kind}${score}`;
+      const plan = planVerification({ changedPaths: [regularChange(path, status, previousPath)] });
+      assert.equal(plan.highestTier, "FOCUSED", status);
+      assert.equal(plan.hosted.profile, "documentation", status);
+      assert.deepEqual(plan.changedPaths, [previousPath, path]);
+      assert.deepEqual(plan.evidencePaths, [path]);
+      assert.deepEqual(plan.riskPaths, [previousPath]);
+    }
+    for (const score of ["", "-1", "+1", "1.5", "101", "999", "0100", "0000", "99x"]) {
+      const status = `${kind}${score}`;
+      assert.throws(() => planVerification({ changedPaths: [regularChange(path, status, previousPath)] }),
+        /valid Git status/, status);
+    }
+    assert.throws(() => planVerification({ changedPaths: [regularChange(path, `${kind}099`)] }),
+      /previous path/);
+  }
 });
 
 test("runtime, mixed, unknown, and release-sensitive paths escalate conservatively", () => {

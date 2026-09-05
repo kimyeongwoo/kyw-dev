@@ -288,7 +288,8 @@ export function planVerification({ changedPaths, releaseCandidate = false } = {}
   const changes = changedPaths.map((entry) => {
     // Path-only callers request a role estimate; observed Git entries also need file modes.
     if (typeof entry === "string") return { path: normalizeChangedPath(entry), status: "M" };
-    if (!entry || typeof entry !== "object" || !/^(?:[AMDTUXB]|[RC](?:100|[1-9]?\d))$/.test(entry.status)) {
+    // Git pads similarity scores to three digits; keep shorter caller scores valid too.
+    if (!entry || typeof entry !== "object" || !/^(?:[AMDTUXB]|[RC](?:100|0?\d{1,2}))$/.test(entry.status)) {
       throw new Error("Changed entries require a path and a valid Git status");
     }
     if (/^[RC]/.test(entry.status) && !entry.previousPath) {
