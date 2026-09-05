@@ -23,7 +23,7 @@ const IMPLEMENTED_SKILL_NAMES = new Set(SKILL_NAMES);
 
 export const RELEASE_METADATA = Object.freeze({
   name: "kyw-dev",
-  version: "0.2.0",
+  version: "0.2.1",
   authorName: "Kim Yeongwoo",
   homepage: "https://github.com/kimyeongwoo/kyw-dev#readme",
   repositoryWebUrl: "https://github.com/kimyeongwoo/kyw-dev",
@@ -1226,7 +1226,7 @@ export const PERMANENT_RULE_FAMILIES = deepFreeze([
       {
         path: "README.md",
         anchors: [
-          pattern("Version `0\\.2\\.0`"),
+          pattern("Version `0\\.2\\.1`"),
           pattern("(?:Only exact|Exact plain) `\\$kyw-deliver NNNN`", "i"),
           pattern("same invocation", "i"),
           pattern("`--public-release`[^.]{0,100}unsupported", "i"),
@@ -3249,7 +3249,7 @@ export function validateFoundation(
 
   if (packageJson && pluginJson) {
     expect(packageJson.name === RELEASE_METADATA.name, "package name must be kyw-dev", errors);
-    expect(packageJson.version === RELEASE_METADATA.version, "package version must be 0.2.0", errors);
+    expect(packageJson.version === RELEASE_METADATA.version, "package version must be 0.2.1", errors);
     expect(packageJson.private === false, "release package must be publishable only through the explicit approval gate", errors);
     expect(sameJson(packageJson.keywords, releaseKeywords), "package release keywords changed", errors);
     expect(packageJson.homepage === RELEASE_METADATA.homepage, "package homepage must be the public repository README", errors);

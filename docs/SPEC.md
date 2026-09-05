@@ -393,7 +393,7 @@ Stable exit categories are:
 
 ### 9.2 Package boundary
 
-The source package and plugin metadata identify the repository-selected version `0.2.0`; public npm `latest` is mutable canonical registry state and is never inferred from repository prose. The last verified historical public release is `0.1.4`. The tarball includes plugin metadata, six Skills, templates/support, CLI/runtime, README, and legal/attribution bytes.
+The source package and plugin metadata identify the repository-selected version `0.2.1`; public npm `latest` is mutable canonical registry state and is never inferred from repository prose. The last verified historical public release is `0.2.0`. The tarball includes plugin metadata, six Skills, templates/support, CLI/runtime, README, and legal/attribution bytes.
 
 Semantic versioning applies; `0.x` unfinished interfaces may change only with documented migration impact.
 
@@ -469,9 +469,9 @@ The product is accepted when the following observable results are demonstrated:
 
 ## 13. Publication state and authority
 
-Package/plugin metadata selects `kyw-dev@0.2.0`, MIT, author `Kim Yeongwoo`, `Copyright (c) 2026 Kim Yeongwoo`, source `https://github.com/kimyeongwoo/kyw-dev`, and its issue tracker. Optional contact/privacy/terms/branding and public plugin submission remain absent.
+Package/plugin metadata selects `kyw-dev@0.2.1`, MIT, author `Kim Yeongwoo`, `Copyright (c) 2026 Kim Yeongwoo`, source `https://github.com/kimyeongwoo/kyw-dev`, and its issue tracker. Optional contact/privacy/terms/branding and public plugin submission remain absent.
 
-At this baseline, npm served historical `0.1.4` under `latest` and retained `0.1.0`–`0.1.3`; mutable registry state must be queried. Its trusted exact-checkout publication has matching `gitHead`, signatures, SLSA provenance, `v0.1.4` tag, and Release. Historical `0.1.2` retains signature/provenance but lacks `gitHead` because it used a prebuilt tarball.
+At this baseline, npm served historical `0.2.0` under `latest` and retained `0.1.0`–`0.1.4`; mutable registry state must be queried. Its trusted exact-checkout publication has matching `gitHead`, signatures, SLSA provenance, `v0.2.0` tag, and Release. Historical `0.1.2` retains signature/provenance but lacks `gitHead` because it used a prebuilt tarball.
 
 Non-publishing proof is `npm run check`, one candidate, `release:ci`, and credential-free exact-SHA CI; implementation/tests/merge/CI make no live release. Only exact plain `$kyw-deliver NNNN` carries contract 4 beyond `FINAL`; all suffixes are unsupported. It consumes, never changes, the Task version. Routine preflight avoids npm account inspection/login/OTP/security keys; account auth is only for setup, explicit configuration work, or actual OIDC failure.
 

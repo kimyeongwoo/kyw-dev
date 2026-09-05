@@ -47,14 +47,14 @@ const forbiddenLifecycleScripts = [
   "postpublish",
 ];
 
-test("release metadata selects 0.2.0 while publication remains an exact delivery command", () => {
+test("release metadata selects 0.2.1 while publication remains an exact delivery command", () => {
   const packageJson = JSON.parse(readFileSync(join(repositoryRoot, "package.json"), "utf8"));
   const pluginJson = JSON.parse(
     readFileSync(join(repositoryRoot, ".codex-plugin", "plugin.json"), "utf8"),
   );
 
   assert.equal(packageJson.private, false);
-  assert.equal(RELEASE_METADATA.version, "0.2.0");
+  assert.equal(RELEASE_METADATA.version, "0.2.1");
   assert.equal(packageJson.name, RELEASE_METADATA.name);
   assert.equal(packageJson.version, RELEASE_METADATA.version);
   assert.equal(packageJson.author.name, RELEASE_METADATA.authorName);

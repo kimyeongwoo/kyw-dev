@@ -2647,7 +2647,7 @@ test("README puts installation, explicit Skills, first use, and current status b
   }
   assert.match(
     readme,
-    /Version `0\.2\.0`[\s\S]*current source\/package\/plugin release[\s\S]*Registry `latest` is external mutable state/,
+    /Version `0\.2\.1`[\s\S]*current source\/package\/plugin release[\s\S]*Registry `latest` is external mutable state/,
   );
   assert.match(
     readme,
@@ -2655,7 +2655,7 @@ test("README puts installation, explicit Skills, first use, and current status b
   );
   assert.match(
     readme,
-    /`kyw-dev@0\.1\.4` is the last verified historical public release and was served under `latest` at this source baseline/,
+    /`kyw-dev@0\.2\.0` is the last verified historical public release and was served under `latest` at this source baseline/,
   );
   assert.match(
     readme,
@@ -2663,7 +2663,7 @@ test("README puts installation, explicit Skills, first use, and current status b
   );
   assert.match(
     readme,
-    /The `v0\.1\.4` Git tag and corresponding GitHub Release identify that source/,
+    /The `v0\.2\.0` Git tag and corresponding GitHub Release identify that source/,
   );
   assert.match(readme, /no public plugin submission has occurred/i);
   assert.match(readme, /npx --yes kyw-dev@latest install --scope user/);
@@ -2744,7 +2744,7 @@ test("permanent truth separates credential-free CI, manual OIDC publication, and
   );
   assert.match(
     specification,
-    /npm served historical `0\.1\.4` under `latest`[\s\S]*exact-checkout publication has matching `gitHead`[\s\S]*`v0\.1\.4` tag, and Release[\s\S]*Historical `0\.1\.2`[\s\S]*lacks `gitHead`/,
+    /npm served historical `0\.2\.0` under `latest`[\s\S]*exact-checkout publication has matching `gitHead`[\s\S]*`v0\.2\.0` tag, and Release[\s\S]*Historical `0\.1\.2`[\s\S]*lacks `gitHead`/,
   );
   assert.match(
     specification,

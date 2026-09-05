@@ -741,7 +741,7 @@ test("user install writes complete hashed Skills and a runnable direct-install T
   const location = resolveInstallLocation({ scope: "user", home });
   const metadata = readInstallMetadata(location, { required: true });
   assert.deepEqual(validateInstallMetadata(metadata, { expectedScope: "user" }), []);
-  assert.equal(metadata.version, "0.2.0");
+  assert.equal(metadata.version, "0.2.1");
   assert.deepEqual(
     metadata.skills.map(({ name, path: skillPath }) => [name, skillPath]),
     MANAGED_SKILL_NAMES.map((name) => [name, name]),
@@ -978,7 +978,7 @@ test("update replaces unchanged managed files and records the new package hashes
     sourceRoot: source,
     now: () => new Date("2026-07-17T01:00:00.000Z"),
   });
-  assert.equal(result.previousVersion, "0.2.0");
+  assert.equal(result.previousVersion, "0.2.1");
   assert.equal(result.version, "0.3.0");
   const location = resolveInstallLocation({ scope: "user", home });
   const metadata = readInstallMetadata(location, { required: true });
@@ -1141,7 +1141,7 @@ test("update reports a local modification and leaves all installed bytes unchang
     exitCode: EXIT_CODES.CONFLICT,
   });
   assert.deepEqual(fileSnapshot(location.skillsRoot), before);
-  assert.equal(readInstallMetadata(location, { required: true }).version, "0.2.0");
+  assert.equal(readInstallMetadata(location, { required: true }).version, "0.2.1");
 });
 
 test("update refuses an unknown file and preserves the entire managed tree", (t) => {
@@ -1183,7 +1183,7 @@ test("update revalidates owned content immediately before the destructive rename
     { code: "INSTALL_CONFLICT", exitCode: EXIT_CODES.CONFLICT },
   );
   assert.match(readFileSync(target, "utf8"), /raced change/);
-  assert.equal(readInstallMetadata(location, { required: true }).version, "0.2.0");
+  assert.equal(readInstallMetadata(location, { required: true }).version, "0.2.1");
   assert.deepEqual(
     readdirSync(location.skillsRoot).filter((name) => name.startsWith(".kyw-dev-stage-") || name.startsWith(".kyw-dev-backup-")),
     [],
@@ -1221,7 +1221,7 @@ test("staging revalidates a packaged source parent that becomes a native link", 
   );
   t.diagnostic(`created and verified native ${fixtureType} fixture on ${process.platform}`);
   assert.deepEqual(metadataSnapshot(outside), outsideBefore);
-  assert.equal(readInstallMetadata(resolveInstallLocation({ scope: "user", home }), { required: true }).version, "0.2.0");
+  assert.equal(readInstallMetadata(resolveInstallLocation({ scope: "user", home }), { required: true }).version, "0.2.1");
 });
 
 test("malicious installation metadata cannot escape update, force uninstall, or doctor", (t) => {
@@ -1623,12 +1623,12 @@ test("interrupted update is diagnosed and rollback restores the complete prior i
 
 test("every transaction phase is diagnosable and recovers to the proven old or committed state", (t) => {
   const phases = [
-    ["afterJournalCreated", "discarded-stage", "0.2.0"],
-    ["afterStagePrepared", "discarded-stage", "0.2.0"],
-    ["afterCommitStarted", "rolled-back", "0.2.0"],
-    ["afterOldFileMoved", "rolled-back", "0.2.0"],
-    ["afterNewFileMoved", "rolled-back", "0.2.0"],
-    ["afterMetadataCommitted", "rolled-back", "0.2.0"],
+    ["afterJournalCreated", "discarded-stage", "0.2.1"],
+    ["afterStagePrepared", "discarded-stage", "0.2.1"],
+    ["afterCommitStarted", "rolled-back", "0.2.1"],
+    ["afterOldFileMoved", "rolled-back", "0.2.1"],
+    ["afterNewFileMoved", "rolled-back", "0.2.1"],
+    ["afterMetadataCommitted", "rolled-back", "0.2.1"],
     ["afterCommitComplete", "completed-cleanup", "0.3.0"],
   ];
   for (const [index, [hook, expectedAction, expectedVersion]] of phases.entries()) {
@@ -1927,7 +1927,7 @@ test("packaged managed source inventory is stable and fully hashed", () => {
     "kyw-deliver",
     "kyw-audit",
   ]);
-  assert.equal(inventory.version, "0.2.0");
+  assert.equal(inventory.version, "0.2.1");
   assert.equal(inventory.files.length, 33);
   assert.deepEqual(
     inventory.files.map((file) => file.path),
