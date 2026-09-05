@@ -38,7 +38,7 @@ function releaseTuple(overrides = {}) {
   const tuple = {
     schemaVersion: 1,
     taskId: "0085",
-    repository: "owner/repository",
+    repository: "kimyeongwoo/kyw-dev",
     baseBranch: "main",
     target: { mergeSha, treeSha },
     publishWorkflow: {
@@ -52,7 +52,7 @@ function releaseTuple(overrides = {}) {
       publisher: {
         provider: "GitHub Actions",
         authentication: "OIDC",
-        repository: "owner/repository",
+        repository: "kimyeongwoo/kyw-dev",
         workflow: "publish.yml",
         environment: "npm-production",
         action: "npm publish",
@@ -61,7 +61,7 @@ function releaseTuple(overrides = {}) {
     package: {
       name: "example-package",
       version: "1.2.3",
-      repository: "git+https://github.com/owner/repository.git",
+      repository: "git+https://github.com/kimyeongwoo/kyw-dev.git",
       access: "public",
       registry: "https://registry.npmjs.org/",
       tarball: {
@@ -74,7 +74,7 @@ function releaseTuple(overrides = {}) {
       signature: { required: true, keyId: "SHA256:trusted-key" },
       provenance: {
         required: true,
-        sourceRepository: "owner/repository",
+        sourceRepository: "kimyeongwoo/kyw-dev",
         workflowPath: ".github/workflows/publish.yml",
         workflowRef: "refs/heads/main",
         sourceCommit: mergeSha,
@@ -1890,6 +1890,14 @@ test("plain delivery and mismatched release targets make zero public calls even 
     assert.equal(result.code, "PUBLIC_RELEASE_AUTHORITY_REQUIRED");
     assert.deepEqual(state.trace, []);
   }
+});
+
+test("public release runner rejects a different repository even with a matching release invocation", async () => {
+  const tuple = JSON.parse(JSON.stringify(releaseTuple()).replaceAll("kimyeongwoo/kyw-dev", "other/project"));
+  const state = createStateClients(tuple);
+  const result = await runPublicRelease({ tuple, standardDelivery: standardFinal(tuple), clients: state.clients });
+  assert.equal(result.code, "PUBLIC_RELEASE_REPOSITORY_UNSUPPORTED");
+  assert.deepEqual(state.trace, []);
 });
 
 test("an explicit prepared release works without any Task identity or delivery history", async () => {

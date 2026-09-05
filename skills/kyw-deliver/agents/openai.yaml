@@ -1,6 +1,6 @@
 interface:
   display_name: "kyw deliver"
   short_description: "Prepare a PR, explicitly merge or release"
-  default_prompt: "Use $kyw-deliver 0001 to prepare the selected Task PR."
+  default_prompt: "Use $kyw-deliver to prepare a PR for the current work, or $kyw-deliver 0001 for a selected Task. Explicit --merge selects the separate merge action; --release is kyw-dev's dedicated publisher."
 policy:
   allow_implicit_invocation: false

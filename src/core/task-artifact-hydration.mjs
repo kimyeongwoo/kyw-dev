@@ -24,6 +24,7 @@ import {
 import { parseDeliveryRequirement } from "./task-artifact-contract.mjs";
 import {
   classifyPublicReleaseState,
+  assertPublicReleaseRepository,
   derivePublicReleaseWorkflowInputs,
   freezePublicReleaseTuple,
   recoverPublicReleaseSigningTuple,
@@ -8569,6 +8570,7 @@ export function createPublicReleaseClients({
 
   let publicClients;
   async function assertPublicMutationBoundary(tuple, stage) {
+    assertPublicReleaseRepository(tuple?.repository);
     const readContext = Object.freeze({
       fresh: true,
       cacheBypass: true,
@@ -9109,6 +9111,7 @@ export async function hydratePublicReleaseContext({
     const matched = /^(?:https:\/\/github\.com\/|git@github\.com:)([^/\s]+\/[^/\s]+?)(?:\.git)?$/u.exec(remote);
     if (!matched) throw publicReleaseHydrationError("SOURCE_IDENTITY", "origin must identify one GitHub repository");
     repository = matched[1];
+    assertPublicReleaseRepository(repository);
     [mainSha, treeSha, packageText, pluginText, workflowText] = await Promise.all([
       gitText(commandCache, repositoryRoot, ["rev-parse", "refs/heads/main"], { role: "PUBLIC_RELEASE_MAIN" }),
       gitText(commandCache, repositoryRoot, ["rev-parse", `${mergeSha}^{tree}`], { role: "PUBLIC_RELEASE_TREE" }),

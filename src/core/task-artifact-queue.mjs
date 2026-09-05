@@ -210,7 +210,7 @@ export async function inspectTaskQueueContents(tasksRoot, {
   selectedTaskId, selectedTaskIds, localSelection = false, protectedTaskIds = [],
 } = {}) {
   const inventory = await inspectTaskDirectories(tasksRoot);
-  // Only an exact local implementation may narrow inventory errors. Batch
+  // An exact Task selection may narrow inventory errors. Batch
   // snapshots also bound record reads, but must retain global layout checks.
   const scoped = localSelection && selectedTaskId !== undefined && selectedTaskIds === undefined;
   const inventoryIssues = [
@@ -294,7 +294,7 @@ export async function inspectTaskQueue(tasksRoot, options = {}) {
   if (transactionArtifacts.length > 0) {
     if (options.localSelection && options.selectedTaskId !== undefined && options.selectedTaskIds === undefined) {
       // Creation imports the queue for snapshots; load its existing transaction
-      // reader only when an exact local selection needs the reserved IDs.
+      // reader only when an exact selection needs the reserved IDs.
       const { inspectTaskBatchSelectionScope } = await import("./task-artifact-creation.mjs");
       const scope = await inspectTaskBatchSelectionScope({ tasksRoot });
       if (scope.state !== "UNKNOWN") {
@@ -357,10 +357,11 @@ function dependencyChecks(task, byId, visited = new Set()) {
 function selectedResult(task, invocation, details = {}) {
   return Object.freeze({
     outcome: "SELECTED", route: invocation.route, mode: invocation.mode, continuous: invocation.mode === "CONTINUOUS",
-    action: invocation.route === "DELIVERY" ? invocation.action : activeTask(task) || blockedTask(task) ? "RESUME" : "IMPLEMENT",
-    task: taskSummary(task), mutationRequired: true,
+    action: invocation.route !== "IMPLEMENTATION" ? invocation.action : activeTask(task) || blockedTask(task) ? "RESUME" : "IMPLEMENT",
+    task: taskSummary(task), taskRequired: true, mutationRequired: invocation.action !== "AUDIT",
     overrideText: invocation.overrideText, overrideScope: invocation.overrideScope,
     mergeAuthorized: invocation.action === "MERGE", publicWriteAuthorized: false,
+    fixAuthorized: invocation.action === "FIX",
     ...details,
   });
 }
@@ -384,10 +385,18 @@ export async function resolveTaskDispatch({
     releaseVersion: parsed.releaseVersion, releaseSha: parsed.releaseSha,
     publicWriteAuthorized: false, mutationRequired: false,
   });
+  if (["GOAL", "CURRENT"].includes(parsed.mode)) return Object.freeze({
+    outcome: "SELECTED", route: parsed.route, mode: parsed.mode, action: parsed.action,
+    ...(parsed.goal ? { goal: parsed.goal } : {}),
+    taskRequired: false, scope: "CURRENT_REQUEST", scopeResolved: false,
+    scopeGuidance: "Read the current request, applicable instructions, diff, branch, and existing PR where relevant. Resolve included paths and the intended external target before writes; preserve unrelated user work and ask only when reading cannot resolve a consequential ambiguity. Do not stage all changes or create a Task as a prerequisite. Coordinate overlapping source writes.",
+    mutationRequired: parsed.action !== "AUDIT", continuous: false,
+    mergeAuthorized: parsed.action === "MERGE", fixAuthorized: parsed.action === "FIX", publicWriteAuthorized: false,
+  });
   const exactLocal = parsed.route === "IMPLEMENTATION" && parsed.mode === "EXACT";
   const queue = await inspectTaskQueue(tasksRoot, {
     selectedTaskId: parsed.mode === "EXACT" ? parsed.taskId : undefined,
-    localSelection: exactLocal,
+    localSelection: parsed.mode === "EXACT",
   });
   const diagnostics = queue.warnings?.length ? { warnings: queue.warnings } : {};
   if (queue.errors.length) return blockedResult("INVALID_TASK_QUEUE", queue.errors.join("\n"), { errors: queue.errors, ...diagnostics });
@@ -408,9 +417,10 @@ export async function resolveTaskDispatch({
     }
   }
   if (parsed.route === "DELIVERY") {
-    if (!completeTask(task)) return blockedResult("TASK_NOT_DELIVERABLE", `Task ${task.id} requires local completion before delivery`, { task: taskSummary(task) });
-    return selectedResult(task, parsed);
+    if (!completeTask(task)) return blockedResult("TASK_NOT_DELIVERABLE", `Task ${task.id} requires local completion before delivery`, { task: taskSummary(task), ...diagnostics });
+    return selectedResult(task, parsed, { ...diagnostics, dependencyChecks: Object.freeze(dependencyChecks(task, byId)) });
   }
+  if (parsed.route === "AUDIT") return selectedResult(task, parsed, { ...diagnostics, dependencyChecks: Object.freeze(dependencyChecks(task, byId)) });
   if (completeTask(task) || cancelledTask(task)) return Object.freeze({
     outcome: "TERMINAL", route: "IMPLEMENTATION", code: completeTask(task) ? "TASK_COMPLETE" : "TASK_CANCELLED",
     task: taskSummary(task), message: `Task ${task.id} is ${task.taskStatus}; delivery is independent`, mutationRequired: false, ...diagnostics,

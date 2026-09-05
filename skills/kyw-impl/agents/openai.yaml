@@ -1,6 +1,6 @@
 interface:
   display_name: "kyw impl"
-  short_description: "Implement and verify an existing Task"
-  default_prompt: "Use $kyw-impl 0001 to implement and verify the selected Task."
+  short_description: "Implement a goal or resume an existing Task"
+  default_prompt: 'Use $kyw-impl "goal" to implement and verify without requiring a Task, or $kyw-impl 0001 to resume the selected Task.'
 policy:
   allow_implicit_invocation: false

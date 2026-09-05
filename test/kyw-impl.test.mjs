@@ -47,7 +47,7 @@ async function temporaryTasksRoot(t) {
   return { tasksRoot, taskDirectory, taskMarkdown, testMarkdown };
 }
 
-test("shared adapter dispatches kyw-impl and leaves rejected authoring inputs byte-stable", async (t) => {
+test("shared adapter dispatches Task and goal implementation while preserving records and rejecting invalid inputs", async (t) => {
   const { tasksRoot, taskDirectory, taskMarkdown, testMarkdown } =
     await temporaryTasksRoot(t);
 
@@ -126,9 +126,24 @@ test("shared adapter dispatches kyw-impl and leaves rejected authoring inputs by
   ]);
   assert.equal(goalResult.status, 0, goalResult.stderr);
   const goal = JSON.parse(goalResult.stdout);
-  assert.equal(goal.outcome, "NOT_TASK_INVOCATION");
-  assert.equal(goal.code, "NO_ANCHORED_TASK_COMMAND");
-  assert.equal(goal.mutationRequired, false);
+  assert.equal(goal.outcome, "SELECTED");
+  assert.equal(goal.route, "IMPLEMENTATION");
+  assert.equal(goal.mode, "GOAL");
+  assert.equal(goal.action, "IMPLEMENT");
+  assert.equal(goal.goal, "a new outcome");
+  assert.equal(goal.taskRequired, false);
+  assert.equal(goal.task, undefined);
+  assert.equal(goal.scopeResolved, false);
+  assert.equal(goal.publicWriteAuthorized, false);
+
+  for (const invocation of ['$kyw-impl ""', '$kyw-impl "goal" 0101', "$kyw-impl 0101 --fix"]) {
+    const invalidResult = runAdapter(["dispatch", "--tasks-root", tasksRoot, "--invocation", invocation]);
+    assert.equal(invalidResult.status, 0, invalidResult.stderr);
+    const invalid = JSON.parse(invalidResult.stdout);
+    assert.equal(invalid.outcome, "NOT_TASK_INVOCATION");
+    assert.equal(invalid.code, "NO_ANCHORED_TASK_COMMAND");
+    assert.equal(invalid.mutationRequired, false);
+  }
 
   assert.deepEqual(await readdir(tasksRoot), inventoryBefore);
   assert.equal(

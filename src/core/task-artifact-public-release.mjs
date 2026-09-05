@@ -37,6 +37,14 @@ export const PUBLIC_RELEASE_STAGES = Object.freeze([
 export const PUBLIC_RELEASE_ATTEMPT_SCOPE = "EXACT_AUTHORIZED_INVOCATION";
 export const PUBLIC_RELEASE_PUBLISH_JOB = "Publish exact npm checkout";
 export const PUBLIC_RELEASE_PUBLISH_STEP = "Publish the exact checkout directory through OIDC";
+export const PUBLIC_RELEASE_REPOSITORY = "kimyeongwoo/kyw-dev";
+
+export function assertPublicReleaseRepository(repository) {
+  if (repository !== PUBLIC_RELEASE_REPOSITORY) {
+    throw publicReleaseError("PUBLIC_RELEASE_REPOSITORY_UNSUPPORTED",
+      "The built-in npm publisher, tag and Release actions are only for kimyeongwoo/kyw-dev; use the target project's existing release procedure.");
+  }
+}
 
 // Actions step evidence, after the caller validates run/attempt/checkout identity.
 // The adjacent CI gate can fail while this actual npm step is skipped. A failed
@@ -1978,6 +1986,14 @@ export async function runPublicRelease({
       blockingStage: "STANDARD_FINAL", classification: "CONFLICT",
       diagnostics: ["An explicit release action must match the frozen version and SHA."],
       resumePoint: "STANDARD_FINAL", recoveryCondition: "Obtain the user's release action for this target.",
+    });
+  }
+  if (tuple.repository !== PUBLIC_RELEASE_REPOSITORY) {
+    return blockedPlan({
+      code: "PUBLIC_RELEASE_REPOSITORY_UNSUPPORTED", completedStage: null,
+      blockingStage: "STANDARD_FINAL", classification: "CONFLICT",
+      diagnostics: ["The built-in public publisher is restricted to kimyeongwoo/kyw-dev."],
+      resumePoint: "STANDARD_FINAL", recoveryCondition: "Use the target project's existing authorized release procedure.",
     });
   }
   const gateIssues = standardDeliveryIssues(standardDelivery, tuple);

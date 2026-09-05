@@ -112,7 +112,7 @@ function publicReleaseLocalRunner(trace) {
   };
 }
 
-function publicClientTuple({ archive, keyId = "SHA256:fixture", keyIds, repository = "owner/repository" }) {
+function publicClientTuple({ archive, keyId = "SHA256:fixture", keyIds, repository = "kimyeongwoo/kyw-dev" }) {
   const mergeSha = "d".repeat(40);
   const treeSha = "e".repeat(40);
   const sha256 = createHash("sha256").update(archive).digest("hex");

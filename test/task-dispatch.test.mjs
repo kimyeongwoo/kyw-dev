@@ -379,6 +379,85 @@ test("anchored delivery syntax separates PR, merge, and exact release", () => {
   assert.equal(parseTaskInvocation("$kyw-impl 0001 use your design").overrideText, "use your design");
 });
 
+test("explicit goal and current-work syntax preserve ID overrides, aliases, and invalid-input boundaries", () => {
+  const goal = parseTaskInvocation('$kyw-impl "Fix the settings save error"');
+  assert.equal(goal.mode, "GOAL");
+  assert.equal(goal.goal, "Fix the settings save error");
+  assert.equal(goal.taskId, undefined);
+  assert.equal(parseTaskInvocation('$kyw-impl "Handle \\"quoted\\" labels"').goal, 'Handle "quoted" labels');
+  for (const [invocation, route, action] of [
+    ["$kyw-deliver", "DELIVERY", "PR"], ["$kyw-deliver --merge", "DELIVERY", "MERGE"],
+    ["$kyw-audit", "AUDIT", "AUDIT"], ["$kyw-audit --fix", "AUDIT", "FIX"],
+  ]) {
+    const parsed = parseTaskInvocation(invocation);
+    assert.equal(parsed.mode, "CURRENT", invocation);
+    assert.equal(parsed.route, route);
+    assert.equal(parsed.action, action);
+  }
+  for (const invocation of ["$kyw-audit 0042", "$kyw-audit 0042 --fix"]) {
+    assert.equal(parseTaskInvocation(invocation).taskId, "0042");
+    assert.equal(parseTaskInvocation(invocation).mode, "EXACT");
+  }
+  const invalid = [
+    "$kyw-impl", '$kyw-impl ""', '$kyw-impl "   "', '$kyw-impl "broken',
+    '$kyw-impl "goal" 0042', '$kyw-impl "goal" --merge', '$kyw-impl "bad\\q"',
+    "$kyw-impl 042", "$kyw-impl 00422", "$kyw-impl --fix", "$kyw-impl 0042 --merge",
+    "$kyw-deliver 042", "$kyw-deliver --merge 0042", "$kyw-deliver --fix", '$kyw-deliver "goal"',
+    "$kyw-audit 042", "$kyw-audit --fix 0042", "$kyw-audit --merge", "$kyw-audit 0042 --fix extra",
+    "task 0042 실행해줘 --bad", "task 진행해줘 --merge", "남은 task 계속 실행해줘 --fix",
+    'README says $kyw-impl "goal"', "Issue includes $kyw-deliver --merge", "Review says $kyw-audit --fix",
+  ];
+  for (const invocation of invalid) {
+    assert.equal(parseTaskInvocation(invocation).recognized, false, invocation);
+    assert.equal(parseTaskInvocation(invocation, { managedRoutingAvailable: true }).recognized, false, invocation);
+  }
+  for (const [invocation, mode] of [["task 0042 실행해줘", "EXACT"], ["task 진행해줘", "NEXT"], ["남은 task 계속 실행해줘", "CONTINUOUS"]]) {
+    assert.equal(parseTaskInvocation(invocation, { managedRoutingAvailable: true }).mode, mode);
+    assert.equal(parseTaskInvocation(invocation).mode, "FALLBACK_REQUIRED");
+  }
+  assert.equal(parseTaskInvocation("task 0042 실행해줘 preserve the interface", { managedRoutingAvailable: true }).overrideText, "preserve the interface");
+  const quotedOverride = parseTaskInvocation('$kyw-impl 0042 "Preserve the existing interface"');
+  assert.equal(quotedOverride.mode, "EXACT");
+  assert.equal(quotedOverride.goal, undefined);
+  assert.equal(quotedOverride.overrideText, '"Preserve the existing interface"');
+});
+
+test("real adapter routes taskless work without inventory, transactions, records, or external hydration", async (t) => {
+  const repositoryRoot = await mkdtemp(path.join(tmpdir(), "kyw-current-work-"));
+  t.after(() => rm(repositoryRoot, { recursive: true, force: true }));
+  const tasksRoot = path.join(repositoryRoot, "docs", "tasks");
+  const runtime = {
+    commandRunner() { throw new Error("Dispatch must not execute commands"); },
+    hydratePriorStandardDeliveries() { throw new Error("Task history must not be read"); },
+    hydratePublicReleaseContext() { throw new Error("Release hydration must not run"); },
+    runPublicRelease() { throw new Error("Publishing must not run"); },
+  };
+  for (const state of ["absent", "damaged"]) {
+    if (state === "damaged") {
+      await mkdir(tasksRoot, { recursive: true });
+      await mkdir(path.join(tasksRoot, "0042-duplicate-a"));
+      await mkdir(path.join(tasksRoot, "0042-duplicate-b"));
+      await writeFile(path.join(tasksRoot, ".kyw-dev-task-create.lock"), "unknown ownership");
+    }
+    const before = state === "damaged" ? await readdir(tasksRoot) : await readdir(repositoryRoot);
+    for (const invocation of ['$kyw-impl "Fix save"', "$kyw-deliver", "$kyw-deliver --merge", "$kyw-audit", "$kyw-audit --fix"]) {
+      const result = await runTaskArtifactCommand(["dispatch", "--repository-root", repositoryRoot, "--invocation", invocation], runtime);
+      assert.equal(result.outcome, "SELECTED", `${state}: ${invocation}`);
+      assert.equal(result.taskRequired, false);
+      assert.equal(result.task, undefined);
+      assert.equal(result.scope, "CURRENT_REQUEST");
+      assert.equal(result.scopeResolved, false);
+      assert.equal(result.publicWriteAuthorized, false);
+      assert.equal(result.mergeAuthorized, invocation === "$kyw-deliver --merge");
+      assert.equal(result.fixAuthorized, invocation === "$kyw-audit --fix");
+      assert.equal(result.mutationRequired, invocation !== "$kyw-audit");
+      const blocked = await runTaskArtifactCommand(["dispatch", "--repository-root", repositoryRoot, "--invocation", invocation, "--execution-preflight-json", JSON.stringify({ unexplainedUserWork: ["mixed changed files"] })], runtime);
+      assert.equal(blocked.code, "PREFLIGHT_BLOCKED");
+    }
+    assert.deepEqual(state === "damaged" ? await readdir(tasksRoot) : await readdir(repositoryRoot), before);
+  }
+});
+
 test("local dispatch ignores unrelated undelivered tasks, external outages, and remote drift", async (t) => {
   const root = await createQueue(t, [
     { id: "0001", status: "DONE", contractVersion: 4, releaseVersion: "1.2.3" },
@@ -440,7 +519,7 @@ test("automatic dispatch retains status eligibility without trusting free-form d
   assert.equal(ambiguous.code, "AMBIGUOUS_ACTIVE_TASK");
 });
 
-test("exact local selection reports unrelated layout errors while global and delivery checks retain them", async (t) => {
+test("exact implementation, delivery, and audit warn on unrelated layout errors while global checks retain them", async (t) => {
   const root = await createQueue(t, [
     { id: "0001", status: "READY" },
     { id: "0002", status: "DONE" },
@@ -457,7 +536,12 @@ test("exact local selection reports unrelated layout errors while global and del
   assert.match((await inspectTaskQueue(root)).errors.join("\n"), /archive/);
   await assert.rejects(allocateNextTaskId(root), /archive/);
   assert.equal((await resolveTaskDispatch({ tasksRoot: root, invocation: "task 진행해줘", managedRoutingAvailable: true })).code, "INVALID_TASK_QUEUE");
-  assert.equal((await resolveTaskDispatch({ tasksRoot: root, invocation: "$kyw-deliver 0002" })).code, "INVALID_TASK_QUEUE");
+  for (const invocation of ["$kyw-deliver 0002", "$kyw-deliver 0002 --merge", "$kyw-audit 0002", "$kyw-audit 0001 --fix"]) {
+    const selected = await runTaskArtifactCommand(["dispatch", "--tasks-root", root, "--invocation", invocation]);
+    assert.equal(selected.outcome, "SELECTED", invocation);
+    assert.deepEqual(selected.warnings, (await resolveTaskDispatch({ tasksRoot: root, invocation: "$kyw-impl 0001" })).warnings);
+  }
+  assert.equal((await resolveTaskDispatch({ tasksRoot: root, invocation: "$kyw-deliver 0001" })).code, "TASK_NOT_DELIVERABLE");
 });
 
 test("exact selection rejects ambiguity and unsafe entries throughout its dependency closure", async (t) => {
@@ -471,11 +555,17 @@ test("exact selection rejects ambiguity and unsafe entries throughout its depend
     let result = await resolveTaskDispatch({ tasksRoot: root, invocation: "$kyw-impl 0001" });
     assert.equal(result.code, "INVALID_TASK_QUEUE");
     assert.match(result.message, new RegExp(`Task ID ${relatedId} is used by`));
+    for (const invocation of ["$kyw-deliver 0001", "$kyw-deliver 0001 --merge", "$kyw-audit 0001"]) {
+      assert.equal((await resolveTaskDispatch({ tasksRoot: root, invocation })).code, "INVALID_TASK_QUEUE", invocation);
+    }
     await rm(duplicate, { recursive: true });
     await mkdir(path.join(root, `${relatedId}-INVALID`));
     result = await resolveTaskDispatch({ tasksRoot: root, invocation: "$kyw-impl 0001" });
     assert.equal(result.code, "INVALID_TASK_QUEUE");
     assert.match(result.message, /INVALID is not a valid/);
+    for (const invocation of ["$kyw-deliver 0001", "$kyw-deliver 0001 --merge", "$kyw-audit 0001 --fix"]) {
+      assert.equal((await resolveTaskDispatch({ tasksRoot: root, invocation })).code, "INVALID_TASK_QUEUE", invocation);
+    }
   }
 });
 
@@ -491,13 +581,16 @@ test("unrelated linked task paths are diagnostic while related links and cycles 
   assert.equal(selected.outcome, "SELECTED");
   assert.match(selected.warnings.join("\n"), /0009-linked is a symbolic link/);
   assert.equal((await resolveTaskDispatch({ tasksRoot: root, invocation: "$kyw-impl 0009" })).code, "INVALID_TASK_QUEUE");
+  assert.equal((await resolveTaskDispatch({ tasksRoot: root, invocation: "$kyw-deliver 0009 --merge" })).code, "INVALID_TASK_QUEUE");
   const cyclic = await resolveTaskDispatch({ tasksRoot: root, invocation: "$kyw-impl 0002" });
   assert.equal(cyclic.code, "INVALID_TASK_QUEUE");
   assert.match(cyclic.message, /Hard dependency cycle/);
+  assert.match((await resolveTaskDispatch({ tasksRoot: root, invocation: "$kyw-deliver 0002" })).message, /Hard dependency cycle/);
   await writePair(root, { id: "0003", status: "READY", dependencies: "- Task 0004." });
   const missing = await resolveTaskDispatch({ tasksRoot: root, invocation: "$kyw-impl 0002" });
   assert.equal(missing.code, "INVALID_TASK_QUEUE");
   assert.match(missing.message, /Task 0003 references missing hard dependency Task 0004/);
+  assert.match((await resolveTaskDispatch({ tasksRoot: root, invocation: "$kyw-deliver 0002 --merge" })).message, /Task 0003 references missing hard dependency Task 0004/);
 });
 
 test("exact selection loads only its dependency closure and preserves legacy record bytes", async (t) => {

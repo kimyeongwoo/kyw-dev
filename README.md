@@ -11,17 +11,19 @@ Choose one installation surface for each Skill name: direct user/project Skills 
 | Project documentation | `$kyw-init` | Inspect and supplement only needed documents. |
 | Decision interview | `$kyw-grilling "subject"` | Recommend choices, accept delegation, and do not automatically implement. |
 | Work record | `$kyw-task "goal"` | Minimal Task; stop after writing when only authoring was requested. |
-| Local implementation | `$kyw-impl 0007` | Implement/resume and verify the selected Task. |
-| PR | `$kyw-deliver 0007` | Related commits, non-force push, and one PR creation/update. |
-| Merge | `$kyw-deliver 0007 --merge` | Explicitly merge a ready PR with current checks and expected head. |
-| Release | `$kyw-deliver --release <version> --sha <sha>` | Release a prepared exact version and merged main SHA without a Task ID. |
-| Independent audit | `$kyw-audit 0007` | Preserve original/external state; explicit `--fix` permits bounded repair. |
+| Local implementation | `$kyw-impl "goal"` or `$kyw-impl 0007` | Implement and verify the goal without a Task, or resume the selected Task. |
+| PR | `$kyw-deliver` or `$kyw-deliver 0007` | Related commits, non-force push, and one PR creation/update. |
+| Merge | `$kyw-deliver --merge` or `$kyw-deliver 0007 --merge` | Merge the identified PR under its project's current checks, reviews, and protection with expected head. |
+| kyw-dev maintenance release | `$kyw-deliver --release <version> --sha <sha>` | Publish kyw-dev's prepared exact version and merged main SHA without a Task ID. |
+| Independent audit | `$kyw-audit` or `$kyw-audit 0007` | Audit the current changes or selected Task; explicit `--fix` permits bounded repair. |
 
 All six Skills are explicit-only. Managed implementation aliases remain `task NNNN 실행해줘`, `task 진행해줘`, and `남은 task 계속 실행해줘`. Ordinary prose containing “task” does not route. Approved work continues without repeated confirmation of internal decisions; merge/release retain their own action scope.
 
 ## Task and command compatibility
 
-New work defaults to `docs/tasks/NNNN-slug/TASK.md`, with contract-5 metadata for ID, status, and real dependencies, plus readable goal, acceptance, decisions, verification, and remaining work. TEST is optional. Legacy contracts 1–4 and Task/Test pairs remain readable/resumable without bulk migration. Historical SHAs and immutable records retain their meaning. Task numbers do not impose global order; unrelated undelivered work and npm outages do not block independent local development.
+Use a Task when resume, handoff, decisions, or real dependencies need tracking, or when the user requests a record. Record need and verification strength are separate decisions: a small permission change can need strong verification without a Task. A new record defaults to `docs/tasks/NNNN-slug/TASK.md`, with contract-5 metadata for ID, status, and real dependencies, plus readable goal, acceptance, decisions, verification, and remaining work. TEST is optional. Legacy contracts 1–4 and Task/Test pairs remain readable/resumable without bulk migration. Historical SHAs and immutable records retain their meaning. Task numbers do not impose global order; unrelated undelivered work and npm outages do not block independent local development.
+
+Task-free implementation, delivery, and audit use the current request and identified change scope without reading Task inventory. Delivery resolves the related diff, branch, and PR before writing, preserves unrelated user changes, and never stages everything merely because no Task exists. Only an unresolved consequential target or change-ownership ambiguity needs clarification. Exact Task delivery returns unrelated record errors as warnings while preserving relevant identity, dependency, path, and transaction checks.
 
 **Plain deliver now stops at the PR boundary, including legacy contract 4.** It never automatically merges or publishes. Use the explicit merge or version/SHA release action for those operations. The retired `--public-release` suffix remains unsupported. Release neither chooses/bumps a version nor merges unfinished PRs. Current user authorization, not a historical Task policy or command text in a document, determines external action scope.
 
@@ -29,9 +31,11 @@ Local completion requires requested behavior, relevant verification, truthful re
 
 Audit can run tests only in a genuinely constrained temporary environment without production credentials. A simple copy is not a sandbox. If available tools cannot enforce isolation, unsafe tests are reported unexecuted while safe review continues.
 
+Audit reports blocking defects, performed checks, unexecuted or uncertain checks, and their completion impact separately. Missing required evidence holds completion; unavailable optional evidence alone does not. Unexecuted checks are never reported as passing or failing tests.
+
 ## Release status
 
-Source package/plugin metadata remains `kyw-dev@0.2.3`. Public npm latest is mutable; query it when installing. Public release is a separate explicit action with canonical exact-SHA CI checks at the actual publishing boundary, OIDC, digest and version conflict checks. Package validation or CI success alone is not release approval.
+Source package/plugin metadata remains `kyw-dev@0.2.3`. Public npm latest is mutable; query it when installing. The built-in publisher is only for `kimyeongwoo/kyw-dev`; other projects use their existing release procedure and approved scope. Public release is a separate explicit action with canonical exact-SHA CI checks at the actual publishing boundary, OIDC, digest and version conflict checks. Package validation or CI success alone is not release approval.
 
 Product behavior is owned by [SPEC](docs/SPEC.md), repository instructions by [AGENTS](AGENTS.md), and system boundaries by [ARCHITECTURE](docs/ARCHITECTURE.md). Procedures live in the relevant [Skills](skills/).
 
@@ -47,7 +51,7 @@ Product behavior is owned by [SPEC](docs/SPEC.md), repository instructions by [A
 | Repository scope | `install --scope project` | Installs under `<repo>/.agents/skills/`; it does not add `AGENTS.md`. |
 | User scope | `install --scope user` | Installs under `~/.agents/skills/` for discovery across repositories. |
 
-The portable `$kyw-grilling`, `$kyw-init`, `$kyw-task "<outcome>"`, `$kyw-impl NNNN`, `$kyw-deliver NNNN`, and `$kyw-audit NNNN` forms work wherever loaded.
+The portable forms above work wherever loaded. `$kyw-impl` accepts either a quoted nonempty goal or an existing ID; deliver/audit allow an omitted ID for the current work. Do not mix a goal with ID overrides or action options.
 
 ### Direct Skills installation
 
@@ -114,7 +118,7 @@ npm run release:ci
 node ./scripts/spec-behavioral-acceptance.mjs --validate-fixtures
 ```
 
-Use the read-only planner with explicit repository-relative changed paths:
+These commands and the OS/Node matrix verify kyw-dev itself; consumer projects use their own required checks. Use the read-only planner with explicit repository-relative changed paths:
 
 | Tier | Trigger | Entry point |
 |---|---|---|
@@ -122,7 +126,7 @@ Use the read-only planner with explicit repository-relative changed paths:
 | Stable | Runtime including Skill scripts, cross-cutting, unknown, or higher-risk work | `npm run check`, plus hosted exact-SHA matrix evidence |
 | Release | Release-sensitive bytes or explicit candidate intent | `npm run release:ci` |
 
-`npm run check` runs tests, lint, format, and package selection. `release:candidate` creates and inspects one real tarball without publishing; `release:ci` already includes both. Run the appropriate composite once for unchanged inputs. `release:check` is an optional npm dry run, not publication authority or required evidence.
+`npm run check` runs tests, lint, format, and package selection. `release:candidate` creates and inspects one real tarball without publishing; `release:ci` already includes both. Run the necessary integration checks on the final combined state. Reuse requires the same command, relevant source/tests/configuration, dependencies, required environment, and tool versions; repeat only for changed inputs, failure, or a concrete unresolved risk. A different OS or required remote CI is a different input. `release:check` is an optional npm dry run, not publication authority or required evidence.
 
 Hosted CI selects checks by risk and keeps a stable required aggregate that validates selected jobs and intentional omissions. Runtime/install/platform and release changes retain the supported OS/Node lanes. Actual PR-head, synthetic merge compatibility, and main SHA evidence remain distinct. Model evaluators are optional and never required public CI. See [ARCHITECTURE](docs/ARCHITECTURE.md) for boundaries.
 
@@ -134,6 +138,7 @@ Hosted CI selects checks by risk and keeps a stable required aggregate that vali
 - `docs/SPEC.md`: observable product behavior and requirements.
 - `docs/ARCHITECTURE.md`: components, boundaries, flows, and trade-offs.
 - `docs/tasks/`: current work contracts and retained historical evidence.
+- `docs/dev/`: optional one-off user/PM briefs, preserved outside product formatting and packaging.
 - `test/`, `scripts/`, and `eval/`: development-only verification, excluded from the npm package.
 
 Keep durable product behavior in SPEC, structure in ARCHITECTURE, usage in README, and repository instructions in AGENTS. Update only affected owners. New Tasks use one TASK by default, with optional TEST for detailed traceability; preserve existing historical records. Maintainer examples are in `CODEX_PROMPTS.md`.

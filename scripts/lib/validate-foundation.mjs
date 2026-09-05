@@ -83,6 +83,7 @@ export const EXPECTED_TARBALL_FILES = [
   "skills/kyw-task/scripts/task-artifacts.mjs",
   "src/cli/run.mjs",
   "src/core/ci-evidence.mjs",
+  "src/core/pr-merge.mjs",
   "src/core/package-info.mjs",
   "src/core/skill-installation-doctor.mjs",
   "src/core/skill-installation-inventory.mjs",

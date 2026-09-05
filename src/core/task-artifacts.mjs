@@ -20,6 +20,10 @@ export {
   parseTaskInvocation,
 } from "./task-artifact-delivery.mjs";
 export {
+  inspectPullRequest,
+  mergePullRequest,
+} from "./pr-merge.mjs";
+export {
   PUBLIC_RELEASE_CLASSIFICATIONS,
   PUBLIC_RELEASE_ATTEMPT_SCOPE,
   PUBLIC_RELEASE_STAGES,
