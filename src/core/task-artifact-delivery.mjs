@@ -1,5 +1,3 @@
-import { parsePublicReleaseInvocation } from "./task-artifact-public-release.mjs";
-
 const exactInvocationPattern = /^\$kyw-impl\s+(\d{4})(?:\s+([\s\S]*\S))?\s*$/u;
 const managedExactAliasPattern = /^task\s+(\d{4})\s+실행해줘(?:\s+([\s\S]*\S))?\s*$/iu;
 const managedNextAliasPattern = /^task\s+진행해줘(?:\s+([\s\S]*\S))?\s*$/iu;
@@ -30,8 +28,10 @@ export function parseTaskInvocation(invocation, { managedRoutingAvailable = fals
   if (typeof invocation !== "string") {
     throw new TypeError("Task invocation must be a string");
   }
-  const exactDelivery = parsePublicReleaseInvocation(invocation);
-  if (exactDelivery) return exactDelivery;
+  const explicitRelease = /^\$kyw-deliver\s+--release\s+((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))\s+--sha\s+([a-f0-9]{40})\s*$/u.exec(invocation);
+  if (explicitRelease) return Object.freeze({ recognized: true, route: "DELIVERY", mode: "EXACT", source: "PORTABLE_SKILL", action: "PUBLIC_RELEASE", releaseVersion: explicitRelease[1], releaseSha: explicitRelease[2] });
+  const delivery = /^\$kyw-deliver\s+(\d{4})(?:\s+(--merge))?\s*$/u.exec(invocation);
+  if (delivery) return Object.freeze({ recognized: true, route: "DELIVERY", mode: "EXACT", source: "PORTABLE_SKILL", taskId: delivery[1], action: delivery[2] ? "MERGE" : "PR", overrideText: "", overrideScope: "FIRST_SELECTED_TASK" });
 
   const exact = exactInvocationPattern.exec(invocation);
   if (exact) {
@@ -132,7 +132,7 @@ export function evaluateTaskExecutionPreflight(preflight = {}) {
       issues.push(`execution preflight ${key} must be an array of non-empty strings`);
       continue;
     }
-    issues.push(...values.map((value) => `${labels[key]}: ${value}`));
+    if (key !== "remoteDrift") issues.push(...values.map((value) => `${labels[key]}: ${value}`));
   }
   return Object.freeze({
     safe: issues.length === 0,

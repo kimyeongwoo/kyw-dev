@@ -1,5 +1,7 @@
 # {{PROJECT_NAME}} Product Specification
 
+<!-- Optional guide: retain only sections this project needs; preserve useful existing documentation. -->
+
 ## Goals
 
 <!-- Describe the outcomes this product must achieve. -->

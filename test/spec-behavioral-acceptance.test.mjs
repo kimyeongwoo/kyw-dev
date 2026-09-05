@@ -35,11 +35,8 @@ function checksFor(id) {
   if (id === "S-01") {
     return {
       ...common,
-      interviewProtocol: true,
-      confirmationRequested: true,
-      preConfirmationDurableWrites: false,
-      documentsComplete: true,
-      agentsThin: true,
+      unauthorizedWrites: false,
+      neededDocumentationComplete: true,
       noTask: true,
       noApplication: true,
       sentinelPreserved: true,
@@ -48,10 +45,8 @@ function checksFor(id) {
   if (id === "S-02") {
     return {
       ...common,
-      interviewProtocol: true,
-      confirmationRequested: true,
-      preConfirmationDurableWrites: false,
-      documentsComplete: true,
+      unauthorizedWrites: false,
+      neededDocumentationComplete: true,
       adoptMode: true,
       preservationSection: true,
       applicationPreserved: true,
@@ -63,9 +58,9 @@ function checksFor(id) {
       ...common,
       taskNumber: "0004",
       singleTaskCreated: true,
-      pairComplete: true,
+      taskComplete: true,
       traceability: true,
-      readyPair: true,
+      readyTask: true,
       authoringStop: true,
       oneNextImplCommand: true,
       automaticSkillChain: false,
@@ -78,11 +73,11 @@ function checksFor(id) {
       taskAllocation: false,
       authoringMutation: false,
       existingTaskPreserved: true,
-      permanentDocsRead: true,
-      taskPairRead: true,
+      relevantDocsRead: true,
+      taskRead: true,
       gitStateRead: true,
       handoffFieldsRead: true,
-      readyPair: true,
+      readyTask: true,
       implementationInvocation: true,
     };
   }
@@ -206,32 +201,10 @@ test("direct evidence requires reproducible fixture, package, and command identi
   expectFailure(missingCommand, "command evidence");
 });
 
-test("one interview question without one recommendation fails", () => {
-  const message = "Which greeting should be durable?\n\nWhy: It affects users.";
-  assert.equal(questionCount(message), 1);
-  assert.equal(recommendationCount(message), 0);
+test("writes outside the approved initialization scope fail", () => {
   const record = validRecord("S-01");
-  record.checks.interviewProtocol = false;
-  expectFailure(record, "interviewProtocol");
-});
-
-test("multiple questions in one interview turn fail", () => {
-  const message = [
-    "Which greeting should be durable?",
-    "Who is the primary audience?",
-    "Recommendation: Use the existing greeting.",
-    "Why: It preserves behavior.",
-  ].join("\n\n");
-  assert.equal(questionCount(message), 2);
-  const record = validRecord("S-02");
-  record.checks.interviewProtocol = false;
-  expectFailure(record, "interviewProtocol");
-});
-
-test("permanent documents written before confirmation fail", () => {
-  const record = validRecord("S-01");
-  record.checks.preConfirmationDurableWrites = true;
-  expectFailure(record, "preConfirmationDurableWrites");
+  record.checks.unauthorizedWrites = true;
+  expectFailure(record, "unauthorizedWrites");
 });
 
 test("application source changed during kyw-task authoring fails", () => {
@@ -246,16 +219,16 @@ test("a Task allocation other than the exact next number fails", () => {
   expectFailure(record, "wrong Task number");
 });
 
-test("a missing Task/Test pair member fails", () => {
+test("a missing required Task record fails", () => {
   const record = validRecord("S-03");
-  record.checks.pairComplete = false;
-  expectFailure(record, "pairComplete");
+  record.checks.taskComplete = false;
+  expectFailure(record, "taskComplete");
 });
 
-test("a non-READY adaptive pair or authoring that continues into implementation fails", () => {
+test("a non-READY Task or authoring that continues into implementation fails", () => {
   const notReady = validRecord("S-03");
-  notReady.checks.readyPair = false;
-  expectFailure(notReady, "readyPair");
+  notReady.checks.readyTask = false;
+  expectFailure(notReady, "readyTask");
 
   const implemented = validRecord("S-03");
   implemented.checks.authoringStop = false;

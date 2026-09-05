@@ -40,8 +40,12 @@ on:
         required: true
         type: string
       expected_signing_key_id:
-        description: Exact sole current npm registry signing-key identity
+        description: Frozen trusted npm registry signing-key identity
         required: true
+        type: string
+      expected_signing_key_ids:
+        description: Optional canonical JSON key set for multi-key releases; omit for historical single-key tuples
+        required: false
         type: string
 
 permissions: {}
@@ -90,6 +94,7 @@ jobs:
           EXPECTED_PRIOR_VERSIONS_SHA256: ${{ inputs.expected_prior_versions_sha256 }}
           EXPECTED_PRIOR_LATEST: ${{ inputs.expected_prior_latest }}
           EXPECTED_SIGNING_KEY_ID: ${{ inputs.expected_signing_key_id }}
+          EXPECTED_SIGNING_KEY_IDS: ${{ inputs.expected_signing_key_ids }}
         run: |
           set -euo pipefail
           test "$ACTUAL_EVENT" = "workflow_dispatch"
@@ -137,8 +142,12 @@ jobs:
           if ! [[ "$EXPECTED_SIGNING_KEY_ID" =~ ^[^[:space:]]{1,256}$ ]]; then
             exit 1
           fi
-          printf 'KYWPUBLISHEVIDENCE schema=1 stage=dispatch repository=%s event=%s ref=%s expected_sha=%s expected_version=%s expected_tarball_bytes=%s expected_tarball_sha256=%s expected_tarball_shasum=%s expected_tarball_integrity=%s expected_packed_entries_sha256=%s expected_prior_versions_sha256=%s expected_prior_latest=%s expected_signing_key_id=%s\n' \
+          printf 'KYWPUBLISHEVIDENCE schema=1 stage=dispatch repository=%s event=%s ref=%s expected_sha=%s expected_version=%s expected_tarball_bytes=%s expected_tarball_sha256=%s expected_tarball_shasum=%s expected_tarball_integrity=%s expected_packed_entries_sha256=%s expected_prior_versions_sha256=%s expected_prior_latest=%s expected_signing_key_id=%s' \
             "$ACTUAL_REPOSITORY" "$ACTUAL_EVENT" "$ACTUAL_REF" "$EXPECTED_SHA" "$EXPECTED_VERSION" "$EXPECTED_TARBALL_BYTES" "$EXPECTED_TARBALL_SHA256" "$EXPECTED_TARBALL_SHASUM" "$EXPECTED_TARBALL_INTEGRITY" "$EXPECTED_PACKED_ENTRIES_SHA256" "$EXPECTED_PRIOR_VERSIONS_SHA256" "$EXPECTED_PRIOR_LATEST" "$EXPECTED_SIGNING_KEY_ID"
+          if [ -n "$EXPECTED_SIGNING_KEY_IDS" ]; then
+            printf ' expected_signing_key_ids=%s' "$EXPECTED_SIGNING_KEY_IDS"
+          fi
+          printf '\n'
 
       - name: Check out exact source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -271,6 +280,7 @@ jobs:
           EXPECTED_PRIOR_VERSIONS_SHA256: ${{ inputs.expected_prior_versions_sha256 }}
           EXPECTED_PRIOR_LATEST: ${{ inputs.expected_prior_latest }}
           EXPECTED_SIGNING_KEY_ID: ${{ inputs.expected_signing_key_id }}
+          EXPECTED_SIGNING_KEY_IDS: ${{ inputs.expected_signing_key_ids }}
           GITHUB_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
         run: |
@@ -290,6 +300,7 @@ jobs:
           } from "node:fs";
           import { tmpdir } from "node:os";
           import path from "node:path";
+          import { fetchRead, githubReader, requireSafePublishAttempt, requireFrozenSigningKeys } from "./scripts/publish-gate.mjs";
 
           const packageName = JSON.parse(readFileSync("package.json", "utf8")).name;
           const repository = process.env.REPOSITORY;
@@ -443,7 +454,7 @@ jobs:
             "kyw-run",
             `${process.env.GITHUB_RUN_ID}-${process.env.GITHUB_RUN_ATTEMPT}`,
           );
-          const response = await fetch(registryUrl, {
+          const response = await fetchRead(registryUrl, {
             redirect: "error",
             headers: {
               accept: "application/json",
@@ -515,7 +526,7 @@ jobs:
             "kyw-run",
             `${process.env.GITHUB_RUN_ID}-${process.env.GITHUB_RUN_ATTEMPT}`,
           );
-          const keysResponse = await fetch(keysUrl, {
+          const keysResponse = await fetchRead(keysUrl, {
             redirect: "error",
             headers: {
               accept: "application/json",
@@ -559,11 +570,13 @@ jobs:
             (key) => key.expires === null || Date.parse(key.expires) > Date.now(),
           );
           if (
-            activeKeys.length !== 1 ||
-            activeKeys[0].keyid !== process.env.EXPECTED_SIGNING_KEY_ID
+            new Set(keyIndex.keys.map((key) => key.keyid)).size !== keyIndex.keys.length ||
+            !activeKeys.some((key) => key.keyid === process.env.EXPECTED_SIGNING_KEY_ID)
           ) {
-            throw new Error("Registry sole current signing key changed from the frozen tuple");
+            throw new Error("Frozen signing key is not active or registry key identities are duplicated");
           }
+          requireFrozenSigningKeys(process.env.EXPECTED_SIGNING_KEY_IDS,
+            process.env.EXPECTED_SIGNING_KEY_ID, activeKeys.map((key) => key.keyid));
 
           const githubHeaders = {
             accept: "application/vnd.github+json",
@@ -571,55 +584,13 @@ jobs:
             "cache-control": "no-cache",
             "x-github-api-version": "2022-11-28",
           };
-          const runsUrl = new URL(
-            `repos/${repository}/actions/workflows/publish.yml/runs`,
-            "https://api.github.com/",
-          );
-          runsUrl.searchParams.set("event", "workflow_dispatch");
-          runsUrl.searchParams.set("head_sha", expectedSha);
-          runsUrl.searchParams.set("per_page", "100");
-          runsUrl.searchParams.set("page", "1");
-          const runsResponse = await fetch(runsUrl, {
-            redirect: "error",
-            headers: githubHeaders,
+          await requireSafePublishAttempt({
+            read: githubReader(process.env.GITHUB_TOKEN), sha: expectedSha,
+            runId: process.env.GITHUB_RUN_ID, runAttempt: process.env.GITHUB_RUN_ATTEMPT,
           });
-          if (!runsResponse.ok) {
-            throw new Error(`GitHub workflow-run check was ambiguous with status ${runsResponse.status}`);
-          }
-          const runIndex = await boundedJson(
-            runsResponse,
-            1024 * 1024,
-            "GitHub workflow-run index",
-          );
-          if (
-            !runIndex ||
-            typeof runIndex !== "object" ||
-            Array.isArray(runIndex) ||
-            !Number.isInteger(runIndex.total_count) ||
-            !Array.isArray(runIndex.workflow_runs) ||
-            runIndex.total_count !== runIndex.workflow_runs.length ||
-            runIndex.workflow_runs.length !== 1
-          ) {
-            throw new Error("GitHub workflow-run state is incomplete or conflicting");
-          }
-          const currentRun = runIndex.workflow_runs[0];
-          if (
-            !currentRun ||
-            typeof currentRun !== "object" ||
-            Array.isArray(currentRun) ||
-            String(currentRun.id) !== process.env.GITHUB_RUN_ID ||
-            currentRun.run_attempt !== 1 ||
-            process.env.GITHUB_RUN_ATTEMPT !== "1" ||
-            currentRun.event !== "workflow_dispatch" ||
-            currentRun.head_branch !== "main" ||
-            currentRun.head_sha !== expectedSha ||
-            currentRun.status !== "in_progress"
-          ) {
-            throw new Error("GitHub workflow-run identity does not match this sole first attempt");
-          }
 
           const tagName = `v${version}`;
-          const tagsResponse = await fetch(
+          const tagsResponse = await fetchRead(
             new URL(
               `repos/${repository}/git/matching-refs/tags/${encodeURIComponent(tagName)}`,
               "https://api.github.com/",
@@ -648,7 +619,7 @@ jobs:
             throw new Error("GitHub tag state is malformed or no longer absent");
           }
 
-          const releaseResponse = await fetch(
+          const releaseResponse = await fetchRead(
             new URL(
               `repos/${repository}/releases/tags/${encodeURIComponent(tagName)}`,
               "https://api.github.com/",
@@ -672,4 +643,7 @@ jobs:
           test ! -e .npmrc
 
       - name: Publish the exact checkout directory through OIDC
-        run: npm publish . --access public --ignore-scripts --registry=https://registry.npmjs.org/
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: node ./scripts/publish-gate.mjs

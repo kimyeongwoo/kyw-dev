@@ -1,188 +1,21 @@
 # Independent Task Audit
 
-Use this workflow only after an explicit `$kyw-audit NNNN` or `$kyw-audit NNNN --fix` invocation resolves one existing kyw-dev Task. Audit the Task against established intent and evidence; do not invent a better design or new product requirement.
+Establish the selected Task, source state, relevant diff, acceptance, existing evidence, and applicable document owners. New Tasks may keep verification in TASK; legacy TEST files remain valid inputs. Review scope, regressions, negative paths, data preservation, documentation drift, and whether the evidence supports the intended behavior.
 
-<!-- kyw-active-skill-guardrails:v1 -->
+## Read-only audit
 
-Only that exact supported route activates this invocation-local workflow; otherwise and after verdict, cancellation, stop, or expiry, prompts are ordinary. Aligned turns continue without duplicate confirmation. Any established baseline, applicable Task or acceptance, scope, action, target, attempt, or Skill/mode change requires a concrete old/new warning naming implementation, Task/Test, permanent-document, verification, and delivery impacts plus exact bounds, then a zero-mutation wait. Only the trusted current user's immediate next unambiguous explicit reconfirmation of that unchanged warning advances; the origin cannot self-confirm. Cancel, decline, ambiguity, intervention, staleness, fact drift, or changed/added bounds clears or replaces it. Sync applicable mutable Task/Test and affected permanent owners before performing only the warned action; completion deactivates. Never redispatch or chain Skills, or relax system/platform safety, evidence honesty, user-work preservation, or delivered-pair immutability. Reconfirmation cannot change the resolved Task or locked audit mode; a different ID or repair mode requires its own exact route.
+Preserve original tracked, untracked, generated, cache, and Task bytes, and make no external writes. Read-only inspection needs no temporary copy. Tests may execute arbitrary code: run them only in an available constrained temporary environment whose tools enforce the permitted write root and network restrictions, without production secrets or deployment credentials.
 
-## Contents
+An ordinary temporary copy is not a sandbox. Verify the actual isolation before running untrusted code. If enforcement is unavailable, skip the unsafe verification and report the limitation while completing safe inspection. Remove only a proved self-owned temporary root; never clean a broad repository, home, or shared cache.
 
-- Establish an independent baseline
-- Record findings consistently
-- Audit acceptance and test evidence
-- Audit implementation, scope, and durable documents
-- Preserve the read-only contract
-- Repair only in explicit fix mode
-- Re-audit and set the verdict
-- Report the result
+The optional [sandbox verifier](../scripts/verify.mjs) uses an already available local Docker image, with no image pull, no network, a read-only root, dropped capabilities, and an unprivileged user. Supply an explicit reviewed file list, excluding embedded secrets as well as credential filenames; the local Docker daemon and image remain trusted. It mounts only its owned temporary copy. Invoke `node <skill>/scripts/verify.mjs <repositoryRoot> <localImage> '<files JSON>' <executable> [args]`. Missing Docker returns `UNAVAILABLE`; never fall back to executing the test on the host. Installing Docker is not an audit prerequisite.
 
-## Lock the audit mode
+## Explicit repair
 
-Lock the mode once, before repository inspection:
+For `--fix` or existing explicit repair authorization, state the finding and bounded change before editing. Fix only unambiguous work inside the approved scope, preserve unrelated user changes, run affected checks, and inspect the final diff. Propose consequential out-of-scope work without silently implementing it.
 
-- `$kyw-audit NNNN` is `read-only` mode. It may inspect and report but must leave every tracked, untracked, generated, Task/Test, and durable-document byte unchanged.
-- `$kyw-audit NNNN --fix` is `repair` mode. The literal `--fix` token immediately after the one Task ID is the only repair authorization.
+## Evidence and verdict
 
-Surrounding prose may narrow scope or provide evidence. It cannot upgrade a bare invocation. Natural-language requests such as “fix the findings” or “repair anything clear” without the literal token remain read-only; report that a new exact invocation is required. Reject unknown flags and multiple IDs without inspection or mutation. Do not convert modes later because a finding is easy, a Task is marked complete, or the user confirms a proposed fix without issuing a new explicit invocation.
+Give each actionable finding its affected path, consequence, and supporting evidence. Treat prior PASS statements as claims, checking their source/command/input context before reuse. Do not rerun unchanged successful verification without a concrete concern.
 
-A requested change to the established audited baseline, acceptance, or scope enters the warning state above. In bare mode it remains report-only; exact reconfirmation does not substitute for the literal repair route. In repair mode the visible `Bounded repair plan:` is an execution notice for an already authorized, aligned finding, not another confirmation.
-
-## Establish an independent baseline
-
-1. Resolve the target repository and exactly one `docs/tasks/NNNN-*/` directory. A missing or duplicate ID is a blocking finding; never choose by title, timestamp, or apparent relevance.
-2. Always read the audited `TASK.md` and `TEST.md`, every applicable
-   `AGENTS.md`, and explicitly named dependencies. Do not load unrelated
-   completed or future Tasks.
-3. Index or search headings in README, SPEC, and ARCHITECTURE. Use the audited
-   Goal, scope, Documentation Impact, changed paths, and relevant code
-   dependencies to read only the owning permanent-document sections required
-   for comparison.
-4. Escalate to a full read of all four permanent documents for initialization
-   or rebaseline history, major redesign, broad cross-owner scope, source
-   conflict, ambiguous or missing ownership, or truth that targeted sections
-   cannot establish. Stop with `BLOCKED` when a source conflict remains
-   unresolved.
-5. Inspect version-control status with non-mutating options before any possible repair. Inspect the relevant staged and unstaged diff, Task baseline or comparison commit when recorded, and only the history needed to attribute current changes. Separate pre-existing or user-authored changes from work attributable to the audited Task. Disable optional Git locks or refresh writes when the environment supports it.
-6. If Git metadata or a recorded comparison point is unavailable, record the limitation and use the safest authorized reproducible substitute, such as a pre-change snapshot, supplied patch, release artifact, file inventory, or hashes. Return `BLOCKED` when the substitute cannot establish the scope and behavior needed for this audit; never imply that Git state or history was recovered.
-7. Run the repository's Task/Test contract validator when available. Independently compare status, acceptance criteria, scope, Decisions, Discoveries, Documentation Impact, Completed, Remaining, Resume Point, Blockers, matrix rows, Commands, Results, Unverified, and Final Coverage Review with the repository. A validator pass is useful evidence, not a substitute for this audit.
-8. Inventory the changed paths, observable behaviors, branches and error paths, permanent-document claims, test commands, package effects, and recorded limitations that the final verdict must cover.
-
-If permanent sources conflict materially, record the competing claims and return `BLOCKED`. Do not silently select one or repair code against an unsettled source.
-
-## Record findings consistently
-
-Assign findings stable sequential IDs `F-01`, `F-02`, and so on. Keep an ID stable through repair and re-audit.
-
-Use exactly one category:
-
-- `scope`: changed work cannot be attributed to the audited Task or exceeds its boundaries;
-- `behavior`: implementation does not satisfy established acceptance or product behavior;
-- `architecture`: components, dependencies, boundaries, data flow, storage, or distribution disagree with established architecture;
-- `docs`: README, AGENTS, SPEC, or other durable claims are stale or routed to the wrong owner;
-- `test-evidence`: intent mapping, meaningful coverage, execution evidence, handoff state, or result claims are incomplete or unsupported.
-
-Use one severity:
-
-- `BLOCKER`: the audit, required reproduction, or a safe repair cannot proceed because a prerequisite or trustworthy baseline is unavailable;
-- `ERROR`: evidence demonstrates a mismatch that must be fixed or explicitly removed from the audited Task's completion claim;
-- `WARNING`: a concrete non-blocking limitation or residual risk does not falsify an acceptance claim.
-
-For every finding record:
-
-| Field | Required content |
-|---|---|
-| ID | Stable `F-NN` identifier |
-| Category | One allowed category |
-| Severity | `BLOCKER`, `ERROR`, or `WARNING` |
-| Evidence | Path and line, diff hunk, command and exit result, or reproducible artifact |
-| Expected / actual | Existing source of expected truth and observed mismatch |
-| Scope | `in-scope`, `out-of-scope`, or `uncertain` with reason |
-| Action | Repair, recovery step, or proposed follow-on outcome |
-| Status | `OPEN`, `FIXED`, `DEFERRED`, or `BLOCKED` |
-
-Do not report taste, preferred refactors, speculative risks, or generic best practices as findings. When evidence is insufficient, say what is missing and classify the finding as uncertain instead of asserting a defect.
-
-## Audit acceptance and test evidence
-
-1. Enumerate every published acceptance ID without renumbering it. Confirm that each criterion maps to at least one matrix row and that every referenced acceptance ID exists. Prose mentions do not count as mappings.
-2. Confirm each row states a meaningful intent, method, level, status, and evidence appropriate to that status. A checked criterion or generic full-suite pass does not replace acceptance-specific coverage.
-3. Treat a `PASS` row as a claim. Require an exact executed command or explicit verification procedure, a concise result with exit status or observable outcome, and enough test or artifact identity to reproduce the claim. Placeholders, future-tense plans, `all tests passed`, an unavailable command, or evidence copied from another state do not support `PASS`.
-4. Reproduce the narrowest safe acceptance-specific checks and required regressions allowed by the locked mode. Do not repeat destructive, externally visible, expensive, credential-dependent, or writing actions merely to obtain a fresh timestamp; verify retained evidence when possible and return `BLOCKED` when required proof cannot be recovered safely. In read-only mode, do not prepare or clean an isolated rerun copy as a workaround.
-5. Compare the final implementation diff with the original matrix. Add findings for meaningful branches, error paths, fallbacks, compatibility behavior, package changes, or regressions that have no test or explicit verification.
-6. Verify that Commands and Results retain actual failures and retries, Unverified names every skipped or unavailable check with residual risk, and Final Coverage Review boxes are checked only when their claims are true.
-7. Verify that Completed work exists, Remaining and Resume Point match reality, Blockers are current, and terminal Task/Test statuses agree with reproducible evidence.
-
-Record an unmapped criterion or unsupported `PASS` as an `ERROR` in `test-evidence`. Never downgrade it because unrelated tests pass.
-
-## Audit implementation, scope, and durable documents
-
-For each changed path and meaningful behavior:
-
-1. Map it to an existing acceptance criterion, explicit In Scope item, necessary test/fixture, or required documentation synchronization.
-2. Compare implementation behavior with `docs/SPEC.md`; compare components, boundaries, dependencies, data flow, storage, and distribution with `docs/ARCHITECTURE.md`.
-3. Compare setup, commands, configuration, usage, and contributor entry with `README.md`; compare repository-wide Codex invariants with `AGENTS.md`.
-4. Distinguish a stale permanent document from an intentional Task-local choice. Task prose cannot silently override permanent truth; a durable behavior or structure change must update its owner.
-5. Confirm package and distribution changes are covered when the final diff changes packed files, metadata, adapters, or runtime boundaries.
-6. Preserve unrelated user work. When attribution is uncertain, record the ambiguity and block any destructive reconciliation.
-
-An out-of-scope implementation is an open `scope` error even when it appears useful or tests pass. Do not edit, delete, or absorb it into the current Task. Propose a follow-on Task with a one-sentence Goal, dependency, scope boundary, and observable acceptance outline in the report only; do not allocate an ID or create files.
-
-## Preserve the read-only contract
-
-In `read-only` mode, complete the full inspection and reporting workflow without a repository mutation:
-
-1. Do not call file-editing tools or run a command that can create, edit, rename, move, delete, format, generate, install, recover, clean, stage, commit, or publish filesystem content. This prohibition covers the repository and temporary, control, cache, snapshot, and isolated-copy locations; a denied attempt still violates the contract.
-2. Before running an inspection command, require one literal executable and one documented argument shape:
-   - PowerShell file read: `Get-Content -Raw -LiteralPath '<repository-relative-path>'`;
-   - POSIX file read: `cat -- '<repository-relative-path>'` or `sed -n '<line-or-range>p' -- '<repository-relative-path>'`;
-   - file inventory/search: `rg --files [<repository-relative-path>...]` or `rg -n [-F] -- '<literal-pattern>' '<repository-relative-path>'...`;
-   - Git inspection: `git --no-optional-locks --no-pager` followed by `status`, guarded `diff|show|log` with `--no-ext-diff --no-textconv`, or bounded `rev-parse|merge-base|ls-files|ls-tree` arguments;
-   - Task pair validation only: `node skills/kyw-task/scripts/task-artifacts.mjs validate --task-directory '<repository-relative-task-directory>'`, with the equivalent repository-installed `.agents/skills/kyw-task/` path also allowed.
-3. Treat paths as lexical repository-relative values: no absolute path, parent traversal, direct `.git` access, provider path, or shell expansion. Use single-quoted literal arguments. A literal search pattern may contain mutator names, redirects, arrows, comparisons, or other data without being interpreted as executable grammar.
-4. Reject shell wrappers, multiple commands, newlines, control operators, pipes, all redirects including `2>&1`, variables, substitutions, here-documents, double-quoted expansion, comments, executable path indirection, unlisted commands/subcommands/options, and malformed or ambiguous grammar. Do not decode or expand an encoded or dynamic launcher. Skip the inspection and record the exact limitation instead of falling back to a broader shell parser.
-5. Do not update Task/Test status, check boxes, findings, Results, Unverified, handoff fields, permanent documents, generated files, caches, snapshots, or audit reports in the repository.
-6. Rerun a command in place only when repository evidence establishes that it is worktree-byte-preserving and the command fits the strict boundary. When a required test, formatter, generator, packager, build, or other command falls outside it, use retained reproducible evidence. Do not create, populate, run against, or remove an isolated copy during the read-only invocation; skip the rerun and record the proof limitation.
-7. Record every skipped rerun and the resulting proof limitation. Reduced rerun evidence may produce `BLOCKED`, but never authorizes a helpful write.
-8. Report all findings with stable IDs, scope/document/test drift, exact evidence inspected, residual risk, and the final verdict in the response only. `Fixes and reruns` must say `None` unless a byte-preserving rerun actually occurred and is clearly identified.
-
-Any repository write or attempted mutating command during `read-only` mode is a contract failure. The command boundary applies outside the repository too, so temporary-copy preparation or cleanup is not an exception. Stop, disclose it, and return `BLOCKED`; do not hide the attempt because the sandbox prevented it or because the final worktree happens to match.
-
-The same strict command boundary governs repair mode's read-only baseline. After the visible `Bounded repair plan:`, an out-of-boundary command is mutation-capable repair activity and therefore must occur only within the announced paths and verification plan. This preserves exact `--fix` behavior without teaching the bare audit a general shell language.
-
-## Repair only in explicit fix mode
-
-This section applies only when the locked mode is `repair`. A finding is not repairable in a bare audit, even when every eligibility rule below is satisfied.
-
-A finding is repairable only when all of the following are true:
-
-- established Task or permanent truth determines the expected result without a new user decision;
-- the repair is required by an existing acceptance criterion or its necessary evidence;
-- affected files lie inside the audited Task's permitted implementation, test, Task/Test, or documentation boundary;
-- the smallest fix preserves user-authored and pre-existing work;
-- the repair can be verified with an available focused check.
-
-Before any eligible repair, send a standalone conversation message beginning `Bounded repair plan:`. Name the finding IDs, the exact intended path set, the smallest expected change, the focused check, and the required regressions. Do not combine this message with a mutation tool call. If the plan reveals an ambiguous requirement, uncertain ownership, or out-of-scope path, do not mutate it.
-
-For an eligible repair after the plan is visible:
-
-1. Record the finding before changing files. Update Task/Test intent, Discoveries, risk, coverage, or handoff fields first when the discovery makes them inaccurate; preserve published `AC-NN` and `T-NN` IDs and append new test IDs when coverage grows.
-2. Route durable meaning to its permanent owner. Restore stale documentation when implementation already matches established Task intent; do not rewrite requirements merely to make current code pass.
-3. Apply the smallest implementation, test, fixture, configuration, or documentation change that closes the finding.
-4. Update Task/Test with the exact fix, changed documentation impact, command, exit result, and retained failed or unsupported prior evidence.
-5. Rerun the affected acceptance-specific check, then every regression or package check made necessary by the repair. A generic suite alone is insufficient when the finding names a narrower behavior.
-6. Reinspect the complete relevant diff and finding. Mark it `FIXED` only when expected and actual state agree and rerun evidence is reproducible.
-
-If a repair fails, requires a new product/design decision, would overwrite uncertain work, or grows beyond current scope, stop changing it. Retain the failed evidence, mark the finding `BLOCKED` or `DEFERRED` as appropriate, and return `BLOCKED`.
-
-## Re-audit and set the verdict
-
-After every authorized repair, repeat the affected acceptance, scope, documentation, evidence, and diff checks. Before the verdict, review all changed paths and map every meaningful behavior, branch, error path, compatibility effect, durable-document change, and package effect to a matrix row or explicit blocking limitation. In read-only mode, perform the same verdict review with every finding left in its observed state.
-
-Return `PASS` only when all of these gates hold:
-
-1. the Task and comparison baseline are resolved with enough evidence;
-2. permanent sources and the final Task/Test pair are consistent;
-3. every acceptance criterion has meaningful mapped coverage;
-4. every required `PASS` or justified `N/A` claim is reproducible, and required regressions actually ran;
-5. meaningful implementation branches and error paths are covered;
-6. implementation scope and durable documents agree with established intent;
-7. every in-scope repair has affected-check rerun evidence and final diff coverage;
-8. no out-of-scope implementation, unresolved blocker, or open error remains;
-9. Task/Test evidence and handoff fields describe the final repository accurately and the pair validates.
-
-Return `BLOCKED` when any gate is unproven. A `WARNING` may remain with `PASS` only when its evidence shows that it does not undermine scope, acceptance, required verification, or document consistency. There is no third verdict, and partial success is not `PASS`.
-
-## Report the result
-
-Return the report in this order:
-
-1. `Verdict`: `PASS` or `BLOCKED` and one-sentence reason.
-2. `Audited Task`: ID, directory, locked mode, final Task/Test state, and comparison baseline.
-3. `Findings`: ordered finding records; write `None` when there are no findings.
-4. `Fixes and reruns`: files changed, exact commands or procedures, exit results, and retained failures; write `None` for repository fixes when the audit was read-only and distinguish any byte-preserving or isolated evidence rerun.
-5. `Coverage and consistency`: acceptance mapping, meaningful branches, scope, permanent documents, package effects, and final diff review.
-6. `Proposed follow-on Tasks`: recommendations for out-of-scope findings without created IDs or files.
-7. `Residual risks`: unavailable Git/history, skipped checks, external dependencies, warnings, and recovery actions.
-
-Keep the report concise but evidence-specific. Do not write it to the repository or publish it externally. Never claim that a check ran when it did not.
+Report `PASS` only when available evidence supports the required acceptance and no blocking finding remains. Otherwise report `BLOCKED` with the missing evidence or recovery action. Separate code/mock verification from actual model behavior; unavailable isolation or a model run is never reported as tested.

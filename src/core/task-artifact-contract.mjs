@@ -5,6 +5,8 @@ import path from "node:path";
 import {
   RELEASE_BEARING_TASK_CONTRACT_VERSION,
   TASK_TEST_STATUS_PAIRS,
+  SINGLE_TASK_CONTRACT_VERSION,
+  parseTaskMetadata,
   getTaskContractVersion,
   isQueueAwareTaskContractVersion,
   isStableReleaseVersion,
@@ -74,6 +76,10 @@ export function markdownSection(markdown, heading) {
 }
 
 export function firstSectionLine(markdown, heading) {
+  if (typeof markdown !== "string") return undefined;
+  if (heading === "Status" && getTaskContractVersion(markdown) === SINGLE_TASK_CONTRACT_VERSION) {
+    try { return parseTaskMetadata(markdown).status; } catch { return undefined; }
+  }
   return stripMarkdownComments(markdownSection(markdown, heading))
     .split(/\r?\n/)
     .map((line) => line.trim())
@@ -81,6 +87,7 @@ export function firstSectionLine(markdown, heading) {
 }
 
 export function parseDeliveryRequirement(taskMarkdown, contractVersion) {
+  if (contractVersion === SINGLE_TASK_CONTRACT_VERSION) return Object.freeze({ kind: "OPTIONAL" });
   if (!isQueueAwareTaskContractVersion(contractVersion)) {
     return Object.freeze({ kind: "LEGACY" });
   }
@@ -173,6 +180,10 @@ export function parseCanonicalHardDependencies(taskMarkdown) {
 }
 
 export function parseHardDependencies(taskMarkdown, contractVersion, { completedCompatibility = false } = {}) {
+  if (contractVersion === SINGLE_TASK_CONTRACT_VERSION) {
+    try { return { dependencies: parseTaskMetadata(taskMarkdown).dependencies, errors: [], grammar: "METADATA" }; }
+    catch (error) { return { dependencies: [], errors: [error.message], grammar: "INVALID" }; }
+  }
   if (!isQueueAwareTaskContractVersion(contractVersion)) {
     return Object.freeze({
       dependencies: Object.freeze([]),
@@ -418,13 +429,19 @@ export async function validateTaskDirectory(taskDirectory) {
   let taskMarkdown;
   let testMarkdown;
   try {
-    [taskMarkdown, testMarkdown] = await Promise.all([
-      readFile(path.join(taskDirectory, "TASK.md"), "utf8"),
-      readFile(path.join(taskDirectory, "TEST.md"), "utf8"),
-    ]);
+    for (const name of ["TASK.md", "TEST.md"]) {
+      const filePath = path.join(taskDirectory, name);
+      const fileState = await pathState(filePath);
+      if (!fileState && name === "TEST.md") continue;
+      if (!fileState || fileState.isSymbolicLink() || !fileState.isFile()) {
+        return [`${name} must be a real regular file`];
+      }
+      const content = await readFile(filePath, "utf8");
+      if (name === "TASK.md") taskMarkdown = content;
+      else testMarkdown = content;
+    }
   } catch (error) {
-    errors.push(`Task directory must contain readable TASK.md and TEST.md: ${error.message}`);
-    return errors;
+    return [`Task directory must contain readable task records: ${error.message}`];
   }
 
   errors.push(...validateTaskTestContract({ taskMarkdown, testMarkdown }));

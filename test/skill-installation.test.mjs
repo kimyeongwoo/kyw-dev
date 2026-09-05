@@ -185,28 +185,14 @@ function writeJson(filePath, value) {
 }
 
 function readyBatchSpecification(title = "Installed ready batch") {
-  const fixtureRoot = join(
-    PACKAGE_ROOT,
-    "test",
-    "fixtures",
-    "task-repositories",
-    "ergonomics",
-    "0101-standard-task",
-  );
-  const taskMarkdown = readFileSync(join(fixtureRoot, "TASK.md"), "utf8")
-    .replace("# TASK 0101 — Concise Standard Task", "# TASK {{TASK_ID}} — {{TASK_TITLE}}")
-    .replace("<!-- kyw-task-contract: 2 -->", "<!-- kyw-task-contract: 4 -->")
-    .replace(
-      "- Not applicable — no hard dependency is required for this outcome.",
-      "{{TASK_DEPENDENCIES}}",
-    );
-  const testMarkdown = readFileSync(join(fixtureRoot, "TEST.md"), "utf8")
-    .replace("# TEST 0101 — Concise Standard Task", "# TEST {{TASK_ID}} — {{TASK_TITLE}}")
-    .replace("<!-- kyw-task-contract: 2 -->", "<!-- kyw-task-contract: 4 -->");
-  return {
-    schemaVersion: 1,
-    tasks: [{ title, taskMarkdown, testMarkdown, dependencies: [] }],
-  };
+  const taskMarkdown = readFileSync(join(PACKAGE_ROOT, "templates/task/TASK.md"), "utf8")
+    .replace('"status":"DRAFT"', '"status":"READY"');
+  return { schemaVersion: 1, tasks: [{ title, taskMarkdown, dependencies: [] }] };
+}
+
+function managedFileCount(names = MANAGED_SKILL_NAMES) {
+  return buildManagedSourceInventory().files.filter((file) =>
+    file.path.startsWith(".kyw-dev/runtime/") || names.some((name) => file.path.startsWith(`${name}/`))).length;
 }
 
 const consumedTask0070RecoveryPattern =
@@ -222,25 +208,6 @@ function assertNoConsumedTask0070RecoveryState(filePaths) {
   }
 }
 
-function renumberCreatedTaskPair(createdTask, targetId) {
-  const sourceDirectory = path.dirname(createdTask.taskPath);
-  const sourceId = path.basename(sourceDirectory).slice(0, 4);
-  const targetDirectory = join(
-    path.dirname(sourceDirectory),
-    `${targetId}-${createdTask.key}`,
-  );
-  renameSync(sourceDirectory, targetDirectory);
-  const taskPath = join(targetDirectory, "TASK.md");
-  const testPath = join(targetDirectory, "TEST.md");
-  for (const filePath of [taskPath, testPath]) {
-    writeFileSync(
-      filePath,
-      readFileSync(filePath, "utf8").replaceAll(sourceId, targetId),
-      "utf8",
-    );
-  }
-  return Object.freeze({ directory: targetDirectory, taskPath, testPath });
-}
 
 function installPluginCacheFixture(
   home,
@@ -453,6 +420,7 @@ function createSourceCopy(t, version, mutate) {
   }
   mkdirSync(join(source, "src", "core"), { recursive: true });
   for (const name of [
+    "ci-evidence.mjs",
     "task-artifact-contract.mjs",
     "task-artifact-continuity.mjs",
     "task-artifact-creation.mjs",
@@ -735,7 +703,7 @@ test("user install writes complete hashed Skills and a runnable direct-install T
     now: () => new Date("2026-07-17T00:00:00.000Z"),
   });
   assert.equal(result.skillCount, 6);
-  assert.equal(result.fileCount, 33);
+  assert.equal(result.fileCount, managedFileCount());
   assert.equal(readFileSync(unrelated, "utf8"), "unrelated\n");
 
   const location = resolveInstallLocation({ scope: "user", home });
@@ -746,7 +714,7 @@ test("user install writes complete hashed Skills and a runnable direct-install T
     metadata.skills.map(({ name, path: skillPath }) => [name, skillPath]),
     MANAGED_SKILL_NAMES.map((name) => [name, name]),
   );
-  assert.equal(metadata.files.length, 33);
+  assert.equal(metadata.files.length, managedFileCount());
   assert.ok(metadata.files.some((file) => file.path === ".kyw-dev/runtime/templates/task/TASK.md"));
   assert.ok(
     metadata.files.some(
@@ -801,7 +769,7 @@ test("user install writes complete hashed Skills and a runnable direct-install T
   const adapterOutput = JSON.parse(adapterResult.stdout);
   assert.equal(adapterOutput.id, "0001");
   assert.ok(existsSync(join(adapterOutput.directory, "TASK.md")));
-  assert.ok(existsSync(join(adapterOutput.directory, "TEST.md")));
+  assert.equal(existsSync(join(adapterOutput.directory, "TEST.md")), false);
   const validationResult = spawnSync(
     process.execPath,
     [
@@ -833,8 +801,8 @@ test("user install writes complete hashed Skills and a runnable direct-install T
   assert.equal(batchOutput.lastId, "0002");
   assert.equal(batchOutput.tasks.length, 1);
   assert.equal(batchOutput.tasks[0].key, "installed-ready-batch");
-  assert.match(readFileSync(batchOutput.tasks[0].taskPath, "utf8"), /## Status\n\nREADY/);
-  assert.match(readFileSync(batchOutput.tasks[0].testPath, "utf8"), /## Status\n\nREADY/);
+  assert.match(readFileSync(batchOutput.tasks[0].taskPath, "utf8"), /"status":"READY"/);
+  assert.equal(batchOutput.tasks[0].testPath, undefined);
   const dispatchResult = spawnSync(
     process.execPath,
     [
@@ -853,8 +821,7 @@ test("user install writes complete hashed Skills and a runnable direct-install T
   const dispatchOutput = JSON.parse(dispatchResult.stdout);
   assert.equal(dispatchOutput.outcome, "SELECTED");
   assert.equal(dispatchOutput.action, "IMPLEMENT");
-  assert.equal(dispatchOutput.confirmation, true);
-  assert.deepEqual(dispatchOutput.hydration.requiredTaskIds, []);
+  assert.equal("hydration" in dispatchOutput, false);
   assert.equal("continuityTransitionToken" in dispatchOutput, false);
   const transactionInspection = spawnSync(
     process.execPath,
@@ -870,7 +837,7 @@ test("user install writes complete hashed Skills and a runnable direct-install T
   assert.equal(JSON.parse(transactionInspection.stdout).state, "NONE");
 
   const uninstall = uninstallManagedSkills({ scope: "user", home });
-  assert.equal(uninstall.removedFileCount, 33);
+  assert.equal(uninstall.removedFileCount, managedFileCount());
   assert.equal(readFileSync(unrelated, "utf8"), "unrelated\n");
   assert.equal(existsSync(location.metadataPath), false);
   for (const skillName of MANAGED_SKILL_NAMES) {
@@ -995,7 +962,7 @@ test("previous schema-1 five-Skill metadata remains safe for doctor, update, and
   const doctorLocation = resolveInstallLocation({ scope: "user", home: doctorHome });
   const doctorMetadata = convertCurrentInstallToPrevious(doctorLocation);
   assert.deepEqual(validateInstallMetadata(doctorMetadata, { expectedScope: "user" }), []);
-  assert.equal(doctorMetadata.files.length, 29);
+  assert.equal(doctorMetadata.files.length, managedFileCount(previousManagedSkillNames));
   const doctorReport = diagnoseInstallations({ home: doctorHome, commandRunner });
   assert.equal(doctorReport.exitCode, 0);
   assert.deepEqual(
@@ -1009,13 +976,13 @@ test("previous schema-1 five-Skill metadata remains safe for doctor, update, and
   convertCurrentInstallToPrevious(updateLocation);
   const updated = updateManagedSkills({ scope: "user", home: updateHome });
   assert.equal(updated.skillCount, 6);
-  assert.equal(updated.fileCount, 33);
+  assert.equal(updated.fileCount, managedFileCount());
   const updatedMetadata = readInstallMetadata(updateLocation, { required: true });
   assert.deepEqual(
     updatedMetadata.skills.map(({ name }) => name),
     MANAGED_SKILL_NAMES,
   );
-  assert.equal(updatedMetadata.files.length, 33);
+  assert.equal(updatedMetadata.files.length, managedFileCount());
   assert.ok(existsSync(join(updateLocation.skillsRoot, "kyw-deliver", "SKILL.md")));
   assert.deepEqual(inspectManagedInstallation(updateLocation, updatedMetadata).modified, []);
 
@@ -1024,7 +991,7 @@ test("previous schema-1 five-Skill metadata remains safe for doctor, update, and
   const uninstallLocation = resolveInstallLocation({ scope: "user", home: uninstallHome });
   convertCurrentInstallToPrevious(uninstallLocation);
   const uninstalled = uninstallManagedSkills({ scope: "user", home: uninstallHome });
-  assert.equal(uninstalled.removedFileCount, 29);
+  assert.equal(uninstalled.removedFileCount, managedFileCount(previousManagedSkillNames));
   assert.equal(existsSync(uninstallLocation.metadataPath), false);
   for (const skillName of previousManagedSkillNames) {
     assert.equal(existsSync(join(uninstallLocation.skillsRoot, skillName)), false);
@@ -1037,7 +1004,7 @@ test("original schema-1 four-Skill metadata remains safe for doctor, update, and
   const doctorLocation = resolveInstallLocation({ scope: "user", home: doctorHome });
   const doctorMetadata = convertCurrentInstallToOriginal(doctorLocation);
   assert.deepEqual(validateInstallMetadata(doctorMetadata, { expectedScope: "user" }), []);
-  assert.equal(doctorMetadata.files.length, 27);
+  assert.ok(doctorMetadata.files.some((file) => file.path === "kyw-task/references/execution.md"));
   const doctorReport = diagnoseInstallations({ home: doctorHome, commandRunner });
   assert.equal(doctorReport.exitCode, 0);
   assert.deepEqual(
@@ -1051,13 +1018,13 @@ test("original schema-1 four-Skill metadata remains safe for doctor, update, and
   convertCurrentInstallToOriginal(updateLocation);
   const updated = updateManagedSkills({ scope: "user", home: updateHome });
   assert.equal(updated.skillCount, 6);
-  assert.equal(updated.fileCount, 33);
+  assert.equal(updated.fileCount, managedFileCount());
   const updatedMetadata = readInstallMetadata(updateLocation, { required: true });
   assert.deepEqual(
     updatedMetadata.skills.map(({ name }) => name),
     MANAGED_SKILL_NAMES,
   );
-  assert.equal(updatedMetadata.files.length, 33);
+  assert.equal(updatedMetadata.files.length, managedFileCount());
   assert.ok(existsSync(join(updateLocation.skillsRoot, "kyw-impl", "SKILL.md")));
   assert.ok(existsSync(join(updateLocation.skillsRoot, "kyw-deliver", "SKILL.md")));
   assert.equal(
@@ -1071,7 +1038,7 @@ test("original schema-1 four-Skill metadata remains safe for doctor, update, and
   const uninstallLocation = resolveInstallLocation({ scope: "user", home: uninstallHome });
   convertCurrentInstallToOriginal(uninstallLocation);
   const uninstalled = uninstallManagedSkills({ scope: "user", home: uninstallHome });
-  assert.equal(uninstalled.removedFileCount, 27);
+  assert.equal(uninstalled.removedFileCount, doctorMetadata.files.length);
   assert.equal(existsSync(uninstallLocation.metadataPath), false);
   for (const skillName of originalManagedSkillNames) {
     assert.equal(existsSync(join(uninstallLocation.skillsRoot, skillName)), false);
@@ -1928,7 +1895,7 @@ test("packaged managed source inventory is stable and fully hashed", () => {
     "kyw-audit",
   ]);
   assert.equal(inventory.version, "0.2.1");
-  assert.equal(inventory.files.length, 33);
+  assert.equal(inventory.files.length, managedFileCount());
   assert.deepEqual(
     inventory.files.map((file) => file.path),
     [...inventory.files].map((file) => file.path).sort((left, right) => left.localeCompare(right)),
@@ -1960,7 +1927,8 @@ test("actual npm tarball installs, diagnoses, runs its installed adapter, and un
   }
   assert.equal(packed.status, 0, packed.stderr);
   const report = JSON.parse(packed.stdout)[0];
-  assert.equal(report.entryCount, 48);
+  assert.ok(report.files.some((file) => file.path === "skills/kyw-audit/scripts/verify.mjs"));
+  assert.ok(report.files.some((file) => file.path === "src/core/ci-evidence.mjs"));
   const extractRoot = join(root, "extract");
   mkdirSync(extractRoot);
   const extracted = spawnSync("tar", ["-xf", join(root, report.filename), "-C", extractRoot], {
@@ -2033,190 +2001,18 @@ test("actual npm tarball installs, diagnoses, runs its installed adapter, and un
       import(pathToFileURL(adapter).href),
       import(pathToFileURL(installedCorePath).href),
     ]);
-  const preparedCheckpoint = installedCore.createStandardDeliveryContinuityCheckpoint({
-    repository: "owner/repository",
-    sourceMainSha: "a".repeat(40),
-    coveredRecords: [],
-  }).checkpoint;
-  const installedDeliveryEvents = [];
-  const installedApplyMarker = join(root, "installed-continuity-applied.txt");
-  let installedDispatchCalls = 0;
-  let installedApplyCalls = 0;
-  const installedDelivery = await runInstalledAdapter(
-    [
-      "dispatch",
-      "--tasks-root",
-      join(target, "docs", "tasks"),
-      "--invocation",
-      "$kyw-deliver 0070",
-      "--managed-routing",
-      "false",
-    ],
-    {
-      hydratePriorStandardDeliveries: async () => {
-        installedDeliveryEvents.push("hydrate");
-        return {
-          deliveryLedger: {},
-          deliveryExpectations: {},
-          diagnostics: { requiredTaskIds: ["0069"] },
-          preparedCheckpoint,
-        };
-      },
-      resolveTaskDispatch: async () => {
-        installedDispatchCalls += 1;
-        installedDeliveryEvents.push("dispatch");
-        return {
-          outcome: "SELECTED",
-          action: "DELIVER",
-          task: {
-            id: "0070",
-            taskStatus: "DONE",
-            testStatus: "PASSED",
-            deliveryRequirement: { kind: "STANDARD" },
-          },
-        };
-      },
-      applyStandardDeliveryContinuityTransition: async (options) => {
-        installedApplyCalls += 1;
-        installedDeliveryEvents.push("apply");
-        assert.equal(options.preparedCheckpoint, preparedCheckpoint);
-        assert.equal("transitionToken" in options, false);
-        writeFileSync(installedApplyMarker, "applied inside installed adapter\n", "utf8");
-        return { write: { applied: true, idempotent: false } };
-      },
-    },
-  );
-  assert.equal(installedDispatchCalls, 1);
-  assert.equal(installedApplyCalls, 1);
-  assert.deepEqual(installedDeliveryEvents, ["hydrate", "dispatch", "apply"]);
-  assert.equal(
-    readFileSync(installedApplyMarker, "utf8"),
-    "applied inside installed adapter\n",
-  );
-  assert.equal(installedDelivery.outcome, "SELECTED");
-  assert.equal(installedDelivery.action, "DELIVER");
-  assert.doesNotMatch(
-    JSON.stringify(installedDelivery),
-    /continuityTransitionToken|transitionToken|preparedCheckpoint|apply-continuity/,
-  );
-  assert.doesNotMatch(
-    readFileSync(join(home, ".agents", "skills", "kyw-deliver", "references", "delivery.md"), "utf8"),
-    /apply-continuity|--transition-token|opaque transition token/i,
-  );
-
-  let installedNoPreparationDispatchCalls = 0;
-  let installedNoPreparationApplyCalls = 0;
-  const installedWithoutPreparation = await runInstalledAdapter(
-    [
-      "dispatch",
-      "--tasks-root",
-      join(target, "docs", "tasks"),
-      "--invocation",
-      "$kyw-deliver 0070",
-      "--managed-routing",
-      "false",
-    ],
-    {
-      hydratePriorStandardDeliveries: async () => ({
-        deliveryLedger: {},
-        deliveryExpectations: {},
-      }),
-      resolveTaskDispatch: async () => {
-        installedNoPreparationDispatchCalls += 1;
-        return {
-          outcome: "SELECTED",
-          action: "DELIVER",
-          task: {
-            id: "0070",
-            taskStatus: "DONE",
-            testStatus: "PASSED",
-            deliveryRequirement: { kind: "STANDARD" },
-          },
-        };
-      },
-      applyStandardDeliveryContinuityTransition: async () => {
-        installedNoPreparationApplyCalls += 1;
-      },
-    },
-  );
-  assert.equal(installedNoPreparationDispatchCalls, 1);
-  assert.equal(installedNoPreparationApplyCalls, 0);
-  assert.equal(installedWithoutPreparation.outcome, "SELECTED");
-  assert.equal(installedWithoutPreparation.action, "DELIVER");
-
-  const failureTasksRoot = join(root, "apply-failure", "docs", "tasks");
-  mkdirSync(failureTasksRoot, { recursive: true });
-  const failureCheckpointPath = join(
-    failureTasksRoot,
-    ".kyw-dev-standard-delivery-continuity.json",
-  );
-  const failureCheckpointBefore = "preserve packaged failure checkpoint\n";
-  writeFileSync(failureCheckpointPath, failureCheckpointBefore, "utf8");
-  const failureEvents = [];
-  const downstreamMutationTrace = [];
-  let failureDispatchCalls = 0;
-  let failureResult;
-  let failureError;
-  try {
-    failureResult = await runInstalledAdapter(
-      [
-        "dispatch",
-        "--tasks-root",
-        failureTasksRoot,
-        "--invocation",
-        "$kyw-deliver 0070",
-        "--managed-routing",
-        "false",
-      ],
-      {
-        hydratePriorStandardDeliveries: async () => {
-          failureEvents.push("hydrate");
-          return {
-            deliveryLedger: {},
-            deliveryExpectations: {},
-            preparedCheckpoint: null,
-          };
-        },
-        resolveTaskDispatch: async () => {
-          failureDispatchCalls += 1;
-          failureEvents.push("dispatch");
-          return {
-            outcome: "SELECTED",
-            action: "DELIVER",
-            task: {
-              id: "0070",
-              taskStatus: "DONE",
-              testStatus: "PASSED",
-              deliveryRequirement: { kind: "STANDARD" },
-            },
-          };
-        },
-      },
-    );
-    if (failureResult?.outcome === "SELECTED") {
-      downstreamMutationTrace.push(
-        "commit",
-        "push",
-        "pr",
-        "merge",
-        "npm",
-        "tag",
-        "release",
-      );
-    }
-  } catch (error) {
-    failureEvents.push("apply");
-    failureError = error;
-  }
-  assert.match(
-    failureError?.message ?? "",
-    /continuity transition input|checkpoint must be an object/i,
-  );
-  assert.equal(failureDispatchCalls, 1);
-  assert.equal(failureResult, undefined);
-  assert.deepEqual(failureEvents, ["hydrate", "dispatch", "apply"]);
-  assert.deepEqual(downstreamMutationTrace, []);
-  assert.equal(readFileSync(failureCheckpointPath, "utf8"), failureCheckpointBefore);
+  assert.equal(typeof installedCore.hydratePriorStandardDeliveries, "function", "historical reader stays available");
+  const calls = [];
+  const installedDelivery = await runInstalledAdapter([
+    "dispatch", "--tasks-root", join(target, "docs/tasks"), "--invocation", "$kyw-deliver 0001", "--managed-routing", "false",
+  ], {
+    resolveTaskDispatch: async () => ({ outcome: "SELECTED", action: "PR", task: { id: "0001", taskStatus: "DONE" } }),
+    hydratePriorStandardDeliveries: async () => { calls.push("history"); throw new Error("must stay local"); },
+    hydratePublicReleaseContext: async () => { calls.push("release"); throw new Error("must not publish"); },
+    applyStandardDeliveryContinuityTransition: async () => { calls.push("checkpoint"); },
+  });
+  assert.equal(installedDelivery.action, "PR");
+  assert.deepEqual(calls, []);
 
   const adapterResult = spawnSync(
     process.execPath,
@@ -2236,10 +2032,7 @@ test("actual npm tarball installs, diagnoses, runs its installed adapter, and un
   assert.equal(created.lastId, "0001");
   assert.equal(created.tasks[0].key, "packed-ready-batch");
   assert.ok(existsSync(created.tasks[0].taskPath));
-  assert.ok(existsSync(created.tasks[0].testPath));
-  const task0070 = renumberCreatedTaskPair(created.tasks[0], "0070");
-  assert.ok(existsSync(task0070.taskPath));
-  assert.ok(existsSync(task0070.testPath));
+  assert.equal(created.tasks[0].testPath, undefined);
   const transactionInspection = spawnSync(
     process.execPath,
     [
@@ -2260,7 +2053,7 @@ test("actual npm tarball installs, diagnoses, runs its installed adapter, and un
       "--tasks-root",
       join(target, "docs", "tasks"),
       "--invocation",
-      "task 0070 실행해줘",
+      "task 0001 실행해줘",
       "--managed-routing",
       "false",
     ],
@@ -2269,7 +2062,7 @@ test("actual npm tarball installs, diagnoses, runs its installed adapter, and un
   assert.equal(dispatchResult.status, 0, dispatchResult.stderr);
   const dispatchOutput = JSON.parse(dispatchResult.stdout);
   assert.equal(dispatchOutput.outcome, "FALLBACK_REQUIRED");
-  assert.equal(dispatchOutput.portableFallback, "$kyw-impl 0070");
+  assert.equal(dispatchOutput.portableFallback, "$kyw-impl 0001");
   const portableDispatch = spawnSync(
     process.execPath,
     [
@@ -2278,7 +2071,7 @@ test("actual npm tarball installs, diagnoses, runs its installed adapter, and un
       "--tasks-root",
       join(target, "docs", "tasks"),
       "--invocation",
-      "$kyw-impl 0070",
+      "$kyw-impl 0001",
       "--managed-routing",
       "false",
     ],
@@ -2288,7 +2081,7 @@ test("actual npm tarball installs, diagnoses, runs its installed adapter, and un
   const portableOutput = JSON.parse(portableDispatch.stdout);
   assert.equal(portableOutput.outcome, "SELECTED");
   assert.equal(portableOutput.action, "IMPLEMENT");
-  assert.deepEqual(portableOutput.hydration.requiredTaskIds, []);
+  assert.equal("hydration" in portableOutput, false);
   assert.equal("continuityTransitionToken" in portableOutput, false);
 
   const uninstall = spawnSync(process.execPath, [cli, "uninstall", "--scope", "user"], {

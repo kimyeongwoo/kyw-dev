@@ -24,7 +24,59 @@ env:
   NPM_CONFIG_UPDATE_NOTIFIER: "false"
 
 jobs:
+  plan:
+    name: Select CI coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      profile: ${{ steps.selection.outputs.profile }}
+      reason: ${{ steps.selection.outputs.reason }}
+    steps:
+      - name: Check out exact head
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - name: Set up Node.js 24.x
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 24.x
+          package-manager-cache: false
+      - name: Select required verification
+        id: selection
+        env:
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          EXPECTED_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        run: node ./scripts/ci-plan.mjs select
+
+  focused:
+    name: Focused / Ubuntu / Node 24.x
+    needs: plan
+    if: ${{ needs.plan.outputs.profile == 'documentation' || needs.plan.outputs.profile == 'instruction' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out exact head
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - name: Set up Node.js 24.x
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 24.x
+          package-manager-cache: false
+      - name: Validate changed document and instruction owners
+        env:
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          EXPECTED_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        run: node ./scripts/ci-plan.mjs focused
+
   behavioral:
+    needs: plan
+    if: ${{ needs.plan.outputs.profile == 'runtime' || needs.plan.outputs.profile == 'release' }}
     name: Behavioral / ${{ matrix.label }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
@@ -85,6 +137,7 @@ jobs:
         run: npm test
 
   quality:
+    needs: plan
     name: Quality / Ubuntu / Node 24.x
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -121,9 +174,12 @@ jobs:
       - name: Check formatting
         run: npm run format:check
       - name: Check package contents
+        if: ${{ needs.plan.outputs.profile != 'documentation' }}
         run: npm run pack:check
 
   packed-release:
+    needs: plan
+    if: ${{ needs.plan.outputs.profile == 'runtime' || needs.plan.outputs.profile == 'release' }}
     name: Packed release / Ubuntu / Node 24.x
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -159,8 +215,9 @@ jobs:
         run: npm run release:candidate
 
   merge-compatibility:
+    needs: plan
     name: Merge compatibility / Ubuntu / Node 24.x
-    if: ${{ github.event_name == 'pull_request' }}
+    if: ${{ github.event_name == 'pull_request' && (needs.plan.outputs.profile == 'runtime' || needs.plan.outputs.profile == 'release') }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -207,6 +264,8 @@ jobs:
     name: Required / credential-free CI
     if: ${{ always() }}
     needs:
+      - plan
+      - focused
       - behavioral
       - quality
       - packed-release
@@ -214,21 +273,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Require behavioral, quality, packed, and merge gates
+      - name: Check out exact head
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+      - name: Set up Node.js 24.x
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 24.x
+          package-manager-cache: false
+      - name: Validate selected CI results
         env:
-          BEHAVIORAL_RESULT: ${{ needs.behavioral.result }}
-          EVENT_NAME: ${{ github.event_name }}
-          MERGE_COMPATIBILITY_RESULT: ${{ needs.merge-compatibility.result }}
-          PACKED_RESULT: ${{ needs.packed-release.result }}
-          QUALITY_RESULT: ${{ needs.quality.result }}
-        run: |
-          printf 'behavioral=%s\nquality=%s\npacked=%s\nmerge_compatibility=%s\n' \
-            "$BEHAVIORAL_RESULT" "$QUALITY_RESULT" "$PACKED_RESULT" "$MERGE_COMPATIBILITY_RESULT"
-          test "$BEHAVIORAL_RESULT" = "success"
-          test "$QUALITY_RESULT" = "success"
-          test "$PACKED_RESULT" = "success"
-          if test "$EVENT_NAME" = "pull_request"; then
-            test "$MERGE_COMPATIBILITY_RESULT" = "success"
-          else
-            test "$MERGE_COMPATIBILITY_RESULT" = "skipped"
-          fi
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: node ./scripts/ci-plan.mjs aggregate

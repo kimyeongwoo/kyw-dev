@@ -194,6 +194,7 @@ export function buildManagedSourceInventory({ sourceRoot = PACKAGE_ROOT } = {}) 
   }
 
   const coreMappings = [
+    ["src/core/ci-evidence.mjs", ".kyw-dev/runtime/src/core/ci-evidence.mjs"],
     ["src/core/task-artifact-contract.mjs", ".kyw-dev/runtime/src/core/task-artifact-contract.mjs"],
     ["src/core/task-artifact-continuity.mjs", ".kyw-dev/runtime/src/core/task-artifact-continuity.mjs"],
     ["src/core/task-artifact-creation.mjs", ".kyw-dev/runtime/src/core/task-artifact-creation.mjs"],

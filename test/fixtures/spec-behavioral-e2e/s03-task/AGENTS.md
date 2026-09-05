@@ -5,13 +5,13 @@
 - Product behavior: `docs/SPEC.md`
 - Architecture: `docs/ARCHITECTURE.md`
 - Setup and usage: `README.md`
-- Current work: `docs/tasks/NNNN-*/TASK.md` and `TEST.md`
+- Current work: `docs/tasks/NNNN-*/TASK.md`, with optional `TEST.md`
 
 Stop when these sources conflict.
 
 ## Working Scope
 
-- Use one numbered Task for substantial outcomes.
+- Use a numbered Task when the user requests a resumable work record.
 - Do not create a Task for a small bounded fix unless requested.
 - Preserve user work and do not implement future Tasks.
 

@@ -7,7 +7,6 @@ import {
   realpath,
   rename,
   rmdir,
-  rm,
   unlink,
   writeFile,
 } from "node:fs/promises";
@@ -15,6 +14,8 @@ import path from "node:path";
 
 import {
   CURRENT_TASK_CONTRACT_VERSION,
+  SINGLE_TASK_CONTRACT_VERSION,
+  parseTaskMetadata,
   getTaskContractVersion,
   isStableReleaseVersion,
   readCanonicalTemplate,
@@ -40,7 +41,6 @@ import {
   validateTaskDirectory,
 } from "./task-artifact-contract.mjs";
 import {
-  allocateNextTaskId,
   dependencyGraphErrors,
   inspectTaskQueueContents,
 } from "./task-artifact-queue.mjs";
@@ -67,7 +67,6 @@ import {
   readRegularFileProof,
   sameFilesystemIdentity,
   sha256,
-  stagingPrefix,
   taskLayoutError,
   validFilesystemIdentity,
 } from "./task-artifact-shared.mjs";
@@ -94,20 +93,6 @@ async function ensureTasksRoot(tasksRoot) {
     throw new TaskArtifactError("INVALID_TASK_ROOT", `Tasks root is not a directory: ${tasksRoot}`);
   }
   return realpath(tasksRoot);
-}
-
-async function releaseCreationLock(lockHandle, lockPath) {
-  if (!lockHandle) {
-    return;
-  }
-  await lockHandle.close();
-  try {
-    await unlink(lockPath);
-  } catch (error) {
-    if (error.code !== "ENOENT") {
-      throw error;
-    }
-  }
 }
 
 function invalidBatch(message, code = "INVALID_TASK_BATCH") {
@@ -180,16 +165,17 @@ function normalizeBatchTaskDefinitions(tasks) {
       }
       const taskMarkdown = definition.taskMarkdown;
       const testMarkdown = definition.testMarkdown;
+      const single = getTaskContractVersion(taskMarkdown) === SINGLE_TASK_CONTRACT_VERSION;
       if (typeof taskMarkdown !== "string" || !taskMarkdown.trim()) {
         throw invalidBatch(`${label} taskMarkdown must be a non-empty string`);
       }
-      if (typeof testMarkdown !== "string" || !testMarkdown.trim()) {
+      if ((!single || testMarkdown !== undefined) && (typeof testMarkdown !== "string" || !testMarkdown.trim())) {
         throw invalidBatch(`${label} testMarkdown must be a non-empty string`);
       }
-      if (taskMarkdown.includes("\0") || testMarkdown.includes("\0")) {
+      if (taskMarkdown.includes("\0") || (testMarkdown ?? "").includes("\0")) {
         throw invalidBatch(`${label} Markdown must not contain NUL bytes`);
       }
-      for (const token of [batchIdToken, batchTitleToken, batchDependenciesToken]) {
+      for (const token of [batchIdToken, batchTitleToken, ...(single ? [] : [batchDependenciesToken])]) {
         if (!taskMarkdown.includes(token)) {
           throw invalidBatch(`${label} taskMarkdown must contain ${token}`);
         }
@@ -198,19 +184,19 @@ function normalizeBatchTaskDefinitions(tasks) {
         markdownSection(taskMarkdown, "Dependencies"),
       ).trim();
       if (
-        taskMarkdown.split(batchDependenciesToken).length !== 2 ||
-        dependencySection !== batchDependenciesToken
+        !single && (taskMarkdown.split(batchDependenciesToken).length !== 2 ||
+        dependencySection !== batchDependenciesToken)
       ) {
         throw invalidBatch(
           `${label} taskMarkdown must place exactly one ${batchDependenciesToken} as the complete Dependencies section`,
         );
       }
-      for (const token of [batchIdToken, batchTitleToken]) {
-        if (!testMarkdown.includes(token)) {
+      for (const token of testMarkdown === undefined ? [] : [batchIdToken, batchTitleToken]) {
+        if (!(testMarkdown ?? "").includes(token)) {
           throw invalidBatch(`${label} testMarkdown must contain ${token}`);
         }
       }
-      if (testMarkdown.includes(batchDependenciesToken)) {
+      if ((testMarkdown ?? "").includes(batchDependenciesToken)) {
         throw invalidBatch(`${label} testMarkdown must not contain ${batchDependenciesToken}`);
       }
 
@@ -246,7 +232,7 @@ function normalizeBatchTaskDefinitions(tasks) {
           `${label} must provide releaseVersion for ${batchReleaseVersionToken}`,
         );
       }
-      if (testMarkdown.includes(batchReleaseVersionToken)) {
+      if ((testMarkdown ?? "").includes(batchReleaseVersionToken)) {
         throw invalidBatch(
           `${label} testMarkdown must not contain ${batchReleaseVersionToken}`,
         );
@@ -504,7 +490,15 @@ function renderBatchTasks(preallocated, existingTasks) {
           : {}),
       };
       taskMarkdown = renderTemplate(task.taskMarkdown, values);
-      testMarkdown = renderTemplate(task.testMarkdown, values);
+      if (getTaskContractVersion(taskMarkdown) === SINGLE_TASK_CONTRACT_VERSION) {
+        const metadata = parseTaskMetadata(taskMarkdown);
+        if (metadata.dependencies.length > 0 && !sameOrderedValues(metadata.dependencies, resolvedDependencies)) {
+          throw invalidBatch(`Task batch key ${task.key} metadata dependencies conflict with its declared dependency references`);
+        }
+        taskMarkdown = taskMarkdown.replace(/<!--\s*kyw-task:\s*[\s\S]*?-->/g,
+          `<!-- kyw-task: ${JSON.stringify({ ...metadata, dependencies: resolvedDependencies })} -->`);
+      }
+      testMarkdown = task.testMarkdown === undefined ? undefined : renderTemplate(task.testMarkdown, values);
     } catch (error) {
       throw invalidBatch(
         `Task batch key ${task.key} could not render complete Markdown: ${error.message}`,
@@ -519,15 +513,15 @@ function renderBatchTasks(preallocated, existingTasks) {
       );
     }
     const contractVersion = getTaskContractVersion(taskMarkdown);
-    if (contractVersion !== CURRENT_TASK_CONTRACT_VERSION) {
+    if (![2, 3, 4, CURRENT_TASK_CONTRACT_VERSION].includes(contractVersion)) {
       throw invalidBatch(
         `Task batch key ${task.key} must use current Task contract ${CURRENT_TASK_CONTRACT_VERSION}`,
         "INVALID_TASK_BATCH_PAIR",
       );
     }
     if (
-      firstSectionLine(taskMarkdown, "Status") !== "READY" ||
-      firstSectionLine(testMarkdown, "Status") !== "READY"
+      contractVersion !== SINGLE_TASK_CONTRACT_VERSION && (firstSectionLine(taskMarkdown, "Status") !== "READY" ||
+      firstSectionLine(testMarkdown, "Status") !== "READY")
     ) {
       throw invalidBatch(
         `Task batch key ${task.key} must render a READY/READY pair`,
@@ -538,9 +532,8 @@ function renderBatchTasks(preallocated, existingTasks) {
     const testHeader = /^# TEST (\d{4}) — (.+)$/m.exec(testMarkdown);
     if (
       taskHeader?.[1] !== task.id ||
-      testHeader?.[1] !== task.id ||
       taskHeader?.[2]?.trim() !== task.title ||
-      testHeader?.[2]?.trim() !== task.title
+      (contractVersion !== SINGLE_TASK_CONTRACT_VERSION && (testHeader?.[1] !== task.id || testHeader?.[2]?.trim() !== task.title))
     ) {
       throw invalidBatch(
         `Task batch key ${task.key} headers must match allocated Task ${task.id} and title`,
@@ -564,7 +557,7 @@ function renderBatchTasks(preallocated, existingTasks) {
       taskMarkdown,
       contractVersion,
     );
-    if (deliveryRequirement.kind === "STANDARD") {
+    if (contractVersion === 4 && deliveryRequirement.kind === "STANDARD") {
       if (!task.releaseVersion) {
         throw invalidBatch(
           `Task batch key ${task.key} STANDARD delivery requires a settled releaseVersion definition`,
@@ -604,7 +597,7 @@ function renderBatchTasks(preallocated, existingTasks) {
         taskPath: task.taskPath,
         testPath: task.testPath,
         title: task.title,
-        taskStatus: "READY",
+        taskStatus: firstSectionLine(task.taskMarkdown, "Status"),
         testStatus: "READY",
         contractVersion: CURRENT_TASK_CONTRACT_VERSION,
         dependencies: task.resolvedDependencies,
@@ -646,7 +639,7 @@ function expectedBatchTasks(prepared) {
           [
             ["TASK.md", task.taskMarkdown],
             ["TEST.md", task.testMarkdown],
-          ].map(([name, content]) =>
+          ].filter(([, content]) => content !== undefined).map(([name, content]) =>
             Object.freeze({
               name,
               bytes: Buffer.byteLength(content, "utf8"),
@@ -663,8 +656,8 @@ function preparedBatchFingerprint(expectedTasks) {
   return sha256(JSON.stringify(expectedTasks));
 }
 
-async function captureTaskQueueSnapshot(tasksRoot) {
-  const queue = await inspectTaskQueueContents(tasksRoot);
+async function captureTaskQueueSnapshot(tasksRoot, dependencyIds = []) {
+  const queue = await inspectTaskQueueContents(tasksRoot, { selectedTaskIds: dependencyIds });
   if (queue.errors.length > 0) {
     throw invalidBatch(
       `Cannot create a Task batch until the queue is reconciled:\n- ${queue.errors.join("\n- ")}`,
@@ -676,7 +669,7 @@ async function captureTaskQueueSnapshot(tasksRoot) {
     throw taskLayoutError(inventory);
   }
   const entries = [];
-  for (const entry of inventory.entries) {
+  for (const entry of inventory.entries.filter((entry) => queue.tasks.some((task) => task.id === entry.id))) {
     const directory = resolveTaskDirectory(tasksRoot, entry.id, entry.slug);
     const directoryState = await bigintPathState(directory);
     if (!directoryState || directoryState.isSymbolicLink() || !directoryState.isDirectory()) {
@@ -687,7 +680,7 @@ async function captureTaskQueueSnapshot(tasksRoot) {
     }
     const [taskProof, testProof] = await Promise.all([
       readRegularFileProof(path.join(directory, "TASK.md")),
-      readRegularFileProof(path.join(directory, "TEST.md")),
+      pathState(path.join(directory, "TEST.md")).then((state) => state ? readRegularFileProof(path.join(directory, "TEST.md")) : undefined),
     ]);
     entries.push({
       name: entry.name,
@@ -697,11 +690,11 @@ async function captureTaskQueueSnapshot(tasksRoot) {
         bytes: taskProof.bytes,
         sha256: taskProof.sha256,
       },
-      test: {
+      test: testProof ? {
         identity: testProof.identity,
         bytes: testProof.bytes,
         sha256: testProof.sha256,
-      },
+      } : null,
     });
   }
   const semanticQueue = queue.tasks.map((task) => ({
@@ -718,7 +711,7 @@ async function captureTaskQueueSnapshot(tasksRoot) {
   return Object.freeze({
     queue,
     inventory,
-    fingerprint: sha256(JSON.stringify({ entries, semanticQueue })),
+    fingerprint: sha256(JSON.stringify({ names: inventory.entries.map((entry) => entry.name), entries, semanticQueue })),
   });
 }
 
@@ -806,7 +799,8 @@ async function revalidateBatchSnapshot({
   await assertBatchRootIdentity(tasksRoot, rootIdentity);
   let current;
   try {
-    current = await captureTaskQueueSnapshot(tasksRoot);
+    const allocatedIds = new Set(prepared.map((task) => task.id));
+    current = await captureTaskQueueSnapshot(tasksRoot, prepared.flatMap((task) => task.resolvedDependencies).filter((id) => !allocatedIds.has(id)));
   } catch (error) {
     throw new TaskArtifactError(
       "TASK_CREATION_CONFLICT",
@@ -927,9 +921,9 @@ function validateInitialJournalData(data, token) {
         (dependency) => typeof dependency !== "string" || !/^\d{4}$/.test(dependency),
       ) ||
       !Array.isArray(task.files) ||
-      task.files.length !== 2 ||
+      ![1, 2].includes(task.files.length) ||
       task.files.some((file) => !validExpectedBatchFile(file)) ||
-      task.files.map((file) => file.name).sort().join(",") !== "TASK.md,TEST.md"
+      !["TASK.md", "TASK.md,TEST.md"].includes(task.files.map((file) => file.name).sort().join(","))
     ) {
       throw new TaskArtifactError(
         "TASK_BATCH_MANIFEST_INVALID",
@@ -953,14 +947,14 @@ function validateInitialJournalData(data, token) {
 function validOwnershipFiles(files) {
   return (
     Array.isArray(files) &&
-    files.length === 2 &&
+    [1, 2].includes(files.length) &&
     files.every(
       (file) =>
         exactObjectKeys(file, ["name", "identity"]) &&
         ["TASK.md", "TEST.md"].includes(file.name) &&
         validFilesystemIdentity(file.identity),
     ) &&
-    files.map((file) => file.name).sort().join(",") === "TASK.md,TEST.md"
+    ["TASK.md", "TASK.md,TEST.md"].includes(files.map((file) => file.name).sort().join(","))
   );
 }
 
@@ -1450,7 +1444,7 @@ async function proveRecordedTaskDirectory(
   const names = ownership.files.map((file) => file.name).sort();
   if (
     requireComplete &&
-    names.join(",") !== "TASK.md,TEST.md"
+    names.join(",") !== task.files.map((file) => file.name).sort().join(",")
   ) {
     throw new TaskArtifactError(
       "TASK_BATCH_OWNERSHIP_UNPROVEN",
@@ -1501,10 +1495,10 @@ async function captureStagedTaskOwnership(directory, task) {
   await assertDirectoryIdentityAndEntries(
     directory,
     directoryIdentity,
-    ["TASK.md", "TEST.md"],
+    task.files.map((file) => file.name),
   );
   const files = [];
-  for (const name of ["TASK.md", "TEST.md"]) {
+  for (const name of task.files.map((file) => file.name)) {
     const proof = await readRegularFileProof(path.join(directory, name));
     const expected = expectedTaskFile(task, name);
     if (!proofMatchesExpected(proof, expected)) {
@@ -1939,7 +1933,8 @@ export async function createTaskArtifactBatch({ tasksRoot, tasks, hooks = {} }) 
   const definitions = normalizeBatchTaskDefinitions(tasks);
   const root = await resolveExistingTaskRoot(tasksRoot);
   const planningRoot = root.resolved;
-  const planningBaseline = await captureTaskQueueSnapshot(planningRoot);
+  const dependencyIds = definitions.flatMap((task) => task.dependencies.filter((dependency) => dependency.kind === "EXISTING").map((dependency) => dependency.value));
+  const planningBaseline = await captureTaskQueueSnapshot(planningRoot, dependencyIds);
   const plan = prevalidateBatchPlan(
     planningRoot,
     planningBaseline.inventory,
@@ -1953,7 +1948,7 @@ export async function createTaskArtifactBatch({ tasksRoot, tasks, hooks = {} }) 
   const resolvedRoot = await ensureTasksRoot(planningRoot);
   const rootState = await bigintPathState(resolvedRoot);
   const rootIdentity = filesystemIdentity(rootState);
-  const baseline = await captureTaskQueueSnapshot(resolvedRoot);
+  const baseline = await captureTaskQueueSnapshot(resolvedRoot, dependencyIds);
   if (baseline.fingerprint !== planningBaseline.fingerprint) {
     throw new TaskArtifactError(
       "TASK_CREATION_CONFLICT",
@@ -2041,7 +2036,7 @@ export async function createTaskArtifactBatch({ tasksRoot, tasks, hooks = {} }) 
         task.taskMarkdown,
         { encoding: "utf8", flag: "wx" },
       );
-      await writeFile(
+      if (task.testMarkdown !== undefined) await writeFile(
         path.join(stagedTaskDirectory, "TEST.md"),
         task.testMarkdown,
         { encoding: "utf8", flag: "wx" },
@@ -2144,7 +2139,7 @@ export async function createTaskArtifactBatch({ tasksRoot, tasks, hooks = {} }) 
       for (const [name, content] of [
         ["TASK.md", task.taskMarkdown],
         ["TEST.md", task.testMarkdown],
-      ]) {
+      ].filter(([, content]) => content !== undefined)) {
         const finalPath = path.join(task.directory, name);
         await writeFile(finalPath, content, { encoding: "utf8", flag: "wx" });
         const proof = await readRegularFileProof(finalPath);
@@ -2222,7 +2217,7 @@ export async function createTaskArtifactBatch({ tasksRoot, tasks, hooks = {} }) 
           slug: task.slug,
           directory: task.directory,
           taskPath: task.taskPath,
-          testPath: task.testPath,
+          ...(task.testMarkdown === undefined ? {} : { testPath: task.testPath }),
           dependencies: task.resolvedDependencies,
           ...(task.releaseVersion
             ? { releaseVersion: task.releaseVersion }
@@ -2626,86 +2621,9 @@ export async function recoverTaskBatchTransaction({ tasksRoot, hooks = {} }) {
   }
 }
 
-export async function createTaskArtifacts({ tasksRoot, title, templateRoot, hooks = {} }) {
-  const normalizedTitle = normalizeTaskTitle(title);
-  const resolvedRoot = await ensureTasksRoot(tasksRoot);
-  const id = await allocateNextTaskId(resolvedRoot);
-  const slug = slugifyTaskTitle(normalizedTitle);
-  const directory = resolveTaskDirectory(resolvedRoot, id, slug);
-  const directoryName = path.basename(directory);
-  const stageDirectory = path.join(resolvedRoot, `${stagingPrefix}${directoryName}-${randomUUID()}.tmp`);
-  const lockPath = path.join(resolvedRoot, creationLockName);
-  const taskPath = path.join(directory, "TASK.md");
-  const testPath = path.join(directory, "TEST.md");
-
-  const [taskTemplate, testTemplate] = await Promise.all([
-    readCanonicalTemplate("TASK", templateRoot),
-    readCanonicalTemplate("TEST", templateRoot),
-  ]);
-  const templateValues = { TASK_ID: id, TASK_TITLE: normalizedTitle };
-  const taskMarkdown = renderTemplate(taskTemplate, templateValues);
-  const testMarkdown = renderTemplate(testTemplate, templateValues);
-  const contractErrors = validateTaskTestContract({ taskMarkdown, testMarkdown });
-  if (contractErrors.length > 0) {
-    throw new TaskArtifactError(
-      "INVALID_TASK_TEMPLATES",
-      `Rendered Task templates do not satisfy their contract:\n- ${contractErrors.join("\n- ")}`,
-    );
-  }
-
-  let lockHandle;
-  let published = false;
-  try {
-    await mkdir(stageDirectory);
-    await writeFile(path.join(stageDirectory, "TASK.md"), taskMarkdown, { encoding: "utf8", flag: "wx" });
-    if (hooks.afterTaskWrite) {
-      await hooks.afterTaskWrite({ stageDirectory, id, slug });
-    }
-    await writeFile(path.join(stageDirectory, "TEST.md"), testMarkdown, { encoding: "utf8", flag: "wx" });
-
-    try {
-      lockHandle = await open(lockPath, "wx");
-    } catch (error) {
-      if (error.code === "EEXIST") {
-        throw new TaskArtifactError(
-          "TASK_CREATION_LOCKED",
-          `Another Task creation or an unrecovered lock exists at ${lockPath}`,
-          { cause: error },
-        );
-      }
-      throw error;
-    }
-
-    const currentId = await allocateNextTaskId(resolvedRoot);
-    if (currentId !== id || (await pathState(directory))) {
-      throw new TaskArtifactError(
-        "TASK_CREATION_CONFLICT",
-        `Task ${id} was claimed before ${directoryName} could be published; retry allocation`,
-      );
-    }
-    await rename(stageDirectory, directory);
-    published = true;
-  } catch (error) {
-    if (!published) {
-      try {
-        await rm(stageDirectory, { recursive: true, force: true });
-      } catch (cleanupError) {
-        throw new TaskArtifactError(
-          "TASK_STAGE_CLEANUP_FAILED",
-          `Task creation failed and staged content could not be removed from ${stageDirectory}: ${cleanupError.message}`,
-          { cause: error },
-        );
-      }
-    }
-    if (error instanceof TaskArtifactError) {
-      throw error;
-    }
-    throw new TaskArtifactError("TASK_CREATION_FAILED", `Could not create Task ${id}: ${error.message}`, {
-      cause: error,
-    });
-  } finally {
-    await releaseCreationLock(lockHandle, lockPath);
-  }
-
-  return Object.freeze({ id, slug, directory, taskPath, testPath });
+export async function createTaskArtifacts({ tasksRoot, title, templateRoot, hooks = {}, detailedTests = false }) {
+  const taskMarkdown = await readCanonicalTemplate("TASK", templateRoot);
+  const testMarkdown = detailedTests ? await readCanonicalTemplate("TEST", templateRoot) : undefined;
+  const result = await createTaskArtifactBatch({ tasksRoot, tasks: [{ title, taskMarkdown, ...(testMarkdown ? { testMarkdown } : {}) }], hooks });
+  return result.tasks[0];
 }

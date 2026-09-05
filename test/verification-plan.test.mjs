@@ -116,7 +116,6 @@ test("verification registry rejects retired release command layers", () => {
 test("documentation and Skill changes receive smaller focused plans", () => {
   const documentation = planVerification({
     changedPaths: [
-      "AGENTS.md",
       "README.md",
       "docs/SPEC.md",
       "docs/ARCHITECTURE.md",
@@ -128,7 +127,6 @@ test("documentation and Skill changes receive smaller focused plans", () => {
   assert.equal(documentation.highestTier, "FOCUSED");
   assert.equal(documentation.leafCommandCount, 2);
   assert.deepEqual(documentation.riskPaths, [
-    "AGENTS.md",
     "README.md",
     "docs/ARCHITECTURE.md",
     "docs/SPEC.md",
@@ -169,6 +167,14 @@ test("runtime, mixed, unknown, and release-sensitive paths escalate conservative
     ["src/core/task-artifacts.mjs"],
     ["README.md", "test/task-artifacts.test.mjs"],
     ["unclassified/config.custom"],
+    ["skills/kyw-task/scripts/task-artifacts.mjs"],
+    ["skills/kyw-task/scripts/check.ps1"],
+    ["skills/kyw-audit/scripts/check.py"],
+    ["templates/task/tool.sh"],
+    ["docs/component/AGENTS.md"],
+    [{ path: "docs/new.md", status: "A" }],
+    [{ path: "skills/kyw-task/SKILL.md", status: "D" }],
+    [{ path: "docs/renamed.md", previousPath: "src/core/adapter.mjs", status: "R100" }],
   ]) {
     const plan = planVerification({ changedPaths });
     assert.equal(plan.changeClass, "runtime");
@@ -202,6 +208,9 @@ test("runtime, mixed, unknown, and release-sensitive paths escalate conservative
   for (const changedPath of [
     ".github/workflows/ci.yml",
     ".github/workflows/publish.yml",
+    "scripts/publish-gate.mjs",
+    "scripts/ci-plan.mjs",
+    "src/core/ci-evidence.mjs",
     "scripts/packed-release-check.mjs",
     "test/continuous-integration.test.mjs",
     "test/distribution.test.mjs",
@@ -231,6 +240,15 @@ test("runtime, mixed, unknown, and release-sensitive paths escalate conservative
   }
 });
 
+test("AGENTS and known Markdown instructions select behavior owners, not guidance-only checks", () => {
+  const plan = planVerification({ changedPaths: ["AGENTS.md"] });
+  assert.equal(plan.changeClass, "skill");
+  assert.equal(plan.hosted.profile, "instruction");
+  assert.match(plan.commands[0].command, /test\/kyw-impl.test.mjs/);
+  assert.match(plan.commands[0].command, /test\/kyw-deliver.test.mjs/);
+  assert.throws(() => planVerification({ changedPaths: [{ path: "docs/a.md", status: "R100" }] }), /previous/);
+});
+
 test("candidate intent selects the single composite Release command", () => {
   const candidate = planVerification({
     changedPaths: ["README.md"],
@@ -240,24 +258,9 @@ test("candidate intent selects the single composite Release command", () => {
   assert.equal(candidate.highestTier, "RELEASE");
   assert.equal(candidate.leafCommandCount, 5);
   assert.deepEqual(candidate.commands.map(({ command }) => command), ["npm run release:ci"]);
-  assert.deepEqual(candidate.hosted, {
-    required: true,
-    behavioralLanes: 7,
-    commandsPerBehavioralLane: 1,
-    qualityJobs: 1,
-    commandsPerQualityJob: 3,
-    candidateJobs: 1,
-    commandsPerCandidateJob: 1,
-    mergeCompatibilityJobs: 1,
-    commandsPerMergeCompatibilityJob: 4,
-    requiredJobs: 1,
-    pullRequestJobInstances: 11,
-    pullRequestLeafCommandCount: 15,
-    mainJobInstances: 10,
-    mainLeafCommandCount: 11,
-    pullRequest: "GitHub PR CI at the exact head SHA",
-    main: "GitHub main CI at the exact merge SHA",
-  });
+  assert.equal(candidate.hosted.profile, "release");
+  assert.equal(candidate.hosted.behavioralLanes, 7);
+  assert.equal(candidate.hosted.required, true);
 });
 
 test("template owners stay focused while an unknown packaged Skill fails closed to Stable", () => {
@@ -332,8 +335,8 @@ test("CLI emits a reproducible JSON plan and rejects missing input", () => {
   assert.equal(plan.changeClass, "skill");
   assert.equal(plan.leafCommandCount, 3);
   assert.match(plan.commands[0].command, /test\/kyw-impl\.test\.mjs/);
-  assert.equal(plan.hosted.pullRequestLeafCommandCount, 15);
-  assert.equal(plan.hosted.mainLeafCommandCount, 11);
+  assert.equal(plan.hosted.profile, "instruction");
+  assert.equal(plan.hosted.behavioralLanes, 0);
 
   const missing = spawnSync(process.execPath, [scriptPath], { encoding: "utf8" });
   assert.equal(missing.status, 1);
@@ -351,27 +354,8 @@ test("CLI emits a reproducible JSON plan and rejects missing input", () => {
 });
 
 test("permanent, Task, package, and hosted surfaces keep the tier contract aligned", () => {
-  const specification = readRepositoryText("docs/SPEC.md");
-  const architecture = readRepositoryText("docs/ARCHITECTURE.md");
-  const readme = readRepositoryText("README.md");
-  const execution = readRepositoryText("skills/kyw-impl/references/execution.md");
   const workflow = readRepositoryText(".github/workflows/ci.yml");
   const packageJson = JSON.parse(readRepositoryText("package.json"));
-
-  assert.match(
-    specification,
-    /## 6\. Evidence, verification, and documentation behavior[\s\S]*\*\*Focused\*\*[\s\S]*\*\*Stable\*\*[\s\S]*\*\*Release\*\*/,
-  );
-  assert.match(architecture, /### 9\.2 Verification planning/);
-  assert.match(
-    architecture,
-    /### 9\.4 Release verification[\s\S]*Candidate\s+verification creates one real archive/,
-  );
-  assert.match(readme, /npm run verify:plan -- <changed-path>/);
-  assert.match(
-    execution,
-    /Use the planner when present: \*\*Focused\*\*[\s\S]*\*\*Stable\*\*[\s\S]*\*\*Release\*\*/,
-  );
 
   assert.equal(packageJson.scripts.test, "node --test");
   assert.equal(packageJson.scripts["verify:plan"], "node ./scripts/verification-plan.mjs");

@@ -47,7 +47,7 @@ const forbiddenLifecycleScripts = [
   "postpublish",
 ];
 
-test("release metadata selects 0.2.1 while publication remains an exact delivery command", () => {
+test("release metadata stays unchanged while PR and public release are separate actions", () => {
   const packageJson = JSON.parse(readFileSync(join(repositoryRoot, "package.json"), "utf8"));
   const pluginJson = JSON.parse(
     readFileSync(join(repositoryRoot, ".codex-plugin", "plugin.json"), "utf8"),
@@ -102,7 +102,6 @@ test("release metadata selects 0.2.1 while publication remains an exact delivery
   assert.equal(pluginJson.interface.developerName, packageJson.author.name);
   assert.equal(pluginJson.interface.websiteURL, RELEASE_METADATA.repositoryWebUrl);
   assert.deepEqual(pluginJson.interface.capabilities, ["Interactive", "Write"]);
-  assert.match(pluginJson.interface.longDescription, /public release in one exact command/);
   assert.deepEqual(
     readdirSync(join(repositoryRoot, "skills"), { withFileTypes: true })
       .filter((entry) => entry.isDirectory() && !entry.isSymbolicLink())
@@ -124,7 +123,7 @@ test("release metadata selects 0.2.1 while publication remains an exact delivery
   );
   assert.match(
     pluginJson.interface.defaultPrompt[3],
-    /\$kyw-deliver 0001.*finish STANDARD.*same invocation.*npm→tag→Release.*eligible contract 4/,
+    /\$kyw-deliver 0001.*PR/,
   );
   assert.doesNotMatch(JSON.stringify(pluginJson.interface), /--public-release/);
   assert.match(

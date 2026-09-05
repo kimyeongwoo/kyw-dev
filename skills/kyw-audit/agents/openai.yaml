@@ -1,7 +1,6 @@
 interface:
-  display_name: "kyw Audit"
-  short_description: "Audit one Task read-only unless --fix is explicit"
-  default_prompt: "Use $kyw-audit with a four-digit Task ID to audit one kyw-dev Task without modifying the repository."
-
+  display_name: "kyw audit"
+  short_description: "Review evidence and scope independently"
+  default_prompt: "Use $kyw-audit 0001 to audit the selected Task while preserving original files."
 policy:
   allow_implicit_invocation: false

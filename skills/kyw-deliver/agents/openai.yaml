@@ -1,7 +1,6 @@
 interface:
-  display_name: "kyw Deliver"
-  short_description: "Deliver STANDARD through its release"
-  default_prompt: "Use exact $kyw-deliver NNNN to resume STANDARD and its eligible npm→tag→Release sequence."
-
+  display_name: "kyw deliver"
+  short_description: "Prepare a PR, explicitly merge or release"
+  default_prompt: "Use $kyw-deliver 0001 to prepare the selected Task PR."
 policy:
   allow_implicit_invocation: false

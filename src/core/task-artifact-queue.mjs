@@ -3,10 +3,9 @@ import path from "node:path";
 
 import {
   getTaskContractVersion,
-  isImmutableTerminalTaskContractVersion,
   isQueueAwareTaskContractVersion,
-  isStableReleaseVersion,
-  RELEASE_BEARING_TASK_CONTRACT_VERSION,
+  SINGLE_TASK_CONTRACT_VERSION,
+  TASK_TEST_STATUS_PAIRS,
   validateTaskTestContract,
 } from "./template-contracts.mjs";
 import {
@@ -27,7 +26,6 @@ import {
   taskSummary,
 } from "./task-artifact-contract.mjs";
 import {
-  classifyDeliveryEvidence,
   evaluateTaskExecutionPreflight,
   parseTaskInvocation,
 } from "./task-artifact-delivery.mjs";
@@ -50,15 +48,16 @@ export function parseTaskQueueMarkdownPair({
     (message) => `${entry.name}: ${message}`,
   );
   const taskId = /^# TASK (\d{4}) — (.+)$/m.exec(taskMarkdown);
-  const testId = /^# TEST (\d{4}) — (.+)$/m.exec(testMarkdown);
-  if (taskId?.[1] !== entry.id || testId?.[1] !== entry.id) {
+  const testId = /^# TEST (\d{4}) — (.+)$/m.exec(testMarkdown ?? "");
+  const single = getTaskContractVersion(taskMarkdown) === SINGLE_TASK_CONTRACT_VERSION;
+  if (taskId?.[1] !== entry.id || (!single && testId?.[1] !== entry.id)) {
     errors.push(
       `${entry.name}: directory ID ${entry.id} must match TASK.md and TEST.md headers (${taskId?.[1] ?? "<missing>"}/${testId?.[1] ?? "<missing>"})`,
     );
   }
   const contractVersion = getTaskContractVersion(taskMarkdown);
   const taskStatus = firstSectionLine(taskMarkdown, "Status");
-  const testStatus = firstSectionLine(testMarkdown, "Status");
+  const testStatus = single ? TASK_TEST_STATUS_PAIRS.find(([status]) => status === taskStatus)?.[1] : firstSectionLine(testMarkdown, "Status");
   const deliveryRequirement = parseDeliveryRequirement(
     taskMarkdown,
     contractVersion,
@@ -112,7 +111,7 @@ async function readTaskQueueEntry(tasksRoot, entry) {
     [directoryState, taskState, testState] = await Promise.all([
       lstat(directory),
       lstat(taskPath),
-      lstat(testPath),
+      lstat(testPath).catch((error) => { if (error.code === "ENOENT") return undefined; throw error; }),
     ]);
   } catch (error) {
     return {
@@ -127,7 +126,7 @@ async function readTaskQueueEntry(tasksRoot, entry) {
   if (taskState.isSymbolicLink() || !taskState.isFile()) {
     unsafePaths.push("TASK.md");
   }
-  if (testState.isSymbolicLink() || !testState.isFile()) {
+  if (testState && (testState.isSymbolicLink() || !testState.isFile())) {
     unsafePaths.push("TEST.md");
   }
   if (unsafePaths.length > 0) {
@@ -144,7 +143,7 @@ async function readTaskQueueEntry(tasksRoot, entry) {
   try {
     [taskMarkdown, testMarkdown] = await Promise.all([
       readFile(taskPath, "utf8"),
-      readFile(testPath, "utf8"),
+      testState ? readFile(testPath, "utf8") : undefined,
     ]);
   } catch (error) {
     return {
@@ -204,38 +203,30 @@ export function dependencyGraphErrors(tasks, byId) {
   }
   errors.push(...cycles);
 
-  const releaseVersionClaims = new Map();
-  for (const task of currentTasks) {
-    if (
-      task.contractVersion !== RELEASE_BEARING_TASK_CONTRACT_VERSION ||
-      task.deliveryRequirement?.kind !== "STANDARD" ||
-      !isStableReleaseVersion(task.deliveryRequirement?.releaseVersion)
-    ) {
-      continue;
-    }
-    const releaseVersion = task.deliveryRequirement.releaseVersion;
-    const claimedBy = releaseVersionClaims.get(releaseVersion);
-    if (claimedBy) {
-      errors.push(
-        `Release version ${releaseVersion} is claimed by both Task ${claimedBy} and Task ${task.id}`,
-      );
-    } else {
-      releaseVersionClaims.set(releaseVersion, task.id);
-    }
-  }
   return errors;
 }
 
-export async function inspectTaskQueueContents(tasksRoot) {
+export async function inspectTaskQueueContents(tasksRoot, { selectedTaskId, selectedTaskIds } = {}) {
   const inventory = await inspectTaskDirectories(tasksRoot);
   const errors = [...inventory.malformed];
   for (const conflict of inventory.conflicts) {
     errors.push(`Task ID ${conflict.id} is used by: ${conflict.names.join(", ")}`);
   }
 
-  const records = await Promise.all(
-    inventory.entries.map((entry) => readTaskQueueEntry(tasksRoot, entry)),
-  );
+  const records = [];
+  const targeted = selectedTaskId !== undefined || selectedTaskIds !== undefined;
+  const pending = selectedTaskIds ? [...selectedTaskIds] : selectedTaskId ? [selectedTaskId] : inventory.entries.map((entry) => entry.id);
+  const inspected = new Set();
+  while (pending.length) {
+    const id = pending.shift();
+    if (inspected.has(id)) continue;
+    inspected.add(id);
+    const entry = inventory.entries.find((candidate) => candidate.id === id);
+    if (!entry) continue;
+    const record = await readTaskQueueEntry(tasksRoot, entry);
+    records.push(record);
+    if (targeted && record.task) pending.push(...record.task.dependencies);
+  }
   const tasks = [];
   for (const record of records) {
     errors.push(...record.errors);
@@ -254,7 +245,7 @@ export async function inspectTaskQueueContents(tasksRoot) {
   });
 }
 
-export async function inspectTaskQueue(tasksRoot) {
+export async function inspectTaskQueue(tasksRoot, options = {}) {
   try {
     const rootState = await lstat(tasksRoot);
     if (rootState.isSymbolicLink()) {
@@ -291,817 +282,86 @@ export async function inspectTaskQueue(tasksRoot) {
       currentTasks: Object.freeze([]),
     });
   }
-  return inspectTaskQueueContents(tasksRoot);
+  return inspectTaskQueueContents(tasksRoot, options);
 }
 
 function blockedResult(code, message, details = {}) {
   return Object.freeze({ outcome: "BLOCKED", code, message, ...details });
 }
 
-function isReleaseBearingStandardTask(task) {
-  return (
-    task?.contractVersion === RELEASE_BEARING_TASK_CONTRACT_VERSION &&
-    task?.deliveryRequirement?.kind === "STANDARD" &&
-    isStableReleaseVersion(task.deliveryRequirement.releaseVersion)
-  );
-}
-
-function isPublicReleaseInvocation(parsedInvocation, task) {
-  return (
-    parsedInvocation?.recognized === true &&
-    parsedInvocation.route === "DELIVERY" &&
-    parsedInvocation.mode === "EXACT" &&
-    parsedInvocation.source === "PORTABLE_SKILL" &&
-    isReleaseBearingStandardTask(task)
-  );
-}
-
-function publicReleaseResult(
-  result,
-  parsedInvocation,
-  task,
-  {
-    authorized = false,
-    state = "BLOCKED",
-    nextStage = "STANDARD_FINAL",
-  } = {},
-) {
-  if (!isPublicReleaseInvocation(parsedInvocation, task)) return result;
-  return Object.freeze({
-    ...result,
-    deliveryMode: "PUBLIC_RELEASE",
-    publicReleaseAuthorized: authorized,
-    publicWriteAuthorized: false,
-    publicReleaseState: state,
-    publicReleaseNextStage: nextStage,
-  });
-}
-
-function deliveryClassification(task, deliveryState) {
-  if (task.deliveryRequirement.kind !== "STANDARD") {
-    return Object.freeze({ disposition: "SATISFIED", issues: Object.freeze([]) });
-  }
-  return classifyDeliveryEvidence(
-    task.id,
-    deliveryState.ledger?.[task.id],
-    deliveryState.expectations?.[task.id],
-  );
-}
-
-function deliveryBlockers(task, deliveryState) {
-  const classification = deliveryClassification(task, deliveryState);
-  if (classification.disposition === "SATISFIED") {
-    return [];
-  }
-  if (classification.disposition === "RESUMABLE") {
-    return [`Task ${task.id} delivery is resumable but not yet satisfied`];
-  }
-  return classification.issues.map((issue) => `Task ${task.id} delivery: ${issue}`);
-}
-
-function completionBlockers(task, byId, deliveryState, visited = new Set()) {
-  if (visited.has(task.id)) {
-    return [];
-  }
+function dependencyBlockers(task, byId, present, visited = new Set()) {
+  const blockers = [];
+  if (visited.has(task.id)) return blockers;
   visited.add(task.id);
-  if (blockedTask(task)) {
-    return [`Task ${task.id} is BLOCKED: ${task.blocker}`];
-  }
-  if (cancelledTask(task)) {
-    return [`Task ${task.id} is CANCELLED and cannot satisfy a hard dependency`];
-  }
-  if (!completeTask(task)) {
-    return [`Task ${task.id} is not repository-complete (${task.taskStatus}/${task.testStatus})`];
-  }
-
-  const blockers = [...deliveryBlockers(task, deliveryState)];
-  for (const dependencyId of task.dependencies) {
-    const dependency = byId.get(dependencyId);
-    if (!dependency) {
-      blockers.push(`Task ${task.id} references missing hard dependency Task ${dependencyId}`);
-      continue;
-    }
-    blockers.push(...completionBlockers(dependency, byId, deliveryState, visited));
+  for (const id of task.dependencies) {
+    if (present.has(id)) continue;
+    const dependency = byId.get(id);
+    if (!dependency || !completeTask(dependency)) {
+      blockers.push(`Required result from Task ${id} is not available in this worktree`);
+    } else blockers.push(...dependencyBlockers(dependency, byId, present, visited));
   }
   return blockers;
 }
 
-function selectionBlockers(task, byId, deliveryState) {
-  const blockers = [];
-  for (const dependencyId of task.dependencies) {
-    const dependency = byId.get(dependencyId);
-    if (!dependency) {
-      blockers.push(`Task ${task.id} references missing hard dependency Task ${dependencyId}`);
-      continue;
-    }
-    blockers.push(...completionBlockers(dependency, byId, deliveryState));
-  }
-  return blockers;
-}
-
-function terminalGateBlockers(task, byId, deliveryState) {
-  return [
-    ...selectionBlockers(task, byId, deliveryState),
-    ...(cancelledTask(task) ? [] : deliveryBlockers(task, deliveryState)),
-  ];
-}
-
-function priorTransitionBlockers(task, currentTasks, byId, deliveryState) {
-  if (!isQueueAwareTaskContractVersion(task.contractVersion)) {
-    return [];
-  }
-  const blockers = [];
-  for (const prior of currentTasks) {
-    if (prior.number >= task.number || (!completeTask(prior) && !cancelledTask(prior))) {
-      continue;
-    }
-    for (const blocker of terminalGateBlockers(prior, byId, deliveryState)) {
-      blockers.push(`Cannot advance past Task ${prior.id}: ${blocker}`);
-    }
-  }
-  return blockers;
-}
-
-function queueSelectionBlockers(task, currentTasks, byId, deliveryState) {
-  return [
-    ...selectionBlockers(task, byId, deliveryState),
-    ...priorTransitionBlockers(task, currentTasks, byId, deliveryState),
-  ];
-}
-
-function selectionBlockedResult(task, blockers, parsedInvocation) {
-  const pendingDeliveryTaskId = blockers
-    .map((blocker) => /Task (\d{4}) delivery is resumable/.exec(blocker)?.[1])
-    .find(Boolean);
-  if (pendingDeliveryTaskId) {
-    const deliveryCommand = `$kyw-deliver ${pendingDeliveryTaskId}`;
-    return blockedResult(
-      "STANDARD_DELIVERY_REQUIRED",
-      `다음 단계: ${deliveryCommand}`,
-      {
-        task: taskSummary(task),
-        route: parsedInvocation?.route ?? "IMPLEMENTATION",
-        deliveryTaskId: pendingDeliveryTaskId,
-        deliveryCommand,
-        mutationRequired: false,
-      },
-    );
-  }
-  const priorTransitionBlocked = blockers.some((blocker) =>
-    blocker.startsWith("Cannot advance past Task "),
-  );
-  return blockedResult(
-    priorTransitionBlocked ? "QUEUE_TRANSITION_BLOCKED" : "UNSATISFIED_DEPENDENCY",
-    blockers.join("; "),
-    {
-      task: taskSummary(task),
-      ...(parsedInvocation ? { route: parsedInvocation.route } : {}),
-    },
-  );
-}
-
-function selectedResult(
-  task,
-  parsedInvocation,
-  requestedAction,
-  deliveryEvidence,
-) {
-  const action =
-    requestedAction ??
-    (blockedTask(task)
-      ? "RECHECK_BLOCKER"
-      : activeTask(task)
-        ? "RESUME"
-        : "IMPLEMENT");
-  const publicRelease = isPublicReleaseInvocation(parsedInvocation, task);
-  const lifecycleSelection = [
-    "IMPLEMENT",
-    "RESUME",
-    "DELIVER",
-    "PUBLIC_RELEASE",
-  ].includes(action);
-  const standardDeliveryAuthorized =
-    lifecycleSelection &&
-    parsedInvocation.route === "DELIVERY" &&
-    action === "DELIVER" &&
-    task.deliveryRequirement.kind === "STANDARD";
+function selectedResult(task, invocation) {
   return Object.freeze({
-    outcome: "SELECTED",
-    route: parsedInvocation.route,
-    mode: parsedInvocation.mode,
-    action,
-    confirmation: readyTask(task),
-    continuous: parsedInvocation.mode === "CONTINUOUS",
-    task: taskSummary(task),
-    ...(lifecycleSelection
-      ? {
-          authoritySource: "RECOGNIZED_TASK_INVOCATION",
-          authorityScope: publicRelease
-            ? "PUBLIC_RELEASE"
-            : standardDeliveryAuthorized
-              ? "STANDARD_DELIVERY"
-              : "REPOSITORY_LIFECYCLE",
-          standardDeliveryAuthorized,
-          ceremonialConfirmationRequired: false,
-          separateAuthorityBoundary: publicRelease
-            ? "OUT_OF_SCOPE_EXTERNAL_MUTATIONS"
-            : "NON_STANDARD_EXTERNAL_MUTATIONS",
-        }
-      : {}),
-    ...(publicRelease
-      ? {
-          deliveryMode: "PUBLIC_RELEASE",
-          publicReleaseAuthorized: true,
-          publicWriteAuthorized: false,
-          publicReleaseState:
-            action === "PUBLIC_RELEASE" ? "READY" : "STANDARD_PENDING",
-          publicReleaseNextStage:
-            action === "PUBLIC_RELEASE"
-              ? "PUBLIC_PREFLIGHT"
-              : "STANDARD_DELIVERY",
-        }
-      : {}),
-    ...(action === "DELIVER"
-      ? {
-          deliveryDisposition: "RESUMABLE",
-          deliveryClassification: deliveryEvidence?.classification ?? "PENDING",
-          actualHeadEvidence: deliveryEvidence?.actualHead ?? "UNVERIFIED",
-          mergeCompatibilityEvidence:
-            deliveryEvidence?.mergeCompatibility ?? "UNVERIFIED",
-          postMergeEvidence: deliveryEvidence?.postMerge ?? "UNVERIFIED",
-          message: `Task ${task.id} is repository-complete; the exact $kyw-deliver route authorizes resuming STANDARD delivery without ceremonial reconfirmation.`,
-        }
-      : {}),
-    ...(action === "PUBLIC_RELEASE"
-      ? {
-          deliveryDisposition: "SATISFIED",
-          deliveryClassification: deliveryEvidence?.classification,
-          actualHeadEvidence: deliveryEvidence?.actualHead,
-          mergeCompatibilityEvidence: deliveryEvidence?.mergeCompatibility,
-          postMergeEvidence: deliveryEvidence?.postMerge,
-          message: `Task ${task.id} has a freshly revalidated FINAL STANDARD graph; public-release state preflight is the next read-only stage.`,
-        }
-      : {}),
-    ...(blockedTask(task) ? { blocker: task.blocker } : {}),
-    overrideText: parsedInvocation.overrideText,
-    overrideScope: parsedInvocation.overrideScope,
+    outcome: "SELECTED", route: invocation.route, mode: invocation.mode, continuous: invocation.mode === "CONTINUOUS",
+    action: invocation.route === "DELIVERY" ? invocation.action : activeTask(task) || blockedTask(task) ? "RESUME" : "IMPLEMENT",
+    task: taskSummary(task), mutationRequired: true,
+    overrideText: invocation.overrideText, overrideScope: invocation.overrideScope,
+    mergeAuthorized: invocation.action === "MERGE", publicWriteAuthorized: false,
   });
-}
-
-function deliveryEvidenceBlockedResult(task, classification, parsedInvocation) {
-  const deliveryCommand = `$kyw-deliver ${task.id}`;
-  return blockedResult(
-    classification.blockerCode ?? "DELIVERY_EVIDENCE_INVALID",
-    classification.issues.map((issue) => `Task ${task.id} delivery: ${issue}`).join("; "),
-    {
-      task: taskSummary(task),
-      deliveryDisposition: "BLOCKED",
-      deliveryClassification: classification.classification,
-      actualHeadEvidence: classification.actualHead,
-      mergeCompatibilityEvidence: classification.mergeCompatibility,
-      postMergeEvidence: classification.postMerge,
-      issues: classification.issues,
-      ...(parsedInvocation
-        ? {
-            route: parsedInvocation.route,
-            ...(parsedInvocation.route === "IMPLEMENTATION"
-              ? { deliveryCommand }
-              : {}),
-          }
-        : {}),
-    },
-  );
-}
-
-function implementationDeliveryRequiredResult(
-  task,
-  parsedInvocation,
-  classification,
-  { terminal = false } = {},
-) {
-  const deliveryCommand = `$kyw-deliver ${task.id}`;
-  return Object.freeze({
-    outcome: terminal ? "TERMINAL" : "BLOCKED",
-    code: "STANDARD_DELIVERY_REQUIRED",
-    message: `다음 단계: ${deliveryCommand}`,
-    route: "IMPLEMENTATION",
-    task: taskSummary(task),
-    deliveryTaskId: task.id,
-    deliveryCommand,
-    deliveryDisposition: "RESUMABLE",
-    deliveryClassification: classification.classification,
-    actualHeadEvidence: classification.actualHead,
-    mergeCompatibilityEvidence: classification.mergeCompatibility,
-    postMergeEvidence: classification.postMerge,
-    mutationRequired: false,
-    overrideText: parsedInvocation.overrideText,
-    overrideScope: parsedInvocation.overrideScope,
-  });
-}
-
-function terminalTaskResult(
-  task,
-  byId,
-  deliveryState,
-  parsedInvocation,
-  overrideClassification,
-) {
-  if (completeTask(task)) {
-    const dependencyBlockers = selectionBlockers(task, byId, deliveryState);
-    if (dependencyBlockers.length > 0) {
-      return blockedResult(
-        "UNSATISFIED_DEPENDENCY",
-        dependencyBlockers.join("; "),
-        { task: taskSummary(task) },
-      );
-    }
-    const classification = deliveryClassification(task, deliveryState);
-    if (classification.disposition === "RESUMABLE") {
-      return implementationDeliveryRequiredResult(
-        task,
-        parsedInvocation,
-        classification,
-        { terminal: true },
-      );
-    }
-    if (classification.disposition === "BLOCKED") {
-      return deliveryEvidenceBlockedResult(task, classification, parsedInvocation);
-    }
-    const immutableTerminal = isImmutableTerminalTaskContractVersion(
-      task.contractVersion,
-    );
-    const correctionIntent =
-      immutableTerminal &&
-      Boolean(parsedInvocation.overrideText?.trim()) &&
-      overrideClassification !== "NO_TASK_OVERRIDE";
-    const correctionRoute = '$kyw-task "<correction outcome>"';
-    return Object.freeze({
-      outcome: "TERMINAL",
-      route: parsedInvocation.route,
-      code: correctionIntent
-        ? "TASK_CORRECTION_REQUIRES_NEW_TASK"
-        : "TASK_COMPLETE",
-      message: immutableTerminal
-        ? correctionIntent
-          ? `Task ${task.id} is canonically delivered and its terminal Task/Test pair is immutable. Use ${correctionRoute}; the new correction Task must hard-depend on Task ${task.id}.`
-          : `Task ${task.id} is canonically delivered; this invocation is report-only and the immutable terminal Task/Test pair remains unchanged. Later corrections use ${correctionRoute} with a hard dependency on Task ${task.id}.`
-        : `Task ${task.id} is repository-complete and required delivery is satisfied.`,
-      task: taskSummary(task),
-      deliveryDisposition: "SATISFIED",
-      deliveryClassification: classification.classification,
-      actualHeadEvidence: classification.actualHead,
-      mergeCompatibilityEvidence: classification.mergeCompatibility,
-      postMergeEvidence: classification.postMerge,
-      mutationRequired: false,
-      overrideText: parsedInvocation.overrideText,
-      overrideScope: parsedInvocation.overrideScope,
-      overrideClassification,
-      ...(immutableTerminal
-        ? {
-            terminalPairImmutable: true,
-            correctionRoute,
-            correctionDependencyTaskId: task.id,
-          }
-        : {}),
-    });
-  }
-  if (blockedTask(task)) {
-    return blockedResult(
-      "TASK_BLOCKED",
-      `Task ${task.id} is BLOCKED: ${task.blocker}`,
-      { task: taskSummary(task) },
-    );
-  }
-  if (cancelledTask(task)) {
-    const dependencyBlockers = selectionBlockers(task, byId, deliveryState);
-    if (dependencyBlockers.length > 0) {
-      return blockedResult(
-        "UNSATISFIED_DEPENDENCY",
-        dependencyBlockers.join("; "),
-        { task: taskSummary(task) },
-      );
-    }
-    return Object.freeze({
-      outcome: "TERMINAL",
-      route: parsedInvocation.route,
-      code: "TASK_CANCELLED",
-      message: `Task ${task.id} is CANCELLED and required delivery is satisfied.`,
-      task: taskSummary(task),
-    });
-  }
-  return blockedResult(
-    "TASK_NOT_SELECTABLE",
-    `Task ${task.id} is not selectable (${task.taskStatus}/${task.testStatus}).`,
-    { task: taskSummary(task) },
-  );
-}
-
-function automaticTerminalResult(currentTasks, byId, deliveryState, parsedInvocation) {
-  const frontier = currentTasks.at(-1);
-  const incomplete = currentTasks.find((task) => !completeTask(task));
-  if (incomplete) {
-    if (blockedTask(incomplete)) {
-      const frontierBlocked = incomplete.id === frontier.id;
-      return blockedResult(
-        frontierBlocked ? "QUEUE_FRONTIER_BLOCKED" : "QUEUE_TRANSITION_BLOCKED",
-        frontierBlocked
-          ? `Task ${incomplete.id} is the current queue frontier and is BLOCKED: ${incomplete.blocker}`
-          : `Task ${incomplete.id} is BLOCKED and the current queue is not complete: ${incomplete.blocker}`,
-        { task: taskSummary(incomplete) },
-      );
-    }
-    if (cancelledTask(incomplete)) {
-      return terminalTaskResult(incomplete, byId, deliveryState, parsedInvocation);
-    }
-    return blockedResult(
-      "NO_SELECTABLE_TASK",
-      `No READY or active Task exists; current Task ${incomplete.id} is ${incomplete.taskStatus}/${incomplete.testStatus}.`,
-      { task: taskSummary(incomplete) },
-    );
-  }
-
-  for (const task of currentTasks) {
-    const dependencyBlockers = selectionBlockers(task, byId, deliveryState);
-    if (dependencyBlockers.length > 0) {
-      return blockedResult("UNSATISFIED_DEPENDENCY", dependencyBlockers.join("; "), {
-        task: taskSummary(task),
-      });
-    }
-    const classification = deliveryClassification(task, deliveryState);
-    if (classification.disposition === "RESUMABLE") {
-      return implementationDeliveryRequiredResult(
-        task,
-        parsedInvocation,
-        classification,
-      );
-    }
-    if (classification.disposition === "BLOCKED") {
-      return deliveryEvidenceBlockedResult(task, classification, parsedInvocation);
-    }
-  }
-
-  return Object.freeze({
-    outcome: "NO_WORK",
-    code: "ALL_TASKS_COMPLETE",
-    message: ALL_TASKS_COMPLETE_MESSAGE,
-    task: taskSummary(frontier),
-    deliveryDisposition: "SATISFIED",
-    mutationRequired: false,
-  });
-}
-
-function exactDeliveryResult(
-  task,
-  active,
-  currentTasks,
-  byId,
-  deliveryState,
-  parsedInvocation,
-) {
-  const publicRelease = isPublicReleaseInvocation(parsedInvocation, task);
-  if (active.length === 1 && active[0].id !== task.id) {
-    return publicReleaseResult(
-      blockedResult(
-        "ANOTHER_TASK_ACTIVE",
-        `Task ${active[0].id} is active; Task ${task.id} cannot be delivered while implementation is active.`,
-        { route: "DELIVERY", task: taskSummary(active[0]) },
-      ),
-      parsedInvocation,
-      task,
-    );
-  }
-  if (!completeTask(task)) {
-    return publicReleaseResult(
-      blockedResult(
-        "TASK_NOT_DELIVERABLE",
-        `Task ${task.id} is not repository-complete (${task.taskStatus}/${task.testStatus}); $kyw-deliver accepts only DONE/PASSED Tasks.`,
-        { route: "DELIVERY", task: taskSummary(task), mutationRequired: false },
-      ),
-      parsedInvocation,
-      task,
-    );
-  }
-  if (task.deliveryRequirement.kind !== "STANDARD") {
-    return publicReleaseResult(
-      blockedResult(
-        "DELIVERY_NOT_REQUIRED",
-        `Task ${task.id} declares reasoned NONE delivery; $kyw-deliver applies only to STANDARD delivery.`,
-        { route: "DELIVERY", task: taskSummary(task), mutationRequired: false },
-      ),
-      parsedInvocation,
-      task,
-    );
-  }
-  const blockers = queueSelectionBlockers(
-    task,
-    currentTasks,
-    byId,
-    deliveryState,
-  );
-  if (blockers.length > 0) {
-    return publicReleaseResult(
-      selectionBlockedResult(task, blockers, parsedInvocation),
-      parsedInvocation,
-      task,
-    );
-  }
-  const classification = deliveryClassification(task, deliveryState);
-  if (classification.disposition === "RESUMABLE") {
-    return selectedResult(task, parsedInvocation, "DELIVER", classification);
-  }
-  if (classification.disposition === "BLOCKED") {
-    return publicReleaseResult(
-      deliveryEvidenceBlockedResult(task, classification, parsedInvocation),
-      parsedInvocation,
-      task,
-      { authorized: true },
-    );
-  }
-  if (publicRelease) {
-    const entry = deliveryState.ledger?.[task.id];
-    const expectation = deliveryState.expectations?.[task.id];
-    const finalHardenedGraph =
-      entry?.schemaVersion === 2 &&
-      entry?.claim === "FINAL" &&
-      expectation?.deliveryContract?.kind === "HARDENED_EXACT_HEAD" &&
-      classification.classification === "HARDENED_EXACT_HEAD" &&
-      classification.actualHead === "VERIFIED" &&
-      classification.mergeCompatibility === "VERIFIED_SYNTHETIC" &&
-      classification.postMerge === "VERIFIED_EXACT_CHECKOUT";
-    if (!finalHardenedGraph) {
-      return publicReleaseResult(
-        blockedResult(
-          "PUBLIC_RELEASE_STANDARD_FINAL_REQUIRED",
-          `Task ${task.id} public release requires a freshly evaluator-satisfied HARDENED_EXACT_HEAD FINAL graph with exact post-main evidence.`,
-          {
-            route: "DELIVERY",
-            task: taskSummary(task),
-            deliveryDisposition: "BLOCKED",
-            deliveryClassification: classification.classification,
-            actualHeadEvidence: classification.actualHead,
-            mergeCompatibilityEvidence: classification.mergeCompatibility,
-            postMergeEvidence: classification.postMerge,
-            mutationRequired: false,
-          },
-        ),
-        parsedInvocation,
-        task,
-        { authorized: true },
-      );
-    }
-    return selectedResult(
-      task,
-      parsedInvocation,
-      "PUBLIC_RELEASE",
-      classification,
-    );
-  }
-  return terminalTaskResult(
-    task,
-    byId,
-    deliveryState,
-    parsedInvocation,
-    "NO_TASK_OVERRIDE",
-  );
 }
 
 export async function resolveTaskDispatch({
-  tasksRoot,
-  invocation,
-  managedRoutingAvailable = false,
-  deliveryLedger = {},
-  deliveryExpectations = {},
-  executionPreflight = {},
-  parsedInvocation: suppliedParsedInvocation,
+  tasksRoot, invocation, managedRoutingAvailable = false, executionPreflight = {},
+  availableDependencyTaskIds = [], parsedInvocation: suppliedParsedInvocation,
 }) {
-  const parsedInvocation =
-    suppliedParsedInvocation ??
-    parseTaskInvocation(invocation, { managedRoutingAvailable });
-  if (!parsedInvocation.recognized) {
-    if (parsedInvocation.route === "DELIVERY") {
-      return Object.freeze({
-        outcome: "NOT_TASK_INVOCATION",
-        code: "NO_ANCHORED_DELIVERY_COMMAND",
-        message: "$kyw-deliver accepts only the exact form $kyw-deliver NNNN.",
-        route: "DELIVERY",
-        mutationRequired: false,
+  const parsed = suppliedParsedInvocation ?? parseTaskInvocation(invocation, { managedRoutingAvailable });
+  if (!parsed.recognized) return Object.freeze({
+    outcome: "NOT_TASK_INVOCATION", code: "NO_ANCHORED_TASK_COMMAND", mutationRequired: false,
+  });
+  if (parsed.mode === "FALLBACK_REQUIRED") return Object.freeze({
+    outcome: "FALLBACK_REQUIRED", code: "MANAGED_ROUTING_UNAVAILABLE",
+    message: parsed.message, portableFallback: parsed.portableFallback,
+  });
+  const preflight = evaluateTaskExecutionPreflight(executionPreflight);
+  if (!preflight.safe) return blockedResult("PREFLIGHT_BLOCKED", preflight.issues.join("; "), { preflightIssues: preflight.issues });
+  if (parsed.action === "PUBLIC_RELEASE") return Object.freeze({
+    outcome: "SELECTED", route: "DELIVERY", action: "PUBLIC_RELEASE",
+    releaseVersion: parsed.releaseVersion, releaseSha: parsed.releaseSha,
+    publicWriteAuthorized: false, mutationRequired: false,
+  });
+  const queue = await inspectTaskQueue(tasksRoot, { selectedTaskId: parsed.mode === "EXACT" ? parsed.taskId : undefined });
+  if (queue.errors.length) return blockedResult("INVALID_TASK_QUEUE", queue.errors.join("\n"), { errors: queue.errors });
+  const byId = new Map(queue.tasks.map((task) => [task.id, task]));
+  const present = new Set(availableDependencyTaskIds);
+  const active = queue.tasks.filter(activeTask);
+  let task;
+  if (parsed.mode === "EXACT") {
+    task = byId.get(parsed.taskId);
+    if (!task) return blockedResult("TASK_NOT_FOUND", `Task ${parsed.taskId} does not exist`);
+  } else {
+    if (active.length > 1) return blockedResult("AMBIGUOUS_ACTIVE_TASK", "Select the intended Task explicitly", { taskIds: active.map((entry) => entry.id) });
+    task = active[0] ?? queue.tasks.find((candidate) => readyTask(candidate) && dependencyBlockers(candidate, byId, present).length === 0);
+    if (!task) {
+      const pending = queue.tasks.filter((entry) => !completeTask(entry) && !cancelledTask(entry));
+      return pending.length ? blockedResult("NO_SELECTABLE_TASK", "No ready Task has its required results available") : Object.freeze({
+        outcome: "NO_WORK", code: "ALL_TASKS_COMPLETE", message: ALL_TASKS_COMPLETE_MESSAGE, mutationRequired: false,
       });
     }
-    return Object.freeze({
-      outcome: "NOT_TASK_INVOCATION",
-      code: "NO_ANCHORED_IMPLEMENTATION_COMMAND",
-      message:
-        'kyw-impl executes only an existing Task. Use $kyw-task "<outcome>" to author a new Task/Test pair set.',
-      mutationRequired: false,
-    });
   }
-  if (parsedInvocation.mode === "FALLBACK_REQUIRED") {
-    return Object.freeze({
-      outcome: "FALLBACK_REQUIRED",
-      code: "MANAGED_ROUTING_UNAVAILABLE",
-      message: parsedInvocation.message,
-      portableFallback: parsedInvocation.portableFallback,
-    });
+  if (parsed.route === "DELIVERY") {
+    if (!completeTask(task)) return blockedResult("TASK_NOT_DELIVERABLE", `Task ${task.id} requires local completion before delivery`, { task: taskSummary(task) });
+    return selectedResult(task, parsed);
   }
-
-  const preflight = evaluateTaskExecutionPreflight(executionPreflight);
-  if (!preflight.safe) {
-    return blockedResult("PREFLIGHT_BLOCKED", preflight.issues.join("; "), {
-      preflightIssues: preflight.issues,
-    });
-  }
-
-  const queue = await inspectTaskQueue(tasksRoot);
-  if (queue.errors.length > 0) {
-    return blockedResult(
-      "INVALID_TASK_QUEUE",
-      `Task queue validation failed:\n- ${queue.errors.join("\n- ")}`,
-      { errors: queue.errors },
-    );
-  }
-
-  const byId = new Map(queue.tasks.map((task) => [task.id, task]));
-  const deliveryState = Object.freeze({
-    ledger: deliveryLedger,
-    expectations: deliveryExpectations,
+  if (completeTask(task) || cancelledTask(task)) return Object.freeze({
+    outcome: "TERMINAL", route: "IMPLEMENTATION", code: completeTask(task) ? "TASK_COMPLETE" : "TASK_CANCELLED",
+    task: taskSummary(task), message: `Task ${task.id} is ${task.taskStatus}; delivery is independent`, mutationRequired: false,
   });
-  const active = queue.tasks.filter(activeTask);
-  if (active.length > 1) {
-    return blockedResult(
-      "MULTIPLE_ACTIVE_TASKS",
-      `Multiple active Tasks fail closed: ${active.map((task) => task.id).join(", ")}`,
-      { taskIds: Object.freeze(active.map((task) => task.id)) },
-    );
-  }
-
-  if (parsedInvocation.mode === "EXACT") {
-    const task = byId.get(parsedInvocation.taskId);
-    if (!task) {
-      return blockedResult(
-        "TASK_NOT_FOUND",
-        `No Task directory exists for ${parsedInvocation.taskId}. Use $kyw-task "<outcome>" to author a new Task/Test pair set; kyw-impl never allocates one.`,
-      );
-    }
-    if (parsedInvocation.route === "DELIVERY") {
-      return exactDeliveryResult(
-        task,
-        active,
-        queue.currentTasks,
-        byId,
-        deliveryState,
-        parsedInvocation,
-      );
-    }
-    if (active.length === 1 && active[0].id !== task.id) {
-      return blockedResult(
-        "ANOTHER_TASK_ACTIVE",
-        `Task ${active[0].id} is active; Task ${task.id} cannot start concurrently.`,
-        { task: taskSummary(active[0]) },
-      );
-    }
-    if (activeTask(task)) {
-      const blockers = queueSelectionBlockers(
-        task,
-        queue.currentTasks,
-        byId,
-        deliveryState,
-      );
-      return blockers.length === 0
-        ? selectedResult(task, parsedInvocation)
-        : selectionBlockedResult(task, blockers, parsedInvocation);
-    }
-    if (readyTask(task)) {
-      const blockers = queueSelectionBlockers(
-        task,
-        queue.currentTasks,
-        byId,
-        deliveryState,
-      );
-      return blockers.length === 0
-        ? selectedResult(task, parsedInvocation)
-        : selectionBlockedResult(task, blockers, parsedInvocation);
-    }
-    if (draftTask(task)) {
-      return blockedResult(
-        "DRAFT_AUTHORING_REQUIRED",
-        `Task ${task.id} is DRAFT/DRAFT. Use $kyw-task ${task.id} to complete or promote its authoring; kyw-impl does not author or execute a DRAFT pair.`,
-        { task: taskSummary(task), mutationRequired: false },
-      );
-    }
-    if (blockedTask(task)) {
-      const blockers = queueSelectionBlockers(
-        task,
-        queue.currentTasks,
-        byId,
-        deliveryState,
-      );
-      return blockers.length === 0
-        ? selectedResult(task, parsedInvocation)
-        : selectionBlockedResult(task, blockers, parsedInvocation);
-    }
-    if (completeTask(task)) {
-      const blockers = queueSelectionBlockers(
-        task,
-        queue.currentTasks,
-        byId,
-        deliveryState,
-      );
-      if (blockers.length > 0) {
-        return selectionBlockedResult(task, blockers, parsedInvocation);
-      }
-    }
-    return terminalTaskResult(
-      task,
-      byId,
-      deliveryState,
-      parsedInvocation,
-      preflight.overrideClassification,
-    );
-  }
-
-  if (active.length === 1) {
-    const task = active[0];
-    const blockers = queueSelectionBlockers(
-      task,
-      queue.currentTasks,
-      byId,
-      deliveryState,
-    );
-    return blockers.length === 0
-      ? selectedResult(task, parsedInvocation)
-      : selectionBlockedResult(task, blockers, parsedInvocation);
-  }
-
-  if (queue.currentTasks.length === 0) {
-    return blockedResult(
-      "CURRENT_QUEUE_UNAVAILABLE",
-      "No current-contract Task queue exists. Select an existing Task with $kyw-impl NNNN.",
-    );
-  }
-
-  const deliveryCandidates = queue.currentTasks
-    .filter(
-      (task) => completeTask(task) && task.deliveryRequirement.kind === "STANDARD",
-    )
-    .sort((left, right) => left.number - right.number);
-  const unavailableDelivery = [];
-  for (const task of deliveryCandidates) {
-    const classification = deliveryClassification(task, deliveryState);
-    if (classification.disposition === "SATISFIED") {
-      continue;
-    }
-    if (classification.disposition === "BLOCKED") {
-      return deliveryEvidenceBlockedResult(task, classification, parsedInvocation);
-    }
-    const blockers = queueSelectionBlockers(
-      task,
-      queue.currentTasks,
-      byId,
-      deliveryState,
-    );
-    if (blockers.length === 0) {
-      return implementationDeliveryRequiredResult(
-        task,
-        parsedInvocation,
-        classification,
-      );
-    }
-    unavailableDelivery.push(`Task ${task.id}: ${blockers.join("; ")}`);
-  }
-  if (unavailableDelivery.length > 0) {
-    return blockedResult(
-      "QUEUE_TRANSITION_BLOCKED",
-      unavailableDelivery.join("\n"),
-      { blockers: Object.freeze(unavailableDelivery) },
-    );
-  }
-
-  const ready = queue.currentTasks.filter(readyTask).sort((left, right) => left.number - right.number);
-  const unavailable = [];
-  for (const task of ready) {
-    const blockers = queueSelectionBlockers(
-      task,
-      queue.currentTasks,
-      byId,
-      deliveryState,
-    );
-    if (blockers.length === 0) {
-      return selectedResult(task, parsedInvocation);
-    }
-    unavailable.push(`Task ${task.id}: ${blockers.join("; ")}`);
-  }
-  if (unavailable.length > 0) {
-    return blockedResult("NO_DEPENDENCY_SATISFIED_TASK", unavailable.join("\n"), {
-      blockers: Object.freeze(unavailable),
-    });
-  }
-
-  return automaticTerminalResult(
-    queue.currentTasks,
-    byId,
-    deliveryState,
-    parsedInvocation,
-  );
+  if (draftTask(task)) return blockedResult("DRAFT_AUTHORING_REQUIRED", `Complete Task ${task.id} before implementation`, { task: taskSummary(task) });
+  const blockers = dependencyBlockers(task, byId, present);
+  return blockers.length ? blockedResult("UNSATISFIED_DEPENDENCY", blockers.join("; "), { task: taskSummary(task), blockers }) : selectedResult(task, parsed);
 }
 
 export async function allocateNextTaskId(tasksRoot) {

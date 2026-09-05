@@ -22,6 +22,7 @@ const inputNames = [
   "expected_prior_versions_sha256",
   "expected_prior_latest",
   "expected_signing_key_id",
+  "expected_signing_key_ids",
 ];
 const stepNames = [
   "Guard manual dispatch identity",
@@ -75,7 +76,7 @@ function assertPublishWorkflowContract(text) {
       ? trigger.indexOf(`      ${inputNames[index + 1]}:\n`, start + name.length)
       : trigger.length;
     const block = trigger.slice(start, end);
-    assert.match(block, /^        required: true$/m);
+    assert.match(block, new RegExp(`^        required: ${name === "expected_signing_key_ids" ? "false" : "true"}$`, "m"));
     assert.match(block, /^        type: string$/m);
   }
 
@@ -238,19 +239,16 @@ function assertPublishWorkflowContract(text) {
     "createPublicKey({",
     'verifySignature("sha256", Buffer.alloc(0), publicKey, Buffer.alloc(0))',
     "!isCanonicalSupportedSpki(key.key)",
-    "activeKeys.length !== 1",
-    "activeKeys[0].keyid !== process.env.EXPECTED_SIGNING_KEY_ID",
+    "new Set(keyIndex.keys.map((key) => key.keyid)).size !== keyIndex.keys.length",
+    "!activeKeys.some((key) => key.keyid === process.env.EXPECTED_SIGNING_KEY_ID)",
+    "requireFrozenSigningKeys(process.env.EXPECTED_SIGNING_KEY_IDS",
     'redirect: "error"',
     'GITHUB_TOKEN: ${{ github.token }}',
     "REPOSITORY: ${{ github.repository }}",
     'const packageName = JSON.parse(readFileSync("package.json", "utf8")).name',
     "const repository = process.env.REPOSITORY",
-    'runsUrl.searchParams.set("head_sha", expectedSha)',
-    "runIndex.workflow_runs.length !== 1",
-    "String(currentRun.id) !== process.env.GITHUB_RUN_ID",
-    'process.env.GITHUB_RUN_ATTEMPT !== "1"',
-    'currentRun.head_branch !== "main"',
-    "currentRun.head_sha !== expectedSha",
+    "await requireSafePublishAttempt({",
+    "read: githubReader(process.env.GITHUB_TOKEN), sha: expectedSha",
     "matchingTags.length !== 0",
     "releaseResponse.status !== 404",
     'test "$(git rev-parse HEAD)" = "${{ inputs.expected_sha }}"',
@@ -269,13 +267,14 @@ function assertPublishWorkflowContract(text) {
   );
   assert.equal(occurrences(text, /persist-credentials: false/g), 1);
   assert.equal(occurrences(text, /package-manager-cache: false/g), 1);
-  assert.equal(occurrences(text, /await fetch\(/g), 5);
-  assert.equal(occurrences(text, /redirect: "error"/g), 5);
+  assert.equal(occurrences(text, /await fetchRead\(/g), 4);
+  assert.equal(occurrences(text, /redirect: "error"/g), 4);
   assert.equal(occurrences(text, /\["pack", "--json", "--ignore-scripts"/g), 1);
-  assert.equal(occurrences(text, /^        run: npm publish /gm), 1);
+  assert.equal(occurrences(text, /^        run: npm publish /gm), 0);
+  assert.equal(occurrences(text, /^        run: node \.\/scripts\/publish-gate\.mjs$/gm), 1);
   assert.match(
     text,
-    /^        run: npm publish \. --access public --ignore-scripts --registry=https:\/\/registry\.npmjs\.org\/$/m,
+    /^        run: node \.\/scripts\/publish-gate\.mjs$/m,
   );
   assert.equal(
     text.slice(text.lastIndexOf("      - name:")).startsWith(
@@ -349,8 +348,8 @@ test("workflow regression guards reject identity, artifact, registry, and write 
     "priorVersions.length > 1024",
     "actualPriorLatest !== highestPriorVersion",
     "!isCanonicalSupportedSpki(key.key)",
-    "activeKeys.length !== 1",
-    "activeKeys[0].keyid !== process.env.EXPECTED_SIGNING_KEY_ID",
+    "new Set(keyIndex.keys.map((key) => key.keyid)).size !== keyIndex.keys.length",
+    "!activeKeys.some((key) => key.keyid === process.env.EXPECTED_SIGNING_KEY_ID)",
     'redirect: "error"',
     "actualPriorDigest !== process.env.EXPECTED_PRIOR_VERSIONS_SHA256",
     "actualPriorLatest !== expectedPriorLatest",
@@ -371,11 +370,11 @@ test("workflow regression guards reject identity, artifact, registry, and write 
       "      packages: write\n      id-token: write\n",
     ),
     workflow.replace(
-      "run: npm publish .",
+      "run: node ./scripts/publish-gate.mjs",
       "run: npm publish . || npm publish .",
     ),
     workflow.replace(
-      "run: npm publish .",
+      "run: node ./scripts/publish-gate.mjs",
       "run: npm publish ./kyw-dev.tgz",
     ),
     workflow.replace(

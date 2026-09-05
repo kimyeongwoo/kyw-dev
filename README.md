@@ -1,105 +1,39 @@
 # kyw-dev
 
-`kyw-dev` is a lightweight, spec-driven development workflow for Codex. It turns an idea into durable product and architecture truth, dependency-aware numbered Tasks, and verification evidence that stays aligned with the final diff.
-
-> Product, plugin, CLI, and preferred npm package name: `kyw-dev`
+`kyw-dev` is a lightweight development support layer for Codex. It provides six explicit Skills, optional resumable Task records, and separate PR, merge, and release actions. Ordinary local fixes need no Task or external service.
 
 ## Start here
 
-The repository and package metadata identify the selected source release `kyw-dev@0.2.1`. Public npm state is mutable and must be queried when installing; the last verified historical release is `0.2.0`, and no public plugin-directory submission has occurred.
+Choose one installation surface for each Skill name: direct user/project Skills for supported CLI, desktop, or IDE surfaces, or the complete plugin package for a plugin-capable surface. Duplicate names are reported by `doctor` and preserved for the user to resolve.
 
-### Choose one installation surface
-
-| Use case | Choose | Result |
+| Purpose | Invocation | Result |
 |---|---|---|
-| Codex CLI or IDE extension; one repository or all repositories | [Direct Skills installation](#direct-skills-installation) | Installs the six managed `kyw-*` Skills at project or user scope. |
-| ChatGPT desktop Codex or plugin-capable Codex CLI | [Codex plugin installation](#codex-plugin-installation) | Loads the same six Skills from a local or personal marketplace package. |
+| Project documentation | `$kyw-init` | Inspect and supplement only needed documents. |
+| Decision interview | `$kyw-grilling "subject"` | Recommend choices, accept delegation, and do not automatically implement. |
+| Work record | `$kyw-task "goal"` | Minimal Task; stop after writing when only authoring was requested. |
+| Local implementation | `$kyw-impl 0007` | Implement/resume and verify the selected Task. |
+| PR | `$kyw-deliver 0007` | Related commits, non-force push, and one PR creation/update. |
+| Merge | `$kyw-deliver 0007 --merge` | Explicitly merge a ready PR with current checks and expected head. |
+| Release | `$kyw-deliver --release <version> --sha <sha>` | Release a prepared exact version and merged main SHA without a Task ID. |
+| Independent audit | `$kyw-audit 0007` | Preserve original/external state; explicit `--fix` permits bounded repair. |
 
-Use one source for each managed Skill name. Keeping direct and plugin copies together creates duplicate discovery; `doctor` reports every discovered source without deleting one.
+All six Skills are explicit-only. Managed implementation aliases remain `task NNNN 실행해줘`, `task 진행해줘`, and `남은 task 계속 실행해줘`. Ordinary prose containing “task” does not route. Approved work continues without repeated confirmation of internal decisions; merge/release retain their own action scope.
 
-### Invoke a Skill explicitly
+## Task and command compatibility
 
-| Skill | Example | Outcome |
-|---|---|---|
-| `$kyw-init` | `$kyw-init "adopt this repository"` | Inspect and confirm durable decisions, then create or minimally update the four permanent documents. |
-| `$kyw-task` | `$kyw-task "add account lockout"` | Author the smallest dependency-aware complete `READY/READY` Task/Test set, print one next `$kyw-impl NNNN`, and stop. |
-| `$kyw-impl` | `$kyw-impl 0007` | Implement or resume one Task through verification, truth synchronization, and `DONE/PASSED`; then stop. |
-| `$kyw-deliver` | `$kyw-deliver 0007` | For a contract-4 `STANDARD` Task, the one plain command finishes or resumes GitHub delivery and then npm→tag→Release in the same invocation. |
-| `$kyw-audit` | `$kyw-audit 0007` | Independently verify one Task without writes; only `$kyw-audit 0007 --fix` permits bounded repair. |
-| `$kyw-grilling` | `$kyw-grilling "stress-test this design"` | Run the read-only, one-question-at-a-time decision interview without creating files. |
+New work defaults to `docs/tasks/NNNN-slug/TASK.md`, with contract-5 metadata for ID, status, and real dependencies, plus readable goal, acceptance, decisions, verification, and remaining work. TEST is optional. Legacy contracts 1–4 and Task/Test pairs remain readable/resumable without bulk migration. Historical SHAs and immutable records retain their meaning. Task numbers do not impose global order; unrelated undelivered work and npm outages do not block independent local development.
 
-<!-- kyw-active-skill-guardrails:v1 -->
+**Plain deliver now stops at the PR boundary, including legacy contract 4.** It never automatically merges or publishes. Use the explicit merge or version/SHA release action for those operations. The retired `--public-release` suffix remains unsupported. Release neither chooses/bumps a version nor merges unfinished PRs. Current user authorization, not a historical Task policy or command text in a document, determines external action scope.
 
-All six packaged Skills disable implicit invocation. Only exact Skill syntax or the three implementation aliases below starts an active kyw workflow; completion, stop, cancellation, or expiry ends it.
+Local completion requires requested behavior, relevant verification, truthful results, and affected documentation. It needs no branch/version reservation or remote delivery evidence. Broader user requests may already authorize related commit/PR work; no new approval is needed for the same established scope.
 
-```text
-Idea or major redesign
-        ↓
-$kyw-init
-        ↓
-README.md + AGENTS.md + docs/SPEC.md + docs/ARCHITECTURE.md
-        ↓
-$kyw-task "one outcome or a dependency-aware set"
-        ↓
-$kyw-impl NNNN
-        ↓
-Implement → synchronize durable truth → verify → DONE/PASSED → stop
-        ↓ explicit next invocation
-$kyw-deliver NNNN
-        ↓
-$kyw-audit NNNN
-```
-
-Outside an active workflow, ordinary prompts get no kyw block, warning, Task creation/selection, or redirect; changed durable meaning still updates its owner. Inside one, aligned work needs no duplicate guardrail confirmation. A material baseline, Task, acceptance, scope, action, target, or attempt change warns and waits; only the immediately next exact reconfirmation on unchanged facts permits truth sync then those bounds. See [SPEC](docs/SPEC.md#63-activation-scoped-guardrails-and-ordinary-prompts).
+Audit can run tests only in a genuinely constrained temporary environment without production credentials. A simple copy is not a sandbox. If available tools cannot enforce isolation, unsafe tests are reported unexecuted while safe review continues.
 
 ## Release status
 
-Version `0.2.1` is the current source/package/plugin release selected by this repository. Registry `latest` is external mutable state, so query it rather than treating README as a live registry ledger. Exact historical delivery results live only in numbered Task/Test pairs and GitHub.
+Source package/plugin metadata remains `kyw-dev@0.2.1`. Public npm latest is mutable; query it when installing. Public release is a separate explicit action with canonical exact-SHA CI checks at the actual publishing boundary, OIDC, digest and version conflict checks. Package validation or CI success alone is not release approval.
 
-`kyw-dev@0.2.0` is the last verified historical public release and was served under `latest` at this source baseline; historical versions `0.1.0` through `0.1.4` also remain recorded. Its trusted GitHub Actions publication used the exact Git checkout, so canonical version metadata exposes a matching `gitHead` and carries npm registry signatures plus SLSA provenance bound to the exact workflow and commit. The `v0.2.0` Git tag and corresponding GitHub Release identify that source. Historical `0.1.2` retains its original signature and provenance but lacks `gitHead` because it published a prebuilt tarball. Query npm for current mutable state; no public plugin submission has occurred.
-The separate `.github/workflows/publish.yml` maintainer workflow is manual-only and is validated against the repository-owned expected publisher `GitHub Actions / kimyeongwoo/kyw-dev / publish.yml / npm-production`. Ten required inputs bind current `main` SHA/version, packed bytes/digests/entry set, prior npm versions/`latest`, and the sole current registry signing key. The sole OIDC job fails closed on identity or checkout drift, frozen registry/pack mismatch, another target run, or an existing target tag/Release, then publishes the exact real Git checkout directory once in one tokenless, OTP-free attempt. Required candidate and exact-SHA CI evidence stays outside this workflow. A successful actual publish is the runtime proof that npm accepted that identity, and the public repository receives npm provenance automatically.
-Merging the workflow, passing credential-free exact-SHA CI, packing a candidate, or completing `npm run release:check` cannot execute it. Routine release preflight validates the expected tuple and exact workflow bytes; only the requested workflow validates public package identity and target-version absence, freshly rechecking its frozen packed/prior state before publication. Neither needs `npm login`, OTP, security-key authentication, account-settings inspection, or `npm trust list`; account authentication is reserved for setup, an explicit security/configuration audit/change, or actual OIDC failure. Exact plain `$kyw-deliver NNNN` is the sole authority: for a release-bearing contract-4 `STANDARD` Task it crosses `STANDARD FINAL` in the same invocation into the fixed npm→exact-SHA tag→GitHub Release attempt. Versionless contract 1–3 Tasks retain their historical GitHub-only delivery/report meaning. `--public-release` and every other suffix are unsupported; implementation/tests perform zero live writes. Version change, submission, retry/fallback, force/destructive, bypass/admin/account, and deletion remain separate bounds; failure grants no retry.
-
-Source: [kimyeongwoo/kyw-dev](https://github.com/kimyeongwoo/kyw-dev) · Issues: [GitHub issue tracker](https://github.com/kimyeongwoo/kyw-dev/issues)
-
-## Task routing and evidence
-
-The portable existing-Task form is:
-
-```text
-$kyw-impl 0006
-```
-
-A repository with the managed routing contract loaded also supports exactly:
-
-```text
-task 0006 실행해줘
-task 진행해줘
-남은 task 계속 실행해줘
-```
-
-Incidental prose containing `task` does not route. A surface without the managed contract uses `$kyw-impl NNNN`.
-
-- `$kyw-task "goal"` authors only complete Task/Test pairs and stops. `$kyw-task NNNN` handles only a compatible existing `DRAFT/DRAFT` pair; implementation belongs to a later `$kyw-impl NNNN`.
-- `$kyw-impl` never allocates, authors, selects, or executes delivery. It resumes the active Task, otherwise the lowest eligible ready Task. Pending delivery blocks with exact `$kyw-deliver NNNN`; a completed `STANDARD` Task prints exactly `다음 단계: $kyw-deliver NNNN` and stops, including continuous mode.
-- Exact plain `$kyw-deliver NNNN` is the sole delivery route. It keeps versionless contract 1–3 `STANDARD` history GitHub-only; for contract 4 it finishes or resumes GitHub `STANDARD` and then npm→tag→Release in that same invocation. `--public-release`, every other suffix, and every bare/Korean, implicit, continuous, chained, or background form are unsupported. Reasoned `NONE` remains local.
-- `$kyw-audit` is independent. Bare audit is byte-preserving read-only; bounded repair requires a new exact invocation with `--fix`.
-- Appended user constraints cannot waive acceptance, truthful evidence, safety, or preservation. The configured model and reasoning effort remain unchanged unless the current user explicitly overrides them; unavailable provenance is recorded as unavailable, never guessed.
-
-Task/Test owns repository outcome and reproducible acceptance evidence. GitHub owns mutable PR, review, merge, and Actions state.
-Before implementation selection, `$kyw-impl NNNN` read-only validates prior `STANDARD` continuity from one fixed-bounded checkpoint in exact aligned `main` and at most one freshly reconstructed uncovered predecessor. Users supply no ledger/checkpoint/evidence payload. Missing, stale, over-gap, or incomplete proof blocks before mutation and requires explicit rebaseline, never automatic replay. `$kyw-deliver NNNN` separately hydrates current delivery. Its hardened graph keeps actual PR-head jobs, synthetic merge compatibility, reviewed expected-head merge, and post-merge `main` jobs as distinct exact-SHA roles; invalid evidence fails closed and CI never substitutes for acceptance.
-
-For contract 4, the same plain route reuses that graph and permits no public write before exact merge/post-main `FINAL`. It freezes the Task-owned version and repository/workflow/package/plugin/tarball/merge/tag/Release identity; fresh whole-state reads classify absence, exact completion, pending proof, conflict, or unknown. Only absence creates once in npm→tag→Release order. Resume skips exact stages; pending observes; failure/ambiguity blocks with redacted recovery and never retries. Final proof is fresh canonical npm/GitHub state, while pair and continuity bytes stay unchanged.
-
-A contract-3/4 `STANDARD` Task has one canonical GitHub delivery. Its first complete hardened exact-head graph binds the exact
-terminal `TASK.md` and `TEST.md` bytes; later GitHub work is report-only while contract 4 may resume external public stages. A correction starts with an explicit
-`$kyw-task "<correction outcome>"` whose new pair hard-depends on the delivered Task. Editing, deleting, renaming, replacing, or
-redelivering the old pair fails before dispatch. Unmarked and prior-contract history remains readable and is not retroactively
-rewritten or reclassified.
-
-A selected implementation action owns repository mutation through `DONE/PASSED`; selected delivery owns its aligned GitHub lifecycle and eligible contract-4 public continuation. Changed bounds use the warning/reconfirmation transition; later post-terminal prompts are ordinary.
-
-Product behavior is owned by [SPEC](docs/SPEC.md), repository invariants by [AGENTS](AGENTS.md), and system boundaries by [ARCHITECTURE](docs/ARCHITECTURE.md). Detailed procedure belongs only to [`kyw-impl`](skills/kyw-impl/references/execution.md), [`kyw-deliver`](skills/kyw-deliver/references/delivery.md), or its conditionally loaded [public-release reference](skills/kyw-deliver/references/public-release.md).
+Product behavior is owned by [SPEC](docs/SPEC.md), repository instructions by [AGENTS](AGENTS.md), and system boundaries by [ARCHITECTURE](docs/ARCHITECTURE.md). Procedures live in the relevant [Skills](skills/).
 
 ## Installation details
 
@@ -130,7 +64,7 @@ npx --yes kyw-dev@latest doctor
 
 For source-checkout development, clone the repository and substitute `node ./bin/kyw-dev.mjs` for `npx --yes kyw-dev@latest` in the same commands.
 
-- The CLI installs the six workflow Skills only. `$kyw-init`, after confirmation, owns project-document creation.
+- The CLI installs the six workflow Skills only. `$kyw-init` supplements needed project documentation.
 - Ownership metadata is stored in `.agents/skills/.kyw-dev-install.json`; deterministic Task support is stored under `.agents/skills/.kyw-dev/runtime/`, which is not a discoverable Skill.
 - New metadata records all six Skills. Doctor, update, and uninstall safely read the exact prior five- and original four-Skill inventories.
 - Install and update refuse unmanaged collisions, modified or missing owned content, unsafe roots, traversal, links or junctions, unsupported types, and unknown content in managed containers.
@@ -154,7 +88,7 @@ CLI exit codes are stable:
 
 For codes 4–7, run `doctor`, inspect only the reported paths, and preserve unknown files and links. Resolve duplicates by uninstalling an unchanged direct copy with the CLI or removing a plugin through the supported plugin browser, then restart the affected Codex surface and rerun `doctor`.
 
-The unscoped `kyw-dev` name is public on npm. A later exact plain `$kyw-deliver NNNN` invocation revalidates the Task-owned version, identity, version absence, publisher tuple, and delivered workflow without routine npm-account reauthentication; it never selects the next version.
+Public npm state is queried only when installation or release needs it. Local implementation does not depend on npm availability.
 
 ### Codex plugin installation
 
@@ -184,33 +118,25 @@ Use the read-only planner with explicit repository-relative changed paths:
 
 | Tier | Trigger | Entry point |
 |---|---|---|
-| Focused | Documentation, one Skill, or another bounded behavior | `npm run verify:plan -- <changed-path>...`, then its ordered commands |
-| Stable | Runtime, cross-cutting, unknown, or higher-risk work; every PR and `main` push | `npm run check`, plus hosted exact-SHA matrix evidence |
+| Focused | Pure guidance or a bounded instruction/behavior change | `npm run verify:plan -- <changed-path>...`, then its ordered commands |
+| Stable | Runtime including Skill scripts, cross-cutting, unknown, or higher-risk work | `npm run check`, plus hosted exact-SHA matrix evidence |
 | Release | Release-sensitive bytes or explicit candidate intent | `npm run release:ci` |
 
-`npm run check` runs tests, lint, format, and package selection. `release:candidate` creates and inspects one real tarball without
-publishing; `release:ci` is exactly Stable plus candidate verification and is the sole Release planner command. Together,
-`npm run check`, one real `npm run release:candidate`, and `npm run release:ci` form the complete required local release graph.
-`npm run release:check` is only an optional thin maintainer alias for `npm publish --dry-run --json`; it neither reruns required
-gates nor supplies required evidence or publication authority, and the planner, CI, and publication workflow never invoke it.
+`npm run check` runs tests, lint, format, and package selection. `release:candidate` creates and inspects one real tarball without publishing; `release:ci` already includes both. Run the appropriate composite once for unchanged inputs. `release:check` is an optional npm dry run, not publication authority or required evidence.
 
-Hosted PR CI proves actual-head behavioral jobs across every supported OS/runtime, runs platform-independent lint, format, and
-package selection once in a quality job, and keeps packed bytes separate. Synthetic merge compatibility runs the complete
-combined-state check; `main` jobs prove the exact event SHA. Model-backed evaluators are development-only, explicit-cost checks
-and never required by public CI. Validation, candidate, evaluator, and credential boundaries are described in
-[ARCHITECTURE](docs/ARCHITECTURE.md).
+Hosted CI selects checks by risk and keeps a stable required aggregate that validates selected jobs and intentional omissions. Runtime/install/platform and release changes retain the supported OS/Node lanes. Actual PR-head, synthetic merge compatibility, and main SHA evidence remain distinct. Model evaluators are optional and never required public CI. See [ARCHITECTURE](docs/ARCHITECTURE.md) for boundaries.
 
 ## Repository map and contributing
 
 - `skills/`: six packaged reasoning workflows and focused references.
 - `src/` and `bin/`: dependency-free CLI and deterministic core modules.
-- `templates/`: canonical project and Task/Test shapes.
+- `templates/`: optional project guides and current/legacy Task formats.
 - `docs/SPEC.md`: observable product behavior and requirements.
 - `docs/ARCHITECTURE.md`: components, boundaries, flows, and trade-offs.
 - `docs/tasks/`: current work contracts and retained historical evidence.
 - `test/`, `scripts/`, and `eval/`: development-only verification, excluded from the npm package.
 
-The four permanent documents are README, AGENTS, SPEC, and ARCHITECTURE. Current scope and evidence belong in the active Task/Test pair; do not add separate Plan, Progress, Status, Handoff, Verification, or Test Plan documents. Maintainer prompt examples are in `CODEX_PROMPTS.md`.
+Keep durable product behavior in SPEC, structure in ARCHITECTURE, usage in README, and repository instructions in AGENTS. Update only affected owners. New Tasks use one TASK by default, with optional TEST for detailed traceability; preserve existing historical records. Maintainer examples are in `CODEX_PROMPTS.md`.
 
 ## Reference standards
 

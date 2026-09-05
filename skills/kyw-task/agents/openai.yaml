@@ -1,7 +1,6 @@
 interface:
-  display_name: "kyw Task"
-  short_description: "Author complete dependency-aware Task sets"
-  default_prompt: "Use $kyw-task to atomically author the smallest complete ready Task set, then stop."
-
+  display_name: "kyw task"
+  short_description: "Author a minimal resumable work record"
+  default_prompt: "Use $kyw-task \"goal\" to write a minimal Task record."
 policy:
   allow_implicit_invocation: false

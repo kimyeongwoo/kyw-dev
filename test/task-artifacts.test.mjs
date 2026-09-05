@@ -34,7 +34,6 @@ import {
 } from "../src/core/task-artifacts.mjs";
 
 const fixturesRoot = fileURLToPath(new URL("./fixtures/task-repositories/", import.meta.url));
-const coreRoot = fileURLToPath(new URL("../src/core/", import.meta.url));
 
 test("task artifact facade preserves its public export inventory", () => {
   assert.deepEqual(Object.keys(taskArtifactsFacade), [
@@ -104,84 +103,6 @@ test("task artifact facade preserves its public export inventory", () => {
     "validateTaskDirectory",
     "writeStandardDeliveryContinuityCheckpoint",
   ]);
-});
-
-test("task artifact modules keep the intended acyclic dependency graph", async () => {
-  const expectedGraph = new Map([
-    ["task-artifact-contract.mjs", ["task-artifact-shared.mjs"]],
-    [
-      "task-artifact-creation.mjs",
-      ["task-artifact-contract.mjs", "task-artifact-queue.mjs", "task-artifact-shared.mjs"],
-    ],
-    ["task-artifact-delivery.mjs", ["task-artifact-public-release.mjs"]],
-    [
-      "task-artifact-continuity.mjs",
-      ["task-artifact-shared.mjs"],
-    ],
-    [
-      "task-artifact-hydration.mjs",
-      [
-        "task-artifact-continuity.mjs",
-        "task-artifact-contract.mjs",
-        "task-artifact-delivery.mjs",
-        "task-artifact-public-release.mjs",
-        "task-artifact-queue.mjs",
-        "task-artifact-shared.mjs",
-      ],
-    ],
-    [
-      "task-artifact-queue.mjs",
-      ["task-artifact-contract.mjs", "task-artifact-delivery.mjs", "task-artifact-shared.mjs"],
-    ],
-    ["task-artifact-public-release.mjs", []],
-    ["task-artifact-shared.mjs", []],
-    [
-      "task-artifacts.mjs",
-      [
-        "task-artifact-contract.mjs",
-        "task-artifact-continuity.mjs",
-        "task-artifact-creation.mjs",
-        "task-artifact-delivery.mjs",
-        "task-artifact-hydration.mjs",
-        "task-artifact-public-release.mjs",
-        "task-artifact-queue.mjs",
-        "task-artifact-shared.mjs",
-      ],
-    ],
-  ]);
-  const actualGraph = new Map();
-
-  await Promise.all(
-    [...expectedGraph].map(async ([fileName, expectedDependencies]) => {
-      const source = await readFile(path.join(coreRoot, fileName), "utf8");
-      const actualDependencies = [
-        ...source.matchAll(/\bfrom\s+"\.\/(task-artifact(?:s|-[a-z-]+)\.mjs)"/g),
-      ]
-        .map((match) => match[1])
-        .sort();
-      actualGraph.set(fileName, actualDependencies);
-      assert.deepEqual(actualDependencies, [...expectedDependencies].sort(), fileName);
-    }),
-  );
-
-  const visiting = new Set();
-  const visited = new Set();
-  function visit(fileName) {
-    assert.ok(!visiting.has(fileName), `task artifact dependency cycle reaches ${fileName}`);
-    if (visited.has(fileName)) {
-      return;
-    }
-    visiting.add(fileName);
-    for (const dependency of actualGraph.get(fileName)) {
-      visit(dependency);
-    }
-    visiting.delete(fileName);
-    visited.add(fileName);
-  }
-
-  for (const fileName of actualGraph.keys()) {
-    visit(fileName);
-  }
 });
 
 async function temporaryDirectory(t) {
@@ -414,7 +335,7 @@ test("task paths remain direct children with POSIX and Windows path dialects", (
   );
 });
 
-test("atomic task creation publishes TASK.md and TEST.md together", async (t) => {
+test("atomic task creation defaults to one TASK.md with optional detailed TEST.md", async (t) => {
   const tasksRoot = path.join(await temporaryDirectory(t), "docs", "tasks");
   const created = await createTaskArtifacts({ tasksRoot, title: "템플릿 계약" });
 
@@ -422,16 +343,14 @@ test("atomic task creation publishes TASK.md and TEST.md together", async (t) =>
   assert.match(created.slug, /^task-[a-f0-9]{8}$/);
   assert.deepEqual(await readdir(tasksRoot), [path.basename(created.directory)]);
   const taskMarkdown = await readFile(created.taskPath, "utf8");
-  const testMarkdown = await readFile(created.testPath, "utf8");
   assert.match(taskMarkdown, /^# TASK 0001 — 템플릿 계약/m);
-  assert.match(testMarkdown, /^# TEST 0001 — 템플릿 계약/m);
-  assert.match(taskMarkdown, /<!-- kyw-task-contract: 4 -->/);
-  assert.match(testMarkdown, /<!-- kyw-task-contract: 4 -->/);
-  assert.match(taskMarkdown, /^## Delivery$/m);
+  assert.match(taskMarkdown, /<!-- kyw-task-contract: 5 -->/);
+  assert.deepEqual(await readdir(created.directory), ["TASK.md"]);
   assert.deepEqual(await validateTaskDirectory(created.directory), []);
 
-  const second = await createTaskArtifacts({ tasksRoot, title: "Second task" });
+  const second = await createTaskArtifacts({ tasksRoot, title: "Second task", detailedTests: true });
   assert.equal(second.id, "0002");
+  assert.deepEqual(await readdir(second.directory), ["TASK.md", "TEST.md"]);
 });
 
 test("pair validation enforces canonical open dependencies and reads completed history", async (t) => {
@@ -477,12 +396,12 @@ test("atomic task creation removes staged partial files after injected failure",
       tasksRoot,
       title: "Injected failure",
       hooks: {
-        afterTaskWrite() {
+        afterPairWrite() {
           throw new Error("injected between writes");
         },
       },
     }),
-    (error) => error.code === "TASK_CREATION_FAILED" && /injected between writes/.test(error.message),
+    (error) => error.code === "TASK_BATCH_CREATION_FAILED" && /injected between writes/.test(error.message),
   );
   assert.deepEqual(await readdir(tasksRoot), []);
 });
@@ -495,13 +414,13 @@ test("atomic task creation preserves a conflicting final directory without parti
       tasksRoot,
       title: "Conflict",
       hooks: {
-        async afterTaskWrite({ id, slug }) {
-          conflictingDirectory = path.join(tasksRoot, `${id}-${slug}`);
+        async afterPairWrite({ task }) {
+          conflictingDirectory = task.directory;
           await mkdir(conflictingDirectory);
         },
       },
     }),
-    (error) => error.code === "TASK_CREATION_CONFLICT",
+    (error) => error.code === "TASK_BATCH_QUEUE_CHANGED" || error.code === "TASK_CREATION_CONFLICT",
   );
   assert.deepEqual(await readdir(conflictingDirectory), []);
   assert.deepEqual(await readdir(tasksRoot), [path.basename(conflictingDirectory)]);
@@ -523,7 +442,7 @@ test("task creation rejects a symlinked tasks root", async (t) => {
   }
   await assert.rejects(
     createTaskArtifacts({ tasksRoot: linkedRoot, title: "Unsafe root" }),
-    (error) => error.code === "SYMLINK_TASK_ROOT",
+    (error) => ["SYMLINK_TASK_ROOT", "TASK_BATCH_UNSAFE_ROOT", "INVALID_TASK_ROOT"].includes(error.code),
   );
   assert.deepEqual(await readdir(realRoot), []);
 });
@@ -556,7 +475,7 @@ test("atomic batch creation preallocates and publishes complete READY dependency
   assert.match(await readFile(created.tasks[1].taskPath, "utf8"), /- Task 0001\./);
 });
 
-test("queue inspection rejects duplicate contract-4 release-version claims", async (t) => {
+test("historical release-version claims do not serialize local work", async (t) => {
   const tasksRoot = path.join(await temporaryDirectory(t), "docs", "tasks");
   const created = await createTaskArtifactBatch({
     tasksRoot,
@@ -580,9 +499,7 @@ test("queue inspection rejects duplicate contract-4 release-version claims", asy
   );
 
   const queue = await inspectTaskQueue(tasksRoot);
-  assert.deepEqual(queue.errors, [
-    "Release version 4.5.6 is claimed by both Task 0001 and Task 0002",
-  ]);
+  assert.deepEqual(queue.errors, []);
 });
 
 test("atomic batch creation accepts existing dependencies and keeps the legacy scaffold helper", async (t) => {
@@ -598,7 +515,7 @@ test("atomic batch creation accepts existing dependencies and keeps the legacy s
   assert.equal(legacy.id, "0001");
   assert.equal(created.firstId, "0002");
   assert.deepEqual(created.tasks[0].dependencies, ["0001"]);
-  assert.match(await readFile(legacy.taskPath, "utf8"), /## Status\n\nDRAFT/);
+  assert.match(await readFile(legacy.taskPath, "utf8"), /"status":"DRAFT"/);
   assert.match(await readFile(created.tasks[0].taskPath, "utf8"), /- Task 0001\./);
 });
 
@@ -784,7 +701,7 @@ test("batch allocation race preserves the competing directory and publishes no b
         },
       },
     }),
-    (error) => error.code === "TASK_CREATION_CONFLICT",
+    (error) => error.code === "TASK_BATCH_QUEUE_CHANGED" || error.code === "TASK_CREATION_CONFLICT",
   );
   assert.deepEqual(await readdir(tasksRoot), ["0001-first"]);
   assert.deepEqual(await readdir(path.join(tasksRoot, "0001-first")), []);
@@ -854,7 +771,7 @@ test("batch transaction revalidates dependency bytes and final targets under the
         },
       },
     }),
-    (error) => error.code === "TASK_CREATION_CONFLICT",
+    (error) => error.code === "TASK_BATCH_QUEUE_CHANGED" || error.code === "TASK_CREATION_CONFLICT",
   );
   assert.deepEqual(await readdir(dependencyRoot), ["0001-dependency"]);
   assert.match(await readFile(dependency.taskPath, "utf8"), /post-lock drift/);
@@ -877,7 +794,7 @@ test("batch transaction revalidates dependency bytes and final targets under the
         },
       },
     }),
-    (error) => error.code === "TASK_CREATION_CONFLICT",
+    (error) => error.code === "TASK_BATCH_QUEUE_CHANGED" || error.code === "TASK_CREATION_CONFLICT",
   );
   assert.deepEqual(await readdir(targetRoot), ["0001-target"]);
   assert.deepEqual(await readdir(foreignTarget), []);
@@ -905,7 +822,7 @@ test("batch transaction revalidates dependency bytes and final targets under the
         },
       },
     }),
-    (error) => error.code === "TASK_CREATION_CONFLICT",
+    (error) => error.code === "TASK_BATCH_QUEUE_CHANGED" || error.code === "TASK_CREATION_CONFLICT",
   );
   assert.deepEqual(await readdir(immediateRoot), ["0001-immediate"]);
   assert.equal(

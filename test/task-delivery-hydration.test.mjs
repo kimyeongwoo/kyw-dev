@@ -36,7 +36,7 @@ import {
   parseStandardDeliveryContinuityTransitionToken,
   parseKywCiEvidence,
   redactPublicReleaseDiagnostics,
-  runPublicRelease,
+  runPublicRelease as executePublicRelease,
   STANDARD_DELIVERY_CONTINUITY_FILE,
 } from "../src/core/task-artifacts.mjs";
 import {
@@ -57,6 +57,7 @@ import {
   classifyNpmPublication,
   classifyPublicationWorkflow,
   derivePublicReleaseWorkflowInputs,
+  recoverPublicReleaseSigningTuple,
 } from "../src/core/task-artifact-public-release.mjs";
 import { runTaskArtifactCommand } from "../skills/kyw-task/scripts/task-artifacts.mjs";
 import {
@@ -65,6 +66,11 @@ import {
   readAlignedMainStandardDeliveryCheckpoint,
   readRepositoryPorcelainStatus,
 } from "./support/task-delivery-frontier.mjs";
+
+const runPublicRelease = (options) => executePublicRelease({
+  invocation: `$kyw-deliver --release ${options.tuple.package.version} --sha ${options.tuple.target.mergeSha}`,
+  ...options,
+});
 
 const REPOSITORY_ROOT = fileURLToPath(new URL("../", import.meta.url));
 const REPOSITORY_TASKS_ROOT = path.join(REPOSITORY_ROOT, "docs", "tasks");
@@ -104,7 +110,7 @@ function publicReleaseLocalRunner(trace) {
   };
 }
 
-function publicClientTuple({ archive, keyId = "SHA256:fixture" }) {
+function publicClientTuple({ archive, keyId = "SHA256:fixture", keyIds }) {
   const mergeSha = "d".repeat(40);
   const treeSha = "e".repeat(40);
   const sha256 = createHash("sha256").update(archive).digest("hex");
@@ -144,7 +150,7 @@ function publicClientTuple({ archive, keyId = "SHA256:fixture" }) {
         sha256,
         entries: [".codex-plugin/plugin.json", "package.json", "src/index.mjs"],
       },
-      signature: { required: true, keyId },
+      signature: { required: true, keyId, ...(keyIds ? { keyIds } : {}) },
       provenance: {
         required: true,
         sourceRepository: "owner/repository",
@@ -187,13 +193,16 @@ function publicClientStandardFinal(tuple) {
 async function publicClientHarness({
   useDefaultProvenanceVerifier = false,
   provenanceModuleLoader,
+  multipleSigningKeys = false,
 } = {}) {
   const archive = Buffer.from("exact fixture npm archive bytes", "utf8");
   const { publicKey, privateKey } = generateKeyPairSync("ec", {
     namedCurve: "P-256",
   });
   const keyId = "SHA256:fixture";
-  const tuple = publicClientTuple({ archive, keyId });
+  const rotatedKeyPair = generateKeyPairSync("ec", { namedCurve: "P-256" });
+  const tuple = publicClientTuple({ archive, keyId,
+    ...(multipleSigningKeys ? { keyIds: [keyId, "SHA256:rotated"] } : {}) });
   const workflowText = (await readFile(
     path.join(REPOSITORY_ROOT, ".github", "workflows", "publish.yml"),
     "utf8",
@@ -234,7 +243,7 @@ async function publicClientHarness({
     malformedReleaseByTag: false,
     malformedReleaseListEntry: false,
     malformedSigningKey: false,
-    extraActiveSigningKey: false,
+    extraActiveSigningKey: multipleSigningKeys,
     signingKeyMaterial: "valid",
     registrySignatureMode: "single",
     indexSignatureMode: undefined,
@@ -253,6 +262,9 @@ async function publicClientHarness({
     workflowId: tuple.publishWorkflow.id,
     runId: 501,
     runAttempt: 1,
+    priorPublishConclusions: {},
+    latestPublishConclusion: "success",
+    jobRunId: undefined,
     jobId: 601,
     releaseId: 701,
   };
@@ -272,6 +284,9 @@ async function publicClientHarness({
     ),
     privateKey,
   ).toString("base64");
+  const rotatedSignature = sign("sha256", Buffer.from(
+    `${tuple.package.name}@${tuple.package.version}:${tuple.package.tarball.integrity}`,
+  ), rotatedKeyPair.privateKey).toString("base64");
   const wrongMessageSignature = sign(
     "sha256",
     Buffer.from(
@@ -287,6 +302,8 @@ async function publicClientHarness({
     const secondary = { keyid: keyId, sig: secondarySignature };
     if (mode === "empty") return [];
     if (mode === "two-valid") return [primary, secondary];
+    if (mode === "two-keys") return [primary, { keyid: "SHA256:rotated", sig: rotatedSignature }];
+    if (mode === "bad-rotated") return [primary, { keyid: "SHA256:rotated", sig: secondarySignature }];
     if (mode === "mixed-key") {
       return [primary, { ...secondary, keyid: "SHA256:other-key" }];
     }
@@ -355,6 +372,7 @@ async function publicClientHarness({
   };
   const currentAttestationBundle = () => {
     const statement = structuredClone(provenanceStatement);
+    statement.predicate.runDetails.metadata.invocationId = `https://github.com/${tuple.repository}/actions/runs/${state.runId}/attempts/${state.runAttempt}`;
     statement._type = state.signedStatementType;
     statement.predicateType = state.signedPredicateType;
     if (state.duplicateProvenanceSubject) {
@@ -492,7 +510,7 @@ async function publicClientHarness({
           ? {}
           : { head_sha: state.workflowHeadSha }),
         status: state.workflow === "active" ? "queued" : "completed",
-        conclusion: state.workflow === "success" ? "success" : null,
+        conclusion: state.workflow === "success" ? "success" : state.workflow === "failed" ? "failure" : null,
       };
       const runs = state.workflow === "absent" ? [] : [run];
       return jsonResult({
@@ -500,14 +518,23 @@ async function publicClientHarness({
         workflow_runs: runs,
       });
     }
-    if (endpoint.includes("/actions/runs/501/attempts/1/jobs?")) {
+    const attemptMatch = /\/actions\/runs\/501\/attempts\/(\d+)\/jobs\?/.exec(endpoint);
+    if (attemptMatch) {
+      const attempt = Number(attemptMatch[1]);
       const jobs = [
         {
           id: state.jobId,
+          run_id: state.jobRunId ?? state.runId,
+          head_sha: tuple.target.mergeSha,
+          name: "Publish exact npm checkout",
+          run_attempt: attempt,
           steps: [
             {
               name: "Publish the exact checkout directory through OIDC",
-              conclusion: "success",
+              status: "completed",
+              conclusion: attempt < state.runAttempt
+                ? state.priorPublishConclusions[attempt] ?? "skipped"
+                : state.latestPublishConclusion,
             },
           ],
         },
@@ -670,7 +697,7 @@ async function publicClientHarness({
             ? [
                 {
                   keyid: "SHA256:rotated",
-                  key: publicKeyBytes.toString("base64"),
+                  key: rotatedKeyPair.publicKey.export({ type: "spki", format: "der" }).toString("base64"),
                   expires: null,
                 },
               ]
@@ -6419,123 +6446,6 @@ test("an old exact Task hydrates its selected contract without replaying later p
   );
 });
 
-test("normal adapter hydrates before one dispatcher call and failure invokes none", async () => {
-  const argumentsList = [
-    "dispatch",
-    "--tasks-root",
-    path.join(REPOSITORY_ROOT, "docs", "tasks"),
-    "--invocation",
-    "$kyw-impl 0059",
-    "--managed-routing",
-    "false",
-  ];
-  const events = [];
-  const success = await runTaskArtifactCommand(argumentsList, {
-    hydratePriorStandardDeliveries: async () => {
-      events.push("hydrate");
-      return {
-        deliveryLedger: {},
-        deliveryExpectations: {},
-        diagnostics: { requiredTaskIds: [] },
-      };
-    },
-    resolveTaskDispatch: async () => {
-      events.push("dispatch");
-      return {
-        outcome: "SELECTED",
-        action: "IMPLEMENT",
-        task: { id: "0059" },
-      };
-    },
-  });
-  assert.deepEqual(events, ["hydrate", "dispatch"]);
-  assert.equal(success.outcome, "SELECTED");
-
-  let dispatchCalls = 0;
-  await assert.rejects(
-    runTaskArtifactCommand(argumentsList, {
-      hydratePriorStandardDeliveries: async () => {
-        throw new Error("Task 0058 POST_MERGE_MAIN: timeout");
-      },
-      resolveTaskDispatch: async () => {
-        dispatchCalls += 1;
-      },
-    }),
-    /POST_MERGE_MAIN: timeout/,
-  );
-  assert.equal(dispatchCalls, 0);
-});
-
-test("ordinary implementation adapters pass route identity and never receive a transition", async () => {
-  const prepared = createStandardDeliveryContinuityCheckpoint({
-    repository: "owner/repository",
-    sourceMainSha: "f".repeat(40),
-    coveredRecords: [
-      {
-        taskId: "0100",
-        taskSha256: "1".repeat(64),
-        testSha256: "2".repeat(64),
-        taskStatus: "DONE",
-        testStatus: "PASSED",
-        classification: "HARDENED_EXACT_HEAD",
-        outcomeSha: "3".repeat(40),
-        mergeSha: "4".repeat(40),
-        evidenceSha256: "5".repeat(64),
-      },
-    ],
-  }).checkpoint;
-  const observed = [];
-
-  for (const id of ["0070", "0170"]) {
-    const invocation = `$kyw-impl ${id}`;
-    const events = [];
-    const result = await runTaskArtifactCommand(
-      [
-        "dispatch",
-        "--tasks-root",
-        path.join(REPOSITORY_ROOT, "docs", "tasks"),
-        "--invocation",
-        invocation,
-        "--managed-routing",
-        "false",
-      ],
-      {
-        hydratePriorStandardDeliveries: async (options) => {
-          events.push("hydrate");
-          assert.equal(options.invocation, invocation);
-          assert.equal(options.parsedInvocation.route, "IMPLEMENTATION");
-          assert.equal("continuityBootstrapAuthority" in options, false);
-          assert.equal("allowBootstrapWorktreeCheckpoint" in options, false);
-          return {
-            deliveryLedger: {},
-            deliveryExpectations: {},
-            preparedCheckpoint: prepared,
-            diagnostics: { requiredTaskIds: ["0100"] },
-          };
-        },
-        resolveTaskDispatch: async (options) => {
-          events.push("dispatch");
-          assert.equal(options.parsedInvocation.route, "IMPLEMENTATION");
-          return {
-            outcome: "SELECTED",
-            action: "IMPLEMENT",
-            task: { id },
-          };
-        },
-      },
-    );
-    assert.equal("continuityTransitionToken" in result, false);
-    assert.deepEqual(events, ["hydrate", "dispatch"]);
-    observed.push({
-      outcome: result.outcome,
-      action: result.action,
-      taskId: result.task.id === id ? "SELECTED_ID" : result.task.id,
-    });
-  }
-
-  assert.deepEqual(observed[0], observed[1]);
-});
-
 test("retired dispatch rebaseline option is rejected before hydration", async () => {
   let hydrationCalls = 0;
   await assert.rejects(
@@ -6672,37 +6582,6 @@ test("bootstrap backend rejects self-coverage, partial history, and an existing 
   );
 });
 
-test("manual delivery objects remain a low-level seam and bypass automatic hydration", async () => {
-  let hydrationCalls = 0;
-  let dispatchCalls = 0;
-  await runTaskArtifactCommand(
-    [
-      "dispatch",
-      "--tasks-root",
-      path.join(REPOSITORY_ROOT, "docs", "tasks"),
-      "--invocation",
-      "$kyw-impl 0059",
-      "--managed-routing",
-      "false",
-      "--delivery-ledger-json",
-      "{}",
-      "--delivery-expectations-json",
-      "{}",
-    ],
-    {
-      hydratePriorStandardDeliveries: async () => {
-        hydrationCalls += 1;
-      },
-      resolveTaskDispatch: async () => {
-        dispatchCalls += 1;
-        return { outcome: "BLOCKED" };
-      },
-    },
-  );
-  assert.equal(hydrationCalls, 0);
-  assert.equal(dispatchCalls, 1);
-});
-
 test(
   "live repository and GitHub hydration recovers the queue-required hardened chain",
   { skip: process.env.KYW_LIVE_GITHUB_HYDRATION !== "1" },
@@ -6833,7 +6712,7 @@ test("public-release hydration rejects Task-to-delivered package and plugin vers
     }),
     (error) =>
       error.code === "PUBLIC_RELEASE_TASK_VERSION_MISMATCH" &&
-      /delivered package and plugin versions must equal the Task-owned Release version/u.test(
+      /delivered package and plugin versions must equal the explicitly selected release version/u.test(
         error.message,
       ),
   );
@@ -7084,6 +6963,40 @@ test("public-release tuple hydration packs only the immutable delivered tree", a
     ),
     tupleSigningKeyPair.privateKey,
   ).toString("base64");
+  const rotatedPair = generateKeyPairSync("ec", { namedCurve: "P-256" });
+  const multiKeys = { keys: [
+    { keyid: "SHA256:fixture", key: tupleSigningPublicKey.toString("base64"), expires: null },
+    { keyid: "SHA256:rotated", key: rotatedPair.publicKey.export({ type: "spki", format: "der" }).toString("base64"), expires: null },
+  ] };
+  let originalMultiTuple;
+  const rotatedSignature = sign("sha256", registryMessage, rotatedPair.privateKey).toString("base64");
+  const multiClients = { ...suppliedClients,
+    readSigningKeys: async () => multiKeys,
+    readPackageIndex: async () => originalMultiTuple ? {
+      versions: { "1.0.0": {}, "2.0.0": { dist: { signatures: [{ keyid: "SHA256:rotated", sig: rotatedSignature }] } } },
+      "dist-tags": { latest: "2.0.0" }, time: { "2.0.0": "2026-09-05T00:00:00Z" },
+    } : { versions: { "1.0.0": {} }, "dist-tags": { latest: "1.0.0" } },
+    readWorkflowRuns: async () => ({ complete: true, runs: originalMultiTuple ? [{
+      runId: 901, runAttempt: 1, repository, workflowId: 77,
+      workflowName: originalMultiTuple.publishWorkflow.name, workflowPath: originalMultiTuple.publishWorkflow.path,
+      event: "workflow_dispatch", ref: "refs/heads/main", headSha: mergeSha,
+      status: "completed", conclusion: "success", inputs: derivePublicReleaseWorkflowInputs(originalMultiTuple),
+      publishAttempts: [{ checkoutSha: mergeSha, conclusion: "SUCCESS",
+        command: "npm publish . --access public --ignore-scripts --registry=https://registry.npmjs.org/" }],
+    }] : [] }),
+  };
+  const hydrateMulti = () => hydratePublicReleaseContext({ tasksRoot, taskId: fixture.outcome.taskId,
+    deliveryLedger: { [fixture.outcome.taskId]: normalized.entry },
+    deliveryExpectations: { [fixture.outcome.taskId]: normalized.expectation },
+    commandRunner: publicReleaseLocalRunner([]), clients: multiClients,
+  });
+  originalMultiTuple = (await hydrateMulti()).tuple;
+  assert.deepEqual(originalMultiTuple.package.signature, {
+    required: true, keyId: "SHA256:fixture", keyIds: ["SHA256:fixture", "SHA256:rotated"],
+  });
+  const resumedMulti = await hydrateMulti();
+  assert.deepEqual(resumedMulti.tuple, originalMultiTuple,
+    "after publication by the other active key, rehydration must retain the exact dispatch tuple");
   const targetSignatureSets = {
     single: [{ keyid: "SHA256:fixture", sig: targetSignatureA }],
     "two-valid": [
@@ -7185,7 +7098,7 @@ test("public-release tuple hydration packs only the immutable delivered tree", a
         commandRunner: publicReleaseLocalRunner([]),
         clients: guardedClients,
       }),
-      /nonempty registry signature set|entirely valid registry signature set|frozen signing key does not map/u,
+      /nonempty registry signature set|entirely valid (?:trusted )?registry signature set|frozen signing key does not map/u,
       signatureMode,
     );
     assert.deepEqual(mutationTrace, [], signatureMode);
@@ -7625,6 +7538,7 @@ test("production public clients use fresh bounded reads and one guarded POST per
     );
   assert.deepEqual(repeatedValidSnapshot.signature, {
     keyId: repeatedValidSignatures.tuple.package.signature.keyId,
+    keyIds: [repeatedValidSignatures.tuple.package.signature.keyId, repeatedValidSignatures.tuple.package.signature.keyId],
     verified: true,
   });
   assert.equal(
@@ -7852,7 +7766,7 @@ test("production public clients fail closed on drift, partial pages, byte tamper
   state.jobId = "601";
   await assert.rejects(
     clients.readWorkflowRuns(tuple, context),
-    /one-job contract/u,
+    /workflow job collection/u,
   );
   state.jobId = 601;
   state.workflow = "absent";
@@ -7981,10 +7895,9 @@ test("production public clients fail closed on drift, partial pages, byte tamper
 
   const rotatedKeys = await publicClientHarness();
   rotatedKeys.state.extraActiveSigningKey = true;
-  await assert.rejects(
-    rotatedKeys.clients.readNpmVersion(rotatedKeys.tuple, context),
-    /one exact current signing key/u,
-  );
+  const rotatedAbsent = await rotatedKeys.clients.readNpmVersion(rotatedKeys.tuple, context);
+  assert.equal(rotatedAbsent.absent, true);
+  assert.equal(rotatedAbsent.signatureKeyId, rotatedKeys.tuple.package.signature.keyId);
 
   for (const signingKeyMaterial of ["noncanonical", "unsupported"]) {
     const invalidKey = await publicClientHarness();
@@ -8283,6 +8196,99 @@ test("production provenance discovery ignores hostile npm_execpath", async (t) =
     ),
     true,
   );
+});
+
+test("production public signature verification accepts distinct trusted keys and preserves historical tuples", async () => {
+  const context = { fresh: true, cacheBypass: true, purpose: "FIXTURE_KEYS", sequence: 1 };
+  const harness = await publicClientHarness({ multipleSigningKeys: true });
+  harness.state.npm = "exact";
+  harness.state.workflow = "success";
+  harness.state.registrySignatureMode = "two-keys";
+  const snapshot = await harness.clients.readNpmVersion(harness.tuple, context);
+  assert.equal(snapshot.signature.verified, true);
+  assert.deepEqual(snapshot.signature.keyIds, ["SHA256:fixture", "SHA256:rotated"]);
+  assert.equal(classifyNpmPublication(harness.tuple, snapshot).classification, "EXACT_ALREADY_COMPLETE");
+  const canonicalRuns = await harness.clients.readWorkflowRuns(harness.tuple, context);
+  assert.equal(canonicalRuns.runs[0].inputs.expectedSigningKeyIds, '["SHA256:fixture","SHA256:rotated"]');
+  const provisional = structuredClone(harness.tuple);
+  provisional.package.signature = { required: true, keyId: "SHA256:rotated", keyIds: ["SHA256:rotated"] };
+  assert.deepEqual(recoverPublicReleaseSigningTuple(provisional, canonicalRuns), harness.tuple);
+  for (const mode of ["bad-rotated", "mixed-key", "invalid-second", "wrong-message"]) {
+    harness.state.registrySignatureMode = mode;
+    const invalid = await harness.clients.readNpmVersion(harness.tuple, context);
+    assert.equal(invalid.signature.verified, false, mode);
+    assert.equal(classifyNpmPublication(harness.tuple, invalid).classification, "CONFLICT", mode);
+  }
+  const historical = await publicClientHarness();
+  historical.state.extraActiveSigningKey = true;
+  historical.state.npm = "exact";
+  historical.state.registrySignatureMode = "two-keys";
+  const historicalSnapshot = await historical.clients.readNpmVersion(historical.tuple, context);
+  assert.equal(historicalSnapshot.signature.verified, false, "historical tuple cannot silently adopt another key");
+  assert.equal(historical.tuple.package.signature.keyId, "SHA256:fixture");
+  assert.equal(historical.tuple.package.signature.keyIds, undefined);
+  assert.equal(harness.trace.some(({ kind }) => kind === "post"), false);
+});
+
+test("production publication reads prove all prior attempts skipped before accepting rerun or redispatch", async () => {
+  const context = { fresh: true, cacheBypass: true, purpose: "FIXTURE_ATTEMPTS", sequence: 1 };
+  const harness = await publicClientHarness();
+  harness.state.workflow = "success";
+  harness.state.npm = "exact";
+  harness.state.runAttempt = 3;
+  const workflow = await harness.clients.readWorkflowRuns(harness.tuple, context);
+  assert.deepEqual(workflow.runs[0].priorAttempts, [
+    { attempt: 1, publishBoundary: "NOT_EXECUTED" }, { attempt: 2, publishBoundary: "NOT_EXECUTED" },
+  ]);
+  assert.equal(classifyPublicationWorkflow(harness.tuple, workflow).classification, "EXACT_ALREADY_COMPLETE");
+  const npm = await harness.clients.readNpmVersion(harness.tuple, context);
+  assert.equal(npm.provenance.runAttempt, 3);
+  assert.equal(npm.provenance.verified, true);
+  for (const conclusion of ["success", "failure", "cancelled"]) {
+    harness.state.priorPublishConclusions[1] = conclusion;
+    const unsafe = await harness.clients.readWorkflowRuns(harness.tuple, context);
+    assert.equal(classifyPublicationWorkflow(harness.tuple, unsafe).classification, "CONFLICT", conclusion);
+  }
+  harness.state.priorPublishConclusions = {};
+  harness.state.workflow = "failed";
+  harness.state.npm = "absent";
+  harness.state.latestPublishConclusion = "skipped";
+  const safe = await harness.clients.readWorkflowRuns(harness.tuple, context);
+  assert.equal(safe.runs[0].publishBoundary, "NOT_EXECUTED");
+  assert.equal(classifyPublicationWorkflow(harness.tuple, safe).classification, "ABSENT");
+  harness.state.jobRunId = 999;
+  await assert.rejects(harness.clients.readWorkflowRuns(harness.tuple, context), /identity/);
+  assert.equal(harness.trace.some(({ kind }) => kind === "post"), false);
+});
+
+test("production public read retries are bounded and do not retry authentication or invalid data", async () => {
+  const identity = { name: "kyw-dev", registry: "https://registry.npmjs.org/" };
+  const context = { fresh: true, cacheBypass: true, purpose: "FIXTURE_RETRY", sequence: 1 };
+  for (const status of [401, 403, 422]) {
+    let calls = 0;
+    const clients = createPublicReleaseClients({ repositoryRoot: REPOSITORY_ROOT,
+      fetchImpl: async () => { calls += 1; return new Response("denied", { status }); } });
+    await assert.rejects(clients.readPackageIndex(identity, context), /canonical read returned status/);
+    assert.equal(calls, 1, String(status));
+  }
+  let calls = 0;
+  const eventual = createPublicReleaseClients({ repositoryRoot: REPOSITORY_ROOT,
+    fetchImpl: async () => {
+      calls += 1;
+      return calls < 3 ? new Response("transient", { status: 503 }) : Response.json({ name: "kyw-dev", versions: {} });
+    } });
+  assert.deepEqual(await eventual.readPackageIndex(identity, context), { name: "kyw-dev", versions: {} });
+  assert.equal(calls, 3);
+  calls = 0;
+  const exhausted = createPublicReleaseClients({ repositoryRoot: REPOSITORY_ROOT,
+    fetchImpl: async () => { calls += 1; return new Response("transient", { status: 503 }); } });
+  await assert.rejects(exhausted.readPackageIndex(identity, context), /canonical read returned status/);
+  assert.equal(calls, 3);
+  calls = 0;
+  const malformed = createPublicReleaseClients({ repositoryRoot: REPOSITORY_ROOT,
+    fetchImpl: async () => { calls += 1; return new Response("not JSON"); } });
+  await assert.rejects(malformed.readPackageIndex(identity, context));
+  assert.equal(calls, 1);
 });
 
 test("production public registry reads enforce the byte bound while streaming chunked bodies", async () => {
