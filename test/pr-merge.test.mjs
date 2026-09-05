@@ -142,6 +142,64 @@ test("required failures, missing/current evidence, wrong sources, reviews and un
   });
 });
 
+test("check-pr rejects required reviews despite an accepted merge summary", async (t) => {
+  for (const mergeStateStatus of ["CLEAN", "UNSTABLE", "HAS_HOOKS"]) await t.test(mergeStateStatus, async () => {
+    const state = fixture();
+    state.pr.reviewDecision = "REVIEW_REQUIRED";
+    state.pr.mergeStateStatus = mergeStateStatus;
+    await assert.rejects(inspect(state), { code: "PR_REQUIRED_REVIEWS_BLOCKED", message: /required review/i });
+    assert.equal(state.reads, 1);
+    assert.equal(state.writes.length, 0);
+  });
+});
+
+test("merge-pr blocks required reviews on first and pre-write reads for direct merge and queue", async (t) => {
+  for (const mergeStateStatus of ["CLEAN", "UNSTABLE"]) {
+    for (const queue of [false, true]) {
+      for (const blockedRead of [1, 2]) await t.test(`${mergeStateStatus}, ${queue ? "queue" : "direct"}, read ${blockedRead}`, async () => {
+        const state = fixture();
+        state.pr.mergeStateStatus = mergeStateStatus;
+        state.pr.isMergeQueueEnabled = queue;
+        state.beforeRead = (count) => { if (count === blockedRead) state.pr.reviewDecision = "REVIEW_REQUIRED"; };
+        await assert.rejects(merge(state, queue ? [] : ["--method", "squash"]),
+          { code: "PR_REQUIRED_REVIEWS_BLOCKED", message: /required review/i });
+        assert.equal(state.reads, blockedRead);
+        assert.equal(state.writes.length, 0);
+      });
+    }
+  }
+});
+
+test("required reviews do not hide existing or concurrently observed effects or repeat writes", async () => {
+  const effects = {
+    MERGED: (pr) => { pr.state = "MERGED"; pr.mergeCommit = { oid: mergeSha }; },
+    QUEUED: (pr) => { pr.isInMergeQueue = true; },
+    AUTO_MERGE_SCHEDULED: (pr) => { pr.autoMergeRequest = { enabledAt: "2026-09-05T00:00:00Z" }; },
+  };
+  for (const [outcome, complete] of Object.entries(effects)) {
+    const existing = fixture();
+    existing.pr.isMergeQueueEnabled = outcome === "QUEUED";
+    existing.pr.reviewDecision = "REVIEW_REQUIRED";
+    complete(existing.pr);
+    assert.equal((await inspect(existing)).outcome, outcome);
+    const resumed = await merge(existing);
+    assert.equal(resumed.outcome, outcome);
+    assert.equal(resumed.mutationAttempted, false);
+    assert.equal(existing.writes.length, 0);
+
+    const concurrent = fixture();
+    concurrent.pr.isMergeQueueEnabled = outcome === "QUEUED";
+    concurrent.beforeRead = (count) => {
+      if (count === 2) { concurrent.pr.reviewDecision = "REVIEW_REQUIRED"; complete(concurrent.pr); }
+    };
+    const observed = await merge(concurrent);
+    assert.equal(observed.outcome, outcome);
+    assert.equal(observed.mutationAttempted, false);
+    assert.equal(concurrent.reads, 2);
+    assert.equal(concurrent.writes.length, 0);
+  }
+});
+
 test("merge queue enqueues directly with expected head, and never schedules auto-merge", async () => {
   const state = fixture(); state.pr.isMergeQueueEnabled = true;
   const result = await merge(state, []);

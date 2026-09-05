@@ -27,7 +27,7 @@ New Tasks default to one `TASK.md`; detailed `TEST.md` is optional. Preserve leg
 
 ## Evidence and completion
 
-Run nearby regression checks first. Repeat or broaden passing verification only for changed inputs, failures, or a concrete unresolved risk. Final integration uses the required regression and package checks: `npm test`, `npm run lint`, `npm run format:check`, `npm run pack:check`. `npm run release:ci` already includes Stable and candidate checks.
+Run nearby regression checks first. Repeat or broaden passing verification only for changed inputs, failures, or a concrete unresolved risk. Perform final integration checks required by the current verification tier and change impact; completing every small change does not independently mandate a full suite. Stable verification, including shared runtime changes, requires the regression and package checks: `npm test`, `npm run lint`, `npm run format:check`, `npm run pack:check`. `npm run release:ci` already includes Stable and candidate checks.
 
 Report actual results, unexecuted checks, and residual risks. Update the selected Task at meaningful handoff, interruption, or completion; use Codex session context for transient progress. Local completion means requested behavior, evidence, diff, and affected docs agree. It does not mean merged or published.
 

@@ -127,8 +127,11 @@ function observedCompletion(pr) {
 
 function proofFor(pr, target) {
   if (pr.state !== "OPEN" || pr.isDraft) fail("PR_NOT_READY", "The selected PR must be open and ready for review");
+  if (pr.reviewDecision === "REVIEW_REQUIRED") {
+    fail("PR_REQUIRED_REVIEWS_BLOCKED", "GitHub reports a required review is still missing; a merge summary cannot authorize a new merge or queue entry");
+  }
   if (pr.mergeable !== "MERGEABLE" || !acceptedStates.has(pr.mergeStateStatus) ||
-      ![null, "APPROVED", "CHANGES_REQUESTED", "REVIEW_REQUIRED"].includes(pr.reviewDecision)) {
+      ![null, "APPROVED", "CHANGES_REQUESTED"].includes(pr.reviewDecision)) {
     fail("PR_POLICY_BLOCKED", "GitHub has not established current checks, reviews and protection as mergeable");
   }
   const head = pr.commits?.nodes;
