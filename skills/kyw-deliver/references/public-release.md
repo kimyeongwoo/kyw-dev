@@ -1,6 +1,8 @@
 # Public Release and Resume
 
-This procedure applies only to `$kyw-deliver --release <version> --sha <sha>` with current explicit release authorization. It publishes a prepared version and exact merged main SHA, potentially containing several Tasks. It neither chooses/bumps a version nor merges an unfinished PR.
+This procedure is only for maintaining `kimyeongwoo/kyw-dev`, through `$kyw-deliver --release <version> --sha <sha>` with current explicit release authorization. It publishes a prepared version and exact merged main SHA, potentially containing several Tasks. It neither chooses/bumps a version nor merges an unfinished PR. Standalone hydration, the release runner and the actual publisher/tag/Release mutators reject another repository before writing. Historical tuple readers retain their compatibility; they do not authorize a publisher for another project.
+
+For a different project's deployment request, use that project's existing procedure within the current authorization. If the procedure cannot be established, report that external-action limit while preserving completed local work. Do not implicitly apply this npm publisher or create new OIDC/provider infrastructure.
 
 Use the shared Task adapter's `public-release --repository-root <repo> --invocation '$kyw-deliver --release <version> --sha <sha>'` operation at its resolved installed/package path. The `dispatch` operation with the same arguments previews the plan without external writes. Neither operation needs a Task directory. Keep the supplied invocation within the user's established release scope.
 

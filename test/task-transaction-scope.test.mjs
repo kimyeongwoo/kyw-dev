@@ -26,12 +26,14 @@ const dispatch = (tasksRoot, id) => resolveTaskDispatch({ tasksRoot, invocation:
 
 test("exact existing Task remains selectable during an unrelated live creation", async (t) => {
   const { tasksRoot, definition } = await fixture(t);
+  const existingPath = path.join(tasksRoot, "0001-existing", "TASK.md");
+  await writeFile(existingPath, (await readFile(existingPath, "utf8")).replace('"status":"READY"', '"status":"DONE"'));
   const observations = [];
   async function observe() {
     const scope = await inspectTaskBatchSelectionScope({ tasksRoot });
     assert.equal(scope.state, "SCOPED");
     assert.deepEqual(scope.taskIds, ["0002"]);
-    const existing = await dispatch(tasksRoot, "0001");
+    const existing = await resolveTaskDispatch({ tasksRoot, invocation: "$kyw-audit 0001" });
     observations.push(existing);
     const reserved = await dispatch(tasksRoot, "0002");
     assert.equal(reserved.outcome, "BLOCKED");
@@ -40,9 +42,15 @@ test("exact existing Task remains selectable during an unrelated live creation",
     assert.match(global.errors.join("\n"), /locked/);
     const automatic = await resolveTaskDispatch({ tasksRoot, invocation: "task 진행해줘", managedRoutingAvailable: true });
     assert.equal(automatic.outcome, "BLOCKED");
-    const delivery = await resolveTaskDispatch({ tasksRoot, invocation: "$kyw-deliver 0001" });
-    assert.equal(delivery.outcome, "BLOCKED");
-    assert.match(delivery.message, /locked/);
+    for (const invocation of ["$kyw-deliver 0001", "$kyw-deliver 0001 --merge"]) {
+      const delivery = await resolveTaskDispatch({ tasksRoot, invocation });
+      assert.equal(delivery.outcome, "SELECTED", JSON.stringify(delivery));
+      assert.match(delivery.warnings.join("\n"), /transaction/);
+      assert.equal(delivery.publicWriteAuthorized, false);
+    }
+    for (const invocation of ["$kyw-deliver 0002", "$kyw-deliver 0002 --merge", "$kyw-audit 0002"]) {
+      assert.equal((await resolveTaskDispatch({ tasksRoot, invocation })).code, "INVALID_TASK_QUEUE");
+    }
     await assert.rejects(
       createTaskArtifactBatch({ tasksRoot, tasks: [definition("competing")] }),
       (error) => error.code === "TASK_CREATION_LOCKED",
@@ -72,7 +80,7 @@ test("a transitive dependency being published remains protected before its recor
     readFile(secondPath, "utf8"),
   ]);
   await writeFile(firstPath, first.replace('"dependencies":[]', '"dependencies":["0002"]'));
-  let observation;
+  const observations = [];
   await createTaskArtifactBatch({
     tasksRoot,
     tasks: [definition("pending")],
@@ -84,7 +92,9 @@ test("a transitive dependency being published remains protected before its recor
         const reserved = await readFile(reservedPath, "utf8");
         try {
           await writeFile(reservedPath, "incomplete publication\n");
-          observation = await dispatch(tasksRoot, "0001");
+          for (const invocation of ["$kyw-impl 0001", "$kyw-deliver 0001", "$kyw-deliver 0001 --merge", "$kyw-audit 0001"]) {
+            observations.push(await resolveTaskDispatch({ tasksRoot, invocation }));
+          }
         } finally {
           await writeFile(reservedPath, reserved);
           await writeFile(secondPath, originalSecond);
@@ -92,9 +102,11 @@ test("a transitive dependency being published remains protected before its recor
       },
     },
   });
-  assert.equal(observation.outcome, "BLOCKED");
-  assert.match(observation.message, /0003.*transaction|transaction.*0003/i);
-  assert.doesNotMatch(observation.message, /contract marker|TASK\.md headers/);
+  for (const observation of observations) {
+    assert.equal(observation.outcome, "BLOCKED");
+    assert.match(observation.message, /0003.*transaction|transaction.*0003/i);
+    assert.doesNotMatch(observation.message, /contract marker|TASK\.md headers/);
+  }
 });
 
 test("a retained committed release marker keeps only its transaction targets protected", async (t) => {
@@ -152,6 +164,11 @@ test("damaged retained journal and unknown legacy evidence never imply non-overl
       const result = await dispatch(tasksRoot, "0001");
       assert.equal(result.outcome, "BLOCKED");
       assert.match(result.message, /Cannot determine batch transaction scope/);
+      for (const invocation of ["$kyw-deliver 0001", "$kyw-deliver 0001 --merge", "$kyw-audit 0001"]) {
+        const selected = await resolveTaskDispatch({ tasksRoot, invocation });
+        assert.equal(selected.outcome, "BLOCKED");
+        assert.match(selected.message, /Cannot determine batch transaction scope/);
+      }
       assert.deepEqual(await readdir(tasksRoot), before);
       if (markerBefore) assert.deepEqual(await readFile(lockPath), markerBefore);
       assert.deepEqual(await readFile(existingPath), existingBefore);

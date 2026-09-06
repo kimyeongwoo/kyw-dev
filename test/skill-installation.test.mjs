@@ -421,6 +421,7 @@ function createSourceCopy(t, version, mutate) {
   mkdirSync(join(source, "src", "core"), { recursive: true });
   for (const name of [
     "ci-evidence.mjs",
+    "pr-merge.mjs",
     "task-artifact-contract.mjs",
     "task-artifact-continuity.mjs",
     "task-artifact-creation.mjs",
@@ -1929,6 +1930,8 @@ test("actual npm tarball installs, diagnoses, runs its installed adapter, and un
   const report = JSON.parse(packed.stdout)[0];
   assert.ok(report.files.some((file) => file.path === "skills/kyw-audit/scripts/verify.mjs"));
   assert.ok(report.files.some((file) => file.path === "src/core/ci-evidence.mjs"));
+  assert.ok(report.files.some((file) => file.path === "src/core/pr-merge.mjs"));
+  assert.equal(report.files.some((file) => file.path.startsWith("docs/dev/")), false);
   const extractRoot = join(root, "extract");
   mkdirSync(extractRoot);
   const extracted = spawnSync("tar", ["-xf", join(root, report.filename), "-C", extractRoot], {
@@ -1986,6 +1989,62 @@ test("actual npm tarball installs, diagnoses, runs its installed adapter, and un
   assert.match(doctor.stdout, /Result: healthy/);
 
   const adapter = join(home, ".agents", "skills", "kyw-task", "scripts", "task-artifacts.mjs");
+  const packagedAdapter = join(extractRoot, "package", "skills", "kyw-task", "scripts", "task-artifacts.mjs");
+  for (const entryPoint of [packagedAdapter, adapter]) {
+    for (const [invocation, action] of [
+      ['$kyw-impl "Fix the greeting without a record"', "IMPLEMENT"],
+      ["$kyw-deliver", "PR"],
+      ["$kyw-deliver --merge", "MERGE"],
+      ["$kyw-audit", "AUDIT"],
+      ["$kyw-audit --fix", "FIX"],
+    ]) {
+      const dispatched = spawnSync(process.execPath, [
+        entryPoint, "dispatch", "--invocation", invocation,
+      ], { cwd: target, env, encoding: "utf8" });
+      assert.equal(dispatched.status, 0, dispatched.stderr);
+      const selected = JSON.parse(dispatched.stdout);
+      assert.equal(selected.outcome, "SELECTED");
+      assert.equal(selected.action, action);
+      assert.equal(selected.taskRequired, false);
+      assert.equal(selected.scopeResolved, false, "dispatch does not certify change ownership");
+      assert.equal(selected.publicWriteAuthorized, false);
+      assert.equal("task" in selected, false);
+      assert.equal(existsSync(join(target, "docs", "tasks")), false, "no fake record or inventory prerequisite");
+    }
+    const { runTaskArtifactCommand } = await import(pathToFileURL(entryPoint).href);
+    const headSha = "a".repeat(40);
+    const baseSha = "b".repeat(40);
+    const requests = [];
+    const checked = await runTaskArtifactCommand([
+      "check-pr", "--repository-root", target, "--repository", "example/consumer",
+      "--pr", "7", "--sha", headSha, "--base", "trunk", "--base-sha", baseSha,
+    ], {
+      readCi() { throw new Error("generic PR policy must not invoke canonical CI"); },
+      commandRunner: async (request) => {
+        requests.push(request);
+        return { status: 0, stdout: JSON.stringify({ data: { repository: {
+          nameWithOwner: "example/consumer",
+          pullRequest: {
+            id: "PR_consumer_7", number: 7, url: "https://github.com/example/consumer/pull/7",
+            state: "OPEN", isDraft: false, headRefOid: headSha, headRefName: "fix-greeting",
+            headRepository: { nameWithOwner: "example/consumer" },
+            baseRefName: "trunk", baseRefOid: baseSha, mergeable: "MERGEABLE",
+            mergeStateStatus: "CLEAN", reviewDecision: null,
+            isMergeQueueEnabled: false, isInMergeQueue: false, autoMergeRequest: null,
+            mergeCommit: null, potentialMergeCommit: null,
+            commits: { nodes: [{ commit: { oid: headSha, statusCheckRollup: null } }] },
+          },
+        } } }) };
+      },
+    });
+    assert.equal(checked.outcome, "READY");
+    assert.equal(checked.proof.baseBranch, "trunk");
+    assert.equal(checked.proof.policyEvidence, "GITHUB_MERGE_STATE");
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].command, "gh");
+    assert.ok(requests[0].args.some((arg) => arg.startsWith("query=query ")));
+    assert.equal(requests[0].args.some((arg) => /mutation|ci\.yml/u.test(arg)), false);
+  }
   const installedCorePath = join(
     home,
     ".agents",

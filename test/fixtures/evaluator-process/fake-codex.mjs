@@ -98,21 +98,22 @@ if (outputOption === -1 || !args[outputOption + 1]) {
 }
 
 const skillsRoot = join(repository, ".agents", "skills");
+const isAudit = existsSync(join(repository, "docs", "tasks", "0001-greeting-contract"));
 const skillNames = existsSync(skillsRoot)
   ? readdirSync(skillsRoot, { withFileTypes: true })
       .filter((entry) => entry.isDirectory())
       .map((entry) => entry.name)
   : [];
-const skillPath =
-  skillNames.length === 1 ? join(skillsRoot, skillNames[0], "SKILL.md") : null;
+const selectedSkill = isAudit && skillNames.includes("kyw-audit")
+  ? "kyw-audit" : skillNames.length === 1 ? skillNames[0] : null;
+const skillPath = selectedSkill ? join(skillsRoot, selectedSkill, "SKILL.md") : null;
 const skillSource = skillPath && existsSync(skillPath) ? readFileSync(skillPath, "utf8") : "";
 const relativeSkillPath =
-  skillNames.length === 1 ? `.agents/skills/${skillNames[0]}/SKILL.md` : ".agents/skills";
+  selectedSkill ? `.agents/skills/${selectedSkill}/SKILL.md` : ".agents/skills";
 const skillReadCommand =
   process.platform === "win32"
     ? `Get-Content -Raw -LiteralPath '${relativeSkillPath}'`
     : `cat -- '${relativeSkillPath}'`;
-const isAudit = existsSync(join(repository, "docs", "tasks", "0001-greeting-contract"));
 const message = isAudit
   ? "F-01: synthetic fixture contract mismatch.\n\n## Verdict\n\nBLOCKED"
   : "Question: What identity should define a duplicate request?\nRecommendation: Scope it to tenant and endpoint.";

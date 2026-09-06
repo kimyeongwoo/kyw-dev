@@ -32,9 +32,24 @@ export function parseTaskInvocation(invocation, { managedRoutingAvailable = fals
   if (explicitRelease) return Object.freeze({ recognized: true, route: "DELIVERY", mode: "EXACT", source: "PORTABLE_SKILL", action: "PUBLIC_RELEASE", releaseVersion: explicitRelease[1], releaseSha: explicitRelease[2] });
   const delivery = /^\$kyw-deliver\s+(\d{4})(?:\s+(--merge))?\s*$/u.exec(invocation);
   if (delivery) return Object.freeze({ recognized: true, route: "DELIVERY", mode: "EXACT", source: "PORTABLE_SKILL", taskId: delivery[1], action: delivery[2] ? "MERGE" : "PR", overrideText: "", overrideScope: "FIRST_SELECTED_TASK" });
+  const currentDelivery = /^\$kyw-deliver(?:\s+(--merge))?\s*$/u.exec(invocation);
+  if (currentDelivery) return Object.freeze({ recognized: true, route: "DELIVERY", mode: "CURRENT", source: "PORTABLE_SKILL", action: currentDelivery[1] ? "MERGE" : "PR" });
+  const audit = /^\$kyw-audit(?:\s+(\d{4}))?(?:\s+(--fix))?\s*$/u.exec(invocation);
+  if (audit) return Object.freeze({ recognized: true, route: "AUDIT", mode: audit[1] ? "EXACT" : "CURRENT", source: "PORTABLE_SKILL", taskId: audit[1], action: audit[2] ? "FIX" : "AUDIT" });
+
+  // A quoted goal is a separate explicit form, never a fallback for a broken ID
+  // or option. JSON quoting supports embedded quotes without shell evaluation.
+  const goalInvocation = /^\$kyw-impl\s+("(?:[^"\\\r\n]|\\[^\r\n])*")\s*$/u.exec(invocation);
+  if (goalInvocation) {
+    let goal;
+    try { goal = JSON.parse(goalInvocation[1]); } catch { /* Invalid escaping is not an invocation. */ }
+    if (typeof goal === "string" && goal.trim() && !/[\u0000-\u001f\u007f]/u.test(goal)) {
+      return Object.freeze({ recognized: true, route: "IMPLEMENTATION", mode: "GOAL", source: "PORTABLE_SKILL", action: "IMPLEMENT", goal: goal.trim() });
+    }
+  }
 
   const exact = exactInvocationPattern.exec(invocation);
-  if (exact) {
+  if (exact && !/^--/u.test(exact[2] ?? "")) {
     return Object.freeze({
       recognized: true,
       route: "IMPLEMENTATION",
@@ -46,10 +61,11 @@ export function parseTaskInvocation(invocation, { managedRoutingAvailable = fals
     });
   }
 
-  if (/^\$kyw-deliver(?:\s|$)/u.test(invocation)) {
+  const invalidExplicit = /^\$kyw-(impl|deliver|audit)(?:\s|$)/u.exec(invocation);
+  if (invalidExplicit) {
     return Object.freeze({
       recognized: false,
-      route: "DELIVERY",
+      route: { impl: "IMPLEMENTATION", deliver: "DELIVERY", audit: "AUDIT" }[invalidExplicit[1]],
       mode: "NONE",
     });
   }
@@ -64,6 +80,7 @@ export function parseTaskInvocation(invocation, { managedRoutingAvailable = fals
 
   const taskId = managedExact?.[1];
   const overrideText = managedExact?.[2] ?? managedNext?.[1] ?? managedContinuous?.[1] ?? "";
+  if (/^--/u.test(overrideText)) return Object.freeze({ recognized: false, route: "IMPLEMENTATION", mode: "NONE" });
   if (!managedRoutingAvailable) {
     const fallback = `${portableFallback(taskId)}${overrideText ? ` ${overrideText}` : ""}`;
     return Object.freeze({

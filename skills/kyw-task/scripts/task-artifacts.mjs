@@ -35,6 +35,8 @@ const { derivePublicReleasePlan, redactPublicReleaseDiagnostics, runPublicReleas
 const loadExternalEvidence = () => import(new URL("task-artifact-hydration.mjs", coreUrl));
 
 const usage =
+  "Usage: task-artifacts.mjs check-pr --repository <owner/name> --pr <number> --sha <sha> --base <branch> --base-sha <sha> [--repository-root <path>]\n" +
+  "   or: task-artifacts.mjs merge-pr --repository <owner/name> --pr <number> --sha <sha> --base <branch> --base-sha <sha> --invocation '$kyw-deliver [NNNN] --merge' [--method <merge|squash|rebase>] [--repository-root <path>]\n" +
   "Usage: task-artifacts.mjs check-ci --repository <owner/name> --sha <sha> [--branch <branch> --event <push|pull_request> --head-repository <owner/name>]\n" +
   "Usage: task-artifacts.mjs create --tasks-root <path> --title <title>\n" +
   "   or: task-artifacts.mjs create-batch --tasks-root <path> " +
@@ -45,8 +47,8 @@ const usage =
   "   or: task-artifacts.mjs bootstrap-continuity --tasks-root <path> " +
   "--invocation <text> --managed-routing <true|false> " +
   "--migration-authority EXPLICIT_REBASELINE\n" +
-  "   or: task-artifacts.mjs dispatch --tasks-root <path> --invocation <text> " +
-  "--managed-routing <true|false> " +
+  "   or: task-artifacts.mjs dispatch --invocation <text> " +
+  "[--repository-root <path>] [--tasks-root <path>] [--managed-routing <true|false>] " +
   "[--execution-preflight <json-path> | --execution-preflight-json <json>]\n" +
   "   or: task-artifacts.mjs public-release [--repository-root <path>] " +
   "--invocation '$kyw-deliver --release <version> --sha <sha>' " +
@@ -391,6 +393,25 @@ export async function runTaskArtifactCommand(argv, runtime = {}) {
     };
   }
 
+  if (command === "check-pr" || command === "merge-pr") {
+    const options = parseOptions(args,
+      ["--repository", "--pr", "--sha", "--base", "--base-sha", ...(command === "merge-pr" ? ["--invocation"] : [])],
+      ["--repository-root", ...(command === "merge-pr" ? ["--method"] : [])],
+    );
+    if (!/^[1-9]\d*$/u.test(options.get("--pr"))) throw new TaskArtifactError("INVALID_TASK_ADAPTER_ARGUMENTS", "--pr must be a positive decimal PR number");
+    const { inspectPullRequest, mergePullRequest } = await import(new URL("pr-merge.mjs", coreUrl));
+    const target = {
+      repositoryRoot: resolve(options.get("--repository-root") ?? process.cwd()),
+      repository: options.get("--repository"), prNumber: Number(options.get("--pr")),
+      headSha: options.get("--sha"), baseBranch: options.get("--base"), baseSha: options.get("--base-sha"),
+      invocation: options.get("--invocation"), mergeMethod: options.get("--method"),
+      commandRunner: runtime.commandRunner,
+    };
+    return { command, ...await (command === "check-pr" ? inspectPullRequest(target) : mergePullRequest(target)) };
+  }
+
+  // Compatibility command for kyw-dev's dedicated publication contract. It is
+  // deliberately separate from the target project's ordinary PR merge policy.
   if (command === "check-ci") {
     const options = parseOptions(args, ["--repository", "--sha"], ["--repository-root", "--branch", "--event", "--head-repository"]);
     const repositoryRoot = resolve(options.get("--repository-root") ?? process.cwd());
@@ -470,7 +491,7 @@ export async function runTaskArtifactCommand(argv, runtime = {}) {
 
   throw new TaskArtifactError(
     "INVALID_TASK_ADAPTER_ARGUMENTS",
-    `Expected create, create-batch, inspect-transaction, recover-transaction, validate, bootstrap-continuity, check-ci, dispatch, or public-release, received ${command ?? "<missing>"}\n${usage}`,
+    `Expected create, create-batch, inspect-transaction, recover-transaction, validate, bootstrap-continuity, check-pr, merge-pr, check-ci, dispatch, or public-release, received ${command ?? "<missing>"}\n${usage}`,
   );
 }
 

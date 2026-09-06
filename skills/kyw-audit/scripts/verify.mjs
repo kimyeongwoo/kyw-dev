@@ -10,6 +10,31 @@ import { promisify } from "node:util";
 const execute = promisify(execFile);
 const credentialName = /^(?:\.git|\.env(?:\..*)?|\.npmrc|\.netrc|\.ssh|\.aws|\.azure|\.config|\.codex|credentials(?:\..*)?|auth\.json|id_rsa|id_ed25519)$/iu;
 
+function failedVerification(error) {
+  const exitCode = Number.isInteger(error.code) ? error.code : null;
+  const interrupted = error.killed === true || Boolean(error.signal) ||
+    error.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER";
+  // Docker reserves 125/126/127 for daemon/command-start errors. An interrupted
+  // CLI or an error without a command exit status cannot prove a test result.
+  const unexecuted = !interrupted && (new Set([125, 126, 127]).has(exitCode) || error.code === "ENOENT");
+  const failed = !interrupted && exitCode !== null && exitCode > 0 && !unexecuted;
+  return {
+    status: unexecuted ? "UNAVAILABLE" : "BLOCKED",
+    executed: failed,
+    attempted: true,
+    completed: failed,
+    verificationOutcome: unexecuted ? "UNEXECUTED" : failed ? "FAILED" : "UNKNOWN",
+    exitCode,
+    reason: unexecuted
+      ? "Isolated verification could not start; no host test was run."
+      : failed
+        ? "The isolated command exited unsuccessfully; inspect its output before identifying a product defect."
+        : "Isolated verification did not provide a completed command result; execution and outcome are unconfirmed.",
+    stdout: error.stdout,
+    stderr: error.stderr,
+  };
+}
+
 function relativeFile(value) {
   if (typeof value !== "string" || !value || value.includes("\\") || value.includes(":") ||
     value.split("/").some((part) => !part || part === "." || part === ".." || credentialName.test(part)) ||
@@ -52,7 +77,8 @@ export async function verifyInAuditSandbox({ repositoryRoot, files, command,
     imageId = inspected.stdout?.trim();
     if (!/^sha256:[0-9a-f]{64}$/u.test(imageId ?? "")) throw new Error("Image identity unavailable");
   } catch {
-    return { status: "UNAVAILABLE", executed: false,
+    return { status: "UNAVAILABLE", executed: false, attempted: false, completed: false,
+      verificationOutcome: "UNEXECUTED", exitCode: null,
       reason: "A locally available Docker image and daemon are required; no host test was run." };
   }
   const parent = await realpath(temporaryParent);
@@ -90,10 +116,10 @@ export async function verifyInAuditSandbox({ repositoryRoot, files, command,
     try {
       started = true;
       const result = await runner("docker", args, { timeout: 120000, maxBuffer: 1024 * 1024, windowsHide: true });
-      return { status: "PASSED", executed: true, stdout: result.stdout, stderr: result.stderr };
+      return { status: "PASSED", executed: true, attempted: true, completed: true,
+        verificationOutcome: "PASSED", exitCode: 0, stdout: result.stdout, stderr: result.stderr };
     } catch (error) {
-      return { status: "BLOCKED", executed: true, reason: "Isolated verification failed or could not finish.",
-        stdout: error.stdout, stderr: error.stderr };
+      return failedVerification(error);
     }
   } finally {
     if (started) {

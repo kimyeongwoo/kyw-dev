@@ -8,6 +8,8 @@ const textExtensions = new Set([".json", ".md", ".mjs", ".txt", ".yaml", ".yml"]
 const textNames = new Set(["LICENSE"]);
 const decoder = new TextDecoder("utf-8", { fatal: true });
 const generatedEvalResults = join(REPOSITORY_ROOT, "eval", "grilling", "results");
+// One-off user/PM briefs are preserved inputs, outside maintained product text.
+const developmentBriefs = join(REPOSITORY_ROOT, "docs", "dev");
 
 function collectTextFiles(directory) {
   const files = [];
@@ -17,7 +19,7 @@ function collectTextFiles(directory) {
     }
     const path = join(directory, entry.name);
     if (entry.isDirectory()) {
-      if (path === generatedEvalResults) {
+      if (path === generatedEvalResults || path === developmentBriefs) {
         continue;
       }
       files.push(...collectTextFiles(path));

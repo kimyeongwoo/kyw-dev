@@ -528,20 +528,41 @@ function validateNode(command, shell, tokens) {
     ".agents/skills/kyw-task/scripts/task-artifacts.mjs",
     "skills/kyw-task/scripts/task-artifacts.mjs",
   ]);
-  if (
-    tokens.length !== 5 ||
-    !allowedScripts.has(tokens[1]?.value) ||
-    tokens[2]?.value !== "validate" ||
-    tokens[3]?.value !== "--task-directory"
-  ) {
+  if (!allowedScripts.has(tokens[1]?.value)) {
     return argumentIssue(
       command,
       shell,
       tokens[1] ?? tokens[0],
-      "node is allowed only for the packaged Task pair validator's validate operation",
+      "node is allowed only for the packaged Task validator or audit scope dispatcher",
     );
   }
-  return pathIssues(command, shell, [tokens[1], tokens[4]]);
+  if (tokens.length === 5 && tokens[2]?.value === "validate" && tokens[3]?.value === "--task-directory") {
+    return pathIssues(command, shell, [tokens[1], tokens[4]]);
+  }
+  // Dispatch only selects scope. It never executes repairs; other dispatch routes
+  // can hydrate external state and remain outside this literal audit boundary.
+  if (tokens[2]?.value === "dispatch") {
+    const options = new Map();
+    for (let index = 3; index < tokens.length; index += 2) {
+      const option = tokens[index];
+      const value = tokens[index + 1];
+      if (!new Set(["--repository-root", "--tasks-root", "--invocation", "--managed-routing"]).has(option.value) ||
+        !value || options.has(option.value)) {
+        return argumentIssue(command, shell, option, "audit dispatch accepts only literal scope and invocation options once");
+      }
+      options.set(option.value, value);
+    }
+    const invocation = options.get("--invocation");
+    const repository = options.get("--repository-root");
+    const tasks = options.get("--tasks-root");
+    if ((!repository && !tasks) || invocation?.quoteState !== "single" ||
+      !/^\$kyw-audit(?: [0-9]{4})?(?: --fix)?$/.test(invocation.value) ||
+      options.has("--managed-routing") && !new Set(["true", "false"]).has(options.get("--managed-routing").value)) {
+      return argumentIssue(command, shell, invocation ?? tokens[2], "audit dispatch requires a literal $kyw-audit [NNNN] [--fix] invocation and repository scope");
+    }
+    return pathIssues(command, shell, [tokens[1], repository, tasks].filter(Boolean));
+  }
+  return argumentIssue(command, shell, tokens[2] ?? tokens[1], "only Task validate or audit dispatch operations are read-only here");
 }
 
 export function commandShellForPlatform(platform = process.platform) {

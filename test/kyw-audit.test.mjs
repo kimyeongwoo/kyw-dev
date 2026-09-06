@@ -50,6 +50,10 @@ test("audit sandbox preserves source and unknown files, constrains execution, cl
   });
   const result = await verifyInAuditSandbox({ ...options, runner: docker.runner });
   assert.equal(result.status, "PASSED");
+  assert.equal(result.verificationOutcome, "PASSED");
+  assert.equal(result.executed, true);
+  assert.equal(result.completed, true);
+  assert.equal(result.exitCode, 0);
   assert.equal(await readFile(path.join(options.repositoryRoot, "test.mjs"), "utf8"), "console.log('source');\n");
   assert.equal(await readFile(path.join(options.repositoryRoot, "user-draft.md"), "utf8"), "preserve me\n");
   assert.equal(await readFile(path.join(untouched, "note"), "utf8"), "unrelated");
@@ -64,6 +68,9 @@ test("unavailable sandbox reports unexecuted verification and never falls back t
   const result = await verifyInAuditSandbox({ ...options, runner: async () => { calls += 1; throw new Error("no docker"); } });
   assert.equal(result.status, "UNAVAILABLE");
   assert.equal(result.executed, false);
+  assert.equal(result.verificationOutcome, "UNEXECUTED");
+  assert.equal(result.attempted, false);
+  assert.equal(result.completed, false);
   assert.equal(calls, 1);
   assert.deepEqual(await readdir(options.temporaryParent), []);
 });
@@ -97,12 +104,42 @@ test("audit rejects escapes, credential files, duplicate inputs and option injec
 
 test("failed isolated tests retain failure and clean the owned container and temporary copy", async (t) => {
   const options = await fixture(t);
-  const docker = fakeDocker(async () => { throw Object.assign(new Error("test failed"), { stderr: "assertion failed" }); });
+  const docker = fakeDocker(async () => { throw Object.assign(new Error("test failed"), { code: 1, stderr: "assertion failed" }); });
   const result = await verifyInAuditSandbox({ ...options, runner: docker.runner });
   assert.equal(result.status, "BLOCKED");
+  assert.equal(result.verificationOutcome, "FAILED");
+  assert.equal(result.executed, true);
+  assert.equal(result.completed, true);
+  assert.equal(result.exitCode, 1);
   assert.equal(result.stderr, "assertion failed");
   assert.deepEqual(await readdir(options.temporaryParent), []);
   assert.equal(docker.calls.at(-1).args[1], "rm");
+});
+
+test("Docker startup failures and interrupted verification never become test success or test failure", async (t) => {
+  const options = await fixture(t);
+  const cases = [
+    [{ code: 125 }, "UNEXECUTED", "UNAVAILABLE"],
+    [{ code: 126 }, "UNEXECUTED", "UNAVAILABLE"],
+    [{ code: 127 }, "UNEXECUTED", "UNAVAILABLE"],
+    [{ code: "ENOENT" }, "UNEXECUTED", "UNAVAILABLE"],
+    [{ killed: true, signal: "SIGTERM", code: 1 }, "UNKNOWN", "BLOCKED"],
+    [{ code: "ERR_CHILD_PROCESS_STDIO_MAXBUFFER" }, "UNKNOWN", "BLOCKED"],
+    [{}, "UNKNOWN", "BLOCKED"],
+  ];
+  for (const [properties, outcome, status] of cases) {
+    const docker = fakeDocker(async () => { throw Object.assign(new Error("fixture execution limit"), properties); });
+    const result = await verifyInAuditSandbox({ ...options, runner: docker.runner });
+    assert.equal(result.status, status);
+    assert.equal(result.verificationOutcome, outcome);
+    assert.equal(result.executed, false);
+    assert.equal(result.attempted, true);
+    assert.equal(result.completed, false);
+    assert.equal(docker.calls.filter(({ args }) => args[0] === "run").length, 1);
+    assert.ok(docker.calls.every(({ executable }) => executable === "docker"));
+    assert.deepEqual(await readdir(options.temporaryParent), []);
+  }
+  assert.equal(await readFile(path.join(options.repositoryRoot, "test.mjs"), "utf8"), "console.log('source');\n");
 });
 
 test("unknown container ownership blocks cleanup rather than deleting an unrelated container", async (t) => {

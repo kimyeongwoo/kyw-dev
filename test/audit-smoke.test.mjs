@@ -17,6 +17,7 @@ import {
   mutationAttemptDiagnostic,
   outerSandboxConfig,
   parseArguments,
+  prepareFixture,
   redactedDiagnostic,
   snapshotTree,
   trustedCaBundle,
@@ -177,6 +178,14 @@ test("strict read-only boundary admits the required cross-platform inspection wo
       "node .agents/skills/kyw-task/scripts/task-artifacts.mjs validate --task-directory 'docs/tasks/0033-audit'",
       "posix",
     ],
+    [
+      "node .agents/skills/kyw-task/scripts/task-artifacts.mjs dispatch --repository-root '.' --invocation '$kyw-audit'",
+      "powershell",
+    ],
+    [
+      "node skills/kyw-task/scripts/task-artifacts.mjs dispatch --tasks-root 'docs/tasks' --invocation '$kyw-audit 0042 --fix' --managed-routing false",
+      "posix",
+    ],
   ];
 
   for (const [command, shell] of commands) {
@@ -191,6 +200,42 @@ test("strict read-only boundary admits the required cross-platform inspection wo
     () => inspectReadOnlyCommand("rg --files", { shell: "cmd" }),
     /Unsupported command shell/,
   );
+});
+
+test("audit dispatch inspection remains limited to literal audit selection with no write operations", () => {
+  const prefix = "node skills/kyw-task/scripts/task-artifacts.mjs ";
+  for (const args of [
+    "dispatch --repository-root '.' --invocation '$kyw-deliver --merge'",
+    "dispatch --repository-root '.' --invocation '$kyw-audit --fix --release'",
+    "dispatch --repository-root '..' --invocation '$kyw-audit'",
+    "dispatch --repository-root '.' --invocation '$kyw-audit' --invocation '$kyw-audit'",
+    "dispatch --repository-root '.' --invocation '$kyw-audit' --execution-preflight-json '{}'",
+    "dispatch --repository-root '.' --invocation",
+    "recover-transaction --tasks-root 'docs/tasks'",
+  ]) {
+    for (const shell of ["posix", "powershell"]) {
+      assert.equal(inspectReadOnlyCommand(prefix + args, { shell }).allowed, false, args);
+    }
+  }
+});
+
+test("audit smoke fixture includes the real shared dispatcher and direct-install runtime", (t) => {
+  const root = temporaryDirectory(t);
+  const { repository } = prepareFixture(root);
+  const before = snapshotTree(repository);
+  const adapter = join(repository, ".agents", "skills", "kyw-task", "scripts", "task-artifacts.mjs");
+  for (const invocation of ["$kyw-audit", "$kyw-audit --fix", "$kyw-audit 0001", "$kyw-audit 0001 --fix"]) {
+    const result = spawnSync(process.execPath, [adapter, "dispatch", "--repository-root", repository,
+      "--invocation", invocation], { cwd: repository, encoding: "utf8", timeout: 60000 });
+    assert.equal(result.status, 0, result.stderr);
+    const dispatch = JSON.parse(result.stdout);
+    assert.equal(dispatch.route, "AUDIT");
+    assert.equal(dispatch.taskRequired, invocation.includes("0001"));
+    assert.equal(dispatch.outcome, "SELECTED");
+    assert.equal(dispatch.mutationRequired, invocation.includes("--fix"));
+    assert.equal(dispatch.fixAuthorized, invocation.includes("--fix"));
+  }
+  assert.equal(snapshotTree(repository).sha256, before.sha256);
 });
 
 test("strict read-only boundary rejects mutators, wrappers, redirects, dynamics, and ambiguity", () => {
