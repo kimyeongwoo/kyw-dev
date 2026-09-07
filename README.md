@@ -66,7 +66,7 @@ npx --yes kyw-dev@latest uninstall --scope user
 npx --yes kyw-dev@latest doctor
 ```
 
-For source-checkout development, clone the repository and substitute `node ./bin/kyw-dev.mjs` for `npx --yes kyw-dev@latest` in the same commands.
+For source-checkout development, follow [Development](#development) and substitute `node ./bin/kyw-dev.mjs` for `npx --yes kyw-dev@latest` when running inside the checkout. Project scope installs into the Git repository containing the current working directory. To install from this source into another project, run the CLI by its absolute path from that project's directory.
 
 - The CLI installs the six workflow Skills only. `$kyw-init` supplements needed project documentation.
 - Ownership metadata is stored in `.agents/skills/.kyw-dev-install.json`; deterministic Task support is stored under `.agents/skills/.kyw-dev/runtime/`, which is not a discoverable Skill.
@@ -102,7 +102,22 @@ The npm package is available to configured marketplace sources, but no public pl
 
 ## Development
 
-Prerequisite: Node.js 22 or newer with npm. Node.js 22 and 24 are tested on Linux, macOS, and Windows; Node.js 26 Current has one bounded Ubuntu compatibility lane. The repository has no package dependencies or lockfile, so checks require no install step.
+Prerequisites: Node.js 22 or newer with npm, Git, and `tar` available on `PATH`. Git is used by repository and installation tests; `tar` is used by package extraction tests and candidate verification. Node.js 22 and 24 are tested on Linux, macOS, and Windows; Node.js 26 Current has one bounded Ubuntu compatibility lane. The repository has no package dependencies or lockfile, so checks require no install step.
+
+Start a development checkout in any directory with write permission:
+
+```bash
+git clone https://github.com/kimyeongwoo/kyw-dev.git
+cd kyw-dev
+node ./bin/kyw-dev.mjs --help
+npm run check
+```
+
+The checkout directory can be renamed or contain spaces; source and runtime paths resolve relative to their files. Keep the system temporary directory writable for test fixtures and package verification. Local checks need no GitHub/npm login or Codex session. Using the workflow Skills requires a supported Codex surface and one of the installations described above; contributing through a PR needs GitHub access.
+
+Prefer `git clone` for development. A GitHub ZIP contains the source but no Git history: help/version and user-scope installation still work, while `install --scope project` must run inside a Git repository and history-dependent checks may be skipped. A ZIP alone therefore does not provide the same development verification as a clone.
+
+Additional verification commands:
 
 ```bash
 node ./bin/kyw-dev.mjs --help

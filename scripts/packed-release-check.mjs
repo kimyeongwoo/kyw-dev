@@ -121,10 +121,17 @@ function safeTemporaryParent(temporaryParent = tmpdir()) {
   }
 
   const repositoryRoot = realpathSync(REPOSITORY_ROOT);
-  if (pathIsWithin(repositoryRoot, parent) || pathIsWithin(parent, repositoryRoot)) {
+  if (pathIsWithin(repositoryRoot, parent)) {
     throw new Error("Candidate temporary parent must not overlap the repository");
   }
   return parent;
+}
+
+function assertCandidateOutsideRepository(candidateRoot) {
+  const repositoryRoot = realpathSync(REPOSITORY_ROOT);
+  if (pathIsWithin(repositoryRoot, candidateRoot) || pathIsWithin(candidateRoot, repositoryRoot)) {
+    throw new Error("Candidate root must not overlap the repository");
+  }
 }
 
 function assertCandidateRootName(candidateRoot) {
@@ -163,6 +170,7 @@ export function assertOwnedCandidateRoot(
     throw new Error("Candidate root must be a physical directory");
   }
   const physicalRoot = realpathSync(resolvedRoot);
+  assertCandidateOutsideRepository(physicalRoot);
   if (
     dirname(physicalRoot) !== parent ||
     basename(physicalRoot) !== basename(resolvedRoot)
@@ -205,7 +213,8 @@ export function prepareCandidateRoot({
 } = {}) {
   const parent = safeTemporaryParent(temporaryParent);
   if (candidateRoot === undefined) {
-    return mkdtempSync(join(parent, PACKED_RELEASE_TEMPORARY_PREFIX));
+    const createdRoot = mkdtempSync(join(parent, PACKED_RELEASE_TEMPORARY_PREFIX));
+    return assertOwnedCandidateRoot(createdRoot, { temporaryParent });
   }
   if (typeof candidateRoot !== "string" || !isAbsolute(candidateRoot)) {
     throw new Error("Requested candidate root must be an absolute path");
@@ -220,6 +229,7 @@ export function prepareCandidateRoot({
     throw new Error("Requested candidate root must be a direct child of its temporary parent");
   }
   const physicalRoot = join(parent, basename(resolvedRoot));
+  assertCandidateOutsideRepository(physicalRoot);
   if (existsSync(resolvedRoot) || existsSync(physicalRoot)) {
     throw new Error("Requested candidate root already exists");
   }

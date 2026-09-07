@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import {
+  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -14,7 +15,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
 import test from "node:test";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import {
   RETAINED_CANDIDATE_SCHEMA_VERSION,
@@ -27,6 +28,7 @@ import {
 } from "../scripts/packed-release-check.mjs";
 import {
   EXPECTED_TARBALL_FILES,
+  PACKAGE_FILES_ALLOWLIST,
   RELEASE_METADATA,
 } from "../scripts/lib/validate-foundation.mjs";
 
@@ -331,4 +333,62 @@ test("disposable candidate behavior still removes its verified temporary root", 
   assert.equal(candidate.fileCount, EXPECTED_TARBALL_FILES.length);
   assert.equal(existsSync(candidate.ownedRoot), false);
   assert.deepEqual(readdirSync(temporaryParent), []);
+});
+
+test("a source checkout under a shared temporary root packs and cleans without touching source", (t) => {
+  const ownedRoot = realpathSync(mkdtempSync(join(tmpdir(), "kyw-dev checkout portability ")));
+  t.after(() => rmSync(ownedRoot, { recursive: true, force: true }));
+  const physical = join(ownedRoot, "physical");
+  const sourceParent = join(physical, "kyw-dev-packed-release-source-parent");
+  const sourceRoot = join(sourceParent, "kyw-dev-packed-release-source");
+  mkdirSync(sourceRoot, { recursive: true });
+  for (const entry of [...PACKAGE_FILES_ALLOWLIST, "package.json", "scripts", ".github"]) {
+    cpSync(join(repositoryRoot, entry), join(sourceRoot, entry), { recursive: true });
+  }
+  const copiedScript = join(sourceRoot, "scripts", "packed-release-check.mjs");
+  const scriptBefore = readFileSync(copiedScript);
+  const env = {
+    ...process.env, TEMP: ownedRoot, TMP: ownedRoot, TMPDIR: ownedRoot, NODE_DISABLE_COMPILE_CACHE: "1",
+  };
+  const run = (...args) => spawnSync(process.execPath, args, {
+    cwd: sourceRoot, env, encoding: "utf8", windowsHide: true,
+  });
+  const retained = run(copiedScript, "--retain-candidate");
+  assert.equal(retained.status, 0, retained.stderr);
+  const candidate = JSON.parse(retained.stdout);
+  assert.equal(dirname(candidate.ownedRoot), ownedRoot);
+  assert.equal(candidate.fileCount, EXPECTED_TARBALL_FILES.length);
+  assert.equal(existsSync(candidate.archivePath), true);
+  const cleanup = run(copiedScript, "--cleanup-candidate", candidate.ownedRoot);
+  assert.equal(cleanup.status, 0, cleanup.stderr);
+  assert.equal(existsSync(candidate.ownedRoot), false);
+  const disposable = run(copiedScript);
+  assert.equal(disposable.status, 0, disposable.stderr);
+  assert.match(disposable.stdout, /packed release check passed/);
+
+  const alias = join(ownedRoot, "alias");
+  symlinkSync(physical, alias, process.platform === "win32" ? "junction" : "dir");
+  const guards = run("--input-type=module", "-e", `
+    import assert from "node:assert/strict";
+    import { dirname, join } from "node:path";
+    import { prepareCandidateRoot, assertOwnedCandidateRoot, cleanupPackedReleaseCandidate }
+      from ${JSON.stringify(pathToFileURL(copiedScript).href)};
+    const sourceRoot = ${JSON.stringify(sourceRoot)};
+    const sourceParent = dirname(sourceRoot);
+    const aliasedSource = ${JSON.stringify(join(alias, "kyw-dev-packed-release-source-parent", "kyw-dev-packed-release-source"))};
+    for (const candidateRoot of [sourceRoot, sourceParent, aliasedSource]) {
+      const temporaryParent = dirname(candidateRoot);
+      assert.throws(() => prepareCandidateRoot({ temporaryParent, candidateRoot }), /overlap the repository/);
+      assert.throws(() => assertOwnedCandidateRoot(candidateRoot, { temporaryParent }), /overlap the repository/);
+      assert.throws(() => cleanupPackedReleaseCandidate(candidateRoot, { temporaryParent }), /overlap the repository/);
+    }
+    assert.throws(() => prepareCandidateRoot({ temporaryParent: sourceRoot }), /overlap the repository/);
+    console.log("source and ancestor guards passed");
+  `);
+  assert.equal(guards.status, 0, guards.stderr);
+  assert.match(guards.stdout, /source and ancestor guards passed/);
+  assert.deepEqual(readFileSync(copiedScript), scriptBefore);
+  assert.deepEqual(readdirSync(ownedRoot).sort(), ["alias", "physical"]);
+  assert.deepEqual(readdirSync(physical), ["kyw-dev-packed-release-source-parent"]);
+  assert.deepEqual(readdirSync(sourceParent), ["kyw-dev-packed-release-source"]);
 });
