@@ -1439,6 +1439,7 @@ test("doctor separates direct conflicts from cache candidates and preserves othe
   for (const fixture of cases) {
     await t.test(fixture.name, () => {
       const home = temporaryDirectory(t);
+      const canonicalHome = realpathSync(home);
       const repository = createRepository(join(temporaryDirectory(t), "repository"));
       const codexHome = join(home, "isolated-codex");
       for (const scope of fixture.direct) {
@@ -1464,7 +1465,7 @@ test("doctor separates direct conflicts from cache candidates and preserves othe
         codexHome,
         commandRunner: () => ({ status: 0, stdout: "fixture-version\n", stderr: "" }),
         accessChecker(target) {
-          if (fixture.errorCode === "PERMISSION_DENIED" && target.startsWith(home)) {
+          if (fixture.errorCode === "PERMISSION_DENIED" && target.startsWith(canonicalHome)) {
             throw new Error("EACCES: fixture permission failure");
           }
         },
