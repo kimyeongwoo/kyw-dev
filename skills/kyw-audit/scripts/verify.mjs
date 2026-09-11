@@ -55,6 +55,53 @@ async function physicalFile(root, relative) {
   return current;
 }
 
+async function cleanupAuditSandbox({ started, runner, containerName, owned, identity, parent }) {
+  const preserved = { temporaryPath: owned };
+  if (started) {
+    let container;
+    try {
+      container = await runner("docker", ["container", "inspect", "--format", '{{index .Config.Labels "kyw.audit"}}', containerName],
+        { timeout: 10000, maxBuffer: 4096, windowsHide: true });
+    } catch (error) {
+      if (!/No such (?:object|container)/iu.test(error.stderr ?? "")) {
+        return { outcome: "UNKNOWN", ...preserved, containerName,
+          reason: "Audit container cleanup state is unknown; temporary files preserved", error: error.message };
+      }
+    }
+    if (container) {
+      if (container.stdout?.trim() !== containerName) {
+        return { outcome: "BLOCKED", ...preserved, containerName,
+          reason: "Audit container ownership changed; cleanup blocked" };
+      }
+      try {
+        await runner("docker", ["container", "rm", "--force", containerName],
+          { timeout: 10000, maxBuffer: 4096, windowsHide: true });
+      } catch (error) {
+        return { outcome: "FAILED", ...preserved, containerName,
+          reason: "Audit container removal failed; temporary files preserved", error: error.message };
+      }
+    }
+  }
+  try {
+    const current = await lstat(owned);
+    if (!identity || current.isSymbolicLink() || !current.isDirectory() ||
+      current.dev !== identity.dev || current.ino !== identity.ino || path.dirname(await realpath(owned)) !== parent) {
+      return { outcome: "BLOCKED", ...preserved,
+        reason: "Audit cleanup ownership changed; temporary path preserved" };
+    }
+  } catch (error) {
+    return { outcome: "UNKNOWN", ...preserved,
+      reason: "Audit temporary path cleanup state is unknown; deletion withheld", error: error.message };
+  }
+  try {
+    await rm(owned, { recursive: true, force: false });
+    return { outcome: "COMPLETED" };
+  } catch (error) {
+    return { outcome: "FAILED", ...preserved,
+      reason: "Audit temporary path removal failed; cleanup incomplete", error: error.message };
+  }
+}
+
 // A Docker container is an optional execution boundary. A copy by itself is not.
 // The caller reviews the file list for embedded secrets; no ambient host environment
 // or credential files are passed into the container. This is not a raw-shell broker.
@@ -79,19 +126,22 @@ export async function verifyInAuditSandbox({ repositoryRoot, files, command,
   } catch {
     return { status: "UNAVAILABLE", executed: false, attempted: false, completed: false,
       verificationOutcome: "UNEXECUTED", exitCode: null,
-      reason: "A locally available Docker image and daemon are required; no host test was run." };
+      reason: "A locally available Docker image and daemon are required; no host test was run.",
+      cleanup: { outcome: "NOT_REQUIRED" } };
   }
   const parent = await realpath(temporaryParent);
   if (/[,\r\n]/u.test(parent)) throw new Error("Audit temporary path is not representable as one Docker mount");
   if (parent === root || path.relative(root, parent).split(path.sep)[0] !== ".." &&
       !path.isAbsolute(path.relative(root, parent))) throw new Error("Audit temporary root must be outside the source repository");
   const owned = await mkdtemp(path.join(parent, "kyw-audit-"));
-  const identity = await lstat(owned);
   const workspace = path.join(owned, "work");
-  await mkdir(workspace);
   const containerName = `kyw-audit-${randomUUID()}`;
+  let identity;
   let started = false;
+  let verification;
   try {
+    identity = await lstat(owned);
+    await mkdir(workspace);
     await chmod(workspace, 0o777);
     for (let index = 0; index < selected.length; index += 1) {
       const source = await physicalFile(root, selected[index]);
@@ -116,41 +166,33 @@ export async function verifyInAuditSandbox({ repositoryRoot, files, command,
     try {
       started = true;
       const result = await runner("docker", args, { timeout: 120000, maxBuffer: 1024 * 1024, windowsHide: true });
-      return { status: "PASSED", executed: true, attempted: true, completed: true,
+      verification = { status: "PASSED", executed: true, attempted: true, completed: true,
         verificationOutcome: "PASSED", exitCode: 0, stdout: result.stdout, stderr: result.stderr };
     } catch (error) {
-      return failedVerification(error);
+      verification = failedVerification(error);
     }
-  } finally {
-    if (started) {
-      let container;
-      try {
-        container = await runner("docker", ["container", "inspect", "--format", '{{index .Config.Labels "kyw.audit"}}', containerName],
-          { timeout: 10000, maxBuffer: 4096, windowsHide: true });
-      } catch (error) {
-        if (!/No such (?:object|container)/iu.test(error.stderr ?? "")) throw new Error("Audit container cleanup state is unknown; temporary files preserved");
-      }
-      if (container) {
-        if (container.stdout?.trim() !== containerName) throw new Error("Audit container ownership changed; cleanup blocked");
-        await runner("docker", ["container", "rm", "--force", containerName],
-          { timeout: 10000, maxBuffer: 4096, windowsHide: true });
-      }
-    }
-    const current = await lstat(owned);
-    if (current.isSymbolicLink() || !current.isDirectory() || current.dev !== identity.dev || current.ino !== identity.ino ||
-      path.dirname(await realpath(owned)) !== parent) throw new Error("Audit cleanup ownership changed; temporary path preserved");
-    await rm(owned, { recursive: true, force: false });
+  } catch (error) {
+    verification = { status: "BLOCKED", executed: false, attempted: false, completed: false,
+      verificationOutcome: "UNEXECUTED", exitCode: null,
+      reason: `Audit verification preparation failed: ${error.message}` };
+  }
+  const cleanup = await cleanupAuditSandbox({ started, runner, containerName, owned, identity, parent });
+  return { ...verification, cleanup,
+    status: verification.status === "PASSED" && cleanup.outcome !== "COMPLETED" ? "BLOCKED" : verification.status };
+}
+
+export async function runAuditVerifierCli(argv, { runner, temporaryParent, stdout = console.log, stderr = console.error } = {}) {
+  const [repositoryRoot, image, filesJson, ...command] = argv;
+  try {
+    const result = await verifyInAuditSandbox({ repositoryRoot, image, files: JSON.parse(filesJson), command, runner, temporaryParent });
+    stdout(JSON.stringify(result));
+    return result.status === "PASSED" ? 0 : 1;
+  } catch (error) {
+    stderr(error.message);
+    return 1;
   }
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const [repositoryRoot, image, filesJson, ...command] = process.argv.slice(2);
-  try {
-    const result = await verifyInAuditSandbox({ repositoryRoot, image, files: JSON.parse(filesJson), command });
-    console.log(JSON.stringify(result));
-    if (result.status !== "PASSED") process.exitCode = 1;
-  } catch (error) {
-    console.error(error.message);
-    process.exitCode = 1;
-  }
+  process.exitCode = await runAuditVerifierCli(process.argv.slice(2));
 }

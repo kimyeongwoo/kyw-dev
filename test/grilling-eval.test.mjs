@@ -14,6 +14,7 @@ import {
   parseJsonl,
   preflightCodex,
   redactText,
+  resultSummary,
   runComparison,
   runEvaluation,
   scanSensitiveText,
@@ -99,6 +100,7 @@ test("pinned upstream baseline, rubric, schemas, and eight scenarios validate of
     "result.schema.v1.json",
     "result.schema.v2.json",
     "result.schema.v3.json",
+    "result.schema.v4.json",
   ]) {
     const schema = JSON.parse(readFileSync(join(REPOSITORY_ROOT, "eval", "grilling", schemaName), "utf8"));
     assert.equal(schema.$schema, "https://json-schema.org/draft/2020-12/schema");
@@ -270,7 +272,7 @@ test("fake model run uses isolated homes, resumes one thread, redacts JSONL, and
   });
   assert.equal(sha256File(authFile), authBefore);
   assert.equal(completed.result.status, "completed");
-  assert.equal(completed.result.schemaVersion, 3);
+  assert.equal(completed.result.schemaVersion, 4);
   assert.equal(completed.result.codex.config.reasoningEffort, "high");
   assert.equal(completed.result.turns.length, 4);
   assert.equal(completed.result.session.resumedSameThread, true);
@@ -402,7 +404,7 @@ test("comparison runs both variants and atomically writes a descriptive summary"
         codexVersion: "codex-cli 9.9.9-test",
         model: "fake-model",
         reasoningEffort: "high",
-        resultSchemaVersion: 3,
+        resultSchemaVersion: 4,
         upstream: {
           commit: "9603c1cc8118d08bc1b3bf34cf714f62178dea3b",
           skillSha256: "44331dda57f461db4fec3f2efb6ddabe7aaaa0a57ae0f88a883bc61aed8a0587",
@@ -442,6 +444,17 @@ test("comparison runs both variants and atomically writes a descriptive summary"
     "utf8",
   );
   const reported = writeBenchmarkReport(completed.comparisonDirectory, { benchmarkPath });
+  assert.equal(reported.report.schemaVersion, 2);
+  assert.equal(reported.report.conditionChecks.requestedModelMatches, true);
+  assert.equal(reported.report.conditionChecks.requestedReasoningEffortMatches, true);
+  assert.equal("exactModel" in reported.report.conditionChecks, false);
+  assert.equal("exactReasoningEffort" in reported.report.conditionChecks, false);
+  assert.equal(reported.report.configuration.source, "benchmark");
+  assert.equal("configurationProvenance" in reported.report, false);
+  assert.ok(reported.report.runs.every((run) => run.configurationProvenance.observed.status === "UNAVAILABLE"));
+  assert.ok(reported.report.runs.every((run) => run.configurationProvenance.serverExecution.status === "UNAVAILABLE"));
+  assert.equal(reported.report.resultSchemaSha256, sha256File(join(REPOSITORY_ROOT, "eval", "grilling", "result.schema.v4.json")));
+  assert.equal(reported.report.benchmarkConfigSha256, sha256File(benchmarkPath));
   assert.equal(reported.report.gateResult, "pass");
   assert.equal(reported.report.aggregate.qualityMedianDelta, 0);
   assert.equal(reported.report.aggregate.kyw.medianAssistantTurns, 4);
@@ -465,6 +478,49 @@ test("comparison runs both variants and atomically writes a descriptive summary"
   assert.equal(mismatched.report.gateChecks.identicalConditions, false);
   assert.equal(mismatched.report.gateResult, "fail");
   assert.equal(mismatched.report.runs[0].model, "fake-model");
+
+  const legacyBenchmark = JSON.parse(readFileSync(benchmarkPath, "utf8"));
+  legacyBenchmark.resultSchemaVersion = 3;
+  const legacyBenchmarkPath = join(root, "legacy-schema-benchmark.json");
+  writeFileSync(legacyBenchmarkPath, JSON.stringify(legacyBenchmark), "utf8");
+  assert.throws(
+    () => writeBenchmarkReport(completed.comparisonDirectory, { benchmarkPath: legacyBenchmarkPath }),
+    (error) => error.code === "INVALID_RESULT" && /Wrong result schema/.test(error.message),
+  );
+  assert.equal(JSON.parse(readFileSync(legacyBenchmarkPath, "utf8")).resultSchemaVersion, 3);
+
+  const differingRunPath = join(completed.runs[0].resultDirectory, "run.json");
+  const originalRunBytes = readFileSync(differingRunPath);
+  const differingRun = JSON.parse(originalRunBytes);
+  differingRun.codex.model = "different-mock-requested-model";
+  differingRun.codex.config.reasoningEffort = "ultra";
+  differingRun.configurationProvenance.requested.model = differingRun.codex.model;
+  differingRun.configurationProvenance.requested.reasoningEffort = "ultra";
+  writeFileSync(differingRunPath, `${JSON.stringify(differingRun, null, 2)}\n`, "utf8");
+  const differingComparisonDirectory = join(outputRoot, "different-requested-comparison");
+  mkdirSync(differingComparisonDirectory);
+  const differingComparison = structuredClone(completed.comparison);
+  differingComparison.summaries[0] = resultSummary(differingRun);
+  writeFileSync(join(differingComparisonDirectory, "comparison.json"), JSON.stringify(differingComparison), "utf8");
+  const differingReport = writeBenchmarkReport(differingComparisonDirectory, { benchmarkPath }).report;
+  assert.equal(differingReport.conditionChecks.requestedModelMatches, false);
+  assert.equal(differingReport.conditionChecks.requestedReasoningEffortMatches, false);
+  assert.equal(differingReport.gateResult, "fail");
+  assert.equal(differingReport.configuration.model, "fake-model");
+  assert.equal(differingReport.runs[0].configurationProvenance.requested.model, "different-mock-requested-model");
+  assert.equal(differingReport.runs[0].configurationProvenance.observed.model, null);
+  assert.equal(differingReport.runs[0].configurationProvenance.serverExecution.model, null);
+  writeFileSync(differingRunPath, originalRunBytes);
+
+  const originalTurn = completed.runs[0].result.turns[0];
+  const transcriptPath = join(completed.runs[0].resultDirectory, originalTurn.finalMessageFile);
+  const originalTranscript = readFileSync(transcriptPath);
+  writeFileSync(transcriptPath, "tampered mock transcript\n", "utf8");
+  assert.throws(
+    () => writeBenchmarkReport(completed.comparisonDirectory, { benchmarkPath }),
+    (error) => error.code === "INVALID_RESULT" && /Transcript mismatch/.test(error.message),
+  );
+  writeFileSync(transcriptPath, originalTranscript);
 });
 
 test("model-backed CLI requires explicit opt-in before creating output", (t) => {

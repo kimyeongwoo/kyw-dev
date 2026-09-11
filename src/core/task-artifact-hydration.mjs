@@ -37,6 +37,7 @@ import {
   parseTaskQueueMarkdownPair,
 } from "./task-artifact-queue.mjs";
 import { TaskArtifactError } from "./task-artifact-shared.mjs";
+import { workflowInspectionView } from "./workflow-inspection-view.mjs";
 import {
   getTaskContractVersion,
   IMMUTABLE_TERMINAL_TASK_CONTRACT_VERSIONS,
@@ -7168,21 +7169,22 @@ function assertPublicReleaseSourceContract({
     "      - name: Publish the exact checkout directory through OIDC",
     "run: node ./scripts/publish-gate.mjs",
   ];
-  const triggerBlock = /^on:\s*\r?\n([\s\S]*?)(?=^[^\s#])/mu.exec(workflowText)?.[1];
+  const inspectionText = workflowInspectionView(workflowText);
+  const triggerBlock = /^on:\s*\r?\n([\s\S]*?)(?=^[^\s#])/mu.exec(inspectionText)?.[1];
   const triggerKeys = triggerBlock
     ? [...triggerBlock.matchAll(/^  ([a-zA-Z0-9_-]+):/gmu)].map(
         (match) => match[1],
       )
     : [];
-  const uses = [...workflowText.matchAll(/^\s*uses:\s*(\S+)\s*(?:#.*)?$/gmu)].map(
+  const uses = [...inspectionText.matchAll(/^\s*uses:\s*(\S+)\s*(?:#.*)?$/gmu)].map(
     (match) => match[1],
   );
   const exactPinnedUses =
     uses.length === 2 &&
     /^actions\/checkout@[0-9a-f]{40}$/u.test(uses[0]) &&
     /^actions\/setup-node@[0-9a-f]{40}$/u.test(uses[1]);
-  const publishCommands = workflowText.match(/\bnpm\s+publish\b/gu) ?? [];
-  const stepBlocks = workflowText.replaceAll("\r\n", "\n").split(/^      - name: /mu).slice(1);
+  const publishCommands = inspectionText.match(/\bnpm\s+publish\b/gu) ?? [];
+  const stepBlocks = inspectionText.replaceAll("\r\n", "\n").split(/^      - name: /mu).slice(1);
   const publisherBlock = stepBlocks.at(-1) ?? "";
   const gateBlock = stepBlocks.at(-2) ?? "";
   const gateCommand = "        run: node ./scripts/publish-gate.mjs";
@@ -7205,13 +7207,13 @@ function assertPublicReleaseSourceContract({
     /\b(?:curl|wget)\b[^\r\n]*(?:npmjs|registry)/iu,
   ];
   if (
-    requiredWorkflowFragments.some((fragment) => !workflowText.includes(fragment)) ||
-    workflowText.split("run: node ./scripts/publish-gate.mjs").length !== 2 ||
+    requiredWorkflowFragments.some((fragment) => !inspectionText.includes(fragment)) ||
+    inspectionText.split("run: node ./scripts/publish-gate.mjs").length !== 2 ||
     triggerKeys.length !== 1 ||
     triggerKeys[0] !== "workflow_dispatch" ||
     !exactPinnedUses ||
     !(combinedBoundary || splitBoundary) ||
-    forbiddenWorkflowPatterns.some((pattern) => pattern.test(workflowText))
+    forbiddenWorkflowPatterns.some((pattern) => pattern.test(inspectionText))
   ) {
     throw publicReleaseHydrationError(
       "PUBLISH_WORKFLOW",
@@ -9112,19 +9114,13 @@ export async function hydratePublicReleaseContext({
     if (!matched) throw publicReleaseHydrationError("SOURCE_IDENTITY", "origin must identify one GitHub repository");
     repository = matched[1];
     assertPublicReleaseRepository(repository);
-    [mainSha, treeSha, packageText, pluginText, workflowText] = await Promise.all([
-      gitText(commandCache, repositoryRoot, ["rev-parse", "refs/heads/main"], { role: "PUBLIC_RELEASE_MAIN" }),
+    [treeSha, packageText, pluginText, workflowText] = await Promise.all([
       gitText(commandCache, repositoryRoot, ["rev-parse", `${mergeSha}^{tree}`], { role: "PUBLIC_RELEASE_TREE" }),
       readCommitFile(commandCache, repositoryRoot, mergeSha, "package.json", "PUBLIC_RELEASE_PACKAGE"),
       readCommitFile(commandCache, repositoryRoot, mergeSha, ".codex-plugin/plugin.json", "PUBLIC_RELEASE_PLUGIN"),
       readCommitFile(commandCache, repositoryRoot, mergeSha, PUBLIC_RELEASE_WORKFLOW_PATH, "PUBLIC_RELEASE_WORKFLOW"),
     ]);
-    requireSha(mainSha, taskId, "PUBLIC_RELEASE_MAIN", "local main");
-    // An already published target can outlive the main tip. Keep the real tip
-    // and prove ancestry here; canonical publication proof gates later writes.
-    if (mainSha !== mergeSha && !(await gitIsAncestor(commandCache, repositoryRoot, mergeSha, mainSha))) {
-      throw publicReleaseHydrationError("RELEASE_TARGET", "release SHA must be prepared main or its proven ancestor");
-    }
+    requireSha(treeSha, taskId, "PUBLIC_RELEASE_TREE", "release tree SHA");
     entry = { repository, merge: { sha: mergeSha, branch: "main" } };
   } else {
   if (!/^\d{4}$/u.test(taskId ?? "")) {
@@ -9329,7 +9325,8 @@ export async function hydratePublicReleaseContext({
   if (
     typeof bootstrapClients?.readPublishWorkflowIdentity !== "function" ||
     typeof bootstrapClients?.readPackageIndex !== "function" ||
-    typeof bootstrapClients?.readSigningKeys !== "function"
+    typeof bootstrapClients?.readSigningKeys !== "function" ||
+    (independentRelease && typeof bootstrapClients?.readWorkflowRuns !== "function")
   ) {
     throw publicReleaseHydrationError(
       "CLIENTS",
@@ -9411,9 +9408,6 @@ export async function hydratePublicReleaseContext({
     );
   }
   const targetRegistryMetadata = packageIndex?.versions?.[releaseVersion];
-  if (independentRelease && mainSha !== mergeSha && targetRegistryMetadata === undefined) {
-    throw publicReleaseHydrationError("RELEASE_TARGET", "new npm publication requires the exact prepared main SHA; an older target requires existing exact publication proof");
-  }
   let tupleSigningKey;
   if (targetRegistryMetadata !== undefined) {
     const targetSignatures = targetRegistryMetadata?.dist?.signatures;
@@ -9511,6 +9505,18 @@ export async function hydratePublicReleaseContext({
     const dispatchHistory = await bootstrapClients.readWorkflowRuns(tuple, {
       fresh: true, cacheBypass: true, purpose: "FROZEN_SIGNING_RECOVERY", sequence: 1,
     });
+    if (independentRelease) {
+      // The production reader revalidates canonical remote ref/type/ancestry and
+      // the exact local target source before returning this head. Local main is
+      // not authority for Taskless publication or ancestor recovery.
+      if (typeof dispatchHistory?.baseHeadSha !== "string" || !SHA_PATTERN.test(dispatchHistory.baseHeadSha)) {
+        throw publicReleaseHydrationError("PUBLIC_SOURCE_IDENTITY", "Taskless release requires a validated canonical remote main head");
+      }
+      mainSha = dispatchHistory.baseHeadSha;
+      if (mainSha !== mergeSha && targetRegistryMetadata === undefined) {
+        throw publicReleaseHydrationError("RELEASE_TARGET", "new npm publication requires the exact prepared remote main SHA; an older target requires existing exact publication proof");
+      }
+    }
     tuple = recoverPublicReleaseSigningTuple(tuple, dispatchHistory);
   }
   const clients =

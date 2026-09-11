@@ -1,0 +1,249 @@
+{
+  "schemaVersion": 1,
+  "comparisonId": "synthetic-legacy-v1",
+  "benchmarkConfigSha256": "4f9f510a7a344670e171c0486ec199014b3077faaf798c67faea5faf08fec7fa",
+  "comparisonJsonSha256": "93b5d56a95176e4656022ed2571382e1ca34c2b421ee8f4b509200c21c27dc88",
+  "rubricSha256": "4904bc5c30a09ac62a3d7d17fc3f6d9c9782280ff9048be524e68454ece32323",
+  "resultSchemaSha256": "3b337806e75efbdbc7d2a186f19331adc76fe46ab68b884be19d32037b383574",
+  "configuration": {
+    "codexVersion": "codex-cli 9.9.9-test",
+    "model": "fake-model",
+    "reasoningEffort": null,
+    "scenarioSuiteRevision": "379d96eae1f4031e4d6da0b12d4ce583af667832a7ed5fa797435b7a6c19137b",
+    "rubricId": "kyw-grilling-rubric-v1",
+    "repetitionsPerVariantScenario": 1,
+    "primaryTokenMetric": "inputTokens + outputTokens (cached input and reasoning output recorded separately, not double-counted)"
+  },
+  "thresholds": {
+    "kywCriticalViolations": 0,
+    "aggregateMedianQualityDeltaFloor": -5,
+    "scenarioMedianQualityDeltaFloor": -10,
+    "kywToUpstreamMedianPrimaryTokenRatioCeiling": 1.5,
+    "assistantTurnsPerCompletedRun": 4
+  },
+  "conditionChecks": {
+    "exactCodexVersion": true,
+    "exactModel": true,
+    "exactReasoningEffort": false,
+    "exactScenarioRevision": true,
+    "resultSchemaVersion": true,
+    "identicalCodexConfig": true,
+    "identicalAuthMode": true,
+    "repositorySkillInstall": false,
+    "skillSourceRead": false,
+    "isolatedReadOnlyRuns": true,
+    "expectedRunCount": true,
+    "expectedAssistantTurns": true,
+    "stableVariantBytes": true,
+    "expectedKywSkillBytes": true,
+    "expectedUpstreamSkillBytes": true
+  },
+  "aggregate": {
+    "kyw": {
+      "runCount": 1,
+      "criticalViolationCount": 0,
+      "medianQualityScore": 100,
+      "medianAssistantTurns": 4,
+      "medianUsage": {
+        "inputTokens": 406,
+        "cachedInputTokens": 200,
+        "outputTokens": 100,
+        "reasoningOutputTokens": 20,
+        "primaryTokens": 506
+      },
+      "medianDimensionScores": {
+        "protocol_compliance": 1,
+        "decision_coverage": 1,
+        "dependency_ordering": 1,
+        "unnecessary_questions": 1,
+        "premature_action": 1,
+        "premature_convergence": 1,
+        "turns": 1,
+        "token_usage": 1
+      }
+    },
+    "upstream": {
+      "runCount": 1,
+      "criticalViolationCount": 0,
+      "medianQualityScore": 100,
+      "medianAssistantTurns": 4,
+      "medianUsage": {
+        "inputTokens": 406,
+        "cachedInputTokens": 200,
+        "outputTokens": 100,
+        "reasoningOutputTokens": 20,
+        "primaryTokens": 506
+      },
+      "medianDimensionScores": {
+        "protocol_compliance": 1,
+        "decision_coverage": 1,
+        "dependency_ordering": 1,
+        "unnecessary_questions": 1,
+        "premature_action": 1,
+        "premature_convergence": 1,
+        "turns": 1,
+        "token_usage": 1
+      }
+    },
+    "qualityMedianDelta": 0,
+    "primaryTokenMedianRatio": 1
+  },
+  "scenarios": [
+    {
+      "scenario": "existing-code-facts",
+      "kyw": {
+        "runCount": 1,
+        "criticalViolationCount": 0,
+        "medianQualityScore": 100,
+        "medianAssistantTurns": 4,
+        "medianUsage": {
+          "inputTokens": 406,
+          "cachedInputTokens": 200,
+          "outputTokens": 100,
+          "reasoningOutputTokens": 20,
+          "primaryTokens": 506
+        },
+        "medianDimensionScores": {
+          "protocol_compliance": 1,
+          "decision_coverage": 1,
+          "dependency_ordering": 1,
+          "unnecessary_questions": 1,
+          "premature_action": 1,
+          "premature_convergence": 1,
+          "turns": 1,
+          "token_usage": 1
+        }
+      },
+      "upstream": {
+        "runCount": 1,
+        "criticalViolationCount": 0,
+        "medianQualityScore": 100,
+        "medianAssistantTurns": 4,
+        "medianUsage": {
+          "inputTokens": 406,
+          "cachedInputTokens": 200,
+          "outputTokens": 100,
+          "reasoningOutputTokens": 20,
+          "primaryTokens": 506
+        },
+        "medianDimensionScores": {
+          "protocol_compliance": 1,
+          "decision_coverage": 1,
+          "dependency_ordering": 1,
+          "unnecessary_questions": 1,
+          "premature_action": 1,
+          "premature_convergence": 1,
+          "turns": 1,
+          "token_usage": 1
+        }
+      },
+      "qualityMedianDelta": 0,
+      "primaryTokenMedianRatio": 1
+    }
+  ],
+  "runs": [
+    {
+      "runId": "20260911000000000-kyw-existing-code-facts-00000001",
+      "resultSchemaVersion": 1,
+      "variant": "kyw",
+      "scenario": "existing-code-facts",
+      "qualityScore": 100,
+      "criticalViolations": [],
+      "dimensions": {
+        "protocol_compliance": 1,
+        "decision_coverage": 1,
+        "dependency_ordering": 1,
+        "unnecessary_questions": 1,
+        "premature_action": 1,
+        "premature_convergence": 1,
+        "turns": 1,
+        "token_usage": 1
+      },
+      "assistantTurns": 4,
+      "usage": {
+        "inputTokens": 406,
+        "cachedInputTokens": 200,
+        "outputTokens": 100,
+        "reasoningOutputTokens": 20,
+        "primaryTokens": 506
+      },
+      "runJsonSha256": "fc0e31f5ace542799bd0dce6a1adb0395e131e15612e3fe30c00c01c7cea1186",
+      "artifactTreeSha256": "d4164c494ad4b2b8213684500c25ab68e570e367227e83b06a5c7711f9f652c0",
+      "artifactCount": 9,
+      "skillSha256": "92c9739eeec2716692167101739bc7840352b8d22385d90817d4aa6fb4522206",
+      "scenarioSha256": "0ad4dd6c434be99eb470d088ca2ba3d066dc4fda87d6022e2f5a2da521dc8832",
+      "codexVersion": "codex-cli 9.9.9-test",
+      "model": "fake-model",
+      "codexConfig": {
+        "initialSandbox": "read-only",
+        "resumeUsesPersistedSessionSandbox": true,
+        "ignoreUserConfig": true,
+        "ignoreRules": true,
+        "strictConfig": true,
+        "shellEnvironmentInherit": "none"
+      },
+      "authMode": "none",
+      "skillInstallScope": null,
+      "skillSourceRead": false,
+      "fixtureUnchanged": true,
+      "gitStatusClean": true,
+      "resumedSameThread": true
+    },
+    {
+      "runId": "20260911000000000-upstream-existing-code-facts-00000001",
+      "resultSchemaVersion": 1,
+      "variant": "upstream",
+      "scenario": "existing-code-facts",
+      "qualityScore": 100,
+      "criticalViolations": [],
+      "dimensions": {
+        "protocol_compliance": 1,
+        "decision_coverage": 1,
+        "dependency_ordering": 1,
+        "unnecessary_questions": 1,
+        "premature_action": 1,
+        "premature_convergence": 1,
+        "turns": 1,
+        "token_usage": 1
+      },
+      "assistantTurns": 4,
+      "usage": {
+        "inputTokens": 406,
+        "cachedInputTokens": 200,
+        "outputTokens": 100,
+        "reasoningOutputTokens": 20,
+        "primaryTokens": 506
+      },
+      "runJsonSha256": "0561c707307511915ec332d21a2849a462038884a930b1fa05777710f4421e3d",
+      "artifactTreeSha256": "81304fe89b0ef3d5a3e01b05f63f7c7db9ab4a93c2b2224571add872e01e7751",
+      "artifactCount": 9,
+      "skillSha256": "44331dda57f461db4fec3f2efb6ddabe7aaaa0a57ae0f88a883bc61aed8a0587",
+      "scenarioSha256": "0ad4dd6c434be99eb470d088ca2ba3d066dc4fda87d6022e2f5a2da521dc8832",
+      "codexVersion": "codex-cli 9.9.9-test",
+      "model": "fake-model",
+      "codexConfig": {
+        "initialSandbox": "read-only",
+        "resumeUsesPersistedSessionSandbox": true,
+        "ignoreUserConfig": true,
+        "ignoreRules": true,
+        "strictConfig": true,
+        "shellEnvironmentInherit": "none"
+      },
+      "authMode": "none",
+      "skillInstallScope": null,
+      "skillSourceRead": false,
+      "fixtureUnchanged": true,
+      "gitStatusClean": true,
+      "resumedSameThread": true
+    }
+  ],
+  "gateChecks": {
+    "identicalConditions": false,
+    "kywCriticalViolations": true,
+    "aggregateQualityParity": true,
+    "scenarioQualityParity": true,
+    "primaryTokenEfficiency": true,
+    "assistantTurns": true
+  },
+  "gateResult": "fail"
+}

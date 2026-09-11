@@ -379,7 +379,10 @@ export async function resolveTaskDispatch({
     message: parsed.message, portableFallback: parsed.portableFallback,
   });
   const preflight = evaluateTaskExecutionPreflight(executionPreflight);
-  if (!preflight.safe) return blockedResult("PREFLIGHT_BLOCKED", preflight.issues.join("; "), { preflightIssues: preflight.issues });
+  if (!preflight.safe && !(parsed.action === "AUDIT" && preflight.inputValid)) {
+    return blockedResult("PREFLIGHT_BLOCKED", preflight.issues.join("; "), { preflightIssues: preflight.issues });
+  }
+  const preflightDiagnostics = preflight.issues.length ? { preflightIssues: preflight.issues, warnings: preflight.issues } : {};
   if (parsed.action === "PUBLIC_RELEASE") return Object.freeze({
     outcome: "SELECTED", route: "DELIVERY", action: "PUBLIC_RELEASE",
     releaseVersion: parsed.releaseVersion, releaseSha: parsed.releaseSha,
@@ -392,13 +395,15 @@ export async function resolveTaskDispatch({
     scopeGuidance: "Read the current request, applicable instructions, diff, branch, and existing PR where relevant. Resolve included paths and the intended external target before writes; preserve unrelated user work and ask only when reading cannot resolve a consequential ambiguity. Do not stage all changes or create a Task as a prerequisite. Coordinate overlapping source writes.",
     mutationRequired: parsed.action !== "AUDIT", continuous: false,
     mergeAuthorized: parsed.action === "MERGE", fixAuthorized: parsed.action === "FIX", publicWriteAuthorized: false,
+    ...preflightDiagnostics,
   });
   const exactLocal = parsed.route === "IMPLEMENTATION" && parsed.mode === "EXACT";
   const queue = await inspectTaskQueue(tasksRoot, {
     selectedTaskId: parsed.mode === "EXACT" ? parsed.taskId : undefined,
     localSelection: parsed.mode === "EXACT",
   });
-  const diagnostics = queue.warnings?.length ? { warnings: queue.warnings } : {};
+  const warnings = Object.freeze([...(queue.warnings ?? []), ...preflight.issues]);
+  const diagnostics = warnings.length ? { ...preflightDiagnostics, warnings } : {};
   if (queue.errors.length) return blockedResult("INVALID_TASK_QUEUE", queue.errors.join("\n"), { errors: queue.errors, ...diagnostics });
   const byId = new Map(queue.tasks.map((task) => [task.id, task]));
   const active = queue.tasks.filter(activeTask);

@@ -128,16 +128,18 @@ writeFileSync(args[outputOption + 1], `${message}\n`, "utf8");
 
 for (const event of [
   { type: "thread.started", thread_id: THREAD_ID },
+  { type: "turn.started" },
   {
     type: "item.completed",
     item: {
+      id: `read-${turn}`,
       type: "command_execution",
       command: skillReadCommand,
       aggregated_output: skillSource,
       status: "completed",
     },
   },
-  { type: "item.completed", item: { type: "agent_message", text: message } },
+  { type: "item.completed", item: { id: `message-${turn}`, type: "agent_message", text: message } },
   {
     type: "turn.completed",
     usage: {

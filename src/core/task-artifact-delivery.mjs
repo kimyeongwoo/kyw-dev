@@ -111,6 +111,7 @@ export function evaluateTaskExecutionPreflight(preflight = {}) {
   if (!preflight || typeof preflight !== "object" || Array.isArray(preflight)) {
     return Object.freeze({
       safe: false,
+      inputValid: false,
       issues: Object.freeze(["execution preflight must be an object"]),
       overrideClassification: "UNCLASSIFIED",
     });
@@ -122,6 +123,7 @@ export function evaluateTaskExecutionPreflight(preflight = {}) {
     userOwnedDecisions: "unresolved user-owned decision",
   });
   const issues = [];
+  let inputValid = true;
   let overrideClassification = "UNCLASSIFIED";
   for (const key of Object.keys(preflight)) {
     if (key === "overrideClassification") {
@@ -129,6 +131,7 @@ export function evaluateTaskExecutionPreflight(preflight = {}) {
         preflight[key] !== "TASK_OVERRIDE_PRESENT" &&
         preflight[key] !== "NO_TASK_OVERRIDE"
       ) {
+        inputValid = false;
         issues.push(
           "execution preflight overrideClassification must be TASK_OVERRIDE_PRESENT or NO_TASK_OVERRIDE",
         );
@@ -138,6 +141,7 @@ export function evaluateTaskExecutionPreflight(preflight = {}) {
       continue;
     }
     if (!Object.hasOwn(labels, key)) {
+      inputValid = false;
       issues.push(`execution preflight contains unknown field ${key}`);
       continue;
     }
@@ -146,13 +150,17 @@ export function evaluateTaskExecutionPreflight(preflight = {}) {
       !Array.isArray(values) ||
       values.some((value) => typeof value !== "string" || !value.trim())
     ) {
+      inputValid = false;
       issues.push(`execution preflight ${key} must be an array of non-empty strings`);
       continue;
     }
     if (key !== "remoteDrift") issues.push(...values.map((value) => `${labels[key]}: ${value}`));
   }
   return Object.freeze({
+    // Direct consumers retain the mutation-safe default; read-only dispatch may
+    // distinguish valid concerns from malformed input without parsing messages.
     safe: issues.length === 0,
+    inputValid,
     issues: Object.freeze(issues),
     overrideClassification,
   });

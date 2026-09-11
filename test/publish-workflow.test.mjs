@@ -4,6 +4,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { TRUSTED_PUBLISHER_EXPECTATION } from "../scripts/lib/validate-foundation.mjs";
+import { workflowInspectionView } from "../src/core/workflow-inspection-view.mjs";
 
 const workflowPath = fileURLToPath(
   new URL("../.github/workflows/publish.yml", import.meta.url),
@@ -54,7 +55,8 @@ function assertRequiredFragments(text, fragments) {
   }
 }
 
-function assertPublishWorkflowContract(text) {
+function assertPublishWorkflowContract(rawText) {
+  const text = workflowInspectionView(rawText);
   assert.equal(text.includes("\r"), false);
   assert.match(text, /^name: Publish npm package through OIDC\n/);
 
@@ -266,7 +268,17 @@ function assertPublishWorkflowContract(text) {
   ]);
 
   assert.deepEqual(
-    [...text.matchAll(/uses: ([^@\s]+)@([0-9a-f]{40}) # (v[^\s]+)/g)].map(
+    [...text.matchAll(/^        uses: ([^@\s]+)@([0-9a-f]{40})$/gm)].map(
+      ([, action, sha]) => ({ action, sha }),
+    ),
+    [
+      { action: "actions/checkout", sha: checkoutPin },
+      { action: "actions/setup-node", sha: setupNodePin },
+    ],
+  );
+  // Version annotations are deliberately checked in the original YAML.
+  assert.deepEqual(
+    [...rawText.matchAll(/^        uses: ([^@\s]+)@([0-9a-f]{40}) # (v[^\s]+)/gm)].map(
       ([, action, sha, version]) => ({ action, sha, version }),
     ),
     [
@@ -328,6 +340,64 @@ test("trusted publishing workflow binds one exact frozen public-release tuple", 
     true,
   );
   assertPublishWorkflowContract(workflow);
+});
+
+test("workflow YAML comments retain the semantic publication contract", () => {
+  const variants = [
+    `# npm publish is performed only below\n# NPM_TOKEN is not used\n${workflow}`,
+    workflow.replace(
+      "      - name: Publish the exact checkout directory through OIDC\n",
+      "      # run: node ./scripts/publish-gate.mjs\n" +
+        "      - name: Publish the exact checkout directory through OIDC # publisher\n" +
+        "        # npm publish has one actual command\n",
+    ) + "# NPM_TOKEN is not configured\n",
+    workflow
+      .replace("permissions: {}\n", "permissions: {} # no global writes\n")
+      .replace("      id-token: write\n", "      id-token: write # OIDC\n")
+      .replace('  NPM_CONFIG_PROVENANCE: "true"\n', '  NPM_CONFIG_PROVENANCE: "true" # enabled\n')
+      .replaceAll("        run: |\n", "        run: | # execution body stays exact\n")
+      .replace("run: node ./scripts/publish-gate.mjs\n", "run: node ./scripts/publish-gate.mjs # fresh CI\n")
+      .replace("--registry=https://registry.npmjs.org/\n", "--registry=https://registry.npmjs.org/ # exact registry\n"),
+  ];
+  for (const variant of variants) {
+    assert.notEqual(variant, workflow);
+    assert.doesNotThrow(() => assertPublishWorkflowContract(variant));
+  }
+});
+
+test("comments cannot supply removed guards or hide executable workflow weakenings", () => {
+  const guardFragments = [
+    "permissions: {}",
+    "      id-token: write",
+    "        required: true",
+    "          persist-credentials: false",
+    "        run: node ./scripts/publish-gate.mjs",
+    '          test "$ACTUAL_SHA" = "$EXPECTED_SHA"',
+  ];
+  for (const fragment of guardFragments) {
+    const variant = `# ${fragment}\n${workflow.replace(fragment, "")}`;
+    assert.notEqual(variant, workflow);
+    assert.throws(() => assertPublishWorkflowContract(variant), fragment);
+  }
+  const comments = "# npm publish is below\n# NPM_TOKEN is not configured\n";
+  const weakenings = [
+    workflow.replace("        env:\n", "        continue-on-error: true # unsafe\n        env:\n"),
+    workflow.replace("        env:\n", "        env:\n          NPM_TOKEN: actual-token # real setting\n"),
+    workflow.replace("        env:\n", "        env:\n          TOKEN: ${{ secrets.ACTUAL_TOKEN }} # real secret\n"),
+    workflow.replace("        run: node ./scripts/publish-gate.mjs\n", "        if: always() # conditional gate\n        run: node ./scripts/publish-gate.mjs\n"),
+    workflow.replace("run: node ./scripts/publish-gate.mjs", "run: node ./scripts/changed-gate.mjs"),
+    workflow.replace("run: npm publish .", "run: npm publish . && npm publish ."),
+    workflow.replace("--access public", "--access restricted"),
+    workflow.replace("      contents: read", "      contents: write"),
+    workflow.replace(checkoutPin, "a".repeat(40)),
+    workflow.replace(setupNodePin, "v6"),
+    // These are scalar-body bytes; execution-language comments remain visible.
+    workflow.replace("          set -euo pipefail", "          # NPM_TOKEN must remain visible\n          set -euo pipefail"),
+  ];
+  for (const [index, variant] of weakenings.entries()) {
+    assert.throws(() => assertPublishWorkflowContract(comments + variant), `executable weakening ${index + 1}`);
+  }
+  assert.throws(() => assertPublishWorkflowContract(workflow.replace(" # v6.1.0", " # absent annotation")));
 });
 
 test("workflow regression guards reject identity, artifact, registry, and write weakenings", () => {

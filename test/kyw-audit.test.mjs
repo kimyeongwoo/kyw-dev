@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
-import { chmod, lstat, mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import fs from "node:fs";
+import { chmod, lstat, mkdtemp, mkdir, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
+import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { verifyInAuditSandbox } from "../skills/kyw-audit/scripts/verify.mjs";
+import { runAuditVerifierCli, verifyInAuditSandbox } from "../skills/kyw-audit/scripts/verify.mjs";
 
 async function fixture(t) {
-  const base = await mkdtemp(path.join(tmpdir(), "kyw-audit-test-"));
+  const base = await realpath(await mkdtemp(path.join(tmpdir(), "kyw-audit-test-")));
   const repositoryRoot = path.join(base, "source");
   const temporaryParent = path.join(base, "temporary");
   await mkdir(repositoryRoot);
@@ -17,7 +19,7 @@ async function fixture(t) {
   return { repositoryRoot, temporaryParent, files: ["test.mjs"], command: ["node", "test.mjs"] };
 }
 
-function fakeDocker(run) {
+function fakeDocker(run, cleanup) {
   const calls = [];
   const runner = async (executable, args, options) => {
     calls.push({ executable, args, options });
@@ -25,10 +27,16 @@ function fakeDocker(run) {
     assert.equal(options.env, undefined);
     if (args[0] === "image") return { stdout: `sha256:${"a".repeat(64)}\n`, stderr: "" };
     if (args[0] === "run") return run(args);
+    if (cleanup) return cleanup(args);
     if (args[1] === "inspect") return { stdout: args.at(-1), stderr: "" };
     return { stdout: "", stderr: "" };
   };
   return { runner, calls };
+}
+
+async function assertOriginalFixture(options) {
+  assert.equal(await readFile(path.join(options.repositoryRoot, "test.mjs"), "utf8"), "console.log('source');\n");
+  assert.equal(await readFile(path.join(options.repositoryRoot, "user-draft.md"), "utf8"), "preserve me\n");
 }
 
 test("audit sandbox preserves source and unknown files, constrains execution, cleans only its copy", async (t) => {
@@ -54,6 +62,7 @@ test("audit sandbox preserves source and unknown files, constrains execution, cl
   assert.equal(result.executed, true);
   assert.equal(result.completed, true);
   assert.equal(result.exitCode, 0);
+  assert.deepEqual(result.cleanup, { outcome: "COMPLETED" });
   assert.equal(await readFile(path.join(options.repositoryRoot, "test.mjs"), "utf8"), "console.log('source');\n");
   assert.equal(await readFile(path.join(options.repositoryRoot, "user-draft.md"), "utf8"), "preserve me\n");
   assert.equal(await readFile(path.join(untouched, "note"), "utf8"), "unrelated");
@@ -71,6 +80,7 @@ test("unavailable sandbox reports unexecuted verification and never falls back t
   assert.equal(result.verificationOutcome, "UNEXECUTED");
   assert.equal(result.attempted, false);
   assert.equal(result.completed, false);
+  assert.deepEqual(result.cleanup, { outcome: "NOT_REQUIRED" });
   assert.equal(calls, 1);
   assert.deepEqual(await readdir(options.temporaryParent), []);
 });
@@ -112,6 +122,7 @@ test("failed isolated tests retain failure and clean the owned container and tem
   assert.equal(result.completed, true);
   assert.equal(result.exitCode, 1);
   assert.equal(result.stderr, "assertion failed");
+  assert.deepEqual(result.cleanup, { outcome: "COMPLETED" });
   assert.deepEqual(await readdir(options.temporaryParent), []);
   assert.equal(docker.calls.at(-1).args[1], "rm");
 });
@@ -142,12 +153,179 @@ test("Docker startup failures and interrupted verification never become test suc
   assert.equal(await readFile(path.join(options.repositoryRoot, "test.mjs"), "utf8"), "console.log('source');\n");
 });
 
-test("unknown container ownership blocks cleanup rather than deleting an unrelated container", async (t) => {
+test("completed check results survive uncertain, unowned, and failed container cleanup", async (t) => {
+  for (const failed of [false, true]) {
+    for (const cleanupOutcome of ["UNKNOWN", "BLOCKED", "FAILED"]) {
+      await t.test(`${failed ? "FAILED" : "PASSED"} verification and ${cleanupOutcome} cleanup`, async (caseTest) => {
+        const options = await fixture(caseTest);
+        const docker = fakeDocker(async () => {
+          if (failed) throw Object.assign(new Error("test failed"), { code: 3, stdout: "test output", stderr: "test diagnostic" });
+          return { stdout: "test output", stderr: "test diagnostic" };
+        }, async (args) => {
+          if (cleanupOutcome === "UNKNOWN") throw Object.assign(new Error("inspect failed"), { stderr: "daemon unavailable" });
+          if (cleanupOutcome === "BLOCKED") return { stdout: "someone-else" };
+          if (args[1] === "inspect") return { stdout: args.at(-1) };
+          throw new Error("container deletion failed");
+        });
+        const result = await verifyInAuditSandbox({ ...options, runner: docker.runner });
+        assert.equal(result.status, "BLOCKED");
+        assert.equal(result.verificationOutcome, failed ? "FAILED" : "PASSED");
+        assert.equal(result.exitCode, failed ? 3 : 0);
+        assert.equal(result.stdout, "test output");
+        assert.equal(result.stderr, "test diagnostic");
+        assert.equal(result.attempted, true);
+        assert.equal(result.executed, true);
+        assert.equal(result.completed, true);
+        assert.equal(result.cleanup.outcome, cleanupOutcome);
+        assert.ok(result.cleanup.reason);
+        assert.equal(path.dirname(result.cleanup.temporaryPath), options.temporaryParent);
+        const runCalls = docker.calls.filter(({ args }) => args[0] === "run");
+        assert.equal(runCalls.length, 1);
+        assert.equal(result.cleanup.containerName, runCalls[0].args[runCalls[0].args.indexOf("--name") + 1]);
+        assert.equal(docker.calls.filter(({ args }) => args[1] === "rm").length, cleanupOutcome === "FAILED" ? 1 : 0);
+        assert.equal(await readFile(path.join(result.cleanup.temporaryPath, "work", "test.mjs"), "utf8"), "console.log('source');\n");
+        await assertOriginalFixture(options);
+      });
+    }
+  }
+});
+
+test("an already removed container permits cleanup of the owned temporary copy", async (t) => {
   const options = await fixture(t);
-  const docker = fakeDocker(async () => ({ stdout: "pass" }));
-  const runner = (exe, args, config) => args[0] === "container" && args[1] === "inspect"
-    ? Promise.resolve({ stdout: "someone-else" }) : docker.runner(exe, args, config);
-  await assert.rejects(verifyInAuditSandbox({ ...options, runner }), /ownership changed/);
+  const docker = fakeDocker(async () => ({ stdout: "pass" }), async () => {
+    throw Object.assign(new Error("container gone"), { stderr: "Error: No such container: fixture" });
+  });
+  const result = await verifyInAuditSandbox({ ...options, runner: docker.runner });
+  assert.equal(result.status, "PASSED");
+  assert.deepEqual(result.cleanup, { outcome: "COMPLETED" });
+  assert.equal(docker.calls.filter(({ args }) => args[0] === "run").length, 1);
   assert.equal(docker.calls.some(({ args }) => args[1] === "rm"), false);
-  assert.equal((await readdir(options.temporaryParent)).length, 1);
+  assert.deepEqual(await readdir(options.temporaryParent), []);
+  await assertOriginalFixture(options);
+});
+
+test("startup failures and incomplete checks keep their outcomes when cleanup is unknown", async (t) => {
+  for (const [properties, outcome, status] of [
+    [{ code: 125 }, "UNEXECUTED", "UNAVAILABLE"],
+    [{ code: "ENOENT" }, "UNEXECUTED", "UNAVAILABLE"],
+    [{ killed: true, signal: "SIGTERM", code: 1 }, "UNKNOWN", "BLOCKED"],
+    [{ code: "ERR_CHILD_PROCESS_STDIO_MAXBUFFER" }, "UNKNOWN", "BLOCKED"],
+  ]) {
+    const options = await fixture(t);
+    const docker = fakeDocker(async () => {
+      throw Object.assign(new Error("execution failed"), properties, { stdout: "partial output", stderr: "execution diagnostic" });
+    }, async () => { throw new Error("inspect failed"); });
+    const result = await verifyInAuditSandbox({ ...options, runner: docker.runner });
+    assert.equal(result.status, status);
+    assert.equal(result.verificationOutcome, outcome);
+    assert.equal(result.attempted, true);
+    assert.equal(result.executed, false);
+    assert.equal(result.completed, false);
+    assert.equal(result.exitCode, Number.isInteger(properties.code) ? properties.code : null);
+    assert.equal(result.stdout, "partial output");
+    assert.equal(result.stderr, "execution diagnostic");
+    assert.equal(result.cleanup.outcome, "UNKNOWN");
+    assert.equal(docker.calls.filter(({ args }) => args[0] === "run").length, 1);
+    assert.equal(docker.calls.some(({ args }) => args[1] === "rm"), false);
+    await assertOriginalFixture(options);
+  }
+});
+
+test("temporary root ownership changes preserve the check and withhold deletion", async (t) => {
+  const options = await fixture(t);
+  let replacement;
+  const docker = fakeDocker(async (args) => {
+    const mount = args[args.indexOf("--mount") + 1];
+    const workspace = mount.slice("type=bind,source=".length, -",target=/work".length);
+    replacement = path.dirname(workspace);
+    await fs.promises.rename(replacement, `${replacement}-held`);
+    await mkdir(replacement);
+    await writeFile(path.join(replacement, "user-owned"), "do not delete");
+    return { stdout: "pass", stderr: "" };
+  });
+  const result = await verifyInAuditSandbox({ ...options, runner: docker.runner });
+  assert.equal(result.status, "BLOCKED");
+  assert.equal(result.verificationOutcome, "PASSED");
+  assert.equal(result.completed, true);
+  assert.equal(result.stdout, "pass");
+  assert.equal(result.cleanup.outcome, "BLOCKED");
+  assert.equal(result.cleanup.temporaryPath, replacement);
+  assert.equal(await readFile(path.join(replacement, "user-owned"), "utf8"), "do not delete");
+  assert.equal(await readFile(path.join(`${replacement}-held`, "work", "test.mjs"), "utf8"), "console.log('source');\n");
+  assert.equal(docker.calls.filter(({ args }) => args[0] === "run").length, 1);
+  await assertOriginalFixture(options);
+});
+
+test("temporary file removal failures retain preparation errors and completed results", async (t) => {
+  for (const preparationFailed of [false, true]) {
+    const options = await fixture(t);
+    const originalMkdir = fs.promises.mkdir;
+    const originalRm = fs.promises.rm;
+    const mkdirMock = t.mock.method(fs.promises, "mkdir", async (target, ...args) => {
+      if (preparationFailed && path.dirname(path.dirname(target)) === options.temporaryParent) {
+        throw new Error("original workspace preparation error");
+      }
+      return originalMkdir(target, ...args);
+    });
+    const rmMock = t.mock.method(fs.promises, "rm", async (target, ...args) => {
+      if (path.dirname(target) === options.temporaryParent) throw new Error("temporary deletion failed");
+      return originalRm(target, ...args);
+    });
+    syncBuiltinESMExports();
+    try {
+      const docker = fakeDocker(async () => ({ stdout: "completed output", stderr: "completed diagnostic" }));
+      const result = await verifyInAuditSandbox({ ...options, runner: docker.runner });
+      assert.equal(result.status, "BLOCKED");
+      assert.equal(result.verificationOutcome, preparationFailed ? "UNEXECUTED" : "PASSED");
+      assert.equal(result.attempted, !preparationFailed);
+      assert.equal(result.executed, !preparationFailed);
+      assert.equal(result.completed, !preparationFailed);
+      assert.equal(result.exitCode, preparationFailed ? null : 0);
+      if (preparationFailed) assert.match(result.reason, /original workspace preparation error/u);
+      else {
+        assert.equal(result.stdout, "completed output");
+        assert.equal(result.stderr, "completed diagnostic");
+      }
+      assert.equal(result.cleanup.outcome, "FAILED");
+      assert.equal(result.cleanup.error, "temporary deletion failed");
+      assert.equal(path.dirname(result.cleanup.temporaryPath), options.temporaryParent);
+      assert.equal(docker.calls.filter(({ args }) => args[0] === "run").length, preparationFailed ? 0 : 1);
+      assert.equal(docker.calls.filter(({ args }) => args[0] === "container").length, preparationFailed ? 0 : 2);
+      await assertOriginalFixture(options);
+    } finally {
+      mkdirMock.mock.restore();
+      rmMock.mock.restore();
+      syncBuiltinESMExports();
+    }
+  }
+});
+
+test("CLI consumers receive both outcomes and a nonzero result when cleanup is incomplete", async (t) => {
+  for (const [checkFailed, cleanupFailed] of [[false, false], [false, true], [true, true]]) {
+    const options = await fixture(t);
+    const docker = fakeDocker(async () => {
+      if (checkFailed) throw Object.assign(new Error("check failed"), { code: 2, stdout: "check output", stderr: "check error" });
+      return { stdout: "check output", stderr: "check diagnostic" };
+    }, cleanupFailed ? async () => { throw new Error("cleanup inspect failed"); } : undefined);
+    const output = [];
+    const errors = [];
+    const exitCode = await runAuditVerifierCli([options.repositoryRoot, "node:22", JSON.stringify(options.files), ...options.command], {
+      runner: docker.runner, temporaryParent: options.temporaryParent,
+      stdout: (value) => output.push(value), stderr: (value) => errors.push(value),
+    });
+    assert.equal(exitCode, checkFailed || cleanupFailed ? 1 : 0);
+    assert.deepEqual(errors, []);
+    assert.equal(output.length, 1);
+    const result = JSON.parse(output[0]);
+    assert.equal(result.status, checkFailed || cleanupFailed ? "BLOCKED" : "PASSED");
+    assert.equal(result.verificationOutcome, checkFailed ? "FAILED" : "PASSED");
+    assert.equal(result.exitCode, checkFailed ? 2 : 0);
+    assert.equal(result.stdout, "check output");
+    assert.equal(result.stderr, checkFailed ? "check error" : "check diagnostic");
+    assert.equal(result.completed, true);
+    assert.equal(result.cleanup.outcome, cleanupFailed ? "UNKNOWN" : "COMPLETED");
+    assert.equal(docker.calls.filter(({ args }) => args[0] === "run").length, 1);
+    assert.equal(docker.calls.some(({ args }) => args[1] === "rm"), !cleanupFailed);
+    await assertOriginalFixture(options);
+  }
 });

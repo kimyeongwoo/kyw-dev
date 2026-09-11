@@ -427,6 +427,7 @@ function createSourceCopy(t, version, mutate) {
     "task-artifact-creation.mjs",
     "task-artifact-delivery.mjs",
     "task-artifact-hydration.mjs",
+    "workflow-inspection-view.mjs",
     "task-artifact-public-release.mjs",
     "task-artifact-queue.mjs",
     "task-artifact-shared.mjs",
@@ -724,6 +725,11 @@ test("user install writes complete hashed Skills and a runnable direct-install T
   );
   assert.ok(
     metadata.files.some(
+      (file) => file.path === ".kyw-dev/runtime/src/core/workflow-inspection-view.mjs",
+    ),
+  );
+  assert.ok(
+    metadata.files.some(
       (file) => file.path === ".kyw-dev/runtime/src/core/task-artifact-continuity.mjs",
     ),
   );
@@ -735,6 +741,11 @@ test("user install writes complete hashed Skills and a runnable direct-install T
   assert.ok(
     metadata.files.some(
       (file) => file.path === "kyw-deliver/references/public-release.md",
+    ),
+  );
+  assert.ok(
+    metadata.files.some(
+      (file) => file.path === "kyw-task/references/batch-authoring.md",
     ),
   );
   for (const file of metadata.files) {
@@ -1346,7 +1357,7 @@ test("doctor reports duplicate, malformed, permission, and partial installs with
   assert.deepEqual(fileSnapshot(repository), beforeRepository);
 });
 
-test("doctor reports direct and plugin-cache duplicate Skill sources without mutation", (t) => {
+test("doctor preserves direct conflicts alongside plugin-cache warnings without mutation", (t) => {
   const home = temporaryDirectory(t);
   const repository = createRepository(join(temporaryDirectory(t), "repository"));
   const codexHome = join(home, "isolated-codex");
@@ -1371,7 +1382,15 @@ test("doctor reports direct and plugin-cache duplicate Skill sources without mut
   assert.ok(duplicate);
   assert.match(duplicate.message, /user/);
   assert.match(duplicate.message, /project/);
-  assert.match(duplicate.message, /plugin "kyw-dev-local\/kyw-dev@local"/);
+  assert.equal(duplicate.severity, "error");
+  assert.equal(duplicate.exitCode, EXIT_CODES.CONFLICT);
+  assert.doesNotMatch(duplicate.message, /plugin/);
+  const potential = report.findings.find((finding) => finding.code === "POTENTIAL_DUPLICATE_INSTALLATION");
+  assert.ok(potential);
+  assert.equal(potential.severity, "warning");
+  assert.equal(potential.exitCode, EXIT_CODES.OK);
+  assert.match(potential.message, /plugin "kyw-dev-local\/kyw-dev@local"/);
+  assert.match(potential.message, /active state is unknown/);
   for (const skillName of MANAGED_SKILL_NAMES) {
     assert.match(duplicate.message, new RegExp(skillName));
   }
@@ -1395,9 +1414,111 @@ test("doctor reports direct and plugin-cache duplicate Skill sources without mut
   });
   assert.equal(cliDoctor.status, EXIT_CODES.CONFLICT, cliDoctor.stderr);
   assert.match(cliDoctor.stdout, /plugin "kyw-dev-local\/kyw-dev@local"/);
+  assert.match(cliDoctor.stdout, /\[ERROR DUPLICATE_INSTALLATION\]/);
+  assert.match(cliDoctor.stdout, /\[WARNING POTENTIAL_DUPLICATE_INSTALLATION\]/);
+  assert.match(cliDoctor.stdout, /Result: issues found \(exit 4\)/);
   assert.deepEqual(metadataSnapshot(join(home, ".agents")), beforeDirectRoot);
   assert.deepEqual(metadataSnapshot(pluginSkillsRoot), beforePluginRoot);
   assert.deepEqual(metadataSnapshot(repository), beforeRepository);
+});
+
+test("doctor separates direct conflicts from cache candidates and preserves other errors", async (t) => {
+  const cases = [
+    { name: "direct user and project", direct: ["user", "project"], cache: [], exitCode: EXIT_CODES.CONFLICT },
+    { name: "one user and cache", direct: ["user"], cache: [{}], exitCode: EXIT_CODES.OK },
+    { name: "one project and cache", direct: ["project"], cache: [{}], exitCode: EXIT_CODES.OK },
+    { name: "two cache versions", direct: [], cache: [{ version: "0.2.2" }, { version: "0.2.3" }], exitCode: EXIT_CODES.OK },
+    { name: "two cache marketplaces", direct: [], cache: [{ marketplace: "first" }, { marketplace: "second" }], exitCode: EXIT_CODES.OK },
+    { name: "one cache source", direct: [], cache: [{}], exitCode: EXIT_CODES.OK },
+    { name: "modified direct and cache", direct: ["user"], cache: [{}], errorCode: "MALFORMED_SKILL", exitCode: EXIT_CODES.INVALID_STATE },
+    { name: "permission failure and cache", direct: ["user"], cache: [{}], errorCode: "PERMISSION_DENIED", exitCode: EXIT_CODES.FILESYSTEM },
+    { name: "unsafe direct and cache versions", direct: [], cache: [{ version: "0.2.2" }, { version: "0.2.3" }], errorCode: "UNSAFE_SCOPE", exitCode: EXIT_CODES.RECOVERY_REQUIRED },
+    { name: "malformed cache and overlap", direct: ["user"], cache: [{}], errorCode: "MALFORMED_PLUGIN_SKILL", exitCode: EXIT_CODES.INVALID_STATE },
+    { name: "unsafe cache and overlap", direct: ["user"], cache: [{}], errorCode: "UNSAFE_PLUGIN_CACHE", exitCode: EXIT_CODES.RECOVERY_REQUIRED },
+  ];
+  for (const fixture of cases) {
+    await t.test(fixture.name, () => {
+      const home = temporaryDirectory(t);
+      const repository = createRepository(join(temporaryDirectory(t), "repository"));
+      const codexHome = join(home, "isolated-codex");
+      for (const scope of fixture.direct) {
+        installManagedSkills({ scope, cwd: repository, home });
+      }
+      const cacheRoots = fixture.cache.map((options) => installPluginCacheFixture(home, { codexHome, ...options }));
+      if (fixture.errorCode === "MALFORMED_SKILL") {
+        writeFileSync(join(home, ".agents", "skills", "kyw-audit", "SKILL.md"), "broken\n", "utf8");
+      } else if (fixture.errorCode === "UNSAFE_SCOPE") {
+        writeFileSync(join(home, ".agents"), "not a directory\n", "utf8");
+      } else if (fixture.errorCode === "MALFORMED_PLUGIN_SKILL") {
+        writeFileSync(join(cacheRoots[0], "kyw-broken"), "not a directory\n", "utf8");
+      } else if (fixture.errorCode === "UNSAFE_PLUGIN_CACHE") {
+        const unsafeVersion = join(codexHome, "plugins", "cache", "kyw-dev-local", "kyw-dev", "unsafe");
+        mkdirSync(unsafeVersion);
+        writeFileSync(join(unsafeVersion, "skills"), "not a directory\n", "utf8");
+      }
+      const beforeHome = metadataSnapshot(home);
+      const beforeRepository = metadataSnapshot(repository);
+      const options = {
+        cwd: repository,
+        home,
+        codexHome,
+        commandRunner: () => ({ status: 0, stdout: "fixture-version\n", stderr: "" }),
+        accessChecker(target) {
+          if (fixture.errorCode === "PERMISSION_DENIED" && target.startsWith(home)) {
+            throw new Error("EACCES: fixture permission failure");
+          }
+        },
+      };
+      const report = diagnoseInstallations(options);
+      assert.equal(report.exitCode, fixture.exitCode, formatDoctorReport(report));
+      const directConflict = report.findings.find(({ code }) => code === "DUPLICATE_INSTALLATION");
+      assert.equal(Boolean(directConflict), fixture.direct.length > 1);
+      if (directConflict) {
+        assert.equal(directConflict.severity, "error");
+        assert.equal(directConflict.exitCode, EXIT_CODES.CONFLICT);
+      }
+      const potential = report.findings.find(({ code }) => code === "POTENTIAL_DUPLICATE_INSTALLATION");
+      const hasPotential = fixture.cache.length > 0 && fixture.direct.length + fixture.cache.length > 1;
+      assert.equal(Boolean(potential), hasPotential);
+      if (potential) {
+        assert.equal(potential.severity, "warning");
+        assert.equal(potential.exitCode, EXIT_CODES.OK);
+        assert.match(potential.message, /active state is unknown/);
+        assert.doesNotMatch(potential.message, /uninstall|remove|delete/i);
+      }
+      if (fixture.errorCode) {
+        assert.ok(report.findings.some(({ code, severity }) => code === fixture.errorCode && severity === "error"));
+      }
+      const formatted = formatDoctorReport(report);
+      for (const source of report.pluginCache.sources) {
+        assert.ok(formatted.includes(source.skillsRoot));
+        assert.ok(formatted.includes(`${source.marketplace}/${source.plugin}@${source.version}`));
+        for (const skillName of source.skillNames) {
+          assert.ok(formatted.includes(skillName));
+        }
+      }
+      if (fixture.exitCode !== EXIT_CODES.OK) {
+        assert.ok(formatted.includes(`Result: issues found (exit ${fixture.exitCode})`));
+      } else if (hasPotential) {
+        assert.match(formatted, /Result: warnings remain \(exit 0\)/);
+        assert.doesNotMatch(formatted, /healthy/);
+      } else {
+        assert.match(formatted, /Result: healthy/);
+      }
+      let stdout = "";
+      let stderr = "";
+      const exitCode = runCli(["doctor"], {
+        ...options,
+        stdout: { write(chunk) { stdout += chunk; } },
+        stderr: { write(chunk) { stderr += chunk; } },
+      });
+      assert.equal(exitCode, report.exitCode);
+      assert.equal(stdout, formatted);
+      assert.equal(stderr, "");
+      assert.deepEqual(metadataSnapshot(home), beforeHome);
+      assert.deepEqual(metadataSnapshot(repository), beforeRepository);
+    });
+  }
 });
 
 test("doctor reports one plugin-cache source without inventing a duplicate", (t) => {
@@ -1406,12 +1527,17 @@ test("doctor reports one plugin-cache source without inventing a duplicate", (t)
   const pluginSkillsRoot = installPluginCacheFixture(home, { codexHome });
   const before = metadataSnapshot(home);
 
-  const report = diagnoseInstallations({ home, codexHome, commandRunner });
+  const report = diagnoseInstallations({
+    home,
+    codexHome,
+    commandRunner: () => ({ status: 0, stdout: "fixture-version\n", stderr: "" }),
+  });
   assert.equal(report.exitCode, EXIT_CODES.OK);
   assert.equal(report.pluginCache.available, true);
   assert.equal(report.pluginCache.sources.length, 1);
   assert.equal(report.pluginCache.sources[0].skillsRoot, pluginSkillsRoot);
   assert.equal(report.findings.some((finding) => finding.code === "DUPLICATE_INSTALLATION"), false);
+  assert.equal(report.findings.some((finding) => finding.code === "POTENTIAL_DUPLICATE_INSTALLATION"), false);
   assert.match(formatDoctorReport(report), /Result: healthy/);
   assert.deepEqual(metadataSnapshot(home), before);
 });
@@ -1533,6 +1659,8 @@ test("doctor is byte-and-metadata read-only for a healthy managed tree", (t) => 
   const before = metadataSnapshot(home);
   const report = diagnoseInstallations({ home, commandRunner });
   assert.equal(report.exitCode, EXIT_CODES.OK);
+  assert.ok(report.findings.some(({ code }) => code === "CODEX_NOT_DETECTED"));
+  assert.match(formatDoctorReport(report), /Result: warnings remain \(exit 0\)/);
   assert.deepEqual(metadataSnapshot(home), before);
 });
 
@@ -1928,9 +2056,12 @@ test("actual npm tarball installs, diagnoses, runs its installed adapter, and un
   }
   assert.equal(packed.status, 0, packed.stderr);
   const report = JSON.parse(packed.stdout)[0];
+  const batchReferencePath = "skills/kyw-task/references/batch-authoring.md";
+  assert.ok(report.files.some((file) => file.path === batchReferencePath));
   assert.ok(report.files.some((file) => file.path === "skills/kyw-audit/scripts/verify.mjs"));
   assert.ok(report.files.some((file) => file.path === "src/core/ci-evidence.mjs"));
   assert.ok(report.files.some((file) => file.path === "src/core/pr-merge.mjs"));
+  assert.ok(report.files.some((file) => file.path === "src/core/workflow-inspection-view.mjs"));
   assert.equal(report.files.some((file) => file.path.startsWith("docs/dev/")), false);
   const extractRoot = join(root, "extract");
   mkdirSync(extractRoot);
@@ -1986,11 +2117,20 @@ test("actual npm tarball installs, diagnoses, runs its installed adapter, and un
   const doctor = spawnSync(process.execPath, [cli, "doctor"], { cwd: work, env, encoding: "utf8" });
   assert.equal(doctor.status, 0, doctor.stderr);
   assert.equal(doctor.stderr, "");
-  assert.match(doctor.stdout, /Result: healthy/);
+  const expectedDoctorResult = doctor.stdout.includes("[WARNING ")
+    ? "Result: warnings remain (exit 0)"
+    : "Result: healthy";
+  assert.ok(doctor.stdout.includes(expectedDoctorResult));
 
   const adapter = join(home, ".agents", "skills", "kyw-task", "scripts", "task-artifacts.mjs");
   const packagedAdapter = join(extractRoot, "package", "skills", "kyw-task", "scripts", "task-artifacts.mjs");
+  const sourceBatchReference = readFileSync(join(PACKAGE_ROOT, batchReferencePath));
   for (const entryPoint of [packagedAdapter, adapter]) {
+    const skillRoot = path.dirname(path.dirname(entryPoint));
+    const skillMarkdown = readFileSync(join(skillRoot, "SKILL.md"), "utf8");
+    const referenceLink = /\]\((references\/batch-authoring\.md)\)/.exec(skillMarkdown);
+    assert.ok(referenceLink, "packaged and installed Task Skills link to the batch reference");
+    assert.deepEqual(readFileSync(join(skillRoot, referenceLink[1])), sourceBatchReference);
     for (const [invocation, action] of [
       ['$kyw-impl "Fix the greeting without a record"', "IMPLEMENT"],
       ["$kyw-deliver", "PR"],

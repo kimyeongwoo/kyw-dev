@@ -236,11 +236,11 @@ function inspectDoctorPluginCache(codexHome) {
   });
 }
 
-function duplicateSkillFinding(scopes, pluginCache) {
+function duplicateSkillFindings(scopes, pluginCache) {
   const sourcesBySkill = new Map();
-  const addSource = (skillName, source) => {
-    const sources = sourcesBySkill.get(skillName) ?? [];
-    sources.push(source);
+  const addSource = (skillName, kind, source) => {
+    const sources = sourcesBySkill.get(skillName) ?? { direct: [], cache: [] };
+    sources[kind].push(source);
     sourcesBySkill.set(skillName, sources);
   };
   for (const scope of scopes) {
@@ -248,29 +248,41 @@ function duplicateSkillFinding(scopes, pluginCache) {
       continue;
     }
     for (const skillName of scope.skillNames) {
-      addSource(skillName, scope.scope);
+      addSource(skillName, "direct", scope.scope);
     }
   }
   for (const source of pluginCache.sources) {
     const label = `plugin ${JSON.stringify(`${source.marketplace}/${source.plugin}@${source.version}`)}`;
     for (const skillName of source.skillNames) {
-      addSource(skillName, label);
+      addSource(skillName, "cache", label);
     }
   }
-  const duplicates = [...sourcesBySkill.entries()]
-    .filter(([, sources]) => sources.length > 1)
+  const sortedSources = [...sourcesBySkill.entries()]
     .sort(([left], [right]) => left.localeCompare(right));
-  if (duplicates.length === 0) {
-    return undefined;
+  const directDuplicates = sortedSources.filter(([, sources]) => sources.direct.length > 1);
+  const potentialDuplicates = sortedSources.filter(([, sources]) =>
+    sources.cache.length > 0 && sources.direct.length + sources.cache.length > 1);
+  const findings = [];
+  if (directDuplicates.length > 0) {
+    findings.push(doctorFinding(
+      "error",
+      "DUPLICATE_INSTALLATION",
+      `Duplicate direct Skill sources: ${directDuplicates
+        .map(([skillName, sources]) => `${skillName} (${sources.direct.join(", ")})`)
+        .join("; ")}`,
+      EXIT_CODES.CONFLICT,
+    ));
   }
-  return doctorFinding(
-    "error",
-    "DUPLICATE_INSTALLATION",
-    `Duplicate Skill sources: ${duplicates
-      .map(([skillName, sources]) => `${skillName} (${sources.join(", ")})`)
-      .join("; ")}`,
-    EXIT_CODES.CONFLICT,
-  );
+  if (potentialDuplicates.length > 0) {
+    findings.push(doctorFinding(
+      "warning",
+      "POTENTIAL_DUPLICATE_INSTALLATION",
+      `Potential Skill source conflicts; plugin cache active state is unknown: ${potentialDuplicates
+        .map(([skillName, sources]) => `${skillName} (${[...sources.direct, ...sources.cache].join(", ")})`)
+        .join("; ")}`,
+    ));
+  }
+  return findings;
 }
 
 function nearestExistingDirectory(directory) {
@@ -567,10 +579,7 @@ export function diagnoseInstallations({
 
   const pluginCache = inspectDoctorPluginCache(codexHome);
   findings.push(...pluginCache.findings);
-  const duplicate = duplicateSkillFinding(scopes, pluginCache);
-  if (duplicate) {
-    findings.push(duplicate);
-  }
+  findings.push(...duplicateSkillFindings(scopes, pluginCache));
 
   const exitCode = findings.reduce((highest, finding) => Math.max(highest, finding.exitCode ?? 0), 0);
   return Object.freeze({
@@ -621,6 +630,9 @@ export function formatDoctorReport(report) {
       lines.push(`  [${finding.severity.toUpperCase()} ${finding.code}] ${finding.message}`);
     }
   }
-  lines.push(`Result: ${report.exitCode === 0 ? "healthy" : `issues found (exit ${report.exitCode})`}`);
+  const successResult = report.findings.some((finding) => finding.severity === "warning")
+    ? "warnings remain (exit 0)"
+    : "healthy";
+  lines.push(`Result: ${report.exitCode === 0 ? successResult : `issues found (exit ${report.exitCode})`}`);
   return `${lines.join("\n")}\n`;
 }

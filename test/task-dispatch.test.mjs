@@ -17,6 +17,7 @@ import {
   allocateNextTaskId,
   classifyDeliveryEvidence,
   evaluateDeliveryEvidence,
+  evaluateTaskExecutionPreflight,
   inspectTaskQueue,
   parseTaskInvocation,
   resolveTaskDispatch,
@@ -451,8 +452,12 @@ test("real adapter routes taskless work without inventory, transactions, records
       assert.equal(result.mergeAuthorized, invocation === "$kyw-deliver --merge");
       assert.equal(result.fixAuthorized, invocation === "$kyw-audit --fix");
       assert.equal(result.mutationRequired, invocation !== "$kyw-audit");
-      const blocked = await runTaskArtifactCommand(["dispatch", "--repository-root", repositoryRoot, "--invocation", invocation, "--execution-preflight-json", JSON.stringify({ unexplainedUserWork: ["mixed changed files"] })], runtime);
-      assert.equal(blocked.code, "PREFLIGHT_BLOCKED");
+      const concerned = await runTaskArtifactCommand(["dispatch", "--repository-root", repositoryRoot, "--invocation", invocation, "--execution-preflight-json", JSON.stringify({ unexplainedUserWork: ["mixed changed files"] })], runtime);
+      if (invocation === "$kyw-audit") {
+        assert.equal(concerned.outcome, "SELECTED");
+        assert.equal(concerned.mutationRequired, false);
+        assert.deepEqual(concerned.warnings, ["unexplained user work: mixed changed files"]);
+      } else assert.equal(concerned.code, "PREFLIGHT_BLOCKED");
     }
     assert.deepEqual(state === "damaged" ? await readdir(tasksRoot) : await readdir(repositoryRoot), before);
   }
@@ -558,6 +563,7 @@ test("exact selection rejects ambiguity and unsafe entries throughout its depend
     for (const invocation of ["$kyw-deliver 0001", "$kyw-deliver 0001 --merge", "$kyw-audit 0001"]) {
       assert.equal((await resolveTaskDispatch({ tasksRoot: root, invocation })).code, "INVALID_TASK_QUEUE", invocation);
     }
+    assert.equal((await resolveTaskDispatch({ tasksRoot: root, invocation: "$kyw-audit 0001", executionPreflight: { conflicts: ["review conflict"] } })).code, "INVALID_TASK_QUEUE");
     await rm(duplicate, { recursive: true });
     await mkdir(path.join(root, `${relatedId}-INVALID`));
     result = await resolveTaskDispatch({ tasksRoot: root, invocation: "$kyw-impl 0001" });
@@ -566,6 +572,7 @@ test("exact selection rejects ambiguity and unsafe entries throughout its depend
     for (const invocation of ["$kyw-deliver 0001", "$kyw-deliver 0001 --merge", "$kyw-audit 0001 --fix"]) {
       assert.equal((await resolveTaskDispatch({ tasksRoot: root, invocation })).code, "INVALID_TASK_QUEUE", invocation);
     }
+    assert.equal((await resolveTaskDispatch({ tasksRoot: root, invocation: "$kyw-audit 0001", executionPreflight: { conflicts: ["review conflict"] } })).code, "INVALID_TASK_QUEUE");
   }
 });
 
@@ -582,15 +589,18 @@ test("unrelated linked task paths are diagnostic while related links and cycles 
   assert.match(selected.warnings.join("\n"), /0009-linked is a symbolic link/);
   assert.equal((await resolveTaskDispatch({ tasksRoot: root, invocation: "$kyw-impl 0009" })).code, "INVALID_TASK_QUEUE");
   assert.equal((await resolveTaskDispatch({ tasksRoot: root, invocation: "$kyw-deliver 0009 --merge" })).code, "INVALID_TASK_QUEUE");
+  assert.equal((await resolveTaskDispatch({ tasksRoot: root, invocation: "$kyw-audit 0009", executionPreflight: { unexplainedUserWork: ["review linked work"] } })).code, "INVALID_TASK_QUEUE");
   const cyclic = await resolveTaskDispatch({ tasksRoot: root, invocation: "$kyw-impl 0002" });
   assert.equal(cyclic.code, "INVALID_TASK_QUEUE");
   assert.match(cyclic.message, /Hard dependency cycle/);
   assert.match((await resolveTaskDispatch({ tasksRoot: root, invocation: "$kyw-deliver 0002" })).message, /Hard dependency cycle/);
+  assert.match((await resolveTaskDispatch({ tasksRoot: root, invocation: "$kyw-audit 0002", executionPreflight: { userOwnedDecisions: ["review dependency choice"] } })).message, /Hard dependency cycle/);
   await writePair(root, { id: "0003", status: "READY", dependencies: "- Task 0004." });
   const missing = await resolveTaskDispatch({ tasksRoot: root, invocation: "$kyw-impl 0002" });
   assert.equal(missing.code, "INVALID_TASK_QUEUE");
   assert.match(missing.message, /Task 0003 references missing hard dependency Task 0004/);
   assert.match((await resolveTaskDispatch({ tasksRoot: root, invocation: "$kyw-deliver 0002 --merge" })).message, /Task 0003 references missing hard dependency Task 0004/);
+  assert.match((await resolveTaskDispatch({ tasksRoot: root, invocation: "$kyw-audit 0002", executionPreflight: { userOwnedDecisions: ["review dependency choice"] } })).message, /Task 0003 references missing hard dependency Task 0004/);
 });
 
 test("exact selection loads only its dependency closure and preserves legacy record bytes", async (t) => {
@@ -635,10 +645,106 @@ test("release routing is independent of Task directory and forwards exact identi
   assert.equal(calls[1].invocation, invocation);
 });
 
-test("preflight preserves user-work and unresolved conflict boundaries", async (t) => {
+test("pure audit preserves mutation concerns without enabling fixes or other writes", async (t) => {
   const root = await createQueue(t, [{ id: "0001", status: "READY" }]);
-  for (const executionPreflight of [{ conflicts: ["unresolved conflict"] }, { unexplainedUserWork: ["overlapping user edit"] }, { userOwnedDecisions: ["unknown deletion target"] }]) {
-    assert.equal((await resolveTaskDispatch({tasksRoot: root, invocation: "$kyw-impl 0001", executionPreflight})).code, "PREFLIGHT_BLOCKED");
+  await mkdir(path.join(root, "archive"));
+  const taskPath = path.join(root, "0001-task-0001", "TASK.md");
+  const testPath = path.join(root, "0001-task-0001", "TEST.md");
+  const before = await Promise.all([readFile(taskPath), readFile(testPath), readdir(root)]);
+  const runtime = {
+    commandRunner() { throw new Error("Dispatch must not execute commands"); },
+    hydratePriorStandardDeliveries() { throw new Error("Dispatch must not read external history"); },
+    hydratePublicReleaseContext() { throw new Error("Dispatch must not hydrate release state"); },
+    runPublicRelease() { throw new Error("Dispatch must not publish"); },
+  };
+  const concerns = [
+    ["conflicts", "unresolved conflict", "conflict"],
+    ["unexplainedUserWork", "overlapping user edit", "unexplained user work"],
+    ["userOwnedDecisions", "unknown deletion target", "unresolved user-owned decision"],
+  ];
+  const writingInvocations = [
+    "$kyw-audit --fix", "$kyw-audit 0001 --fix", '$kyw-impl "Fix save"', "$kyw-impl 0001",
+    "task 진행해줘", "남은 task 계속 실행해줘", "$kyw-deliver", "$kyw-deliver 0001",
+    "$kyw-deliver --merge", "$kyw-deliver 0001 --merge",
+    `$kyw-deliver --release 1.2.3 --sha ${"a".repeat(40)}`,
+  ];
+  for (let mask = 1; mask < 2 ** concerns.length; mask++) {
+    const selectedConcerns = concerns.filter((_, index) => mask & (1 << index));
+    const executionPreflight = Object.fromEntries(selectedConcerns.map(([key, value]) => [key, [value]]));
+    executionPreflight.remoteDrift = ["main ahead"];
+    executionPreflight.overrideClassification = "NO_TASK_OVERRIDE";
+    const originalPreflight = structuredClone(executionPreflight);
+    const issues = selectedConcerns.map(([, value, label]) => `${label}: ${value}`);
+    const evaluation = evaluateTaskExecutionPreflight(executionPreflight);
+    assert.equal(evaluation.safe, false, "direct consumers retain conservative mutation preflight");
+    assert.equal(evaluation.inputValid, true);
+    assert.deepEqual(evaluation.issues, issues);
+    assert.equal(evaluation.overrideClassification, "NO_TASK_OVERRIDE");
+    for (const invocation of ["$kyw-audit", "$kyw-audit 0001"]) {
+      const result = await runTaskArtifactCommand(["dispatch", "--tasks-root", root, "--invocation", invocation, "--execution-preflight-json", JSON.stringify(executionPreflight)], runtime);
+      assert.equal(result.outcome, "SELECTED", invocation);
+      assert.equal(result.action, "AUDIT");
+      assert.equal(result.mode, invocation === "$kyw-audit" ? "CURRENT" : "EXACT");
+      assert.equal(result.taskRequired, invocation !== "$kyw-audit");
+      assert.equal(result.task?.id, invocation === "$kyw-audit" ? undefined : "0001");
+      assert.equal(result.mutationRequired, false);
+      assert.equal(result.fixAuthorized, false);
+      assert.equal(result.mergeAuthorized, false);
+      assert.equal(result.publicWriteAuthorized, false);
+      assert.deepEqual(result.preflightIssues, issues);
+      for (const issue of issues) assert.ok(result.warnings.includes(issue));
+      if (result.taskRequired) assert.match(result.warnings.join("\n"), /archive/);
+      else assert.deepEqual(result.warnings, issues);
+    }
+    for (const invocation of writingInvocations) {
+      const result = await resolveTaskDispatch({ tasksRoot: root, invocation, managedRoutingAvailable: true, executionPreflight });
+      assert.equal(result.code, "PREFLIGHT_BLOCKED", invocation);
+      assert.deepEqual(result.preflightIssues, issues);
+    }
+    assert.deepEqual(executionPreflight, originalPreflight);
+  }
+  assert.deepEqual(await Promise.all([readFile(taskPath), readFile(testPath), readdir(root)]), before);
+  const remoteOnly = evaluateTaskExecutionPreflight({ remoteDrift: ["main ahead"] });
+  assert.equal(remoteOnly.safe, true);
+  assert.deepEqual(remoteOnly.issues, []);
+});
+
+test("pure audit still blocks malformed preflight objects, fields, and values", async (t) => {
+  const root = await createQueue(t, [{ id: "0001", status: "READY" }]);
+  for (const executionPreflight of [
+    null, [], "conflicts", true, 42,
+    { conflicts: "unresolved conflict" }, { conflicts: [""] }, { conflicts: [" "] },
+    { unexplainedUserWork: [42] }, { userOwnedDecisions: ["valid concern", null] },
+    { remoteDrift: "main ahead" }, { remoteDrift: [false] },
+    { overrideClassification: "AUDIT" }, { overrideClassification: null },
+    { unknown: [] }, { conflicts: ["review this conflict"], unknown: true },
+  ]) {
+    const evaluation = evaluateTaskExecutionPreflight(executionPreflight);
+    assert.equal(evaluation.safe, false);
+    assert.equal(evaluation.inputValid, false);
+    for (const invocation of ["$kyw-audit", "$kyw-audit 0001"]) {
+      const result = await resolveTaskDispatch({ tasksRoot: root, invocation, executionPreflight });
+      assert.equal(result.code, "PREFLIGHT_BLOCKED", JSON.stringify(executionPreflight));
+      assert.deepEqual(result.preflightIssues, evaluation.issues);
+    }
+  }
+});
+
+test("read-only preflight does not waive selected Task or dependency record validation", async (t) => {
+  const root = await createQueue(t, [
+    { id: "0001", status: "READY", dependencies: "- Task 0002." },
+    { id: "0002", status: "DONE" },
+  ]);
+  for (const id of ["0001", "0002"]) {
+    const taskPath = path.join(root, `${id}-task-${id}`, "TASK.md");
+    const original = await readFile(taskPath);
+    await writeFile(taskPath, "damaged related Task record");
+    const result = await resolveTaskDispatch({ tasksRoot: root, invocation: "$kyw-audit 0001", executionPreflight: { conflicts: ["review existing conflict"] } });
+    assert.equal(result.code, "INVALID_TASK_QUEUE");
+    assert.match(result.message, new RegExp(`${id}-task-${id}`));
+    assert.deepEqual(result.preflightIssues, ["conflict: review existing conflict"]);
+    assert.equal(await readFile(taskPath, "utf8"), "damaged related Task record");
+    await writeFile(taskPath, original);
   }
 });
 
@@ -939,6 +1045,9 @@ test("queue dispatch rejects identity drift, an in-flight creation lock, and a s
   });
   assert.equal(locked.code, "INVALID_TASK_QUEUE");
   assert.match(locked.message, /Task queue creation is locked/);
+  const lockedAudit = await resolveTaskDispatch({ tasksRoot: lockedRoot, invocation: "$kyw-audit 0001", executionPreflight: { conflicts: ["review conflict"] } });
+  assert.equal(lockedAudit.code, "INVALID_TASK_QUEUE");
+  assert.match(lockedAudit.message, /Task queue creation is locked/);
 
   const targetRoot = await createQueue(t, [{ id: "0001", status: "READY" }]);
   const linkParent = await mkdtemp(path.join(tmpdir(), "kyw-task-dispatch-link-"));
@@ -951,6 +1060,9 @@ test("queue dispatch rejects identity drift, an in-flight creation lock, and a s
   });
   assert.equal(linked.code, "INVALID_TASK_QUEUE");
   assert.match(linked.message, /must not be a symbolic link/);
+  const linkedAudit = await resolveTaskDispatch({ tasksRoot: linkedRoot, invocation: "$kyw-audit 0001", executionPreflight: { unexplainedUserWork: ["review linked work"] } });
+  assert.equal(linkedAudit.code, "INVALID_TASK_QUEUE");
+  assert.match(linkedAudit.message, /must not be a symbolic link/);
 });
 
 

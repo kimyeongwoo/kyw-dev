@@ -6,6 +6,7 @@ import { dirname, join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { assertSelectedCiResults, parseGitChanges, planHostedCi } from "../scripts/ci-plan.mjs";
+import { planVerification } from "../scripts/verification-plan.mjs";
 
 const workflow = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
 const ciScript = fileURLToPath(new URL("../scripts/ci-plan.mjs", import.meta.url));
@@ -121,6 +122,19 @@ test("real Git roles, modes, and both move/copy paths reach hosted selection and
       name: "instruction addition", profile: "instruction", statuses: ["A"],
       change(fixture) { fixture.write("skills/kyw-task/references/new.md", "# Task instructions\n"); },
     },
+    ...["move", "copy"].map((operation) => ({
+      name: `delivery responsibility ${operation}`, profile: "instruction",
+      statuses: [operation === "move" ? "R100" : "C100"],
+      files: { "skills/kyw-deliver/references/delivery.md": "# Delivery guidance\n" },
+      change(fixture) {
+        const previousPath = "skills/kyw-deliver/references/delivery.md";
+        const path = "skills/kyw-deliver/references/public-release.md";
+        if (operation === "move") fixture.git("mv", previousPath, path);
+        else fixture.write(path, "# Delivery guidance\n");
+      },
+      focusedTests: ["test/foundation.test.mjs", "test/instruction-surfaces.test.mjs",
+        "test/kyw-deliver.test.mjs", "test/pr-merge.test.mjs", "test/task-public-release.test.mjs"],
+    })),
     {
       name: "runtime copied to documentation", profile: "runtime", statuses: ["C100"],
       files: { "src/code.mjs": "export const marker = 'runtime';\n" },
@@ -160,7 +174,12 @@ test("real Git roles, modes, and both move/copy paths reach hosted selection and
     assert.equal(result.status, 0, result.stderr);
     const plan = JSON.parse(result.stdout);
     assert.equal(plan.profile, scenario.profile);
-    if (scenario.profile === "instruction") assert.ok(plan.focusedTests.includes("test/kyw-task.test.mjs"));
+    if (scenario.profile === "instruction") {
+      if (scenario.focusedTests) assert.deepEqual(plan.focusedTests, scenario.focusedTests);
+      else assert.ok(plan.focusedTests.includes("test/kyw-task.test.mjs"));
+      const local = planVerification({ changedPaths: fixture.changes(head) });
+      assert.deepEqual(plan.focusedTests, local.commands[0].command.split(" ").slice(2));
+    }
     const needs = needsFor(plan.profile, "pull_request");
     needs.plan.outputs = { profile: plan.profile, reason: plan.reason };
     assert.equal(assertSelectedCiResults(needs, "pull_request").profile, scenario.profile);
@@ -223,6 +242,26 @@ test("selection distinguishes guidance, instructions, runtime, structural, and u
   ]);
   assert.throws(() => parseGitChanges("M\0README.md"));
   assert.throws(() => parseGitChanges("R100\0old\0"));
+});
+
+test("hosted delivery selection uses the local planner for each reference and mixed owners", () => {
+  const delivery = "skills/kyw-deliver/references/delivery.md";
+  const publicRelease = "skills/kyw-deliver/references/public-release.md";
+  for (const changedPaths of [
+    [delivery],
+    [publicRelease],
+    [".\\skills\\kyw-deliver\\SKILL.md"],
+    ["skills/kyw-deliver/references/shared.md"],
+    [publicRelease, "skills/kyw-task/SKILL.md", delivery, publicRelease],
+  ]) {
+    const local = planVerification({ changedPaths });
+    for (const eventName of ["pull_request", "push"]) {
+      const hosted = planHostedCi(changedPaths, eventName);
+      assert.equal(hosted.profile, "instruction");
+      assert.equal(hosted.focused, true);
+      assert.deepEqual(hosted.focusedTests, local.commands[0].command.split(" ").slice(2));
+    }
+  }
 });
 
 test("required aggregate rejects missing, failed, cancelled, and unexpectedly skipped selected jobs", () => {
