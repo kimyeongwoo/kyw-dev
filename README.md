@@ -35,7 +35,7 @@ Audit reports blocking defects, performed checks, unexecuted or uncertain checks
 
 ## Release status
 
-Source package/plugin metadata remains `kyw-dev@0.2.3`. Public npm latest is mutable; query it when installing. The built-in publisher is only for `kimyeongwoo/kyw-dev`; other projects use their existing release procedure and approved scope. Public release is a separate explicit action with canonical exact-SHA CI checks at the actual publishing boundary, OIDC, digest and version conflict checks. Package validation or CI success alone is not release approval.
+Source package/plugin metadata remains `kyw-dev@0.2.4`. Public npm latest is mutable; query it when installing. The built-in publisher is only for `kimyeongwoo/kyw-dev`; other projects use their existing release procedure and approved scope. Public release is a separate explicit action with canonical exact-SHA CI checks at the actual publishing boundary, OIDC, digest and version conflict checks. Package validation or CI success alone is not release approval.
 
 Product behavior is owned by [SPEC](docs/SPEC.md), repository instructions by [AGENTS](AGENTS.md), and system boundaries by [ARCHITECTURE](docs/ARCHITECTURE.md). Procedures live in the relevant [Skills](skills/).
 
