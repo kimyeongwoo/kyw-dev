@@ -1,0 +1,36 @@
+{
+  "kind": "synthetic-offline-legacy-reporter-oracle",
+  "baselineHead": "2d3b0a1025abca23ad065e26e126354f55d0b19b",
+  "capturedCoreSha256": "f15070783a5012313f54f1b58379ac383d59fb0341ca8d18b403283f82981ab4",
+  "captureMethod": "Unmodified pre-change core.mjs copied before F1-F3 edits. Its writer produced the expected report files from hand-authored synthetic v1/v2/v3 inputs. No Codex launcher, real model, credentials, or past result files supplied these fixtures.",
+  "historicalBytesSha256": {
+    "result.schema.v1.json": "3b337806e75efbdbc7d2a186f19331adc76fe46ab68b884be19d32037b383574",
+    "result.schema.v2.json": "42b3a3e8814f36101965b69bb4f3f6fb55d12e9746b2b3f860235cd9040731ea",
+    "result.schema.v3.json": "212206a93f45fb9182e77afe1185ad35af1a11c22d6704f1acace01f1f946f49",
+    "benchmark.v1.json": "f281bce24ca46ebd1eed3b18475b321d6ef1bdc7e4dc4f4797842fb7fc62cc58",
+    "benchmark.v2.json": "1ee15d81dba10da4512ebefd21f4773d873112ac6cb61c1c22b2520d60de570f",
+    "benchmark.v3.json": "b57ebe3b8bbb7d7a1a71014df57658b58d210877e62bae62f35a6cf8ca29cb30",
+    "benchmark.v4.json": "c4616ad824b052632c01e57835c56e96b3e96045aabdfc5018c7751b5916e59f",
+    "benchmark.v5.json": "2aee162c18b1dd9c5b6375a9ec09874e8ff1750528d99a347d7ab91f30872655",
+    "benchmark.v6.json": "11bce0c19791de02d22515fd6a63b552c8ee9014b2337c079c8ada60cf22ed5a",
+    "benchmark.v7.json": "5f897c9def31d184317a39f1658df4cd81c25a737a91fb54de72cb973acac1fe",
+    "benchmark.v8.json": "80af6df15cc9ddfc3276c48d8500019a95347c44445f48c790af556382479c67",
+    "benchmark.v9.json": "9fffd4a17271d75c0ca0095e83ccbd28050b20590a4180cfab4c5c649a716ac4",
+    "benchmark.v10.json": "c58f8b3c2e99943bace43e788a6cf58f7a1793795c02f5bcca110ce76ee265fe",
+    "benchmark.v11.json": "b19318da9501fad6f86cb89ab5717845d8f408eb591f780632b681f00295cd84"
+  },
+  "reports": {
+    "v1": {
+      "sha256": "8b7f6923d8c7392126dc34032c81c4a7ef5faee8b720e1df2f783632437ac7b7",
+      "gateResult": "fail"
+    },
+    "v2": {
+      "sha256": "e287ce37ab1f2d1c150acf7434dc61042b3af38cf062e3eb693f891ec1b74234",
+      "gateResult": "fail"
+    },
+    "v3": {
+      "sha256": "9e6593efcdef77aa28d6f9ba03608c89dec30a0d5301a9b07cb063e4fd5b4ba4",
+      "gateResult": "pass"
+    }
+  }
+}

@@ -205,6 +205,65 @@ test("regular instruction changes preserve owner tests and package selection for
   }
 });
 
+test("delivery Markdown selects suites for its specific responsibility or shared fallback", () => {
+  const common = [
+    "test/foundation.test.mjs",
+    "test/instruction-surfaces.test.mjs",
+    "test/kyw-deliver.test.mjs",
+  ];
+  const prMerge = "test/pr-merge.test.mjs";
+  const publicRelease = "test/task-public-release.test.mjs";
+  for (const [path, suites] of [
+    ["skills/kyw-deliver/references/delivery.md", [prMerge]],
+    ["skills/kyw-deliver/references/public-release.md", [publicRelease]],
+    ["skills/kyw-deliver/SKILL.md", [prMerge, publicRelease]],
+    ["skills/kyw-deliver/references/shared.md", [prMerge, publicRelease]],
+    ["skills/kyw-deliver/references/nested/delivery.md", [prMerge, publicRelease]],
+  ]) {
+    for (const changedPath of [path, regularChange(`.\\${path.replaceAll("/", "\\")}`)]) {
+      const plan = planVerification({ changedPaths: [changedPath] });
+      assert.equal(plan.changeClass, "skill", path);
+      assert.equal(plan.highestTier, "FOCUSED", path);
+      assert.equal(plan.hosted.profile, "instruction", path);
+      assert.deepEqual(plan.commands.map(({ command }) => command), [
+        `node --test ${[...common, ...suites].sort().join(" ")}`,
+        "npm run format:check",
+        "npm run pack:check",
+      ], path);
+    }
+  }
+});
+
+test("delivery mixed and rename/copy paths select a sorted duplicate-free union", () => {
+  const delivery = "skills/kyw-deliver/references/delivery.md";
+  const publicRelease = "skills/kyw-deliver/references/public-release.md";
+  const expected = [
+    "test/foundation.test.mjs",
+    "test/instruction-surfaces.test.mjs",
+    "test/kyw-deliver.test.mjs",
+    "test/pr-merge.test.mjs",
+    "test/task-public-release.test.mjs",
+  ];
+  for (const changedPaths of [
+    [delivery, publicRelease, delivery],
+    [publicRelease, delivery, publicRelease],
+    ...["R099", "C100"].flatMap((status) => [
+      [regularChange(publicRelease, status, `.\\${delivery.replaceAll("/", "\\")}`)],
+      [regularChange(delivery, status, publicRelease)],
+    ]),
+  ]) {
+    const plan = planVerification({ changedPaths });
+    assert.equal(plan.highestTier, "FOCUSED");
+    assert.deepEqual(plan.changedPaths, [delivery, publicRelease]);
+    assert.deepEqual(plan.commands[0].command.split(" ").slice(2), expected);
+  }
+
+  const mixedOwners = planVerification({ changedPaths: [publicRelease,
+    "skills/kyw-task/SKILL.md", delivery, "skills/kyw-deliver/SKILL.md", delivery] });
+  assert.deepEqual(mixedOwners.commands[0].command.split(" ").slice(2),
+    [...expected, "test/kyw-task.test.mjs"].sort());
+});
+
 test("statuses, modes, and both rename/copy paths cannot hide risk behind Markdown", () => {
   for (const change of [
     regularChange("docs/code.md", "R099", "src/core/code.mjs"),
@@ -275,6 +334,8 @@ test("runtime, mixed, unknown, and release-sensitive paths escalate conservative
     ["skills/kyw-task/scripts/task-artifacts.mjs"],
     ["skills/kyw-task/scripts/check.ps1"],
     ["skills/kyw-audit/scripts/check.py"],
+    ["skills/kyw-deliver/agents/openai.yaml"],
+    ["skills/kyw-deliver/assets/unknown.asset"],
     ["templates/task/tool.sh"],
     ["docs/component/AGENTS.md"],
     [{ path: "docs/new.md", status: "A" }],
@@ -385,13 +446,6 @@ test("template owners stay focused while an unknown packaged Skill fails closed 
   });
   assert.equal(implementationSkill.changeClass, "skill");
   assert.match(implementationSkill.commands[0].command, /test\/kyw-impl\.test\.mjs/);
-
-  const deliverySkill = planVerification({
-    changedPaths: ["skills/kyw-deliver/references/delivery.md"],
-  });
-  assert.equal(deliverySkill.changeClass, "skill");
-  assert.match(deliverySkill.commands[0].command, /test\/kyw-deliver\.test\.mjs/);
-  assert.match(deliverySkill.commands[0].command, /test\/task-public-release\.test\.mjs/);
 
   const unknownSkill = planVerification({ changedPaths: ["skills/unknown/SKILL.md"] });
   assert.equal(unknownSkill.changeClass, "runtime");

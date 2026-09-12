@@ -26,13 +26,5 @@
     "docs/tasks/0001-greeting-contract/TEST.md",
     "src/greeting.mjs",
     "test/greeting.test.mjs"
-  ],
-  "readOnlyReportSignals": [
-    "F-",
-    "BLOCKED"
-  ],
-  "fixReportSignals": [
-    "F-",
-    "PASS"
   ]
 }

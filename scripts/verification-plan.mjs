@@ -243,7 +243,13 @@ function focusedSkillTests(paths) {
       }
       tests.add(testPath);
       if (skillMatch[1] === "kyw-deliver") {
-        tests.add("test/task-public-release.test.mjs");
+        // Only these two references have separate responsibilities; common Markdown covers both.
+        if (path !== "skills/kyw-deliver/references/public-release.md") {
+          tests.add("test/pr-merge.test.mjs");
+        }
+        if (path !== "skills/kyw-deliver/references/delivery.md") {
+          tests.add("test/task-public-release.test.mjs");
+        }
       }
     }
     if (path.startsWith("templates/task/")) {

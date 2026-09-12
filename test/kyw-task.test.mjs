@@ -39,6 +39,38 @@ test("adapter creates, resumes and completes a single record without TEST or ext
   assert.deepEqual(await readdir(created.directory), ["TASK.md"]);
 });
 
+test("documented READY batch creates valid single records with allocated dependencies through the adapter", async (t) => {
+  const reference = await readFile(new URL("../skills/kyw-task/references/batch-authoring.md", import.meta.url), "utf8");
+  const examples = [...reference.matchAll(/^```json\r?\n([\s\S]*?)^```$/gm)];
+  assert.equal(examples.length, 1, "batch reference provides one complete JSON example");
+  const payload = JSON.parse(examples[0][1]);
+  assert.equal(payload.schemaVersion, 1);
+  assert.equal(payload.tasks.length, 2);
+  assert.deepEqual(payload.tasks[0].dependencies, []);
+  assert.deepEqual(payload.tasks[1].dependencies, [{ taskTitle: payload.tasks[0].title }]);
+
+  const root = await temporaryRoot(t);
+  const tasksRoot = path.join(root, "tasks");
+  const batchPath = path.join(root, "batch.json");
+  await mkdir(tasksRoot);
+  await writeFile(batchPath, examples[0][1]);
+  const created = await runTaskArtifactCommand(["create-batch", "--tasks-root", tasksRoot, "--batch-file", batchPath]);
+  assert.equal(created.tasks.length, 2);
+  assert.notEqual(created.tasks[0].id, created.tasks[1].id);
+  for (const [index, task] of created.tasks.entries()) {
+    assert.deepEqual(await readdir(task.directory), ["TASK.md"]);
+    const markdown = await readFile(task.taskPath, "utf8");
+    assert.deepEqual(parseTaskMetadata(markdown), {
+      id: task.id,
+      status: "READY",
+      dependencies: index === 0 ? [] : [created.tasks[0].id],
+    });
+    assert.ok(markdown.startsWith(`# TASK ${task.id} — ${payload.tasks[index].title}\n`));
+    assert.equal((await runTaskArtifactCommand(["validate", "--task-directory", task.directory])).valid, true);
+  }
+  assert.deepEqual((await inspectTaskQueue(tasksRoot)).errors, []);
+});
+
 test("batch resolves actual dependencies without release versions or duplicate verification fields", async (t) => {
   const root = await temporaryRoot(t);
   const created = await createTaskArtifactBatch({ tasksRoot: root, tasks: [

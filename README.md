@@ -35,7 +35,7 @@ Audit reports blocking defects, performed checks, unexecuted or uncertain checks
 
 ## Release status
 
-Source package/plugin metadata remains `kyw-dev@0.2.3`. Public npm latest is mutable; query it when installing. The built-in publisher is only for `kimyeongwoo/kyw-dev`; other projects use their existing release procedure and approved scope. Public release is a separate explicit action with canonical exact-SHA CI checks at the actual publishing boundary, OIDC, digest and version conflict checks. Package validation or CI success alone is not release approval.
+Source package/plugin metadata remains `kyw-dev@0.2.4`. Public npm latest is mutable; query it when installing. The built-in publisher is only for `kimyeongwoo/kyw-dev`; other projects use their existing release procedure and approved scope. Public release is a separate explicit action with canonical exact-SHA CI checks at the actual publishing boundary, OIDC, digest and version conflict checks. Package validation or CI success alone is not release approval.
 
 Product behavior is owned by [SPEC](docs/SPEC.md), repository instructions by [AGENTS](AGENTS.md), and system boundaries by [ARCHITECTURE](docs/ARCHITECTURE.md). Procedures live in the relevant [Skills](skills/).
 
@@ -74,7 +74,7 @@ For source-checkout development, follow [Development](#development) and substitu
 - Install and update refuse unmanaged collisions, modified or missing owned content, unsafe roots, traversal, links or junctions, unsupported types, and unknown content in managed containers.
 - Normal uninstall removes only unchanged metadata-owned files. `--force` may remove modified regular files already named by valid ownership metadata; it never broadens ownership to unknown files, unrelated Skills, links, or unsupported types.
 - Interrupted mutation is recovered only from complete ownership, path, type, identity, and hash proof. Unknown or replaced state fails closed for inspection.
-- `doctor` is byte-and-metadata read-only. It reports version drift, permissions, unsafe or partial state, and duplicate direct/plugin sources without enabling, disabling, repairing, or deleting them.
+- `doctor` is byte-and-metadata read-only. It reports version drift, permissions, unsafe or partial state, and duplicate sources without enabling, disabling, repairing, or deleting them. Same-name direct user/project sources produce `DUPLICATE_INSTALLATION` (exit 4). Overlaps involving plugin cache candidates produce `POTENTIAL_DUPLICATE_INSTALLATION` warnings because their active state is unknown; cache candidates alone do not produce a conflict exit. Exit 0 with warnings reports `warnings remain`, while actual errors keep their existing exit categories.
 - No plugin installation or publication depends on npm lifecycle scripts. Never delete the broad `.agents/skills` directory.
 
 CLI exit codes are stable:
@@ -85,12 +85,12 @@ CLI exit codes are stable:
 | `1` | Usage error. |
 | `2` | Unsupported Node runtime. |
 | `3` | User/project scope could not be resolved. |
-| `4` | Unsafe overwrite, local modification, or duplicate conflict. |
+| `4` | Unsafe overwrite, local modification, or duplicate direct-source conflict. |
 | `5` | Malformed package or installation state. |
 | `6` | Filesystem or permission failure. |
 | `7` | Recovery or manual inspection is required. |
 
-For codes 4–7, run `doctor`, inspect only the reported paths, and preserve unknown files and links. Resolve duplicates by uninstalling an unchanged direct copy with the CLI or removing a plugin through the supported plugin browser, then restart the affected Codex surface and rerun `doctor`.
+For codes 4–7, run `doctor`, inspect only the reported paths, and preserve unknown files and links. Resolve confirmed direct duplicates by choosing the intended scope and uninstalling an unchanged extra direct copy with the CLI. For cache warnings, check the affected Codex surface's enabled sources before deciding whether anything needs changing; cached versions alone do not justify removal. After changing sources, restart the affected surface and rerun `doctor`.
 
 Public npm state is queried only when installation or release needs it. Local implementation does not depend on npm availability.
 
@@ -144,6 +144,12 @@ These commands and the OS/Node matrix verify kyw-dev itself; consumer projects u
 `npm run check` runs tests, lint, format, and package selection. `release:candidate` creates and inspects one real tarball without publishing; `release:ci` already includes both. Run the necessary integration checks on the final combined state. Reuse requires the same command, relevant source/tests/configuration, dependencies, required environment, and tool versions; repeat only for changed inputs, failure, or a concrete unresolved risk. A different OS or required remote CI is a different input. `release:check` is an optional npm dry run, not publication authority or required evidence.
 
 Hosted CI selects checks by risk and keeps a stable required aggregate that validates selected jobs and intentional omissions. Runtime/install/platform and release changes retain the supported OS/Node lanes. Actual PR-head, synthetic merge compatibility, and main SHA evidence remain distinct. Model evaluators are optional and never required public CI. See [ARCHITECTURE](docs/ARCHITECTURE.md) for boundaries.
+
+The development-only `node ./scripts/audit-smoke.mjs --help` describes the opt-in synthetic audit evaluator. Its fix protocol asks the model to repair and review statically, then runs an independent check through the trusted audit verifier using only `package.json`, `src/greeting.mjs`, and `test/greeting.test.mjs`, with argv `["node", "--test", "test/greeting.test.mjs"]`. The verifier requires the existing local `node:22` Docker image and execution boundary; it never pulls, installs, or falls back to host tests. Missing execution prerequisites remain UNAVAILABLE/UNEXECUTED. Readonly mode does not run this verifier or require Docker. This closes the parent runner's final host-test path; it does not prove isolation of every model tool.
+
+Smoke output keeps the model's `verdict` separate from `evaluatorOutcome` (PASS, VIOLATION, or UNVERIFIED) and independent verification/cleanup. A model's honest pending or BLOCKED report can coexist with a later successful independent check. `mutationAttemptCount` counts observed `file_change` write-tool attempts only; unsupported commands are recorded in `unverifiedCommands`, and final file/Git changes are separate evidence. Unchanged final bytes cannot prove an unsupported command was safe or did not write and restore them. `planBeforeMutation` is an explicit status, not a boolean: ABSENT requires complete ordered evidence of a write attempt with no prior visible speech; natural-language meaning or uncertain order remains UNVERIFIED; in fix mode, NOT_APPLICABLE requires no write attempts or unverified commands. Readonly has no applicable repair plan. Neither a greeting nor an F-XX/repair-plan marker proves a plan. `skillSourceRead` likewise reports CONFIRMED only for observed full-source output and otherwise UNVERIFIED.
+
+The optional evaluator rejects unconfirmed results with `AuditSmokeError` code `AUDIT_SMOKE_UNVERIFIED` and structured partial results in `error.evidence`; the CLI exits nonzero, explains the evaluation limit, and prints that evidence to stderr. Confirmed violations retain their specific failure codes. A normal repair can remain UNVERIFIED because the recognizer cannot establish plan meaning, even when its mechanical checks pass. This does not invalidate local implementation, general audit, or required CI evidence, require a new approval or report format, or trigger another model run. Fake launcher/verifier checks establish execution wiring and result classification, not actual model behavior or Docker/OS isolation.
 
 ## Repository map and contributing
 

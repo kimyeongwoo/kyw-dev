@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 
-import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { isReasoningEffortToken } from "../../../scripts/evaluator-configuration.mjs";
 
 const THREAD_ID = "11111111-2222-4333-8444-555555555555";
 const args = process.argv.slice(2);
@@ -35,10 +36,20 @@ if (process.env.FAKE_CODEX_AUTH === "missing") {
   process.exit(1);
 }
 
+if (process.env.FAKE_CODEX_ARGUMENT_LOG) {
+  appendFileSync(process.env.FAKE_CODEX_ARGUMENT_LOG, `${JSON.stringify(args)}\n`, "utf8");
+}
+if (process.env.FAKE_CODEX_REJECT_EFFORT === "1" ||
+    (process.env.FAKE_CODEX_REJECT_RESUME === "1" && args[1] === "resume")) {
+  console.error("invalid value: this mock host rejects the requested reasoning effort");
+  process.exit(2);
+}
+
 const reasoningConfigs = args.filter((argument) => argument.startsWith("model_reasoning_effort="));
+const effortLiteral = reasoningConfigs[0]?.match(/^model_reasoning_effort="([^"]*)"$/);
 if (
   reasoningConfigs.length !== 1 ||
-  !/^model_reasoning_effort="(?:minimal|low|medium|high|xhigh)"$/.test(reasoningConfigs[0])
+  !effortLiteral || !isReasoningEffortToken(effortLiteral[1])
 ) {
   console.error("missing or invalid explicit model_reasoning_effort config");
   process.exit(2);

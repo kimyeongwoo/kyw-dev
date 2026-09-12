@@ -29,6 +29,11 @@ import {
 import { fileURLToPath } from "node:url";
 
 import {
+  configurationProvenanceError,
+  createConfigurationProvenance,
+  isReasoningEffortToken,
+} from "../evaluator-configuration.mjs";
+import {
   appendEvaluatorDiagnostics,
   cleanupFailureDiagnostic,
   createEvaluatorRunScope,
@@ -48,7 +53,7 @@ export const BENCHMARK_THRESHOLDS = Object.freeze({
   assistantTurnsPerCompletedRun: 4,
 });
 
-const REASONING_EFFORTS = new Set(["minimal", "low", "medium", "high", "xhigh"]);
+const LEGACY_REASONING_EFFORTS = new Set(["minimal", "low", "medium", "high", "xhigh"]);
 
 const EXPECTED_DIMENSION_IDS = [
   "protocol_compliance",
@@ -1104,10 +1109,11 @@ export function validateResult(result) {
       "turns",
       "usage",
       "grade",
+      ...(result.schemaVersion === 4 ? ["configurationProvenance"] : []),
     ],
     "result",
   );
-  assert([1, 2, 3].includes(result.schemaVersion), "result.schemaVersion must be 1, 2, or 3", "INVALID_RESULT");
+  assert([1, 2, 3, 4].includes(result.schemaVersion), "result.schemaVersion must be 1, 2, 3, or 4", "INVALID_RESULT");
   assertNonemptyString(result.runId, "result.runId");
   assert(["completed", "completed_with_violations"].includes(result.status), "result.status is invalid", "INVALID_RESULT");
   assert(!Number.isNaN(Date.parse(result.startedAt)), "result.startedAt must be an ISO timestamp", "INVALID_RESULT");
@@ -1115,10 +1121,19 @@ export function validateResult(result) {
   assert(Array.isArray(result.turns) && result.turns.length > 0, "result.turns must not be empty", "INVALID_RESULT");
   if (result.schemaVersion >= 2) {
     assert(
-      REASONING_EFFORTS.has(result.codex.config.reasoningEffort),
+      result.schemaVersion === 4
+        ? isReasoningEffortToken(result.codex?.config?.reasoningEffort)
+        : LEGACY_REASONING_EFFORTS.has(result.codex.config.reasoningEffort),
       "result.codex.config.reasoningEffort is invalid",
       "INVALID_RESULT",
     );
+  }
+  if (result.schemaVersion === 4) {
+    const provenanceError = configurationProvenanceError(result.configurationProvenance, {
+      model: result.codex?.model,
+      reasoningEffort: result.codex?.config?.reasoningEffort,
+    });
+    assert(!provenanceError, `result.configurationProvenance: ${provenanceError}`, "INVALID_RESULT");
   }
   if (result.schemaVersion >= 3) {
     assert(result.isolation.skillInstallScope === "repository", "result Skill scope is invalid", "INVALID_RESULT");
@@ -1144,6 +1159,7 @@ export async function runEvaluation({
   scenario: scenarioId,
   model,
   reasoningEffort,
+  configurationSource = "direct-call",
   authFile,
   useEnvApiKey = false,
   outputRoot = DEFAULT_RESULTS_ROOT,
@@ -1166,10 +1182,11 @@ export async function runEvaluation({
   assertNonemptyString(scenarioId, "scenario");
   assertNonemptyString(model, "model");
   assert(
-    REASONING_EFFORTS.has(reasoningEffort),
-    "reasoningEffort must be one of minimal, low, medium, high, or xhigh",
+    isReasoningEffortToken(reasoningEffort),
+    "reasoningEffort must be a non-empty token of ASCII letters, digits, underscores, or hyphens, starting with a letter or digit",
     "INVALID_ARGUMENT",
   );
+  assert(["cli", "direct-call"].includes(configurationSource), "configurationSource must be cli or direct-call", "INVALID_ARGUMENT");
   assert(!(authFile && useEnvApiKey), "Use either --auth-file or --use-env-api-key, not both", "INVALID_ARGUMENT");
 
   const definition = loadEvaluationDefinition(evalRoot, repositoryRoot);
@@ -1348,7 +1365,7 @@ export async function runEvaluation({
     const completedAt = new Date().toISOString();
     const resultTurns = turns.map(({ events, ...turn }) => turn);
     const result = validateResult({
-      schemaVersion: 3,
+      schemaVersion: 4,
       runId,
       status: grade.criticalViolations.length === 0 ? "completed" : "completed_with_violations",
       startedAt,
@@ -1379,6 +1396,7 @@ export async function runEvaluation({
         },
         capabilities: codex.capabilities,
       },
+      configurationProvenance: createConfigurationProvenance(model, reasoningEffort, configurationSource),
       isolation,
       session,
       turns: resultTurns,
@@ -1471,6 +1489,7 @@ export function resultSummary(result) {
     codexVersion: result.codex.version,
     model: result.codex.model,
     reasoningEffort: result.codex.config.reasoningEffort ?? null,
+    ...(result.schemaVersion === 4 ? { configurationProvenance: result.configurationProvenance } : {}),
     rubricId: result.grade.rubricId,
     totalScore: result.grade.totalScore,
     criticalViolationCount: result.grade.criticalViolations.length,
@@ -1626,6 +1645,7 @@ export function writeBenchmarkReport(
   const comparison = readJson(comparisonPath);
   const definition = loadEvaluationDefinition(evalRoot, repositoryRoot);
   const resultRoot = dirname(resolvedComparisonDirectory);
+  const isV4 = benchmark.resultSchemaVersion === 4;
 
   assert(
     [1, 2, 3].includes(benchmark.schemaVersion),
@@ -1637,6 +1657,29 @@ export function writeBenchmarkReport(
     "benchmark thresholds differ from the predeclared reporter thresholds",
     "INVALID_RESULT",
   );
+  if (isV4) {
+    assertNonemptyString(benchmark.model, "benchmark.model");
+    assert(isReasoningEffortToken(benchmark.reasoningEffort), "benchmark.reasoningEffort must be a safe non-empty token", "INVALID_RESULT");
+    assert(
+      Array.isArray(benchmark.scenarioOrder) && benchmark.scenarioOrder.length > 0 &&
+        new Set(benchmark.scenarioOrder).size === benchmark.scenarioOrder.length &&
+        benchmark.scenarioOrder.every((id) => definition.scenarios.has(id)),
+      "benchmark.scenarioOrder must contain distinct known scenarios",
+      "INVALID_RESULT",
+    );
+    assert(
+      Number.isInteger(benchmark.repetitionsPerVariantScenario) && benchmark.repetitionsPerVariantScenario > 0 &&
+        benchmark.expectedRuns === benchmark.scenarioOrder.length * 2 * benchmark.repetitionsPerVariantScenario &&
+        benchmark.expectedAssistantTurns === benchmark.expectedRuns * BENCHMARK_THRESHOLDS.assistantTurnsPerCompletedRun,
+      "benchmark run and assistant-turn counts must agree with its scenario/repetition contract",
+      "INVALID_RESULT",
+    );
+    assert(
+      JSON.stringify(benchmark.execution?.variantOrderWithinScenario) === JSON.stringify(["kyw", "upstream"]),
+      "benchmark execution must include kyw and upstream in runner order",
+      "INVALID_RESULT",
+    );
+  }
   assert(comparison.schemaVersion === 1, "comparison.schemaVersion must be 1", "INVALID_RESULT");
   assert(Array.isArray(comparison.summaries), "comparison.summaries must be an array", "INVALID_RESULT");
 
@@ -1743,6 +1786,7 @@ export function writeBenchmarkReport(
       codexVersion: result.codex.version,
       model: result.codex.model,
       reasoningEffort: result.codex.config.reasoningEffort,
+      ...(isV4 ? { configurationProvenance: result.configurationProvenance } : {}),
       codexConfig: result.codex.config,
       authMode: result.isolation.authMode,
       skillInstallScope: result.isolation.skillInstallScope ?? null,
@@ -1760,8 +1804,15 @@ export function writeBenchmarkReport(
   );
   const conditionChecks = {
     exactCodexVersion: runs.every((run) => run.codexVersion === benchmark.codexVersion),
-    exactModel: runs.every((run) => run.model === benchmark.model),
-    exactReasoningEffort: runs.every((run) => run.reasoningEffort === benchmark.reasoningEffort),
+    ...(isV4
+      ? {
+        requestedModelMatches: runs.every((run) => run.configurationProvenance.requested.model === benchmark.model),
+        requestedReasoningEffortMatches: runs.every((run) => run.configurationProvenance.requested.reasoningEffort === benchmark.reasoningEffort),
+      }
+      : {
+        exactModel: runs.every((run) => run.model === benchmark.model),
+        exactReasoningEffort: runs.every((run) => run.reasoningEffort === benchmark.reasoningEffort),
+      }),
     exactScenarioRevision: runs.every((run) => run.scenarioSha256 === expectedScenarioHashes[run.scenario]),
     resultSchemaVersion: runs.every(
       (run) => run.resultSchemaVersion === benchmark.resultSchemaVersion,
@@ -1848,7 +1899,7 @@ export function writeBenchmarkReport(
     ),
   };
   const report = {
-    schemaVersion: 1,
+    schemaVersion: isV4 ? 2 : 1,
     comparisonId: comparison.comparisonId,
     benchmarkConfigSha256: sha256File(benchmarkPath),
     comparisonJsonSha256: sha256File(comparisonPath),
@@ -1864,6 +1915,7 @@ export function writeBenchmarkReport(
       rubricId: benchmark.rubric.id,
       repetitionsPerVariantScenario: benchmark.repetitionsPerVariantScenario,
       primaryTokenMetric: benchmark.primaryTokenMetric,
+      ...(isV4 ? { source: "benchmark" } : {}),
     },
     thresholds: BENCHMARK_THRESHOLDS,
     conditionChecks,

@@ -21,7 +21,7 @@ export const SKILL_NAMES = [
 
 export const RELEASE_METADATA = Object.freeze({
   name: "kyw-dev",
-  version: "0.2.3",
+  version: "0.2.4",
   authorName: "Kim Yeongwoo",
   homepage: "https://github.com/kimyeongwoo/kyw-dev#readme",
   repositoryWebUrl: "https://github.com/kimyeongwoo/kyw-dev",
@@ -80,6 +80,7 @@ export const EXPECTED_TARBALL_FILES = [
   "skills/kyw-init/agents/openai.yaml",
   "skills/kyw-task/SKILL.md",
   "skills/kyw-task/agents/openai.yaml",
+  "skills/kyw-task/references/batch-authoring.md",
   "skills/kyw-task/scripts/task-artifacts.mjs",
   "src/cli/run.mjs",
   "src/core/ci-evidence.mjs",
@@ -96,6 +97,7 @@ export const EXPECTED_TARBALL_FILES = [
   "src/core/task-artifact-creation.mjs",
   "src/core/task-artifact-delivery.mjs",
   "src/core/task-artifact-hydration.mjs",
+  "src/core/workflow-inspection-view.mjs",
   "src/core/task-artifact-public-release.mjs",
   "src/core/task-artifact-queue.mjs",
   "src/core/task-artifact-shared.mjs",
@@ -220,7 +222,7 @@ export function validateFoundation(
 
   if (packageJson && pluginJson) {
     expect(packageJson.name === RELEASE_METADATA.name, "package name must be kyw-dev", errors);
-    expect(packageJson.version === RELEASE_METADATA.version, "package version must be 0.2.3", errors);
+    expect(packageJson.version === RELEASE_METADATA.version, "package version must be 0.2.4", errors);
     expect(packageJson.private === false, "release package must be publishable only through the explicit approval gate", errors);
     expect(sameJson(packageJson.keywords, releaseKeywords), "package release keywords changed", errors);
     expect(packageJson.homepage === RELEASE_METADATA.homepage, "package homepage must be the public repository README", errors);
